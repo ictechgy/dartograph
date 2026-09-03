@@ -1,0 +1,72 @@
+# dartograph 계획
+
+세 자매 중 가장 싸다. Phase 0 이 짧다.
+
+## Phase 0 — 원천 검증 (반 세션)
+
+원천이 정해져 있으므로(`package:analyzer`) 실험이 아니라 **확인**이다.
+
+### 0.1 도그푸딩 대상 확보
+
+바탕화면에 Flutter 프로젝트가 **없다** (2026-09-04 `pubspec.yaml` 스캔 결과 0). 공개 프로젝트를 클론한다.
+
+| 저장소 | 이유 |
+|---|---|
+| `flutter/samples` | 다양한 크기의 앱 여러 개. 존재 확실 |
+| `flutter/packages` 안의 `path_provider` 등 플러그인 | **MethodChannel 사용** — isthmus 의 첫 대상. 네이티브 iOS 쪽은 cartograph 로 분석 가능 |
+| 중형 오픈소스 앱 하나 (세션에서 고른다: 50k LoC 이상, json_serializable/freezed/go_router 사용) | DCM 무료 티어 밖 크기의 실전 |
+
+### 0.2 analyzer 스크립트
+
+- `AnalysisContextCollection` 으로 `flutter/samples` 의 앱 하나를 열고, 모든 파일의 resolved unit 을 순회하며 선언 수 · 참조 수 · 실행 시간을 출력하는 100 줄짜리 스크립트
+- 확인할 것: `Element` 의 안정 식별자(라이브러리 URI + 이름 경로)가 정점 ID 로 충분한가 · `part` 파일이 어느 라이브러리로 귀속되는가 · 생성 파일(`.g.dart`) 구분법 · 조건부 import 처리 · 실행 시간이 캐시 없이 견딜 만한가
+- `analyzer` 14.x 의 API 가 예제 코드와 얼마나 다른지 — "자주 바뀐다"는 주장의 실측
+
+### 0.3 결과
+
+`docs/DECISION-analyzer.md` — 정점 ID 규칙, 생성 코드 판별 규칙, 캐시 필요 여부(측정값), 고정할 `analyzer` 버전.
+
+## Phase 1 — 골격 (2 세션)
+
+- Dart 패키지 하나, `lib/src/` 아래 `core/`(모델 · 그래프 · 설정), `index/`(analyzer 어댑터 — **analyzer 를 import 하는 유일한 곳**), `analysis/`, `export/`, `cli/`. `AGENTS.md` 에 왜 이렇게 나눴는지
+- `CodeGraph` · `GraphNode` · `GraphEdge` · `EdgeKind.impliesUsage`. 도달성과 `query` 가 같은 술어를 쓰는 구조
+- 종료 코드 계약 + `tool/verify-cli-contract.sh` 첫 커밋
+- 커버리지 게이트(`package:coverage` + 스크립트, 라인 90%) CI 첫 주
+- `graph` 가 `flutter/samples` 앱에서 DOT 를 낸다 — Phase 1 끝
+
+## Phase 2 — 보존 규칙과 `dead` (2~3 세션)
+
+- **오탐 코퍼스 먼저.** `fixtures/false_positive_corpus/` 는 실제로 `dart analyze` 가 통과하는 Flutter 패키지. 케이스: 다중 `main`, `@visibleForTesting`, json_serializable/freezed 참조, `@pragma('vm:entry-point')`, 라우트 테이블, 플러그인 `pubspec` 참조, 확장 메서드, 믹스인, `part`
+- `ReachabilityAnalyzer` + `dead --explain`. 파일 레벨 미사용(어디서도 import/part 되지 않는 `lib/` 파일)도 여기서
+- 세 도그푸딩 대상에서 상위 10 건 손 검증. 새 오탐은 코퍼스에 먼저
+
+## Phase 3 — 도입 경로 (1~2 세션)
+
+- 베이스라인, `--since`(cartograph `ChangedFiles` 의 함정 목록 참고), 리포트 형식, `pub global activate` 배포 검증
+
+## Phase 4 — 에이전트 표면 + 브리지 (1~2 세션)
+
+- `query` — cartograph 스키마 그대로. `limitations` 의 Dart 고유 항목: 조건부 import 단일 구성, 라우트 테이블 없는 문자열 라우트 수, 생성 코드 미갱신(`build_runner` 산출물이 소스보다 오래됨)
+- `skill` — `../cartograph/Skills/cartograph/SKILL.md` 출발. Dart 고유 절: "`main` 이 여러 개일 수 있다 — `entry_points` 를 확인하라"
+- `bridges --format json` — MethodChannel/EventChannel/invokeMethod 사실. 형식은 `../isthmus/docs/GRAPH-EXCHANGE.md`. **isthmus Phase 1 이 이것을 기다린다**
+
+## Phase 5 — 순환 · 규칙 · 지표 · 릴리스
+
+- `cycles`, `rules`, `metrics`
+- 릴리스: 태그 → pub.dev 발행 + GitHub Release. 발행 전 `pub global activate` 로 설치한 바이너리로 CLI 계약 재검증
+- 0.1.0
+
+## 세션 운영
+
+`../kartograph/docs/PLAN.md` 의 같은 절과 동일. 한 세션 한 Phase 일부, PR 마다 GLM 리뷰, 오탐은 전부 코퍼스로.
+
+## 진행 표
+
+| Phase | 상태 | 비고 |
+|---|---|---|
+| 0 원천 검증 | 미착수 | |
+| 1 골격 | 미착수 | |
+| 2 보존 규칙 · dead | 미착수 | |
+| 3 도입 경로 | 미착수 | |
+| 4 에이전트 표면 · bridges | 미착수 | isthmus 가 기다림 |
+| 5 순환 · 규칙 · 지표 · 릴리스 | 미착수 | |

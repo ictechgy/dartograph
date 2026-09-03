@@ -1,0 +1,25 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+coverage/
+*.g.dart.bak
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# 로컬 상태
+.omc/
+.claude/settings.local.json
+
+# 비밀
+.env
+.env.*
+*.pem
+*-service-account*.json
