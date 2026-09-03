@@ -17,6 +17,10 @@ coverage/
 # 로컬 상태
 .omc/
 .claude/settings.local.json
+.serena/
+
+# 다른 세션의 SDK 설치 잔재. 커밋 대상이 아니다
+asdf-dart.*/
 
 # 비밀
 .env
