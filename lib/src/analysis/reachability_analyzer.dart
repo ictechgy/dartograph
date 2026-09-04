@@ -15,6 +15,8 @@ final class DeadFinding {
     required this.source,
     required this.reason,
     required this.retentionRootsChecked,
+    this.line,
+    this.column,
     this.limitations = const [],
   });
 
@@ -27,6 +29,12 @@ final class DeadFinding {
   /// 사용자가 확인할 프로젝트 상대 소스다.
   final String source;
 
+  /// 알 수 있을 때의 1부터 시작하는 줄이다.
+  final int? line;
+
+  /// 알 수 있을 때의 1부터 시작하는 열이다.
+  final int? column;
+
   /// 발견을 만든 관찰이며 삭제 권고가 아니다.
   final String reason;
 
@@ -38,10 +46,12 @@ final class DeadFinding {
 
   /// 키와 목록 순서가 안정적인 JSON 값이다.
   Map<String, Object> toJson() => {
+    'column': ?column,
     'evidence': {'retentionRootsChecked': retentionRootsChecked},
     'id': id,
     'kind': kind,
     'limitations': limitations,
+    'line': ?line,
     'reason': reason,
     'source': source,
   };
@@ -218,6 +228,8 @@ final class ReachabilityAnalyzer {
             id: node.id,
             kind: 'declaration',
             source: node.sourceUri ?? node.id.split('::').first,
+            line: node.line,
+            column: node.column,
             reason: 'unreachable from all retention roots',
             retentionRootsChecked: rootsChecked,
             limitations: limitations,

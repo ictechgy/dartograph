@@ -1,12 +1,21 @@
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:path/path.dart' as p;
+
+import '../analysis/baseline.dart';
 import '../analysis/reachability_analyzer.dart';
+import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../index/analyzer_graph_index.dart';
+import 'changed_files.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
+
+/// `--since`의 Git 접근을 대체할 수 있는 테스트 경계다.
+typedef ChangedFilesSince =
+    Future<Set<String>> Function(String reference, String rootPath);
 
 /// CI 호출자가 의존하는 안정적인 프로세스 결과다.
 enum ExitStatus {
@@ -34,6 +43,7 @@ Future<int> runDartograph(
   StringSink? output,
   StringSink? error,
   IndexPackage? indexPackage,
+  ChangedFilesSince? changedFilesSince,
 }) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
@@ -54,12 +64,20 @@ Future<int> runDartograph(
         stderrSink,
         indexPackage ?? AnalyzerGraphIndex().index,
       );
+    case 'baseline':
+      return await _runBaseline(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
     case 'dead':
       return await _runDead(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
         indexPackage ?? AnalyzerGraphIndex().index,
+        changedFilesSince ?? ChangedFiles.since,
       );
     default:
       stderrSink.write(_help);
@@ -72,20 +90,54 @@ Future<int> _runDead(
   StringSink output,
   StringSink error,
   IndexPackage indexPackage,
+  ChangedFilesSince changedFilesSince,
 ) async {
   String? explainId;
-  late String rootPath;
-  if (arguments.length == 3 &&
-      arguments[0] == '--format' &&
-      arguments[1] == 'json') {
-    rootPath = arguments[2];
-  } else if (arguments.length == 5 &&
-      arguments[0] == '--explain' &&
-      arguments[2] == '--format' &&
-      arguments[3] == 'json') {
-    explainId = arguments[1];
-    rootPath = arguments[4];
-  } else {
+  String? baselinePath;
+  String? since;
+  ReportFormat? reportFormat;
+  String? rootPath;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (const {
+      '--explain',
+      '--format',
+      '--baseline',
+      '--since',
+    }.contains(argument)) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      switch (argument) {
+        case '--explain':
+          explainId = value;
+        case '--format':
+          reportFormat = value == 'github-actions'
+              ? ReportFormat.githubActions
+              : ReportFormat.values
+                    .where((item) => item.name == value)
+                    .firstOrNull;
+          if (reportFormat == null) {
+            error.writeln('Unknown report format: $value');
+            return ExitStatus.usage.code;
+          }
+        case '--baseline':
+          baselinePath = value;
+        case '--since':
+          since = value;
+      }
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (rootPath == null ||
+      reportFormat == null ||
+      (explainId != null && reportFormat != ReportFormat.json)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -105,16 +157,36 @@ Future<int> _runDead(
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }
-    final findings = [...result.deadDeclarations, ...result.deadFiles]
+    var findings = [...result.deadDeclarations, ...result.deadFiles]
       ..sort((a, b) {
         final kindOrder = a.kind.compareTo(b.kind);
         return kindOrder != 0 ? kindOrder : a.id.compareTo(b.id);
       });
-    output.writeln(
-      jsonEncode({
-        'findings': findings.map((finding) => finding.toJson()).toList(),
-        'limitations': limitations,
-      }),
+    if (since != null) {
+      final changed = await changedFilesSince(since, rootPath);
+      final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+      final scoped = <DeadFinding>[];
+      for (final finding in findings) {
+        final source = await _canonicalSource(canonicalRoot, finding.source);
+        if (source == null || changed.contains(source)) scoped.add(finding);
+      }
+      findings = scoped;
+    }
+    var suppressedCount = 0;
+    if (baselinePath != null) {
+      final filtered = (await BaselineStore.read(
+        File(baselinePath),
+      )).filter(findings);
+      findings = filtered.findings;
+      suppressedCount = filtered.suppressedCount;
+    }
+    output.write(
+      DeadReporter.render(
+        reportFormat,
+        findings,
+        limitations: limitations,
+        suppressedCount: suppressedCount,
+      ),
     );
     return findings.isEmpty
         ? ExitStatus.success.code
@@ -127,6 +199,47 @@ Future<int> _runDead(
     return _reportAnalysisFailure(error);
   } on Exception {
     return _reportAnalysisFailure(error);
+  }
+}
+
+Future<int> _runBaseline(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  if (arguments.length != 3 || arguments[0] != '--write') {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(arguments[2]);
+    final limitations = indexed.limitations.map(_describeLimitation).toList()
+      ..sort();
+    final result = ReachabilityAnalyzer().analyze(
+      indexed.graph.snapshot(),
+      roots: indexed.retentionRoots,
+      limitations: limitations,
+    );
+    final findings = [...result.deadDeclarations, ...result.deadFiles];
+    await BaselineStore.write(Baseline.capture(findings), File(arguments[1]));
+    output.writeln('Baseline wrote ${findings.length} finding(s).');
+    return ExitStatus.success.code;
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+Future<String?> _canonicalSource(String rootPath, String source) async {
+  if (!source.startsWith('project:')) return null;
+  final relative = source.substring('project:'.length);
+  final absolute = p.normalize(p.absolute(rootPath, relative));
+  try {
+    return await File(absolute).resolveSymbolicLinks();
+  } on FileSystemException {
+    return null;
   }
 }
 
@@ -191,7 +304,8 @@ dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid> <package-root>
-       dartograph dead [--explain <symbol-id>] --format json <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
+       dartograph baseline --write <file> <package-root>
 
 Exit codes:
   0   success

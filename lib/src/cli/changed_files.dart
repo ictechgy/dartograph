@@ -1,0 +1,88 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+/// Git 기준점과 현재 작업 상태 사이에서 바뀐 파일을 완전하게 모은다.
+abstract final class ChangedFiles {
+  /// merge-base 이후 커밋, HEAD 대비 작업 트리, untracked 파일을 합친다.
+  static Future<Set<String>> since(
+    String reference,
+    String workingDirectory,
+  ) async {
+    final resolvedReference = await _run(
+      ['rev-parse', '--verify', '--end-of-options', '$reference^{commit}'],
+      workingDirectory,
+      reference,
+      nulSeparated: false,
+    );
+    if (resolvedReference.length != 1) {
+      throw StateError('Git did not resolve exactly one reference.');
+    }
+    final baseCommit = resolvedReference.single;
+    final rootValues = await _run(
+      const ['rev-parse', '--show-toplevel'],
+      workingDirectory,
+      reference,
+      nulSeparated: false,
+    );
+    if (rootValues.isEmpty) {
+      throw StateError('Git did not report a repository root.');
+    }
+    final root = rootValues.single;
+    final groups = await Future.wait([
+      _run(
+        ['diff', '--name-only', '--diff-filter=d', '-z', '$baseCommit...HEAD'],
+        workingDirectory,
+        reference,
+      ),
+      _run(
+        const ['diff', '--name-only', '--diff-filter=d', '-z', 'HEAD'],
+        workingDirectory,
+        reference,
+      ),
+      _run(
+        const [
+          'ls-files',
+          '--others',
+          '--exclude-standard',
+          '--full-name',
+          '-z',
+        ],
+        workingDirectory,
+        reference,
+      ),
+    ]);
+    return {
+      for (final relative in groups.expand((paths) => paths))
+        p.normalize(p.join(root, relative)),
+    };
+  }
+
+  static Future<List<String>> _run(
+    List<String> arguments,
+    String workingDirectory,
+    String reference, {
+    bool nulSeparated = true,
+  }) async {
+    final process = await Process.run(
+      'git',
+      ['-C', workingDirectory, ...arguments],
+      stdoutEncoding: null,
+      stderrEncoding: utf8,
+    );
+    if (process.exitCode != 0) {
+      final detail = (process.stderr as String).trim();
+      throw StateError(
+        'Could not list files changed since "$reference": '
+        '${detail.isEmpty ? 'git exited ${process.exitCode}' : detail}. '
+        'In CI, fetch full history.',
+      );
+    }
+    final decoded = utf8.decode(process.stdout as List<int>);
+    return decoded
+        .split(nulSeparated ? '\u0000' : '\n')
+        .where((value) => value.isNotEmpty)
+        .toList();
+  }
+}

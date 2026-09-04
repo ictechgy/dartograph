@@ -67,6 +67,6 @@
 | 0 원천 검증 | 완료 | [`DECISION-analyzer.md`](DECISION-analyzer.md) |
 | 1 골격 | 완료 | 실제 Flutter 샘플에서 결정적 graph 출력 |
 | 2 보존 규칙 · dead | 완료 | 실제 meta·pragma·plugin 반례 코퍼스 |
-| 3 도입 경로 | 다음 | baseline, `--since`, 리포터 |
-| 4 에이전트 표면 · bridges | 미착수 | isthmus 가 기다림 |
+| 3 도입 경로 | 완료 | 결정적 baseline, NUL 안전 `--since`, 4종 리포터, 격리 설치 검증 |
+| 4 에이전트 표면 · bridges | 다음 | isthmus 가 기다림 |
 | 5 순환 · 규칙 · 지표 · 릴리스 | 미착수 | |

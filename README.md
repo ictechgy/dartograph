@@ -22,8 +22,21 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**Phase 2 완료.** analyzer 그래프 위에서 보존 근거를 추적하고 `dead --explain`으로
-도달 경로 또는 미도달 근거를 출력한다. 다음은 기존 코드베이스 도입 경로다.
+**Phase 3 완료.** analyzer 그래프 위에서 보존 근거를 추적하고, 기존 코드베이스에
+baseline과 변경 범위 필터를 적용하며 CI용 리포트를 출력할 수 있다. 다음은 에이전트용
+`query`·`skill`과 Flutter 플랫폼 채널 `bridges`다.
+
+```bash
+dart run dartograph graph --format dot .
+dart run dartograph dead --format text .
+dart run dartograph baseline --write .dartograph-baseline.json .
+dart run dartograph dead --format github-actions \
+  --baseline .dartograph-baseline.json --since origin/main .
+```
+
+`--since`는 전체 프로젝트 그래프를 만든 뒤 보고 위치만 좁힌다. 기준 ref 이후 커밋,
+staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전체 Git 이력을 받아야
+한다. 리포트 형식은 `text`, `json`, `github-actions`, `sarif`를 지원한다.
 
 | 문서 | 내용 |
 |---|---|
