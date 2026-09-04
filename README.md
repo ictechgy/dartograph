@@ -22,8 +22,8 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**Phase 0 완료.** 제품 코드는 아직 없고 analyzer 원천 검증 실험만 있다.
-다음 작업은 [`docs/PLAN.md`](docs/PLAN.md)의 Phase 1 골격이다.
+**Phase 0 완료, Phase 1 진행 중.** analyzer 원천 검증을 마치고 제품 골격을 만드는 중이다.
+진행 순서는 [`docs/PLAN.md`](docs/PLAN.md)를 따른다.
 
 | 문서 | 내용 |
 |---|---|
