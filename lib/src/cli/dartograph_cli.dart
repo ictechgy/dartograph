@@ -373,14 +373,17 @@ Future<int> _runBridges(
   StringSink error,
   DateTime Function() now,
 ) async {
-  if (arguments.length != 3 ||
+  final rootIndex = arguments.length == 4 && arguments[2] == '--' ? 3 : 2;
+  if (arguments.length != rootIndex + 1 ||
       arguments[0] != '--format' ||
       arguments[1] != 'json') {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final root = Directory(arguments[2]).absolute.resolveSymbolicLinksSync();
+    final root = Directory(
+      arguments[rootIndex],
+    ).absolute.resolveSymbolicLinksSync();
     final indexed = indexBridges(root);
     output.write(
       exportBridgeFacts(
@@ -479,7 +482,9 @@ Future<int> _runDead(
     if (explainId != null) {
       final explanation = result.explain(explainId);
       output.writeln(jsonEncode(explanation.toJson()));
-      return explanation.reachable
+      return !explanation.known
+          ? ExitStatus.usage.code
+          : explanation.reachable
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }

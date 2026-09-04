@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
@@ -147,6 +148,59 @@ void main() {
       ExitStatus.findings.code,
     );
     expect(output.toString(), contains('package:app/unknown.dart::dead'));
+  });
+
+  test('dead explain returns usage for an unknown graph id', () async {
+    final output = StringBuffer();
+
+    expect(
+      await runDartograph(
+        [
+          'dead',
+          '--explain',
+          'package:app/missing.dart::missing',
+          '--format',
+          'json',
+          directory.path,
+        ],
+        output: output,
+        indexPackage: (_) async => indexed,
+      ),
+      ExitStatus.usage.code,
+    );
+    expect(jsonDecode(output.toString()), {
+      'id': 'package:app/missing.dart::missing',
+      'known': false,
+      'limitations': [
+        'conditional imports and exports use one analyzer configuration',
+      ],
+      'reachable': false,
+      'reason': 'not found in graph',
+    });
+  });
+
+  test('dead explain reports a reachable library witness', () async {
+    final output = StringBuffer();
+
+    expect(
+      await runDartograph(
+        [
+          'dead',
+          '--explain',
+          'package:app/main.dart',
+          '--format',
+          'json',
+          directory.path,
+        ],
+        output: output,
+        indexPackage: (_) async => indexed,
+      ),
+      ExitStatus.success.code,
+    );
+    expect(
+      jsonDecode(output.toString()),
+      containsPair('witness', 'package:app/main.dart::main'),
+    );
   });
 
   test('since failures use the documented analysis-failure exit', () async {

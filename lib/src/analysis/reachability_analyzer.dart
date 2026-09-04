@@ -66,6 +66,7 @@ final class ReachabilityExplanation {
   /// 설명에 필요한 모든 근거를 보존한다.
   const ReachabilityExplanation({
     required this.id,
+    this.known = true,
     required this.reachable,
     required this.reason,
     required this.rootsChecked,
@@ -73,10 +74,14 @@ final class ReachabilityExplanation {
     required this.evidence,
     required this.retentionReason,
     required this.limitations,
+    this.witness,
   });
 
   /// 설명 대상 ID다.
   final String id;
+
+  /// 대상 ID가 분석 그래프에 실제로 존재하는지 나타낸다.
+  final bool known;
 
   /// 보존 루트에서 도달했는지 나타낸다.
   final bool reachable;
@@ -96,11 +101,22 @@ final class ReachabilityExplanation {
   /// 경로 시작점의 보존 이유다.
   final RetentionReason? retentionReason;
 
+  /// 파일 도달성을 시작하게 한 선언 ID다.
+  final String? witness;
+
   /// 설명에 적용되는 분석 한계다.
   final List<String> limitations;
 
   /// 소비자가 분기하기 쉬운 결정적 JSON 값이다.
-  Map<String, Object?> toJson() => reachable
+  Map<String, Object?> toJson() => !known
+      ? {
+          'id': id,
+          'known': false,
+          'limitations': limitations,
+          'reachable': false,
+          'reason': reason,
+        }
+      : reachable
       ? {
           'evidence': evidence
               .map(
@@ -115,7 +131,9 @@ final class ReachabilityExplanation {
           'limitations': limitations,
           'path': path,
           'reachable': true,
-          'retentionReason': retentionReason!.name,
+          'reason': ?reason,
+          'retentionReason': ?retentionReason?.name,
+          'witness': ?witness,
         }
       : {
           'evidence': _retentionEvidence(rootsChecked),
@@ -133,9 +151,15 @@ final class ReachabilityResult {
     required this.deadDeclarations,
     required this.deadFiles,
     required Map<String, _PathStep> paths,
+    required Map<String, _PathStep> libraryPaths,
+    required Map<String, String> libraryWitnesses,
+    required Set<String> nodeIds,
     required Map<String, RetentionReason> roots,
     required this.limitations,
   }) : _paths = paths,
+       _libraryPaths = libraryPaths,
+       _libraryWitnesses = libraryWitnesses,
+       _nodeIds = nodeIds,
        _roots = roots;
 
   /// 정렬된 도달 선언 ID다.
@@ -148,6 +172,9 @@ final class ReachabilityResult {
   final List<DeadFinding> deadFiles;
 
   final Map<String, _PathStep> _paths;
+  final Map<String, _PathStep> _libraryPaths;
+  final Map<String, String> _libraryWitnesses;
+  final Set<String> _nodeIds;
   final Map<String, RetentionReason> _roots;
 
   /// 전체 결과에 적용되는 분석 한계다.
@@ -155,6 +182,47 @@ final class ReachabilityResult {
 
   /// [id]의 보존 경로 또는 모든 루트에서 미도달한 근거를 돌려준다.
   ReachabilityExplanation explain(String id) {
+    if (!_nodeIds.contains(id)) {
+      return ReachabilityExplanation(
+        id: id,
+        known: false,
+        reachable: false,
+        reason: 'not found in graph',
+        rootsChecked: const [],
+        path: const [],
+        evidence: const [],
+        retentionReason: null,
+        limitations: limitations,
+      );
+    }
+    if (!id.contains('::') && _libraryPaths.containsKey(id)) {
+      final ids = <String>[];
+      final edges = <GraphEdge>[];
+      String? current = id;
+      while (current != null) {
+        ids.add(current);
+        final step = _libraryPaths[current]!;
+        if (step.edge != null) edges.add(step.edge!);
+        current = step.previous;
+      }
+      final path = ids.reversed.toList();
+      final directRetention = _roots[id];
+      return ReachabilityExplanation(
+        id: id,
+        reachable: true,
+        reason: directRetention != null
+            ? 'retained as a root'
+            : path.length == 1
+            ? 'contains a reachable declaration'
+            : 'reachable from a library containing a reachable declaration',
+        rootsChecked: const [],
+        path: path,
+        evidence: edges.reversed.toList(),
+        retentionReason: directRetention,
+        limitations: limitations,
+        witness: _libraryWitnesses[id],
+      );
+    }
     if (!_paths.containsKey(id)) {
       return ReachabilityExplanation(
         id: id,
@@ -218,15 +286,22 @@ final class ReachabilityAnalyzer {
       }
     }
 
-    final rootsChecked = sortedRoots.keys.toList();
+    final rootsChecked = sortedRoots.keys.where(nodeIds.contains).toList();
+    final reachableContainers = <String>{};
+    for (final id in paths.keys) {
+      final symbolSeparator = id.indexOf('::');
+      if (symbolSeparator < 0) continue;
+      var memberSeparator = id.lastIndexOf('.');
+      while (memberSeparator > symbolSeparator + 1) {
+        final candidate = id.substring(0, memberSeparator);
+        if (nodeIds.contains(candidate)) reachableContainers.add(candidate);
+        memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
+      }
+    }
     final declarations = graph.nodes
         .where((node) => node.id.contains('::'))
         .where((node) => !paths.containsKey(node.id))
-        .where(
-          (node) => !paths.keys.any(
-            (reachable) => reachable.startsWith('${node.id}.'),
-          ),
-        )
+        .where((node) => !reachableContainers.contains(node.id))
         .map(
           (node) => DeadFinding(
             id: node.id,
@@ -241,15 +316,35 @@ final class ReachabilityAnalyzer {
         )
         .toList();
 
-    final reachableLibraries = <String>{
-      for (final id in paths.keys) id.split('::').first,
-    };
-    final libraryQueue = Queue<String>.from(reachableLibraries);
+    final libraryPaths = <String, _PathStep>{};
+    final libraryWitnesses = <String, String>{};
+    final reachableIds = paths.keys.toList()..sort();
+    for (final id in reachableIds.where(
+      (id) =>
+          !id.contains('::') &&
+          (id.startsWith('package:') || id.startsWith('project:')),
+    )) {
+      if (nodeIds.contains(id)) {
+        libraryPaths[id] = const _PathStep(null, null);
+      }
+    }
+    for (final id in reachableIds.where((id) => id.contains('::'))) {
+      final library = id.split('::').first;
+      if (!nodeIds.contains(library) || libraryPaths.containsKey(library)) {
+        continue;
+      }
+      libraryPaths[library] = const _PathStep(null, null);
+      libraryWitnesses[library] = id;
+    }
+    final libraryQueue = Queue<String>.from(libraryPaths.keys);
     while (libraryQueue.isNotEmpty) {
       final library = libraryQueue.removeFirst();
       for (final edge in outgoing[library] ?? const []) {
         if (!edge.targetId.contains('::') &&
-            reachableLibraries.add(edge.targetId)) {
+            !libraryPaths.containsKey(edge.targetId)) {
+          libraryPaths[edge.targetId] = _PathStep(library, edge);
+          final witness = libraryWitnesses[library];
+          if (witness != null) libraryWitnesses[edge.targetId] = witness;
           libraryQueue.add(edge.targetId);
         }
       }
@@ -257,7 +352,7 @@ final class ReachabilityAnalyzer {
     final files = graph.nodes
         .where((node) => !node.id.contains('::'))
         .where((node) => node.id.startsWith('package:'))
-        .where((node) => !reachableLibraries.contains(node.id))
+        .where((node) => !libraryPaths.containsKey(node.id))
         .map(
           (node) => DeadFinding(
             id: node.id,
@@ -274,6 +369,9 @@ final class ReachabilityAnalyzer {
       deadDeclarations: declarations,
       deadFiles: files,
       paths: paths,
+      libraryPaths: libraryPaths,
+      libraryWitnesses: libraryWitnesses,
+      nodeIds: nodeIds,
       roots: sortedRoots,
       limitations: List.unmodifiable(limitations),
     );

@@ -83,6 +83,87 @@ void main() {
     );
   });
 
+  test('explanations distinguish an unknown id from dead code', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::root'))
+      ..addNode(GraphNode(id: 'app::dead'));
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {'app::root': RetentionReason.mainEntryPoint},
+    );
+
+    expect(result.explain('app::missing').toJson(), {
+      'id': 'app::missing',
+      'known': false,
+      'limitations': const <String>[],
+      'reachable': false,
+      'reason': 'not found in graph',
+    });
+  });
+
+  test('file explanations follow imports from a reachable library', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'package:app/main.dart'))
+      ..addNode(GraphNode(id: 'package:app/live.dart'))
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/main.dart',
+          targetId: 'package:app/live.dart',
+          kind: EdgeKind.import,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+    );
+
+    expect(result.explain('package:app/live.dart').toJson(), {
+      'evidence': [
+        {
+          'from': 'package:app/main.dart',
+          'kind': 'import',
+          'to': 'package:app/live.dart',
+        },
+      ],
+      'id': 'package:app/live.dart',
+      'limitations': const <String>[],
+      'path': ['package:app/main.dart', 'package:app/live.dart'],
+      'reachable': true,
+      'reason': 'reachable from a library containing a reachable declaration',
+      'witness': 'package:app/main.dart::main',
+    });
+  });
+
+  test('a library retention root is not also reported as dead', () {
+    final graph = CodeGraph()..addNode(GraphNode(id: 'package:app/entry.dart'));
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {'package:app/entry.dart': RetentionReason.generatedCode},
+    );
+
+    expect(result.deadFiles, isEmpty);
+    expect(result.explain('package:app/entry.dart').toJson(), {
+      'evidence': const <Object>[],
+      'id': 'package:app/entry.dart',
+      'limitations': const <String>[],
+      'path': ['package:app/entry.dart'],
+      'reachable': true,
+      'reason': 'retained as a root',
+      'retentionReason': 'generatedCode',
+    });
+  });
+
   test('dead declarations and files carry evidence without deletion advice', () {
     final graph = CodeGraph()
       ..addNode(
