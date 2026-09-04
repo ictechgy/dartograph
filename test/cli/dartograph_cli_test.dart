@@ -34,7 +34,7 @@ void main() {
     final status = await runDartograph(const ['--version'], output: output);
 
     expect(status, ExitStatus.success.code);
-    expect(output.toString(), 'dartograph 0.1.0\n');
+    expect(output.toString(), 'dartograph 0.1.1\n');
   });
 
   test(
@@ -81,6 +81,17 @@ void main() {
       Directory.current = previous;
       await temporary.delete(recursive: true);
     }
+  });
+
+  test('skill describes the implemented multiple-main policy', () async {
+    final output = StringBuffer();
+
+    expect(
+      await runDartograph(const ['skill'], output: output),
+      ExitStatus.success.code,
+    );
+    expect(output.toString(), contains('Confirm the actual build target'));
+    expect(output.toString(), isNot(contains('entry_points')));
   });
 
   test('graph emits the selected format for a package', () async {

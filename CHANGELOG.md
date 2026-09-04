@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+- isthmus GRAPH-EXCHANGE v1에 맞춘 UTC 밀리초 생성 시각과 UTF-8 byte 위치
+- Flutter services import provenance와 어휘 범위를 따르는 MethodChannel 추출
+- cascade와 invokeListMethod/invokeMapMethod, 동적·미귀속·잘못된 호출 limitation 보강
+- EventChannel·BasicMessageChannel, 조건부 import, re-export를 거짓 사실 대신 limitation으로 보고
+- explain의 미발견·파일 근거, analyzer 신원·생성 코드·중첩 의존 캐시 판정 보강
+- 잘못된 CLI 호출과 Git 실패를 구분하고 옵션 모양의 skill 경로를 거부
+
 ## 0.1.0
 
 - Dart analyzer 14.3.0 기반의 결정적 심볼·파일 의존성 그래프

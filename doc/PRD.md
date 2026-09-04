@@ -35,18 +35,22 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 - 파일 그래프: 라이브러리(import/export/part) 단위. **미사용 파일** 은 Dart 에서 특히 흔하다(옮겨 놓고 잊은 위젯)
 - `dead` — 보존 루트에서 도달 불가한 선언과 파일, `--explain`
 - `cycles` — Tarjan SCC + 끊을 후보. Dart 의 순환 import 는 합법이라 더 흔하다
+- `rules` — 레이어 YAML의 allow/deny 위반과 직접 근거
+- `metrics` — 라이브러리별 Ca · Ce · 불안정도 · 추상도 · 주계열 거리
 - `graph` — DOT · Mermaid · JSON
 - `query <symbol>` — cartograph 의 `SymbolQueryDocument` 와 **같은 스키마**
 - 보존 규칙 (아래)
 - 베이스라인, `--since`, 종료 코드 계약, 리포트 형식 `json` · `github-actions` · `sarif` · IDE 클릭용 텍스트
 - `skill` — 에이전트용 스킬 설치
+- `bridges` — Flutter MethodChannel 생성·호출 사실을 GRAPH-EXCHANGE v1로 출력
 - 오탐 코퍼스 + 양방향 검증 스크립트
 - 내용 해시와 분석기 신원을 키로 쓰는 해석 결과 캐시
 
 ### 나중에 (v0.2+)
 
-- `rules`(레이어 YAML — Flutter 의 `presentation/domain/data` 관례가 명확해 수요가 있다), `metrics`
 - 멀티 패키지(melos 워크스페이스) 지원
+- 실제 build target으로 루트를 좁히는 `entry_points` 설정
+- Pigeon 생성 API 형태를 검증한 뒤 추가하는 정적 브리지 추출
 
 ### 하지 않는 것
 
@@ -66,7 +70,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 
 Dart 는 리플렉션이 없어 목록이 짧다. 그래서 더 정확할 수 있다.
 
-- `main()` — **여러 개일 수 있다.** `flutter run -t lib/main_dev.dart`. `lib/` 아래 모든 `main` 을 루트로 본다. 사용자가 `entry_points` 로 좁힐 수 있다
+- `main()` — **여러 개일 수 있다.** `flutter run -t lib/main_dev.dart`. v0.1은 `lib/`, `bin/`, `example/` 아래 모든 `main`을 보수적 루트로 본다
 - `runApp` 에 넘겨진 위젯 트리 — 도달성으로 자연히 따라온다
 - 테스트(`test/`, `integration_test/`), `@visibleForTesting`
 - 생성 코드가 참조하는 사용자 선언: `json_serializable` 의 `fromJson`/`toJson`, `freezed`, `build_runner` 산출물이 참조하는 것. 생성 코드는 `synthesized` 로 표시하되 그 참조는 유효한 간선이다
@@ -81,11 +85,13 @@ Dart 는 리플렉션이 없어 목록이 짧다. 그래서 더 정확할 수 �
 
 `dartograph bridges --format json` 이 다음을 낸다. 형식은 `../isthmus/docs/GRAPH-EXCHANGE.md`.
 
-- `MethodChannel`/`EventChannel`/`BasicMessageChannel` 생성 지점: 채널 이름 리터럴 · 파일 · 줄
+- `MethodChannel` 생성 지점: 채널 이름 리터럴 · 파일 · 줄
 - `invokeMethod('name')` 호출 지점: 채널 · 메서드 이름 · 파일 · 줄
-- `Pigeon` 생성 코드가 있으면 그 사실(문자열이 아니라 정적 참조로 이미 해결됨)
+- EventChannel·BasicMessageChannel은 v0.1 조인 범위 밖임을 limitation으로 센다
+- Pigeon 생성 API의 형태는 아직 검증하지 않았으며 v0.1에서는 별도 의미로 해석하지 않는다
 
-이것은 v0.1 범위다. isthmus 가 첫 번째로 붙일 대상이 Flutter ↔ Swift 이기 때문이다.
+MethodChannel 생성·호출 사실 교환은 v0.1 범위다. isthmus가 첫 번째로 붙일 대상이
+Flutter ↔ Swift이기 때문이다.
 
 ## 성공 기준
 

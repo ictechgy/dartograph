@@ -202,7 +202,8 @@ void main() {
       ExitStatus.success.code,
     );
     expect(output.toString(), contains('main functions may be multiple'));
-    expect(output.toString(), contains('entry_points'));
+    expect(output.toString(), contains('Confirm the actual build target'));
+    expect(output.toString(), isNot(contains('entry_points')));
     expect(output.toString(), contains('state is not a deletion verdict'));
     expect(output.toString(), contains('limitations'));
     expect(output.toString(), contains('overrideContract'));
@@ -225,7 +226,10 @@ void main() {
       ExitStatus.success.code,
     );
     final installed = File('${directory.path}/dartograph/SKILL.md');
-    expect(await installed.readAsString(), contains('entry_points'));
+    expect(
+      await installed.readAsString(),
+      contains('Confirm the actual build target'),
+    );
 
     await installed.writeAsString('customized');
     final errors = StringBuffer();
@@ -249,7 +253,10 @@ void main() {
       ], output: StringBuffer()),
       ExitStatus.success.code,
     );
-    expect(await installed.readAsString(), contains('entry_points'));
+    expect(
+      await installed.readAsString(),
+      contains('Confirm the actual build target'),
+    );
   });
 
   test(

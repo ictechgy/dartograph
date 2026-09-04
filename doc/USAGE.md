@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.1.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.1.1은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -15,7 +15,8 @@ dartograph --version
 
 ```text
 dartograph graph --format <dot|json|mermaid> <package-root>
-dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
+dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
+dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph baseline --write <file> <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
@@ -28,6 +29,8 @@ dartograph metrics [--strict] <package-root>
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
+`--explain`은 단일 대상의 전체 근거를 묻는 명령이라 `--baseline`·`--since`와 함께 쓰지 않는다.
+그래프에 없는 ID는 `known: false`와 종료 코드 64로 구분한다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
@@ -45,7 +48,7 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 | 0 | 명령 성공. 일반 보고 모드는 finding이 있어도 성공할 수 있음 |
 | 1 | `dead` finding, 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함 |
-| 64 | 잘못된 명령 또는 인자 |
+| 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain` 대상이 그래프에 없음 |
 
 ## CI 예제
 
@@ -53,11 +56,11 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph
+- run: dart pub global activate dartograph 0.1.1
 - run: dartograph dead --format github-actions --since origin/main .
 ```
 
-현재 0.1.0의 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
+`dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
 `cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다.
 
 ## 분석 한계
@@ -65,7 +68,7 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 - 조건부 import/export는 공개 analyzer가 고른 단일 구성만 분석한다.
 - 동적 디스패치, 문자열 route, 네이티브 진입점은 정적 그래프가 완전히 증명하지 못한다.
 - 생성 파일은 보수적으로 보존하며 오래된 산출물을 한계로 보고한다.
-- `main` 진입점은 여러 개일 수 있다. 분석 전에 실제 빌드의 target을 확인한다.
+- `main` 진입점은 여러 개일 수 있다. v0.1은 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 
 분석 캐시는 대상 저장소 밖의 OS 사용자 캐시 아래 `dartograph/<project-root-hash>`에

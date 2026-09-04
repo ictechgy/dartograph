@@ -3,13 +3,14 @@
 이 저장소에서 작업하는 코딩 에이전트를 위한 안내입니다. 작업 규칙의 **정본**입니다.
 Claude Code 전용 사항은 [CLAUDE.md](CLAUDE.md), 진행 상태와 다음 할 일은 [HANDOFF.md](HANDOFF.md)에 있습니다.
 
-> 이 저장소는 [cartograph](../cartograph)(Swift)의 자매 프로젝트입니다. cartograph가 굳힌 작업 방식을
-> 상속합니다. 원문은 `../cartograph/AGENTS.md`입니다.
+> 이 저장소는 [cartograph](https://github.com/ictechgy/cartograph)(Swift)의 자매 프로젝트입니다.
+> cartograph가 굳힌 작업 방식을 상속합니다.
 
-폴더별 규칙은 코드가 생기면 그 폴더의 AGENTS.md로 나눕니다. 지금은 문서뿐이라 이 파일 하나입니다.
+공통 규칙은 이 파일에 두고 제품 코드와 테스트 규칙은 범위별 AGENTS.md로 나눕니다.
 - `doc/` — PRD · 계획 · 리서치 · 결정 기록
 - `experiments/` — Phase 0의 일회성 검증 스크립트. 제품 코드가 아닙니다. 결과는 `doc/DECISION-*.md`에
-- Phase 1에서 `lib/src/{core,index,analysis,export,cli}/`가 생기면 모듈 경계 문서를 `lib/AGENTS.md`로, 테스트 규칙을 `test/AGENTS.md`로 나눕니다
+- `lib/AGENTS.md` — 제품 모듈 경계
+- `test/AGENTS.md` — 행동 검증과 fixture 규칙
 
 ---
 
@@ -33,7 +34,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기(`package
 
 ## cartograph에서 그대로 가져오는 것
 
-`../kartograph/AGENTS.md`의 같은 절과 동일합니다. 요약:
+cartograph의 같은 절과 동일합니다. 요약:
 
 - 삭제 판정 없음 · 모든 판정에 근거 · 분석 한계를 응답에(`notFound` 포함) · 종료 코드 계약 `0/1/2/64` + 산출물 검증 스크립트 · 오탐 코퍼스 첫날부터(수정을 끄고 실패하는지 확인) · 베이스라인과 `--since` · `query`는 cartograph `SymbolQueryDocument`와 필드 이름까지 같게 · `skill`은 `../cartograph/Skills/cartograph/SKILL.md`를 출발점으로 · 커버리지 90% · JSON 키 정렬 · 가지치기 목록 한 벌
 
@@ -43,7 +44,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기(`package
 - **`analyzer`는 검증한 14.3.x 범위에 고정하고 어댑터 뒤에 가둡니다.** `analyzer`를 직접 import하는 코드는 `lib/src/index/` 한 곳에만 둡니다. cartograph가 `libIndexStore`를 `CartographIndexStore` 모듈 하나에 가둔 것과 같습니다. API가 자주 바뀐다는 주장은 Phase 0에서 실측합니다
 - **해석 결과 캐시는 v0.1 범위입니다.** 분석 대상 밖의 OS 사용자 캐시에 canonical root 해시 디렉터리를 만들고, 내용·mtime·의존 패키지·analyzer package config·Dart SDK·분석 revision을 키로 완성된 사실을 저장합니다. 캐시 읽기·쓰기·손상이 분석 정확성을 바꾸면 안 됩니다
 - **part 파일과 생성 코드를 구분합니다.** `.g.dart`, `.freezed.dart`, `.pb.dart`는 `synthesized`. 사용자 코드와 섞이면 "생성 코드가 미사용"이라는 쓸모없는 보고가 쏟아집니다
-- **`main`은 여러 개일 수 있습니다.** `flutter run -t lib/main_dev.dart`. `lib/` 아래 모든 `main`을 루트로 보고, `entry_points`로 좁힐 수 있게 합니다. 스킬에도 적습니다
+- **`main`은 여러 개일 수 있습니다.** `flutter run -t lib/main_dev.dart`. v0.1은 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적 루트로 보므로 실제 build target을 함께 확인합니다
 - **`dart analyze`의 `unused_element`를 다시 만들지 않습니다.** 그것은 라이브러리 안의 지역 판정이고 이 도구는 프로젝트 전역 도달성입니다. 차이를 README에 적습니다
 - **DCM의 기능 목록을 따라가지 않습니다.** cartograph의 기능 목록을 따라갑니다
 - **isthmus를 위한 `bridges` 명령은 v0.1 범위입니다.** `MethodChannel`/`invokeMethod` 리터럴을 `../isthmus/docs/GRAPH-EXCHANGE.md` 형식으로 냅니다. isthmus Phase 0이 이미 임시 추출기를 만들었습니다(`../isthmus/experiments/phase-0/dart/`) — 그것이 이 명령의 초안입니다

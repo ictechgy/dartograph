@@ -47,18 +47,19 @@
 ## Phase 4 — 에이전트 표면 + 브리지 (1~2 세션)
 
 - `query` — cartograph 스키마 그대로. `limitations` 의 Dart 고유 항목: 조건부 import 단일 구성, 라우트 테이블 없는 문자열 라우트 수, 생성 코드 미갱신(`build_runner` 산출물이 소스보다 오래됨)
-- `skill` — `../cartograph/Skills/cartograph/SKILL.md` 출발. Dart 고유 절: "`main` 이 여러 개일 수 있다 — `entry_points` 를 확인하라"
-- `bridges --format json` — MethodChannel/EventChannel/invokeMethod 사실. 형식은 `../isthmus/docs/GRAPH-EXCHANGE.md`. **isthmus Phase 1 이 이것을 기다린다**
+- `skill` — cartograph 스킬을 출발점으로 삼고, 여러 `main` 중 실제 build target을 확인하되 나머지도 보수적 루트임을 알린다
+- `bridges --format json` — MethodChannel 생성·호출 사실과 EventChannel·BasicMessageChannel 미해석 limitation. 형식은 `../isthmus/docs/GRAPH-EXCHANGE.md`
 
 ## Phase 5 — 순환 · 규칙 · 지표 · 릴리스
 
 - `cycles`, `rules`, `metrics`
 - 릴리스: 태그 → pub.dev 발행 + GitHub Release. 발행 전 `pub global activate` 로 설치한 바이너리로 CLI 계약 재검증
 - 0.1.0
+- 0.1.1 — isthmus bridge 생산 계약과 explain·캐시·CLI 경계를 보강한 patch release
 
 ## 세션 운영
 
-`../kartograph/docs/PLAN.md` 의 같은 절과 동일. 한 세션 한 Phase 일부, PR 마다 GLM 리뷰, 오탐은 전부 코퍼스로.
+cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM 리뷰, 오탐은 전부 코퍼스로.
 
 ## 진행 표
 
@@ -70,4 +71,5 @@
 | 3 도입 경로 | 완료 | 결정적 baseline, NUL 안전 `--since`, 4종 리포터, 격리 설치 검증 |
 | 4 에이전트 표면 · bridges | 완료 | query·skill과 isthmus GRAPH-EXCHANGE v1 조인 검증 |
 | 5 순환 · 규칙 · 지표 | 완료 | 반복형 Tarjan, YAML 규칙, 라이브러리별 Martin 지표 |
-| v0.1.0 릴리스 준비 | 완료 | 경고 0 dry-run, 격리 설치, 3개 Flutter 패키지, self findings 0 |
+| v0.1.0 릴리스 | 완료 | pub.dev·GitHub Release 공개, 격리 설치, 3개 Flutter 패키지, self findings 0 |
+| v0.1.1 bridge 계약 보강 | 완료 | provenance·scope·UTF-8·밀리초·미해석 limitation과 공개 plugin 왕복 |

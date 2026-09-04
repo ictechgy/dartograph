@@ -1,6 +1,6 @@
 # dartograph
 
-Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [cartograph](../cartograph)(Swift)의 자매 프로젝트다.
+Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [cartograph](https://github.com/ictechgy/cartograph)(Swift)의 자매 프로젝트다.
 
 **MIT 라이선스이며 상업적 사용을 포함해 영구 무료다.** 유료 티어 · 라이선스 키 ·
 좌석 수 · LoC 제한 · 텔레메트리 · 계정 로그인은 영원히 없다.
@@ -20,8 +20,11 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 세 자매 프로젝트 중 **가장 싸게 만들 수 있다.** 원천이 공식이고 안정적이며 활발하다(2026-09 기준 `analyzer` 14.3.0).
 
-**v0.1.0 릴리스 후보:** 전체 테스트·커버리지·패키지 dry-run과 실제 Flutter 패키지
-도그푸딩을 통과했다. 태그와 pub.dev 발행은 아직 수행하지 않았다.
+**릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와
+[GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다.** v0.1.1은
+isthmus GRAPH-EXCHANGE v1에 맞춰 MethodChannel provenance, 어휘 범위,
+UTF-8 위치, UTC 밀리초, 동적·미해석 한계를 보수적으로 생산한다. 전체 테스트·커버리지·
+패키지 dry-run과 실제 공개 Flutter 플러그인 dogfood를 릴리스 게이트로 사용한다.
 
 ## 설치
 
@@ -60,8 +63,10 @@ staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전
 한다. 리포트 형식은 `text`, `json`, `github-actions`, `sarif`를 지원한다.
 
 `query`는 전체 그래프 대신 한 심볼의 양방향 이웃·멤버·보존 경로·한계를 cartograph와
-같은 필드 이름으로 답한다. `bridges`는 Flutter 채널 생성과 `invokeMethod` 사실을
-isthmus `GRAPH-EXCHANGE` 버전 1로 내며, 동적·미귀속·부분 파싱 사실을 숨기지 않는다.
+같은 필드 이름으로 답한다. `bridges`는 Flutter `MethodChannel` 생성과
+`invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 isthmus `GRAPH-EXCHANGE`
+버전 1로 내며, 동적·미귀속·부분 파싱 사실을 숨기지 않는다. EventChannel과
+BasicMessageChannel은 현재 조인 범위 밖이므로 사실로 오인하지 않고 limitation으로 센다.
 `cycles`·`rules`·`metrics`는 기본적으로 보고만 하고, `--strict`일 때만 발견을 종료
 코드 1로 바꾼다. 지표는 라이브러리별 Ca·Ce·불안정도·추상도·주계열 거리를 계산한다.
 
