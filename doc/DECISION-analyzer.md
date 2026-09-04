@@ -1,4 +1,4 @@
-# 결정: `package:analyzer` 14.3.0을 원천으로 고정한다
+# 결정: `package:analyzer` 14.3.x를 검증 범위로 고정한다
 
 - 상태: 채택
 - 날짜: 2026-09-04
@@ -6,7 +6,7 @@
 
 ## 결정
 
-1. v0.1은 `package:analyzer` **14.3.0**을 정확히 고정한다.
+1. v0.1은 `package:analyzer` **`>=14.3.0 <14.4.0`** 범위만 허용한다.
 2. analyzer를 import하는 제품 코드는 `lib/src/index/`에만 둔다.
 3. 이름 있는 정점 ID는 `library URI + enclosing lookup-name path`로 만든다.
 4. `package:` URI가 없는 프로젝트 파일은 절대 `file:` URI 대신
@@ -17,8 +17,8 @@
    `synthesized` 표시하되 선언과 참조는 버리지 않는다.
 7. 정상 analyzer 범위에 제외된 생성 파일만 다시 더한다. 프로젝트가 명시적으로
    제외한 다른 파일은 되살리지 않는다.
-8. 내용 해시와 분석기 신원을 키로 쓰는 영속 사실 캐시를 v0.1에 넣는다.
-   Phase 1에서는 캐시 경계를 먼저 두고, 구현은 첫 대형 그래프가 나온 뒤 붙인다.
+8. 내용·mtime과 분석기 신원을 키로 쓰는 영속 사실 캐시를 v0.1에 넣는다.
+   신뢰하지 않는 분석 대상 밖의 OS 사용자 캐시에 두며 읽기·쓰기·손상 여부가 결과를 바꾸지 않는다.
 
 ## 실험 환경
 
@@ -118,7 +118,7 @@ declared variables를 받지 않으므로 한 실행에서 한 구성만 볼 수
 
 특히 예전 코드가 흔히 쓰던 element model V1, `ElementLocation`, `Element.isSynthetic`,
 여러 AST member getter가 8~13 사이 제거됐다. API 변화 주장은 확인됐으며 어댑터 격리와
-정확한 버전 고정이 필요하다.
+검증한 14.3.x 범위 고정이 필요하다.
 
 ## 캐시 결정
 
@@ -131,6 +131,13 @@ declared variables를 받지 않으므로 한 실행에서 한 구성만 볼 수
 캐시 키에는 파일 내용 해시, analyzer 버전, Dart SDK 신원, 조건부 구성,
 dartograph 분석 revision을 포함한다. 캐시는 정확성을 바꾸는 원천이 아니라 resolved fact의
 재사용 계층이다. 첫 실행 30초 목표는 캐시와 별개로 병렬화·파일 가지치기를 다시 측정한다.
+
+v0.1 구현은 표준 소스 루트와 package config가 가리키는 모든 의존 패키지 `lib/`의
+Dart·analysis options·pubspec, 파일 mtime, Dart SDK 신원과 명시적 cache schema/revision을
+SHA-256 키에 넣는다. 분석 도중 입력이 바뀌면 쓰지 않고, cache JSON이 없거나 손상됐거나
+쓸 수 없으면 analyzer를 다시 실행한다. 완성 그래프·보존 루트·한계를 함께 저장하므로
+cache hit와 miss의 출력이 같다. 캐시는 canonical project root의 SHA-256 하위 디렉터리로
+분리해 분석 대상 저장소가 결과 payload를 미리 심을 수 없게 한다.
 
 ## Phase 1에 넘기는 제약
 

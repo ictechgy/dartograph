@@ -26,6 +26,7 @@ void main() {
     final pubGet = await Process.run(Platform.resolvedExecutable, const [
       'pub',
       'get',
+      '--offline',
     ], workingDirectory: corpusDirectory.path);
     expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
   });

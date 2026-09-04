@@ -9,6 +9,7 @@ import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
+import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
 import '../export/dead_reporter.dart';
@@ -64,7 +65,7 @@ Future<int> runDartograph(
       stdoutSink.write(_help);
       return ExitStatus.success.code;
     case '--version':
-      stdoutSink.writeln('dartograph 0.1.0-dev');
+      stdoutSink.writeln('dartograph $toolVersion');
       return ExitStatus.success.code;
     case 'graph':
       return await _runGraph(

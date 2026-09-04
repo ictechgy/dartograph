@@ -206,6 +206,7 @@ void main() {
     expect(output.toString(), contains('state is not a deletion verdict'));
     expect(output.toString(), contains('limitations'));
     expect(output.toString(), contains('overrideContract'));
+    expect(output.toString(), contains('publicApi'));
   });
 
   test('skill installs SKILL.md into an explicit directory', () async {

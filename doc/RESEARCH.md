@@ -9,7 +9,7 @@
 - pub.dev 배포자 `tools.dart.dev`(검증된 배포자, Dart 팀). https://pub.dev/packages/analyzer
 - 2026-09-04 기준 최신 **14.3.0, 이틀 전 발행.** 활발하다
 - 설명 원문: *"a library that performs static analysis of Dart code."* Dart Analysis Server 가 이 라이브러리 위에 있다고 문서가 말한다(같은 엔진이라고 명시적으로 쓰지는 않음)
-- Phase 0에서 8~14의 변경 기록과 14.3.0 실제 컴파일을 대조했다. major마다 element/AST breaking change가 있어 정확한 버전 고정과 어댑터 격리가 필요하다
+- Phase 0에서 8~14의 변경 기록과 14.3.0 실제 컴파일을 대조했다. major마다 element/AST breaking change가 있어 검증한 14.3.x 범위 고정과 어댑터 격리가 필요하다
 - 이름 있는 `Element`는 library URI + 이름 경로로 안정 식별할 수 있다. 이름 없는 extension은 source URI + canonical offset 보조키가 필요하고, `test/` 파일 URI는 프로젝트 상대 URI로 정규화해야 한다
 - `part`의 `libraryElement.uri`는 호스트 library를 가리킨다. 분석 옵션이 제외한 생성 파일도 같은 context session에 직접 요청하면 resolved unit을 얻을 수 있다
 

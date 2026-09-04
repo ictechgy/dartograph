@@ -23,3 +23,5 @@ jobs:
       - run: tool/check-coverage.sh
       - run: tool/check-analyzer-boundary.sh
       - run: tool/verify-cli-contract.sh
+      - run: tool/verify-global-activation.sh
+      - run: dart pub publish --dry-run

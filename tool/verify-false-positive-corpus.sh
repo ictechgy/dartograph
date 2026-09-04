@@ -11,7 +11,7 @@ cp -R "$source_corpus" "$corpus"
 rm -rf "$corpus/.dart_tool"
 rm -f "$corpus/pubspec.lock"
 
-(cd "$corpus" && "$dart_bin" pub get && "$dart_bin" analyze)
+(cd "$corpus" && "$dart_bin" pub get --offline && "$dart_bin" analyze)
 set +e
 output=$(cd "$repo_root" && "$dart_bin" run dartograph dead --format json "$corpus")
 status=$?

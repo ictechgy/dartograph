@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
@@ -7,11 +9,15 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:path/path.dart' as p;
+import 'package:crypto/crypto.dart';
+import 'package:yaml/yaml.dart';
 
 import '../core/code_graph.dart';
+import '../core/fact_cache.dart';
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/retention_reason.dart';
+import '../core/tool_info.dart';
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -56,9 +62,25 @@ final class AnalyzerGraphResult {
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
 final class AnalyzerGraphIndex {
+  /// 기본 프로젝트 캐시 또는 테스트가 주입한 [cache]를 사용한다.
+  AnalyzerGraphIndex({FactCache? cache}) : _cache = cache;
+
+  final FactCache? _cache;
+
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+    final cache = _cache ?? _defaultFactCache(root);
+    final initialCacheKey = cache == null
+        ? null
+        : await _tryAnalysisCacheKey(root);
+    if (cache != null && initialCacheKey != null) {
+      final cached = await _readCachedAnalysis(cache, initialCacheKey);
+      if (cached != null &&
+          await _tryAnalysisCacheKey(root) == initialCacheKey) {
+        return cached;
+      }
+    }
     final collection = AnalysisContextCollection(
       includedPaths: [root],
       sdkPath: _dartSdkPath(),
@@ -119,6 +141,7 @@ final class AnalyzerGraphIndex {
           }
         }
       }
+      _addPublicApiRoots(root, libraries, graph, retentionRoots);
       for (final unit in units) {
         unit.unit.accept(_RelationshipCollector(graph, root));
       }
@@ -143,15 +166,254 @@ final class AnalyzerGraphIndex {
       if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
         limitations.add(AnalyzerLimitation.testCodeRetention);
       }
-      return AnalyzerGraphResult(
+      final result = AnalyzerGraphResult(
         graph: graph,
         limitations: limitations.toList()..sort((a, b) => a.index - b.index),
         limitationDetails: _agentLimitations(root, units),
         retentionRoots: Map.unmodifiable(retentionRoots),
       );
+      if (cache != null &&
+          initialCacheKey != null &&
+          await _tryAnalysisCacheKey(root) == initialCacheKey) {
+        await _writeCachedAnalysis(cache, initialCacheKey, result);
+      }
+      return result;
     } finally {
       await collection.dispose();
     }
+  }
+}
+
+const _cacheSchemaVersion = 1;
+const _cacheIdentity = 'dartograph-analysis-$toolVersion-cache-v1';
+
+Future<String?> _tryAnalysisCacheKey(String root) async {
+  try {
+    return await _analysisCacheKey(root);
+  } on Object {
+    return null;
+  }
+}
+
+Future<String> _analysisCacheKey(String root) async {
+  final files = await _analysisInputFiles(root);
+  final bytes = BytesBuilder(copy: false);
+  bytes.add(utf8.encode('$_cacheIdentity\u0000${Platform.version}\u0000'));
+  for (final file in files) {
+    final relative = p.posix.joinAll(
+      p.relative(file.path, from: root).split(p.separator),
+    );
+    final stat = await file.stat();
+    bytes
+      ..add(utf8.encode(relative))
+      ..addByte(0)
+      ..add(utf8.encode(stat.modified.microsecondsSinceEpoch.toString()))
+      ..addByte(0)
+      ..add(await file.readAsBytes())
+      ..addByte(0);
+  }
+  return sha256.convert(bytes.takeBytes()).toString();
+}
+
+Future<List<File>> _analysisInputFiles(String root) async {
+  final files = <String, File>{};
+
+  void addFile(File file) {
+    if (file.existsSync()) files[p.normalize(file.absolute.path)] = file;
+  }
+
+  void addDirectory(Directory directory) {
+    if (!directory.existsSync()) return;
+    for (final file in _projectFiles(directory)) {
+      if (file.path.endsWith('.dart') ||
+          p.basename(file.path) == 'analysis_options.yaml') {
+        addFile(file);
+      }
+    }
+  }
+
+  for (final name in _sourceDirectories) {
+    final directory = Directory(p.join(root, name));
+    addDirectory(
+      directory.existsSync() ? await _resolved(directory) : directory,
+    );
+  }
+  for (final path in [
+    p.join(root, 'analysis_options.yaml'),
+    p.join(root, 'pubspec.yaml'),
+    p.join(root, '.dart_tool', 'package_config.json'),
+  ]) {
+    addFile(File(path));
+  }
+
+  final packageConfiguration = File(
+    p.join(root, '.dart_tool', 'package_config.json'),
+  );
+  if (packageConfiguration.existsSync()) {
+    final document =
+        (jsonDecode(await packageConfiguration.readAsString()) as Map)
+            .cast<String, Object?>();
+    final packages = document['packages']! as List<Object?>;
+    for (final value in packages) {
+      final package = (value! as Map).cast<String, Object?>();
+      final rootUri = packageConfiguration.parent.uri
+          .resolve(package['rootUri']! as String)
+          .normalizePath();
+      if (rootUri.scheme != 'file') continue;
+      final packageRoot = await _resolved(Directory(rootUri.toFilePath()));
+      if (p.equals(packageRoot.path, root)) continue;
+      addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
+      addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
+      final library = Directory(p.join(packageRoot.path, 'lib'));
+      addDirectory(library.existsSync() ? await _resolved(library) : library);
+    }
+  }
+  final result = files.values.toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  return result;
+}
+
+Future<Directory> _resolved(Directory directory) async =>
+    Directory(await directory.resolveSymbolicLinks());
+
+FactCache? _defaultFactCache(String root) {
+  final directory = defaultAnalyzerCacheDirectory(root);
+  return directory == null ? null : FileFactCache(directory);
+}
+
+/// 신뢰하지 않는 프로젝트 밖의 사용자 캐시 위치를 선택한다.
+Directory? defaultAnalyzerCacheDirectory(
+  String canonicalProjectRoot, {
+  Map<String, String>? environment,
+}) {
+  final values = environment ?? Platform.environment;
+  String? base;
+  if (Platform.isWindows) {
+    base = values['LOCALAPPDATA'];
+  } else if (Platform.isMacOS) {
+    final userDirectory = values['HOME'];
+    if (userDirectory != null) {
+      base = p.join(userDirectory, 'Library', 'Caches');
+    }
+  } else {
+    final xdg = values['XDG_CACHE_HOME'];
+    if (xdg != null && p.isAbsolute(xdg)) {
+      base = xdg;
+    } else {
+      final userDirectory = values['HOME'];
+      if (userDirectory != null) base = p.join(userDirectory, '.cache');
+    }
+  }
+  if (base == null || !p.isAbsolute(base)) return null;
+  final projectKey = sha256
+      .convert(utf8.encode(canonicalProjectRoot))
+      .toString();
+  return Directory(p.join(base, 'dartograph', projectKey));
+}
+
+Future<AnalyzerGraphResult?> _readCachedAnalysis(
+  FactCache cache,
+  String key,
+) async {
+  try {
+    final payload = await cache.read(key);
+    return payload == null ? null : _decodeCachedAnalysis(payload);
+  } on Object {
+    return null;
+  }
+}
+
+Future<void> _writeCachedAnalysis(
+  FactCache cache,
+  String key,
+  AnalyzerGraphResult result,
+) async {
+  try {
+    await cache.write(key, _encodeCachedAnalysis(result));
+  } on Object {
+    // 캐시는 성능 계층이다. 쓸 수 없어도 같은 분석 결과를 반환한다.
+  }
+}
+
+String _encodeCachedAnalysis(AnalyzerGraphResult result) {
+  final snapshot = result.graph.snapshot();
+  final rootIds = result.retentionRoots.keys.toList()..sort();
+  return jsonEncode({
+    'edges': [
+      for (final edge in snapshot.edges)
+        {
+          'kind': edge.kind.name,
+          'source': edge.sourceId,
+          'target': edge.targetId,
+        },
+    ],
+    'limitationDetails': result.limitationDetails,
+    'limitations': result.limitations.map((item) => item.name).toList(),
+    'nodes': [
+      for (final node in snapshot.nodes)
+        {
+          'column': ?node.column,
+          'id': node.id,
+          'isAbstract': node.isAbstract,
+          'isTypeDeclaration': node.isTypeDeclaration,
+          'line': ?node.line,
+          'sourceUri': ?node.sourceUri,
+          'synthesized': node.synthesized,
+        },
+    ],
+    'retentionRoots': {
+      for (final id in rootIds) id: result.retentionRoots[id]!.name,
+    },
+    'schemaVersion': _cacheSchemaVersion,
+  });
+}
+
+AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
+  try {
+    final document = (jsonDecode(payload) as Map).cast<String, Object?>();
+    if (document['schemaVersion'] != _cacheSchemaVersion) return null;
+    final graph = CodeGraph();
+    for (final value in document['nodes']! as List<Object?>) {
+      final node = (value! as Map).cast<String, Object?>();
+      graph.addNode(
+        GraphNode(
+          id: node['id']! as String,
+          sourceUri: node['sourceUri'] as String?,
+          line: node['line'] as int?,
+          column: node['column'] as int?,
+          synthesized: node['synthesized']! as bool,
+          isTypeDeclaration: node['isTypeDeclaration']! as bool,
+          isAbstract: node['isAbstract']! as bool,
+        ),
+      );
+    }
+    for (final value in document['edges']! as List<Object?>) {
+      final edge = (value! as Map).cast<String, Object?>();
+      graph.addEdge(
+        GraphEdge(
+          sourceId: edge['source']! as String,
+          targetId: edge['target']! as String,
+          kind: EdgeKind.values.byName(edge['kind']! as String),
+        ),
+      );
+    }
+    final encodedRoots = (document['retentionRoots']! as Map)
+        .cast<String, Object?>();
+    return AnalyzerGraphResult(
+      graph: graph,
+      limitations: (document['limitations']! as List<Object?>)
+          .map((value) => AnalyzerLimitation.values.byName(value! as String))
+          .toList(growable: false),
+      limitationDetails: (document['limitationDetails']! as List<Object?>)
+          .map((value) => value! as String)
+          .toList(growable: false),
+      retentionRoots: {
+        for (final entry in encodedRoots.entries)
+          entry.key: RetentionReason.values.byName(entry.value! as String),
+      },
+    );
+  } on Object {
+    return null;
   }
 }
 
@@ -361,13 +623,18 @@ RetentionReason? _retentionReason(
     return RetentionReason.mainEntryPoint;
   }
   if (source.startsWith('project:test/') ||
-      source.startsWith('project:integration_test/')) {
+      source.startsWith('project:integration_test/') ||
+      source.startsWith('project:example/test/') ||
+      source.startsWith('project:example/integration_test/')) {
     return RetentionReason.visibleForTesting;
   }
   if (_isGenerated(source)) return RetentionReason.generatedCode;
   for (final annotation in node.metadata) {
     final name = annotation.name.name;
     final annotationLibrary = annotation.element?.library?.uri.toString();
+    if (name == 'override' && annotationLibrary == 'dart:core') {
+      return RetentionReason.overrideContract;
+    }
     if (name == 'visibleForTesting' &&
         annotationLibrary == 'package:meta/meta.dart') {
       return RetentionReason.visibleForTesting;
@@ -385,6 +652,44 @@ RetentionReason? _retentionReason(
     return RetentionReason.overrideContract;
   }
   return null;
+}
+
+void _addPublicApiRoots(
+  String root,
+  Map<String, LibraryElement> libraries,
+  CodeGraph graph,
+  Map<String, RetentionReason> roots,
+) {
+  final pubspec = File(p.join(root, 'pubspec.yaml'));
+  if (!pubspec.existsSync()) return;
+  final document = loadYaml(pubspec.readAsStringSync());
+  final packageName = document is YamlMap ? document['name'] : null;
+  if (packageName is! String ||
+      !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
+    throw const FormatException('pubspec name must be a valid package name');
+  }
+  final entryPath = p.normalize(p.join(root, 'lib', '$packageName.dart'));
+  final entryLibrary = libraries.values.where((library) {
+    return p.normalize(library.firstFragment.source.fullName) == entryPath;
+  }).firstOrNull;
+  if (entryLibrary == null) return;
+  final exported = entryLibrary.exportNamespace.definedNames2.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  for (final entry in exported) {
+    if (entry.key.startsWith('_')) continue;
+    final id = _elementId(_graphTarget(entry.value) ?? entry.value, root);
+    if (!graph.containsNode(id)) continue;
+    roots.putIfAbsent(id, () => RetentionReason.publicApi);
+    final memberPrefix = '$id.';
+    for (final nodeId in graph.nodes.keys.where(
+      (candidate) => candidate.startsWith(memberPrefix),
+    )) {
+      final memberName = nodeId.substring(memberPrefix.length);
+      if (!memberName.contains('.') && !memberName.startsWith('_')) {
+        roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
+      }
+    }
+  }
 }
 
 bool _overridesInheritedMember(Element element) {

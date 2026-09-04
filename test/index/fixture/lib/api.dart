@@ -13,6 +13,12 @@ class Service extends Base with Trait implements Contract {
   }
 }
 
+class PublicApi {
+  void call() => _privateCall();
+
+  void _privateCall() {}
+}
+
 void helper() {}
 var value = Service();
 

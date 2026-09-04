@@ -24,7 +24,7 @@
 
 ### 0.3 결과
 
-`docs/DECISION-analyzer.md` — 정점 ID 규칙, 생성 코드 판별 규칙, 캐시 필요 여부(측정값), 고정할 `analyzer` 버전.
+`doc/DECISION-analyzer.md` — 정점 ID 규칙, 생성 코드 판별 규칙, 캐시 필요 여부(측정값), 고정할 `analyzer` 버전.
 
 ## Phase 1 — 골격 (2 세션)
 

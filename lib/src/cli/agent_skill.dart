@@ -10,7 +10,7 @@ Before changing a declaration, run `dartograph query <name> <package-root>`.
 
 - A state is not a deletion verdict. Unreachable only describes graph reachability.
 - Read `limitations` in the same response, including when status is `notFound`.
-- Public API is not automatically a retention root; callers may live outside the package.
+- `publicApi` means the package's representative library exports the declaration for external callers.
 - `suppressedByBaseline: true` records a team decision and must be respected.
 - Dart main functions may be multiple. Check configured `entry_points` before narrowing roots.
 - Generated Dart can be stale; rebuild when `generated-code-staleness` is reported.

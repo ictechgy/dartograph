@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:convert';
 
+import '../core/tool_info.dart';
+
 /// GRAPH-EXCHANGE 버전 1 문서를 키 정렬 JSON으로 내보낸다.
 String exportBridgeFacts({
   required String project,
@@ -11,7 +13,7 @@ String exportBridgeFacts({
   final document = <String, Object?>{
     'format': 'bridge-facts',
     'version': 1,
-    'tool': {'name': 'dartograph', 'version': '0.1.0'},
+    'tool': {'name': 'dartograph', 'version': toolVersion},
     'generatedAt': generatedAt.toUtc().toIso8601String(),
     'platform': 'dart',
     'target': facts.isEmpty ? null : 'flutter',

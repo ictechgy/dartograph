@@ -1,12 +1,21 @@
 name: dartograph
-description: A permanently free dependency graph CLI for Dart codebases.
-version: 0.1.0-dev
+description: Evidence-backed dependency graph analysis for Dart and Flutter codebases.
+version: 0.1.0
+homepage: https://pub.dev/packages/dartograph
+
+topics:
+  - analysis
+  - cli
+  - dependencies
+  - flutter
+  - graph
 
 environment:
   sdk: ^3.11.0
 
 dependencies:
-  analyzer: 14.3.0
+  analyzer: '>=14.3.0 <14.4.0'
+  crypto: ^3.0.7
   path: ^1.9.1
   yaml: ^3.1.3
 

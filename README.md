@@ -20,11 +20,20 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 세 자매 프로젝트 중 **가장 싸게 만들 수 있다.** 원천이 공식이고 안정적이며 활발하다(2026-09 기준 `analyzer` 14.3.0).
 
-## 상태
+## 설치
 
-**Phase 5 구현 완료.** 미사용 코드·파일, 순환, YAML 레이어 규칙, 라이브러리별
-Martin 지표, 에이전트 질의와 Flutter 플랫폼 채널 교환 사실을 한 그래프에서 낸다.
-다음은 v0.1.0 공개 릴리스 검증과 문서 마감이다.
+순수 Dart CLI이며 Flutter SDK에 의존하지 않는다. Dart 3.11 이상에서 설치한다.
+
+```bash
+dart pub global activate dartograph
+dartograph --version
+```
+
+소스 체크아웃에서는 `dart run dartograph`로 같은 명령을 실행할 수 있다.
+
+## 사용
+
+분석할 Dart 패키지의 루트를 마지막 인자로 넘긴다.
 
 ```bash
 dart run dartograph graph --format dot .
@@ -40,6 +49,9 @@ dart run dartograph rules --config layers.yaml --strict .
 dart run dartograph metrics .
 ```
 
+전역 설치했다면 각 줄의 `dart run dartograph`를 `dartograph`로 바꾼다. 전체 인자,
+출력 형식, 종료 코드, CI 예제는 [`doc/USAGE.md`](doc/USAGE.md)에 있다.
+
 `--since`는 전체 프로젝트 그래프를 만든 뒤 보고 위치만 좁힌다. 기준 ref 이후 커밋,
 staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전체 Git 이력을 받아야
 한다. 리포트 형식은 `text`, `json`, `github-actions`, `sarif`를 지원한다.
@@ -50,13 +62,37 @@ isthmus `GRAPH-EXCHANGE` 버전 1로 내며, 동적·미귀속·부분 파싱 �
 `cycles`·`rules`·`metrics`는 기본적으로 보고만 하고, `--strict`일 때만 발견을 종료
 코드 1로 바꾼다. 지표는 라이브러리별 Ca·Ce·불안정도·추상도·주계열 거리를 계산한다.
 
+dartograph는 삭제 가능 여부를 판정하거나 코드를 자동 삭제하지 않는다. 각 finding의
+근거와 `limitations`를 사람이 함께 검토해야 한다. `dart analyze`의 라이브러리 내부
+`unused_element`를 재구현하는 도구가 아니라 프로젝트 전역 도달성을 묻는 도구다.
+
+## 분석 한계
+
+- 조건부 import/export는 analyzer가 고른 한 구성만 본다.
+- 문자열 route가 route table과 연결되지 않으면 한계로 보고하며 삭제 근거로 쓰지 않는다.
+- 생성 코드가 소스보다 오래됐으면 한계로 보고한다. 생성 선언 자체는 보수적으로 보존한다.
+- `main`은 여러 개일 수 있으며 `lib/`, `bin/`, `example/`의 진입점을 보존한다.
+- `lib/<package-name>.dart`가 export한 공개 선언과 공개 멤버는 외부 소비자 API로 보존한다.
+- 동적 호출과 네이티브 동작은 정적 그래프가 완전히 증명할 수 없다.
+
+해석 결과 캐시는 분석 대상 밖의 OS 사용자 캐시(`~/Library/Caches`,
+`$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) 아래 `dartograph/<project-root-hash>`로
+분리한다. 프로젝트와 의존 패키지의 내용·mtime, 패키지 해석, Dart SDK 또는 분석 revision이
+바뀌면 자동으로 무효화하며, 캐시가 없거나 손상돼도 결과는 같고 분석 시간만 늘어난다.
+
 | 문서 | 내용 |
 |---|---|
-| [`docs/PRD.md`](docs/PRD.md) | 무엇을 · 누구를 위해 · 어디까지 · 무엇을 하지 않을지 |
-| [`docs/PLAN.md`](docs/PLAN.md) | 단계별 계획 |
-| [`docs/RESEARCH.md`](docs/RESEARCH.md) | 확인된 사실 · 확인되지 않은 주장 · 출처 |
-| [`docs/DECISION-analyzer.md`](docs/DECISION-analyzer.md) | analyzer 버전 · 정점 ID · 생성 코드 · 캐시 결정 |
+| [`doc/PRD.md`](doc/PRD.md) | 무엇을 · 누구를 위해 · 어디까지 · 무엇을 하지 않을지 |
+| [`doc/PLAN.md`](doc/PLAN.md) | 단계별 계획 |
+| [`doc/RESEARCH.md`](doc/RESEARCH.md) | 확인된 사실 · 확인되지 않은 주장 · 출처 |
+| [`doc/DECISION-analyzer.md`](doc/DECISION-analyzer.md) | analyzer 버전 · 정점 ID · 생성 코드 · 캐시 결정 |
+| [`doc/USAGE.md`](doc/USAGE.md) | 설치 · 명령 · 종료 코드 · CI 사용법 |
+
+## 기여와 보안
+
+기여 절차는 [`CONTRIBUTING.md`](CONTRIBUTING.md), 취약점 제보 방법은
+[`SECURITY.md`](SECURITY.md), 릴리스 변경점은 [`CHANGELOG.md`](CHANGELOG.md)를 따른다.
 
 ## 라이선스
 
-MIT. **상업적 사용을 포함해 영구 무료다.** 이것은 이 프로젝트의 기능이지 각주가 아니다 — README 첫 화면에 적고, 라이선스를 바꾸지 않겠다는 약속을 `docs/PRD.md` 에 남긴다.
+MIT. **상업적 사용을 포함해 영구 무료다.** 이것은 이 프로젝트의 기능이지 각주가 아니다 — README 첫 화면에 적고, 라이선스를 바꾸지 않겠다는 약속을 `doc/PRD.md` 에 남긴다.

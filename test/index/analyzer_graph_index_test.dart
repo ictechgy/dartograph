@@ -25,6 +25,13 @@ void main() {
     );
     expect(sourceFixture.existsSync(), isTrue);
     await _copyFixture(sourceFixture, fixtureDirectory);
+    final fixturePubspec = File('${fixtureDirectory.path}/pubspec.yaml');
+    await fixturePubspec.writeAsString(
+      (await fixturePubspec.readAsString()).replaceFirst(
+        'name: graph_fixture',
+        'name: "graph_fixture"',
+      ),
+    );
     await File('${fixtureDirectory.path}/lib/routes.dart').writeAsString('''
 void navigate(dynamic context, dynamic navigator) {
   Navigator.pushNamed(context, '/missing');
@@ -34,11 +41,29 @@ void navigate(dynamic context, dynamic navigator) {
 final routes = {'/known': Object()};
 final app = MaterialApp(routes: {'/inline': Object()});
 ''');
+    await File(
+      '${fixtureDirectory.path}/lib/graph_fixture.dart',
+    ).writeAsString("export 'api.dart';\n");
+    await File('${fixtureDirectory.path}/lib/callback.dart').writeAsString('''
+abstract class Framework {
+  void invokedByFramework();
+}
+class FrameworkCallback extends Framework {
+  @override
+  void invokedByFramework() {}
+}
+''');
     await Directory('${fixtureDirectory.path}/bin').create();
     await File('${fixtureDirectory.path}/bin/cli.dart').writeAsString('''
 import 'package:graph_fixture/api.dart';
 void main() => Service();
 ''');
+    await Directory(
+      '${fixtureDirectory.path}/example/integration_test',
+    ).create(recursive: true);
+    await File(
+      '${fixtureDirectory.path}/example/integration_test/app_test.dart',
+    ).writeAsString('class ExampleIntegrationFixture {}\n');
     await Directory(
       '${fixtureDirectory.path}/fixtures/nested/lib',
     ).create(recursive: true);
@@ -117,8 +142,42 @@ void main() => Service();
       RetentionReason.mainEntryPoint,
     );
     expect(
+      result
+          .retentionRoots['project:example/integration_test/app_test.dart::ExampleIntegrationFixture'],
+      RetentionReason.visibleForTesting,
+    );
+    expect(
       result.retentionRoots['package:graph_fixture/api.dart::Service.work'],
       RetentionReason.overrideContract,
+    );
+    expect(
+      result
+          .retentionRoots['package:graph_fixture/callback.dart::FrameworkCallback.invokedByFramework']
+          ?.name,
+      'overrideContract',
+    );
+    expect(
+      result.retentionRoots['package:graph_fixture/api.dart::Service']?.name,
+      'publicApi',
+    );
+    expect(
+      result.retentionRoots['package:graph_fixture/api.dart::helper']?.name,
+      'publicApi',
+    );
+    expect(
+      result.retentionRoots['package:graph_fixture/api.dart::value']?.name,
+      'publicApi',
+    );
+    expect(
+      result
+          .retentionRoots['package:graph_fixture/api.dart::PublicApi.call']
+          ?.name,
+      'publicApi',
+    );
+    expect(
+      result
+          .retentionRoots['package:graph_fixture/api.dart::PublicApi._privateCall'],
+      isNull,
     );
     expect(
       ids.where(

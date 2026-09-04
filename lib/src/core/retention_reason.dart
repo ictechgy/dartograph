@@ -3,6 +3,9 @@ enum RetentionReason {
   /// 패키지의 `lib/`, `bin/`, `example/` 아래 실행 진입점이다.
   mainEntryPoint,
 
+  /// 패키지의 대표 라이브러리가 외부 소비자에게 공개하는 선언이다.
+  publicApi,
+
   /// 프레임워크나 언어 런타임이 상위 계약을 통해 호출하는 재정의다.
   overrideContract,
 

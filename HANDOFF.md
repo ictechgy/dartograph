@@ -6,13 +6,13 @@
 
 ## 목표
 
-Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `docs/PRD.md` — 특히 "영구 무료 약속" 절.
+Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `doc/PRD.md` — 특히 "영구 무료 약속" 절.
 
 ## 현재 상태 — Phase 5 구현 완료
 
 - 작업 브랜치: `feature/phase-0-analyzer-validation`
 - `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
-- 결정은 `docs/DECISION-analyzer.md`: 버전 고정, 정점 ID, part·생성 코드, 조건부 구성, 캐시 필요성을 수치와 함께 기록했다
+- 결정은 `doc/DECISION-analyzer.md`: 버전 고정, 정점 ID, part·생성 코드, 조건부 구성, 캐시 필요성을 수치와 함께 기록했다
 - 도그푸딩 대상은 Flutter `navigation_and_routing`, `path_provider` 두 패키지, Invoice Ninja다
 - `CodeGraph`와 불변 `GraphSnapshot`, 캐시 경계, analyzer 14.3.0 어댑터가 있다
 - `graph --format dot|json|mermaid <package-root>`가 결정적인 출력을 낸다
