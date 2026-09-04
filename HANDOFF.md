@@ -8,13 +8,13 @@
 
 Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `doc/PRD.md` — 특히 "영구 무료 약속" 절.
 
-## 현재 상태 — Phase 5 구현 완료
+## 현재 상태 — v0.1.0 릴리스 준비 완료
 
 - 작업 브랜치: `feature/phase-0-analyzer-validation`
 - `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
 - 결정은 `doc/DECISION-analyzer.md`: 버전 고정, 정점 ID, part·생성 코드, 조건부 구성, 캐시 필요성을 수치와 함께 기록했다
-- 도그푸딩 대상은 Flutter `navigation_and_routing`, `path_provider` 두 패키지, Invoice Ninja다
-- `CodeGraph`와 불변 `GraphSnapshot`, 캐시 경계, analyzer 14.3.0 어댑터가 있다
+- `CodeGraph`와 불변 `GraphSnapshot`, analyzer 14.3.x 어댑터가 있다
+- 완성 분석 결과 캐시는 대상 밖 OS 사용자 캐시에 저장하고 프로젝트·모든 file-URI 의존성 내용과 분석기 신원으로 무효화한다
 - `graph --format dot|json|mermaid <package-root>`가 결정적인 출력을 낸다
 - `navigation_and_routing`에서 121 nodes · 238 edges를 만들었고 DOT 2회 SHA-256이 일치했다
 - `dead --format json`과 `dead --explain`이 보존 경로와 미도달 근거를 낸다
@@ -33,16 +33,19 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - Martin 지표는 라이브러리별 서로 다른 Ca/Ce, 추상 타입 비율, 0분모·고립 정점 계약으로 계산된다
 - `cycles`·`rules`·`metrics`는 일반 모드 0, `--strict` 발견 시 1을 컴파일 바이너리로 검증한다
 - analyzer는 표준 Dart 소스 루트만 색인하고 `bin`·`example` main과 동적 디스패치 override를 보존한다
-- 자기 분석은 순환 0건이며, dead는 아직 실제 구현에 연결하지 않은 `FactCache` 경계 3건만 남는다
-- 전체 제품 라인 커버리지는 Phase 5 끝 기준 91.48%다
+- package barrel 공개 API와 공개 멤버, exact `@override`, `bin`·`example` main, 테스트·생성 코드·plugin 진입점을 보존한다
+- 자기 분석은 dead 0건·cycles 0건이며 metrics JSON은 연속 실행에서 결정적이다
+- 실제 Flutter 도그푸딩: `navigation_and_routing` 121 nodes/238 edges/3 확인된 dead, `path_provider_platform_interface` 46/98/0, `path_provider_foundation` 143/272/0
+- cache miss/hit self graph는 8.82초/3.97초였고 JSON SHA-256이 일치했다
+- 81개 테스트, 정적 분석, 오프라인 코퍼스, analyzer 경계, 컴파일 CLI, 격리 설치가 통과하며 라인 커버리지는 92.18%다
+- `dart pub publish --dry-run`은 48KB 패키지에 경고 0건으로 통과했다
+- package/CLI/bridge 버전은 0.1.0으로 일치하고 CHANGELOG·CONTRIBUTING·SECURITY·설치 문서가 있다
 
-## 다음 할 일 (순서대로)
+## 남은 외부 작업
 
-1. `pubspec.yaml`을 0.1.0 공개 메타데이터로 마감하고 CHANGELOG·CONTRIBUTING·SECURITY를 작성한다
-2. README 설치·명령·한계·비교표를 실제 CLI와 일치시킨다
-3. `dart pub publish --dry-run`과 패키지 산출물 설치 계약을 통과시킨다
-4. navigation_and_routing, path_provider 패키지, Invoice Ninja에서 도그푸딩 성공 기준을 재검증한다
-5. 자기 분석의 `FactCache` 3건을 구현에 연결하거나 불필요한 경계라면 제거해 findings 0을 만든다
+1. 공개 저장소 위치를 정한 뒤 필요하면 `pubspec.yaml`에 `repository` URL을 추가한다
+2. 사용자의 별도 승인 뒤에만 remote push, `v0.1.0` tag, `dart pub publish`, GitHub Release를 수행한다
+3. Invoice Ninja 재검증은 로컬 사본이 없으므로 GitHub clone 네트워크 승인을 받은 별도 실행에서 갱신한다. Phase 0 기준 리비전 결과는 `doc/DECISION-analyzer.md`에 남아 있다
 
 ## 미리 알아 둘 것
 

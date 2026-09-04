@@ -1,7 +1,7 @@
 # Contributing
 
-dartograph에 기여해 주셔서 감사합니다. 이 프로젝트의 정본 규칙은
-[`AGENTS.md`](AGENTS.md), 제품 계약은 [`doc/PRD.md`](doc/PRD.md)에 있습니다.
+dartograph에 기여해 주셔서 감사합니다. 제품 계약은 [`doc/PRD.md`](doc/PRD.md)에
+있으며, 소스 저장소 작업 규칙은 checkout의 `AGENTS.md`에 있습니다.
 
 ## 원칙
 

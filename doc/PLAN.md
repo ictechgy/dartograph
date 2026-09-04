@@ -70,4 +70,4 @@
 | 3 도입 경로 | 완료 | 결정적 baseline, NUL 안전 `--since`, 4종 리포터, 격리 설치 검증 |
 | 4 에이전트 표면 · bridges | 완료 | query·skill과 isthmus GRAPH-EXCHANGE v1 조인 검증 |
 | 5 순환 · 규칙 · 지표 | 완료 | 반복형 Tarjan, YAML 규칙, 라이브러리별 Martin 지표 |
-| v0.1.0 릴리스 준비 | 다음 | 문서·dry-run·설치 산출물·3개 도그푸딩 검증 |
+| v0.1.0 릴리스 준비 | 완료 | 경고 0 dry-run, 격리 설치, 3개 Flutter 패키지, self findings 0 |

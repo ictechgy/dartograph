@@ -139,6 +139,9 @@ SHA-256 키에 넣는다. 분석 도중 입력이 바뀌면 쓰지 않고, cache
 cache hit와 miss의 출력이 같다. 캐시는 canonical project root의 SHA-256 하위 디렉터리로
 분리해 분석 대상 저장소가 결과 payload를 미리 심을 수 없게 한다.
 
+릴리스 후보 self graph에서 첫 cache miss는 8.82초, 같은 입력의 hit는 3.97초였고 두
+JSON의 SHA-256이 일치했다.
+
 ## Phase 1에 넘기는 제약
 
 - analyzer 타입은 `lib/src/index/` 밖으로 노출하지 않는다.
