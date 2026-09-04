@@ -12,13 +12,13 @@
 
 | 저장소 | 이유 |
 |---|---|
-| `flutter/samples` | 다양한 크기의 앱 여러 개. 존재 확실 |
-| `flutter/packages` 안의 `path_provider` 등 플러그인 | **MethodChannel 사용** — isthmus 의 첫 대상. 네이티브 iOS 쪽은 cartograph 로 분석 가능 |
-| 중형 오픈소스 앱 하나 (세션에서 고른다: 50k LoC 이상, json_serializable/freezed/go_router 사용) | DCM 무료 티어 밖 크기의 실전 |
+| `flutter/samples`의 `navigation_and_routing` | 작은 실제 앱과 `go_router` |
+| `flutter/packages`의 `path_provider_platform_interface`·`path_provider_foundation` | **MethodChannel**, 조건부 export, 생성 FFI |
+| `invoiceninja/flutter` | 생성 코드 제외 311k LoC, json_serializable/freezed/go_router 사용 |
 
 ### 0.2 analyzer 스크립트
 
-- `AnalysisContextCollection` 으로 `flutter/samples` 의 앱 하나를 열고, 모든 파일의 resolved unit 을 순회하며 선언 수 · 참조 수 · 실행 시간을 출력하는 100 줄짜리 스크립트
+- `AnalysisContextCollection` 으로 `flutter/samples` 의 앱 하나를 열고, 정상 분석 파일과 제외된 생성 파일의 resolved unit 을 순회하며 선언 수 · 참조 수 · 실행 시간을 출력하는 실험 스크립트
 - 확인할 것: `Element` 의 안정 식별자(라이브러리 URI + 이름 경로)가 정점 ID 로 충분한가 · `part` 파일이 어느 라이브러리로 귀속되는가 · 생성 파일(`.g.dart`) 구분법 · 조건부 import 처리 · 실행 시간이 캐시 없이 견딜 만한가
 - `analyzer` 14.x 의 API 가 예제 코드와 얼마나 다른지 — "자주 바뀐다"는 주장의 실측
 
@@ -64,8 +64,8 @@
 
 | Phase | 상태 | 비고 |
 |---|---|---|
-| 0 원천 검증 | 미착수 | |
-| 1 골격 | 미착수 | |
+| 0 원천 검증 | 완료 | [`DECISION-analyzer.md`](DECISION-analyzer.md) |
+| 1 골격 | 다음 | analyzer 14.3.0 고정, 캐시 경계 포함 |
 | 2 보존 규칙 · dead | 미착수 | |
 | 3 도입 경로 | 미착수 | |
 | 4 에이전트 표면 · bridges | 미착수 | isthmus 가 기다림 |

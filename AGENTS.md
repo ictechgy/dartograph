@@ -41,7 +41,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기(`package
 
 - **도구 언어는 Dart.** `package:analyzer`가 Dart라 다른 선택이 없고, 배포는 `dart pub global activate dartograph`와 pub.dev입니다. Flutter SDK에 의존하지 않습니다 — 순수 Dart 패키지도 분석 대상입니다
 - **`analyzer` 버전을 고정하고 어댑터 뒤에 가둡니다.** `analyzer`를 직접 import하는 코드는 `lib/src/index/` 한 곳에만 둡니다. cartograph가 `libIndexStore`를 `CartographIndexStore` 모듈 하나에 가둔 것과 같습니다. API가 자주 바뀐다는 주장은 Phase 0에서 실측합니다
-- **해석 결과 캐시는 측정한 뒤에 붙입니다.** analyzer는 파일로 남는 산출물이 없어 매 실행 해석합니다. 작은 프로젝트에서 충분히 빠르면 v0.1은 캐시 없이 갑니다. 붙인다면 cartograph의 `SourceFactsCache` 구조(내용 해시 키 + 분석기 신원)를 따릅니다
+- **해석 결과 캐시는 v0.1 범위입니다.** Phase 0에서 311k LoC 앱의 전체 순회가 35.968초로 측정됐습니다. Phase 1에서 교체 가능한 경계를 먼저 두고 첫 대형 그래프 뒤 구현합니다. cartograph의 `SourceFactsCache` 구조(내용 해시 키 + 분석기 신원)를 따릅니다
 - **part 파일과 생성 코드를 구분합니다.** `.g.dart`, `.freezed.dart`, `.pb.dart`는 `synthesized`. 사용자 코드와 섞이면 "생성 코드가 미사용"이라는 쓸모없는 보고가 쏟아집니다
 - **`main`은 여러 개일 수 있습니다.** `flutter run -t lib/main_dev.dart`. `lib/` 아래 모든 `main`을 루트로 보고, `entry_points`로 좁힐 수 있게 합니다. 스킬에도 적습니다
 - **`dart analyze`의 `unused_element`를 다시 만들지 않습니다.** 그것은 라이브러리 안의 지역 판정이고 이 도구는 프로젝트 전역 도달성입니다. 차이를 README에 적습니다

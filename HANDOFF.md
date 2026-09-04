@@ -8,19 +8,22 @@
 
 Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `docs/PRD.md` — 특히 "영구 무료 약속" 절.
 
-## 현재 상태 — 계획만 있고 코드는 없다
+## 현재 상태 — Phase 0 완료
 
-- 브랜치 `feature/phase-0-analyzer-validation`이 만들어져 있으나 **커밋은 초안 하나뿐**(`41da5ea docs: 프로젝트 계획 초안`). Phase 0은 착수되지 않았다
-- 이 파일과 `AGENTS.md` · `CLAUDE.md` · `.gitignore`(`.serena/`, `asdf-dart.*/`)는 2026-09-04에 다른 세션(cartograph 쪽)이 써 넣었고 **아직 커밋되지 않았다.** 첫 작업 커밋에 `docs:`로 함께 넣으면 된다
-- 저장소 루트에 `asdf-dart.*` 디렉터리가 보이면 다른 세션의 SDK 설치 잔재다. `.gitignore`에 넣어 두었다
+- 작업 브랜치: `feature/phase-0-analyzer-validation`
+- `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
+- 결정은 `docs/DECISION-analyzer.md`: 버전 고정, 정점 ID, part·생성 코드, 조건부 구성, 캐시 필요성을 수치와 함께 기록했다
+- 도그푸딩 대상은 Flutter `navigation_and_routing`, `path_provider` 두 패키지, Invoice Ninja다
+- 제품 코드는 아직 없다. 다음은 Phase 1 골격이다
 
 ## 다음 할 일 (순서대로)
 
-1. **Dart SDK 확보.** `dart --version`. 없으면 `asdf`/`fvm`
-2. **도그푸딩 대상 클론** — 바탕화면에 Flutter 프로젝트가 **없다.** `flutter/samples`의 앱 하나, `flutter/packages`의 MethodChannel 플러그인 하나(isthmus의 첫 대상), 50k LoC 넘는 오픈소스 앱 하나(`docs/PLAN.md` 0.1)
-3. **analyzer 스크립트**(`docs/PLAN.md` 0.2) — `AnalysisContextCollection`으로 앱을 열고 선언 수 · 참조 수 · 실행 시간. 확인할 것: `Element` 식별자의 안정성, `part` 귀속, `.g.dart` 판별, 조건부 import, 캐시 없이 견딜 만한 속도인지, 14.x API가 예제와 얼마나 다른지
-4. `docs/DECISION-analyzer.md`에 결과: 정점 ID 규칙, 생성 코드 판별, 캐시 필요 여부(측정값), 고정할 `analyzer` 버전. `docs/PLAN.md` 진행표 갱신
-5. Phase 1 골격. `lib/src/index/`가 analyzer를 import하는 유일한 곳이어야 한다
+1. Dart 패키지 골격과 `lib/src/{core,index,analysis,export,cli}/`를 만든다
+2. analyzer 14.3.0을 정확히 고정하고 `lib/src/index/` 밖에서 import하지 못하게 한다
+3. 모듈 경계 이유를 `lib/AGENTS.md`, 테스트 규칙을 `test/AGENTS.md`에 쓴다
+4. 테스트 먼저 `CodeGraph` · `GraphNode` · `GraphEdge` · `EdgeKind.impliesUsage`를 만든다
+5. 종료 코드 `0/1/2/64` 계약과 빌드된 바이너리 검증 스크립트를 첫 제품 커밋에 넣는다
+6. 캐시 구현 전에도 교체할 수 있도록 core에 fact-cache 경계만 둔다
 
 ## 미리 알아 둘 것
 
@@ -30,4 +33,8 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 
 ## 효과가 있었던 / 없었던 방식
 
-아직 없다. `../cartograph/HANDOFF.md`의 두 절이 그대로 적용된다 — 리뷰 주장은 코드로 확인, 테스트는 일부러 부숴서 확인, 오탐의 유일한 원천은 실제 프로젝트 도그푸딩.
+- fixture에서 테스트를 먼저 실패시켜 `part`, 제외된 생성 파일, 조건부 export, 익명 extension 충돌을 고정한 뒤 실제 저장소로 갔다
+- 프로젝트가 제외한 파일을 전부 되살리면 대형 앱 진단이 317개로 오염됐다. 정상 analyzed files에 생성 suffix만 합치자 20개로 줄었다
+- 대상 저장소가 고정한 Flutter 버전을 맞춰야 `pub get`이 잠금 파일을 바꾸지 않는다. Invoice Ninja는 Flutter 3.44.1에서 전후 해시가 같았다
+- LocalSend·Hiddify는 50k 미달, Ente·FlClash는 스택 미달이었다. AppFlowy는 전용 Rust 생성물이 없어 0진단 재현 비용이 과도했다
+- analyzer 14.3.0은 Invoice Ninja의 기준 analyzer보다 새로워 프로젝트 자체 분석 0 issues와 달리 진단 20개를 냈다. 참조 정확성 기준값과 성능 관찰을 구분해야 한다

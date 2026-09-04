@@ -2,6 +2,9 @@
 
 Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [cartograph](../cartograph)(Swift)의 자매 프로젝트다.
 
+**MIT 라이선스이며 상업적 사용을 포함해 영구 무료다.** 유료 티어 · 라이선스 키 ·
+좌석 수 · LoC 제한 · 텔레메트리 · 계정 로그인은 영원히 없다.
+
 이름은 **Dart** + cartograph.
 
 ## 무엇을 하려는가
@@ -19,13 +22,15 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**계획 단계.** 코드는 없다. 시작하려면 [`CLAUDE.md`](CLAUDE.md) 를 읽고 [`docs/PLAN.md`](docs/PLAN.md) 의 Phase 0 부터 진행한다.
+**Phase 0 완료.** 제품 코드는 아직 없고 analyzer 원천 검증 실험만 있다.
+다음 작업은 [`docs/PLAN.md`](docs/PLAN.md)의 Phase 1 골격이다.
 
 | 문서 | 내용 |
 |---|---|
 | [`docs/PRD.md`](docs/PRD.md) | 무엇을 · 누구를 위해 · 어디까지 · 무엇을 하지 않을지 |
 | [`docs/PLAN.md`](docs/PLAN.md) | 단계별 계획 |
 | [`docs/RESEARCH.md`](docs/RESEARCH.md) | 확인된 사실 · 확인되지 않은 주장 · 출처 |
+| [`docs/DECISION-analyzer.md`](docs/DECISION-analyzer.md) | analyzer 버전 · 정점 ID · 생성 코드 · 캐시 결정 |
 
 ## 라이선스
 

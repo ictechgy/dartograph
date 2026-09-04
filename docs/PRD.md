@@ -41,12 +41,12 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 - 베이스라인, `--since`, 종료 코드 계약, 리포트 형식 `json` · `github-actions` · `sarif` · IDE 클릭용 텍스트
 - `skill` — 에이전트용 스킬 설치
 - 오탐 코퍼스 + 양방향 검증 스크립트
+- 내용 해시와 분석기 신원을 키로 쓰는 해석 결과 캐시
 
 ### 나중에 (v0.2+)
 
 - `rules`(레이어 YAML — Flutter 의 `presentation/domain/data` 관례가 명확해 수요가 있다), `metrics`
 - 멀티 패키지(melos 워크스페이스) 지원
-- 해석 결과 캐시(측정 후)
 
 ### 하지 않는 것
 
@@ -59,7 +59,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 ### 원천: `package:analyzer`
 
 - 배포자 `tools.dart.dev`(Dart 팀), 2026-09-04 기준 14.3.0 이 이틀 전 발행. 활발하다
-- `AnalysisContextCollection` 으로 패키지를 열고, 각 파일의 **resolved unit** 에서 요소(`Element`)와 참조를 뽑는다. 요소는 안정된 식별자를 가지므로(라이브러리 URI + 이름 경로) 그래프 정점 ID 로 쓴다
+- `AnalysisContextCollection` 으로 패키지를 열고, 각 파일의 **resolved unit** 에서 요소(`Element`)와 참조를 뽑는다. 이름 있는 요소는 라이브러리 URI + 이름 경로를 정점 ID 로 쓴다. 이름 없는 extension은 선언 source URI + canonical offset을 보조키로 쓰고, `test/` 같은 비패키지 파일은 프로젝트 상대 URI로 정규화한다
 - **한계를 처음부터 적는다**: analyzer 는 파일로 남는 산출물이 없어 매 실행 해석한다. 조건부 import(`if (dart.library.io)`) 는 한 구성만 본다. `dart:mirrors` 는 Flutter 에 없으므로 리플렉션 문제는 Swift/Kotlin 보다 훨씬 작다 — 이것이 Dart 의 큰 이점이다
 
 ### 보존 규칙
