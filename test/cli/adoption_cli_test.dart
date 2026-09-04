@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/changed_files.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
@@ -203,6 +204,62 @@ void main() {
     );
   });
 
+  test('dead explain rejects baseline and since before indexing', () async {
+    for (final scopedOption in [
+      ['--baseline', p.join(directory.path, 'baseline.json')],
+      ['--since', 'HEAD'],
+    ]) {
+      var indexedPackage = false;
+
+      expect(
+        await runDartograph(
+          [
+            'dead',
+            '--explain',
+            'package:app/main.dart::main',
+            '--format',
+            'json',
+            ...scopedOption,
+            directory.path,
+          ],
+          output: StringBuffer(),
+          error: StringBuffer(),
+          indexPackage: (_) async {
+            indexedPackage = true;
+            return indexed;
+          },
+        ),
+        ExitStatus.usage.code,
+      );
+      expect(indexedPackage, isFalse);
+    }
+  });
+
+  test('invalid baselines have a specific path-free diagnostic', () async {
+    final baseline = File(p.join(directory.path, 'invalid-baseline.json'));
+    await baseline.writeAsString('{}');
+    for (final arguments in [
+      ['dead', '--format', 'json', '--baseline', baseline.path, directory.path],
+      ['query', 'dead', '--baseline', baseline.path, directory.path],
+    ]) {
+      final errors = StringBuffer();
+
+      expect(
+        await runDartograph(
+          arguments,
+          error: errors,
+          indexPackage: (_) async => indexed,
+        ),
+        ExitStatus.failure.code,
+      );
+      expect(
+        errors.toString(),
+        'Baseline is invalid: create it with dartograph baseline --write.\n',
+      );
+      expect(errors.toString(), isNot(contains(baseline.path)));
+    }
+  });
+
   test('since failures use the documented analysis-failure exit', () async {
     final errors = StringBuffer();
     expect(
@@ -210,13 +267,14 @@ void main() {
         ['dead', '--format', 'json', '--since', 'missing', directory.path],
         error: errors,
         indexPackage: (_) async => indexed,
-        changedFilesSince: (_, _) => throw StateError('missing ref'),
+        changedFilesSince: (_, _) =>
+            ChangedFiles.since('missing', directory.path),
       ),
       ExitStatus.failure.code,
     );
     expect(
       errors.toString(),
-      'Analysis failed: unable to index the package.\n',
+      'Changed files could not be computed. In CI, fetch full Git history.\n',
     );
   });
 

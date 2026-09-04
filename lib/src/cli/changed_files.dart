@@ -3,6 +3,12 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+/// Git 기준점이나 변경 파일 집합을 신뢰할 수 있게 계산하지 못했다.
+final class ChangedFilesException implements Exception {
+  /// 호출자가 경로나 Git stderr를 노출하지 않는 진단으로 바꾸도록 표식만 남긴다.
+  const ChangedFilesException();
+}
+
 /// Git 기준점과 현재 작업 상태 사이에서 바뀐 파일을 완전하게 모은다.
 abstract final class ChangedFiles {
   /// merge-base 이후 커밋, HEAD 대비 작업 트리, untracked 파일을 합친다.
@@ -17,7 +23,7 @@ abstract final class ChangedFiles {
       nulSeparated: false,
     );
     if (resolvedReference.length != 1) {
-      throw StateError('Git did not resolve exactly one reference.');
+      throw const ChangedFilesException();
     }
     final baseCommit = resolvedReference.single;
     final rootValues = await _run(
@@ -27,7 +33,7 @@ abstract final class ChangedFiles {
       nulSeparated: false,
     );
     if (rootValues.isEmpty) {
-      throw StateError('Git did not report a repository root.');
+      throw const ChangedFilesException();
     }
     final root = rootValues.single;
     final groups = await Future.wait([
@@ -72,12 +78,7 @@ abstract final class ChangedFiles {
       stderrEncoding: utf8,
     );
     if (process.exitCode != 0) {
-      final detail = (process.stderr as String).trim();
-      throw StateError(
-        'Could not list files changed since "$reference": '
-        '${detail.isEmpty ? 'git exited ${process.exitCode}' : detail}. '
-        'In CI, fetch full history.',
-      );
+      throw const ChangedFilesException();
     }
     final decoded = utf8.decode(process.stdout as List<int>);
     return decoded

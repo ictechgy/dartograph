@@ -63,7 +63,7 @@ void main() {
 
     await expectLater(
       ChangedFiles.since('--output=unexpected', repository.path),
-      throwsStateError,
+      throwsA(isA<ChangedFilesException>()),
     );
     expect(
       File(p.join(repository.path, 'unexpected...HEAD')).existsSync(),

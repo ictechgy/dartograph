@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:test/test.dart';
 
@@ -57,6 +59,28 @@ void main() {
       await runDartograph(const ['_failure'], error: StringBuffer()),
       ExitStatus.usage.code,
     );
+  });
+
+  test('skill install rejects an option-shaped destination', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-skill-usage.',
+    );
+    final previous = Directory.current;
+    try {
+      Directory.current = temporary;
+      expect(
+        await runDartograph(const [
+          'skill',
+          '--install',
+          '--force',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(Directory('${temporary.path}/--force').existsSync(), isFalse);
+    } finally {
+      Directory.current = previous;
+      await temporary.delete(recursive: true);
+    }
   });
 
   test('graph emits the selected format for a package', () async {

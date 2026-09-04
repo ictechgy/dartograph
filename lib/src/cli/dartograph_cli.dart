@@ -304,7 +304,7 @@ Future<int> _runQuery(
     final limitations = _limitations(indexed);
     final suppressedIds = <String>{};
     if (baselinePath != null) {
-      final baseline = await BaselineStore.read(File(baselinePath));
+      final baseline = await _readBaseline(File(baselinePath));
       final reachability = ReachabilityAnalyzer().analyze(
         indexed.graph.snapshot(),
         roots: indexed.retentionRoots,
@@ -327,6 +327,8 @@ Future<int> _runQuery(
     return document['status'] == 'notFound'
         ? ExitStatus.usage.code
         : ExitStatus.success.code;
+  } on _InvalidBaseline {
+    return _reportInvalidBaseline(error);
   } on StateError {
     return _reportAnalysisFailure(error);
   } on Exception {
@@ -344,7 +346,9 @@ Future<int> _runSkill(
     return ExitStatus.success.code;
   }
   final force = arguments.length == 3 && arguments[2] == '--force';
-  if ((arguments.length != 2 && !force) || arguments[0] != '--install') {
+  if ((arguments.length != 2 && !force) ||
+      arguments[0] != '--install' ||
+      arguments[1].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -467,7 +471,10 @@ Future<int> _runDead(
   }
   if (rootPath == null ||
       reportFormat == null ||
-      (explainId != null && reportFormat != ReportFormat.json)) {
+      (explainId != null &&
+          (reportFormat != ReportFormat.json ||
+              baselinePath != null ||
+              since != null))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -505,7 +512,7 @@ Future<int> _runDead(
     }
     var suppressedCount = 0;
     if (baselinePath != null) {
-      final filtered = (await BaselineStore.read(
+      final filtered = (await _readBaseline(
         File(baselinePath),
       )).filter(findings);
       findings = filtered.findings;
@@ -522,6 +529,13 @@ Future<int> _runDead(
     return findings.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
+  } on _InvalidBaseline {
+    return _reportInvalidBaseline(error);
+  } on ChangedFilesException {
+    error.writeln(
+      'Changed files could not be computed. In CI, fetch full Git history.',
+    );
+    return ExitStatus.failure.code;
   } on FileSystemException {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -612,6 +626,25 @@ Future<int> _runGraph(
 int _reportAnalysisFailure(StringSink error) {
   error.writeln('Analysis failed: unable to index the package.');
   return ExitStatus.failure.code;
+}
+
+Future<Baseline> _readBaseline(File file) async {
+  try {
+    return await BaselineStore.read(file);
+  } on FormatException {
+    throw const _InvalidBaseline();
+  }
+}
+
+int _reportInvalidBaseline(StringSink error) {
+  error.writeln(
+    'Baseline is invalid: create it with dartograph baseline --write.',
+  );
+  return ExitStatus.failure.code;
+}
+
+final class _InvalidBaseline implements Exception {
+  const _InvalidBaseline();
 }
 
 String _describeLimitation(
