@@ -72,3 +72,8 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 저장된다. 삭제해도 안전하며 다음 실행에서 다시 만들어진다. 캐시를 읽거나 쓸 수 없으면
 analyzer를 직접 실행한다. 대상 패키지뿐 아니라 package config가 가리키는 path/git/hosted
 의존 패키지의 `lib/` 내용도 키에 포함한다.
+
+미도달 finding이 확인한 보존 루트가 20개보다 많으면 `evidence`에는
+`retentionRootCount`, 결정적 앞 20개 `retentionRootsChecked`,
+`retentionRootsTruncated: true`가 들어간다. 대형 프로젝트에서 같은 전체 루트 목록을 모든
+finding에 반복하지 않기 위한 출력 계약이다.

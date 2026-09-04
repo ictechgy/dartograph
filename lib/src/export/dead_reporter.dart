@@ -54,9 +54,7 @@ abstract final class DeadReporter {
       output.writeln(
         '$position: warning: ${finding.kind} ${finding.id} — ${finding.reason}',
       );
-      output.writeln(
-        '    evidence: retentionRootsChecked=${finding.retentionRootsChecked.join(',')}',
-      );
+      output.writeln('    evidence: retentionRootsChecked=${_roots(finding)}');
       for (final limitation in finding.limitations) {
         output.writeln('    limitation: $limitation');
       }
@@ -82,7 +80,7 @@ abstract final class DeadReporter {
       final message =
           '${finding.kind} ${finding.id}: ${finding.reason}; '
           'evidence: retentionRootsChecked='
-          '${finding.retentionRootsChecked.join(',')}; limitations: '
+          '${_roots(finding)}; limitations: '
           '${finding.limitations.join(',')}';
       output.writeln(
         '::warning ${properties.join(',')},title=dartograph dead::${_message(message)}',
@@ -122,9 +120,7 @@ abstract final class DeadReporter {
               'text': '${finding.kind} ${finding.id}: ${finding.reason}',
             },
             'properties': {
-              'evidence': {
-                'retentionRootsChecked': finding.retentionRootsChecked,
-              },
+              'evidence': {...finding.retentionEvidence},
               'id': finding.id,
               'kind': finding.kind,
               'limitations': finding.limitations,
@@ -174,4 +170,10 @@ abstract final class DeadReporter {
       .replaceAll('%', '%25')
       .replaceAll('\r', '%0D')
       .replaceAll('\n', '%0A');
+
+  static String _roots(DeadFinding finding) {
+    final roots = finding.retentionRootsChecked;
+    if (roots.length <= 20) return roots.join(',');
+    return '${roots.take(20).join(',')},… (${roots.length} total)';
+  }
 }

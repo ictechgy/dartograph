@@ -74,4 +74,33 @@ void main() {
       expect(sarifText, contains(finding.id));
     },
   );
+
+  test('large retention-root evidence is bounded without hiding its count', () {
+    final large = DeadFinding(
+      id: finding.id,
+      kind: finding.kind,
+      source: finding.source,
+      reason: finding.reason,
+      retentionRootsChecked: [
+        for (var index = 0; index < 10000; index++)
+          'package:app/root.dart::root$index',
+      ],
+    );
+
+    for (final format in ReportFormat.values) {
+      expect(
+        DeadReporter.render(format, [large]).length,
+        lessThan(20000),
+        reason: format.name,
+      );
+    }
+    final document =
+        jsonDecode(DeadReporter.render(ReportFormat.json, [large]))
+            as Map<String, Object?>;
+    final findingJson = (document['findings']! as List).single as Map;
+    final evidence = findingJson['evidence'] as Map;
+    expect(evidence['retentionRootCount'], 10000);
+    expect(evidence['retentionRootsChecked'], hasLength(20));
+    expect(evidence['retentionRootsTruncated'], isTrue);
+  });
 }

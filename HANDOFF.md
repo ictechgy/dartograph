@@ -36,8 +36,10 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - package barrel 공개 API와 공개 멤버, exact `@override`, `bin`·`example` main, 테스트·생성 코드·plugin 진입점을 보존한다
 - 자기 분석은 dead 0건·cycles 0건이며 metrics JSON은 연속 실행에서 결정적이다
 - 실제 Flutter 도그푸딩: `navigation_and_routing` 121 nodes/238 edges/3 확인된 dead, `path_provider_platform_interface` 46/98/0, `path_provider_foundation` 143/272/0
+- Invoice Ninja `59fa2c8` 재검증: 50,857 nodes/210,633 edges, dead 2,017건; 상위 10건 손 검증에서 명백한 오탐 0, graph 55.8MB, 제한 후 dead JSON 4.19MB
+- Invoice Ninja 최초 dead 출력은 전체 retention root 반복 때문에 4.5GB였으나, count+20개 sample+truncated 계약으로 약 1,100배 줄였다
 - cache miss/hit self graph는 8.82초/3.97초였고 JSON SHA-256이 일치했다
-- 81개 테스트, 정적 분석, 오프라인 코퍼스, analyzer 경계, 컴파일 CLI, 격리 설치가 통과하며 라인 커버리지는 92.18%다
+- 82개 테스트, 정적 분석, 오프라인 코퍼스, analyzer 경계, 컴파일 CLI, 격리 설치가 통과하며 라인 커버리지는 92.23%다
 - `dart pub publish --dry-run`은 48KB 패키지에 경고 0건으로 통과했다
 - package/CLI/bridge 버전은 0.1.0으로 일치하고 CHANGELOG·CONTRIBUTING·SECURITY·설치 문서가 있다
 

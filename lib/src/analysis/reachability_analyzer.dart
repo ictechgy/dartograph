@@ -44,10 +44,14 @@ final class DeadFinding {
   /// 이 발견을 해석할 때 함께 보여야 하는 한계다.
   final List<String> limitations;
 
+  /// 큰 프로젝트에서도 출력 크기가 루트 수×finding 수로 폭증하지 않는 근거다.
+  Map<String, Object> get retentionEvidence =>
+      _retentionEvidence(retentionRootsChecked);
+
   /// 키와 목록 순서가 안정적인 JSON 값이다.
   Map<String, Object> toJson() => {
     'column': ?column,
-    'evidence': {'retentionRootsChecked': retentionRootsChecked},
+    'evidence': retentionEvidence,
     'id': id,
     'kind': kind,
     'limitations': limitations,
@@ -114,7 +118,7 @@ final class ReachabilityExplanation {
           'retentionReason': retentionReason!.name,
         }
       : {
-          'evidence': {'retentionRootsChecked': rootsChecked},
+          'evidence': _retentionEvidence(rootsChecked),
           'id': id,
           'limitations': limitations,
           'reachable': false,
@@ -290,4 +294,19 @@ final class _PathStep {
 
   final String? previous;
   final GraphEdge? edge;
+}
+
+const _maximumReportedRetentionRoots = 20;
+
+Map<String, Object> _retentionEvidence(List<String> roots) {
+  if (roots.length <= _maximumReportedRetentionRoots) {
+    return {'retentionRootsChecked': roots};
+  }
+  return {
+    'retentionRootCount': roots.length,
+    'retentionRootsChecked': roots
+        .take(_maximumReportedRetentionRoots)
+        .toList(growable: false),
+    'retentionRootsTruncated': true,
+  };
 }
