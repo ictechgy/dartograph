@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:convert';
 
+import '../analysis/reachability_analyzer.dart';
 import '../export/graph_exporter.dart';
 import '../index/analyzer_graph_index.dart';
 
@@ -45,14 +47,15 @@ Future<int> runDartograph(
     case '--version':
       stdoutSink.writeln('dartograph 0.1.0-dev');
       return ExitStatus.success.code;
-    // 분석 명령이 들어오기 전에도 빌드 산출물이 네 상태를 고정하도록 쓰는 계약 probe다.
-    case '_findings':
-      return ExitStatus.findings.code;
-    case '_failure':
-      stderrSink.writeln('Analysis failed: contract probe');
-      return ExitStatus.failure.code;
     case 'graph':
       return await _runGraph(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
+    case 'dead':
+      return await _runDead(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
@@ -61,6 +64,69 @@ Future<int> runDartograph(
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
+  }
+}
+
+Future<int> _runDead(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  String? explainId;
+  late String rootPath;
+  if (arguments.length == 3 &&
+      arguments[0] == '--format' &&
+      arguments[1] == 'json') {
+    rootPath = arguments[2];
+  } else if (arguments.length == 5 &&
+      arguments[0] == '--explain' &&
+      arguments[2] == '--format' &&
+      arguments[3] == 'json') {
+    explainId = arguments[1];
+    rootPath = arguments[4];
+  } else {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(rootPath);
+    final limitations = indexed.limitations.map(_describeLimitation).toList()
+      ..sort();
+    final result = ReachabilityAnalyzer().analyze(
+      indexed.graph.snapshot(),
+      roots: indexed.retentionRoots,
+      limitations: limitations,
+    );
+    if (explainId != null) {
+      final explanation = result.explain(explainId);
+      output.writeln(jsonEncode(explanation.toJson()));
+      return explanation.reachable
+          ? ExitStatus.success.code
+          : ExitStatus.findings.code;
+    }
+    final findings = [...result.deadDeclarations, ...result.deadFiles]
+      ..sort((a, b) {
+        final kindOrder = a.kind.compareTo(b.kind);
+        return kindOrder != 0 ? kindOrder : a.id.compareTo(b.id);
+      });
+    output.writeln(
+      jsonEncode({
+        'findings': findings.map((finding) => finding.toJson()).toList(),
+        'limitations': limitations,
+      }),
+    );
+    return findings.isEmpty
+        ? ExitStatus.success.code
+        : ExitStatus.findings.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
   }
 }
 
@@ -105,17 +171,27 @@ int _reportAnalysisFailure(StringSink error) {
   return ExitStatus.failure.code;
 }
 
-String _describeLimitation(AnalyzerLimitation limitation) =>
-    switch (limitation) {
-      AnalyzerLimitation.conditionalConfiguration =>
-        'conditional imports and exports use one analyzer configuration',
-    };
+String _describeLimitation(
+  AnalyzerLimitation limitation,
+) => switch (limitation) {
+  AnalyzerLimitation.conditionalConfiguration =>
+    'conditional imports and exports use one analyzer configuration',
+  AnalyzerLimitation.generatedCodeRetention =>
+    'generated declarations are conservative retention roots',
+  AnalyzerLimitation.testCodeRetention =>
+    'tests and visibleForTesting declarations are conservative retention roots',
+  AnalyzerLimitation.ambiguousPluginEntryPoint =>
+    'multiple declarations matched a plugin entry point; all were retained',
+  AnalyzerLimitation.unresolvedPluginEntryPoint =>
+    'a declared plugin entry point was not found in the graph',
+};
 
 const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid> <package-root>
+       dartograph dead [--explain <symbol-id>] --format json <package-root>
 
 Exit codes:
   0   success

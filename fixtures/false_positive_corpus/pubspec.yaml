@@ -1,0 +1,15 @@
+name: false_positive_corpus
+environment:
+  sdk: ^3.11.0
+dependencies:
+  meta: ^1.17.0
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: example.corpus
+        pluginClass: CorpusPlugin
+      linux:
+        pluginClass: CorpusPluginLinux
+      web:
+        dartPluginClass: CorpusWebPlugin

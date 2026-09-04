@@ -20,13 +20,27 @@ void main() {
   });
 
   test('findings return exit code 1', () async {
-    final result = await Process.run(dart, ['run', 'dartograph', '_findings']);
+    final result = await Process.run(dart, [
+      'run',
+      'dartograph',
+      'dead',
+      '--format',
+      'json',
+      'fixtures/false_positive_corpus',
+    ]);
 
     expect(result.exitCode, 1);
   });
 
   test('analysis failure returns exit code 2', () async {
-    final result = await Process.run(dart, ['run', 'dartograph', '_failure']);
+    final result = await Process.run(dart, [
+      'run',
+      'dartograph',
+      'dead',
+      '--format',
+      'json',
+      'fixtures/does-not-exist',
+    ]);
 
     expect(result.exitCode, 2);
     expect(result.stderr, contains('Analysis failed:'));

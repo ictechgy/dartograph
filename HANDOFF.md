@@ -8,7 +8,7 @@
 
 Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `docs/PRD.md` — 특히 "영구 무료 약속" 절.
 
-## 현재 상태 — Phase 1 완료
+## 현재 상태 — Phase 2 완료
 
 - 작업 브랜치: `feature/phase-0-analyzer-validation`
 - `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
@@ -16,17 +16,18 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - 도그푸딩 대상은 Flutter `navigation_and_routing`, `path_provider` 두 패키지, Invoice Ninja다
 - `CodeGraph`와 불변 `GraphSnapshot`, 캐시 경계, analyzer 14.3.0 어댑터가 있다
 - `graph --format dot|json|mermaid <package-root>`가 결정적인 출력을 낸다
-- `navigation_and_routing`에서 121 nodes · 233 edges를 만들었고 DOT 2회 SHA-256이 일치했다
-- 전체 제품 라인 커버리지는 Phase 1 끝 기준 96.31%다
+- `navigation_and_routing`에서 121 nodes · 238 edges를 만들었고 DOT 2회 SHA-256이 일치했다
+- `dead --format json`과 `dead --explain`이 보존 경로와 미도달 근거를 낸다
+- clean-copy 오탐 코퍼스가 실제 `package:meta`, 정확한 pragma, 다중 plugin class, 생성 코드, 다중 main을 검증한다
+- 전체 제품 라인 커버리지는 Phase 2 끝 기준 95.58%다
 
 ## 다음 할 일 (순서대로)
 
-1. `fixtures/false_positive_corpus/`를 실제로 분석 가능한 Dart/Flutter 패키지로 만든다
-2. 다중 `main`, `@visibleForTesting`, json/freezed, `@pragma`, route, plugin pubspec, extension, mixin, part를 먼저 재현한다
-3. `ReachabilityAnalyzer`를 `EdgeKind.impliesUsage` 하나의 술어 위에 구현한다
-4. `dead`와 `dead --explain`이 삭제 판정 없이 도달성 근거를 출력하게 한다
-5. 파일 수준 미사용과 코퍼스 양방향 검증 스크립트를 추가한다
-6. 실제 분석 명령이 exit 1/2를 만들면 임시 `_findings`·`_failure` 계약 probe를 제거한다
+1. 결정적 baseline 파일 write/read와 억제 계약을 만든다
+2. `--since`가 ref 대비 변경, 워크트리 변경, untracked 파일을 NUL 안전하게 합치게 한다
+3. text · JSON · GitHub Actions · SARIF 리포터가 같은 finding 근거와 limitation을 보존하게 한다
+4. `pub global activate --source path`로 설치한 바이너리의 CLI 계약을 검증한다
+5. 전체 analyze/test/coverage/corpus/CLI 게이트를 유지한다
 
 ## 미리 알아 둘 것
 

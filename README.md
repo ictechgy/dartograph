@@ -22,8 +22,8 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**Phase 1 완료.** analyzer 기반 그래프와 결정적인 DOT · JSON · Mermaid 출력이
-실제 Flutter 샘플에서 동작한다. 다음은 보존 규칙과 `dead` 분석이다.
+**Phase 2 완료.** analyzer 그래프 위에서 보존 근거를 추적하고 `dead --explain`으로
+도달 경로 또는 미도달 근거를 출력한다. 다음은 기존 코드베이스 도입 경로다.
 
 | 문서 | 내용 |
 |---|---|

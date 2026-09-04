@@ -1,0 +1,281 @@
+import 'dart:collection';
+
+import '../core/graph_edge.dart';
+import '../core/graph_snapshot.dart';
+import '../core/retention_reason.dart';
+
+export '../core/retention_reason.dart';
+
+/// 도달하지 않는 선언이나 파일을 뒷받침하는 비삭제 판정이다.
+final class DeadFinding {
+  /// 보고 대상과 근거를 보존한다.
+  const DeadFinding({
+    required this.id,
+    required this.kind,
+    required this.source,
+    required this.reason,
+    required this.retentionRootsChecked,
+    this.limitations = const [],
+  });
+
+  /// 그래프 정점 ID다.
+  final String id;
+
+  /// `declaration` 또는 `file`이다.
+  final String kind;
+
+  /// 사용자가 확인할 프로젝트 상대 소스다.
+  final String source;
+
+  /// 발견을 만든 관찰이며 삭제 권고가 아니다.
+  final String reason;
+
+  /// 도달성을 시작할 때 실제로 확인한 루트다.
+  final List<String> retentionRootsChecked;
+
+  /// 이 발견을 해석할 때 함께 보여야 하는 한계다.
+  final List<String> limitations;
+
+  /// 키와 목록 순서가 안정적인 JSON 값이다.
+  Map<String, Object> toJson() => {
+    'evidence': {'retentionRootsChecked': retentionRootsChecked},
+    'id': id,
+    'kind': kind,
+    'limitations': limitations,
+    'reason': reason,
+    'source': source,
+  };
+}
+
+/// 한 정점이 보존되는 경로 또는 미도달 근거다.
+final class ReachabilityExplanation {
+  /// 설명에 필요한 모든 근거를 보존한다.
+  const ReachabilityExplanation({
+    required this.id,
+    required this.reachable,
+    required this.reason,
+    required this.rootsChecked,
+    required this.path,
+    required this.evidence,
+    required this.retentionReason,
+    required this.limitations,
+  });
+
+  /// 설명 대상 ID다.
+  final String id;
+
+  /// 보존 루트에서 도달했는지 나타낸다.
+  final bool reachable;
+
+  /// 미도달일 때의 관찰이다.
+  final String? reason;
+
+  /// 미도달 판정에서 확인한 루트다.
+  final List<String> rootsChecked;
+
+  /// 루트부터 대상까지의 결정적 최단 경로다.
+  final List<String> path;
+
+  /// 경로를 구성한 간선이다.
+  final List<GraphEdge> evidence;
+
+  /// 경로 시작점의 보존 이유다.
+  final RetentionReason? retentionReason;
+
+  /// 설명에 적용되는 분석 한계다.
+  final List<String> limitations;
+
+  /// 소비자가 분기하기 쉬운 결정적 JSON 값이다.
+  Map<String, Object?> toJson() => reachable
+      ? {
+          'evidence': evidence
+              .map(
+                (edge) => {
+                  'from': edge.sourceId,
+                  'kind': edge.kind.name,
+                  'to': edge.targetId,
+                },
+              )
+              .toList(),
+          'id': id,
+          'limitations': limitations,
+          'path': path,
+          'reachable': true,
+          'retentionReason': retentionReason!.name,
+        }
+      : {
+          'evidence': {'retentionRootsChecked': rootsChecked},
+          'id': id,
+          'limitations': limitations,
+          'reachable': false,
+          'reason': reason,
+        };
+}
+
+/// 한 번의 도달성 순회에서 나온 선언·파일 발견과 설명 자료다.
+final class ReachabilityResult {
+  ReachabilityResult._({
+    required this.reachableIds,
+    required this.deadDeclarations,
+    required this.deadFiles,
+    required Map<String, _PathStep> paths,
+    required Map<String, RetentionReason> roots,
+    required this.limitations,
+  }) : _paths = paths,
+       _roots = roots;
+
+  /// 정렬된 도달 선언 ID다.
+  final List<String> reachableIds;
+
+  /// 정렬된 미도달 선언 발견이다.
+  final List<DeadFinding> deadDeclarations;
+
+  /// 정렬된 미사용 파일 발견이다.
+  final List<DeadFinding> deadFiles;
+
+  final Map<String, _PathStep> _paths;
+  final Map<String, RetentionReason> _roots;
+
+  /// 전체 결과에 적용되는 분석 한계다.
+  final List<String> limitations;
+
+  /// [id]의 보존 경로 또는 모든 루트에서 미도달한 근거를 돌려준다.
+  ReachabilityExplanation explain(String id) {
+    if (!_paths.containsKey(id)) {
+      return ReachabilityExplanation(
+        id: id,
+        reachable: false,
+        reason: 'unreachable from all retention roots',
+        rootsChecked: _roots.keys.toList(),
+        path: const [],
+        evidence: const [],
+        retentionReason: null,
+        limitations: limitations,
+      );
+    }
+    final ids = <String>[];
+    final edges = <GraphEdge>[];
+    String? current = id;
+    while (current != null) {
+      ids.add(current);
+      final step = _paths[current]!;
+      if (step.edge != null) edges.add(step.edge!);
+      current = step.previous;
+    }
+    return ReachabilityExplanation(
+      id: id,
+      reachable: true,
+      reason: null,
+      rootsChecked: const [],
+      path: ids.reversed.toList(),
+      evidence: edges.reversed.toList(),
+      retentionReason: _roots[ids.last],
+      limitations: limitations,
+    );
+  }
+}
+
+/// `EdgeKind.impliesUsage`만으로 전역 도달성을 계산한다.
+final class ReachabilityAnalyzer {
+  /// 보존 [roots]에서 그래프를 순회해 선언과 파일 발견을 만든다.
+  ReachabilityResult analyze(
+    GraphSnapshot graph, {
+    required Map<String, RetentionReason> roots,
+    List<String> limitations = const [],
+  }) {
+    final sortedRoots = SplayTreeMap<String, RetentionReason>.from(roots);
+    final outgoing = <String, List<GraphEdge>>{};
+    for (final edge in graph.edges.where((edge) => edge.kind.impliesUsage)) {
+      outgoing.putIfAbsent(edge.sourceId, () => []).add(edge);
+    }
+    final paths = <String, _PathStep>{};
+    final queue = Queue<String>();
+    final nodeIds = graph.nodes.map((node) => node.id).toSet();
+    for (final root in sortedRoots.keys.where(nodeIds.contains)) {
+      paths[root] = const _PathStep(null, null);
+      queue.add(root);
+    }
+    while (queue.isNotEmpty) {
+      final source = queue.removeFirst();
+      for (final edge in outgoing[source] ?? const []) {
+        if (paths.containsKey(edge.targetId)) continue;
+        paths[edge.targetId] = _PathStep(source, edge);
+        queue.add(edge.targetId);
+      }
+    }
+
+    final rootsChecked = sortedRoots.keys.toList();
+    final declarations = graph.nodes
+        .where((node) => node.id.contains('::'))
+        .where((node) => !paths.containsKey(node.id))
+        .where(
+          (node) => !paths.keys.any(
+            (reachable) => reachable.startsWith('${node.id}.'),
+          ),
+        )
+        .map(
+          (node) => DeadFinding(
+            id: node.id,
+            kind: 'declaration',
+            source: node.sourceUri ?? node.id.split('::').first,
+            reason: 'unreachable from all retention roots',
+            retentionRootsChecked: rootsChecked,
+            limitations: limitations,
+          ),
+        )
+        .toList();
+
+    final reachableLibraries = <String>{
+      for (final id in paths.keys) id.split('::').first,
+    };
+    final libraryQueue = Queue<String>.from(reachableLibraries);
+    while (libraryQueue.isNotEmpty) {
+      final library = libraryQueue.removeFirst();
+      for (final edge in outgoing[library] ?? const []) {
+        if (!edge.targetId.contains('::') &&
+            reachableLibraries.add(edge.targetId)) {
+          libraryQueue.add(edge.targetId);
+        }
+      }
+    }
+    final files = graph.nodes
+        .where((node) => !node.id.contains('::'))
+        .where((node) => node.id.startsWith('package:'))
+        .where((node) => !reachableLibraries.contains(node.id))
+        .map(
+          (node) => DeadFinding(
+            id: node.id,
+            kind: 'file',
+            source: _librarySource(node.id),
+            reason: 'no reachable declaration or reachable library import',
+            retentionRootsChecked: rootsChecked,
+            limitations: limitations,
+          ),
+        )
+        .toList();
+    return ReachabilityResult._(
+      reachableIds: (paths.keys.toList()..sort()),
+      deadDeclarations: declarations,
+      deadFiles: files,
+      paths: paths,
+      roots: sortedRoots,
+      limitations: List.unmodifiable(limitations),
+    );
+  }
+}
+
+String _librarySource(String id) {
+  final uri = Uri.parse(id);
+  final separator = uri.path.indexOf('/');
+  final relativePath = separator < 0
+      ? uri.path
+      : uri.path.substring(separator + 1);
+  return 'project:lib/$relativePath';
+}
+
+final class _PathStep {
+  const _PathStep(this.previous, this.edge);
+
+  final String? previous;
+  final GraphEdge? edge;
+}

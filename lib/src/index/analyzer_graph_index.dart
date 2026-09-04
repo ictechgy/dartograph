@@ -11,23 +11,43 @@ import 'package:path/path.dart' as p;
 import '../core/code_graph.dart';
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
+import '../core/retention_reason.dart';
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
   /// 조건부 import/export의 선택된 구성만 그래프에 들어간다.
   conditionalConfiguration,
+
+  /// 생성 선언을 보수적으로 모두 보존 루트로 사용한다.
+  generatedCodeRetention,
+
+  /// 테스트와 `visibleForTesting` 선언을 보수적으로 보존한다.
+  testCodeRetention,
+
+  /// 플러그인 클래스 이름이 여러 선언과 일치해 모두 보존했다.
+  ambiguousPluginEntryPoint,
+
+  /// pubspec의 플러그인 클래스와 일치하는 선언을 찾지 못했다.
+  unresolvedPluginEntryPoint,
 }
 
 /// analyzer 타입을 노출하지 않는 index 결과다.
 final class AnalyzerGraphResult {
   /// 완성된 그래프와 적용된 분석 한계를 보존한다.
-  const AnalyzerGraphResult({required this.graph, required this.limitations});
+  const AnalyzerGraphResult({
+    required this.graph,
+    required this.limitations,
+    this.retentionRoots = const {},
+  });
 
   /// resolved unit에서 얻은 선언과 관계다.
   final CodeGraph graph;
 
   /// 결과 해석 시 항상 알려야 하는 analyzer 한계다.
   final List<AnalyzerLimitation> limitations;
+
+  /// analyzer와 manifest에서 확인한 명시적 보존 루트다.
+  final Map<String, RetentionReason> retentionRoots;
 }
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
@@ -35,7 +55,10 @@ final class AnalyzerGraphIndex {
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
-    final collection = AnalysisContextCollection(includedPaths: [root]);
+    final collection = AnalysisContextCollection(
+      includedPaths: [root],
+      sdkPath: _dartSdkPath(),
+    );
     final units = <ResolvedUnitResult>[];
     try {
       for (final path in _dartFilesUnder(root, collection)) {
@@ -47,12 +70,13 @@ final class AnalyzerGraphIndex {
       }
 
       final graph = CodeGraph();
+      final retentionRoots = <String, RetentionReason>{};
       for (final unit in units) {
         final libraryId = _libraryId(unit.libraryElement.uri, root);
         if (!graph.containsNode(libraryId)) {
           graph.addNode(GraphNode(id: libraryId));
         }
-        unit.unit.accept(_DeclarationCollector(graph, root));
+        unit.unit.accept(_DeclarationCollector(graph, root, retentionRoots));
       }
       final libraries = <String, LibraryElement>{};
       for (final unit in units) {
@@ -94,6 +118,9 @@ final class AnalyzerGraphIndex {
       for (final unit in units) {
         unit.unit.accept(_RelationshipCollector(graph, root));
       }
+      final limitations = <AnalyzerLimitation>{
+        ..._addPluginRoots(root, graph, retentionRoots),
+      };
       final hasConditionalConfiguration = units.any(
         (unit) => unit.unit.directives.any(
           (directive) => switch (directive) {
@@ -103,11 +130,19 @@ final class AnalyzerGraphIndex {
           },
         ),
       );
+      if (hasConditionalConfiguration) {
+        limitations.add(AnalyzerLimitation.conditionalConfiguration);
+      }
+      if (retentionRoots.values.contains(RetentionReason.generatedCode)) {
+        limitations.add(AnalyzerLimitation.generatedCodeRetention);
+      }
+      if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
+        limitations.add(AnalyzerLimitation.testCodeRetention);
+      }
       return AnalyzerGraphResult(
         graph: graph,
-        limitations: hasConditionalConfiguration
-            ? const [AnalyzerLimitation.conditionalConfiguration]
-            : const [],
+        limitations: limitations.toList()..sort((a, b) => a.index - b.index),
+        retentionRoots: Map.unmodifiable(retentionRoots),
       );
     } finally {
       await collection.dispose();
@@ -115,11 +150,43 @@ final class AnalyzerGraphIndex {
   }
 }
 
+String? _dartSdkPath() {
+  final resolved = File(Platform.resolvedExecutable);
+  final candidates = <File>[resolved];
+  final path = Platform.environment['PATH'];
+  if (path != null) {
+    for (final directory in path.split(Platform.isWindows ? ';' : ':')) {
+      candidates.add(
+        File(p.join(directory, Platform.isWindows ? 'dart.exe' : 'dart')),
+      );
+    }
+  }
+  for (final candidate in candidates) {
+    if (!candidate.existsSync()) continue;
+    final executable = File(candidate.resolveSymbolicLinksSync());
+    final sdk = executable.parent.parent;
+    if (File(
+      p.join(
+        sdk.path,
+        'lib',
+        '_internal',
+        'sdk_library_metadata',
+        'lib',
+        'libraries.dart',
+      ),
+    ).existsSync()) {
+      return sdk.path;
+    }
+  }
+  return null;
+}
+
 final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
-  _DeclarationCollector(this.graph, this.root);
+  _DeclarationCollector(this.graph, this.root, this.retentionRoots);
 
   final CodeGraph graph;
   final String root;
+  final Map<String, RetentionReason> retentionRoots;
 
   @override
   void visitDeclaration(Declaration node) {
@@ -146,9 +213,84 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
           ),
         );
       }
+      final source = _sourcePathId(
+        element.firstFragment.libraryFragment!.source.fullName,
+        root,
+      );
+      final reason = _retentionReason(node, element, source);
+      if (reason != null) retentionRoots[id] = reason;
     }
     super.visitDeclaration(node);
   }
+}
+
+RetentionReason? _retentionReason(
+  Declaration node,
+  Element element,
+  String source,
+) {
+  if (element is TopLevelFunctionElement &&
+      element.displayName == 'main' &&
+      source.startsWith('project:lib/')) {
+    return RetentionReason.mainEntryPoint;
+  }
+  if (source.startsWith('project:test/') ||
+      source.startsWith('project:integration_test/')) {
+    return RetentionReason.visibleForTesting;
+  }
+  if (_isGenerated(source)) return RetentionReason.generatedCode;
+  for (final annotation in node.metadata) {
+    final name = annotation.name.name;
+    final annotationLibrary = annotation.element?.library?.uri.toString();
+    if (name == 'visibleForTesting' &&
+        annotationLibrary == 'package:meta/meta.dart') {
+      return RetentionReason.visibleForTesting;
+    }
+    final arguments = annotation.arguments?.arguments;
+    if (name == 'pragma' &&
+        annotationLibrary == 'dart:core' &&
+        arguments?.length == 1 &&
+        arguments!.single is SimpleStringLiteral &&
+        (arguments.single as SimpleStringLiteral).value == 'vm:entry-point') {
+      return RetentionReason.vmEntryPoint;
+    }
+  }
+  return null;
+}
+
+Set<AnalyzerLimitation> _addPluginRoots(
+  String root,
+  CodeGraph graph,
+  Map<String, RetentionReason> roots,
+) {
+  final pubspec = File(p.join(root, 'pubspec.yaml'));
+  if (!pubspec.existsSync()) return const {};
+  final matches = RegExp(
+    r'^\s*(?:pluginClass|dartPluginClass):\s*([A-Za-z_$][\w$]*)\s*$',
+    multiLine: true,
+  ).allMatches(pubspec.readAsStringSync());
+  final classNames = <String>{for (final match in matches) match.group(1)!};
+  final limitations = <AnalyzerLimitation>{};
+  for (final className in classNames) {
+    final candidates =
+        graph.nodes.keys.where((id) => id.endsWith('::$className')).toList()
+          ..sort();
+    if (candidates.isEmpty) {
+      limitations.add(AnalyzerLimitation.unresolvedPluginEntryPoint);
+      continue;
+    }
+    if (candidates.length > 1) {
+      limitations.add(AnalyzerLimitation.ambiguousPluginEntryPoint);
+    }
+    for (final candidate in candidates) {
+      roots[candidate] = RetentionReason.pluginEntryPoint;
+      final registration = '$candidate.registerWith';
+      if (graph.containsNode(registration)) {
+        roots[registration] = RetentionReason.pluginEntryPoint;
+      }
+    }
+  }
+  return limitations;
 }
 
 final class _RelationshipCollector extends GeneralizingAstVisitor<void> {

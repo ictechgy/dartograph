@@ -40,8 +40,8 @@ expect_status 0 "no arguments"
 expect_status 0 "help" --help
 expect_status 0 "short help" -h
 expect_status 0 "version" --version
-expect_status 1 "findings" _findings
-expect_status 2 "analysis failure" _failure
+expect_status 1 "findings" dead --format json fixtures/false_positive_corpus
+expect_status 2 "analysis failure" dead --format json fixtures/does-not-exist
 expect_status 64 "usage error" no-such-command
 
 if [[ "$FAILURES" -ne 0 ]]; then

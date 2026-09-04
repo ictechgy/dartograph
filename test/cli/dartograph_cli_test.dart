@@ -42,15 +42,15 @@ void main() {
     },
   );
 
-  test('contract probes exercise findings and failure outcomes', () async {
-    final error = StringBuffer();
-
-    expect(await runDartograph(const ['_findings']), ExitStatus.findings.code);
+  test('internal contract probes are not public commands', () async {
     expect(
-      await runDartograph(const ['_failure'], error: error),
-      ExitStatus.failure.code,
+      await runDartograph(const ['_findings'], error: StringBuffer()),
+      ExitStatus.usage.code,
     );
-    expect(error.toString(), contains('Analysis failed:'));
+    expect(
+      await runDartograph(const ['_failure'], error: StringBuffer()),
+      ExitStatus.usage.code,
+    );
   });
 
   test('graph emits the selected format for a package', () async {
