@@ -37,6 +37,7 @@ final class AnalyzerGraphResult {
   const AnalyzerGraphResult({
     required this.graph,
     required this.limitations,
+    this.limitationDetails = const [],
     this.retentionRoots = const {},
   });
 
@@ -45,6 +46,9 @@ final class AnalyzerGraphResult {
 
   /// 결과 해석 시 항상 알려야 하는 analyzer 한계다.
   final List<AnalyzerLimitation> limitations;
+
+  /// 프로젝트에서 실제로 센, 에이전트 응답용 분석 한계다.
+  final List<String> limitationDetails;
 
   /// analyzer와 manifest에서 확인한 명시적 보존 루트다.
   final Map<String, RetentionReason> retentionRoots;
@@ -142,6 +146,7 @@ final class AnalyzerGraphIndex {
       return AnalyzerGraphResult(
         graph: graph,
         limitations: limitations.toList()..sort((a, b) => a.index - b.index),
+        limitationDetails: _agentLimitations(root, units),
         retentionRoots: Map.unmodifiable(retentionRoots),
       );
     } finally {
@@ -149,6 +154,115 @@ final class AnalyzerGraphIndex {
     }
   }
 }
+
+List<String> _agentLimitations(String root, List<ResolvedUnitResult> units) {
+  final conditionalCount = units.fold<int>(0, (count, unit) {
+    return count +
+        unit.unit.directives
+            .where(
+              (directive) => switch (directive) {
+                ImportDirective() => directive.configurations.isNotEmpty,
+                ExportDirective() => directive.configurations.isNotEmpty,
+                _ => false,
+              },
+            )
+            .length;
+  });
+  final routeTables = <String>{};
+  final routeUses = <String>[];
+  for (final unit in units) {
+    unit.unit.accept(_RouteCollector(routeTables, routeUses));
+  }
+  final unmatchedRoutes = routeUses
+      .where((route) => !routeTables.contains(route))
+      .length;
+  final staleGenerated = _staleGeneratedCount(root);
+  return [
+    if (conditionalCount > 0)
+      'conditional-imports: $conditionalCount directive(s) use only the analyzer-selected configuration',
+    if (unmatchedRoutes > 0)
+      'string-routes: $unmatchedRoutes named route use(s) have no matching route table entry',
+    if (staleGenerated > 0)
+      'generated-code-staleness: $staleGenerated generated file(s) are older than their source',
+  ];
+}
+
+final class _RouteCollector extends RecursiveAstVisitor<void> {
+  _RouteCollector(this.tables, this.uses);
+
+  final Set<String> tables;
+  final List<String> uses;
+
+  @override
+  void visitMapLiteralEntry(MapLiteralEntry node) {
+    final key = node.key;
+    final map = node.parent;
+    final owner = map?.parent;
+    final isRouteTable =
+        (owner is VariableDeclaration && owner.name.lexeme == 'routes') ||
+        (owner is NamedArgument && owner.name.lexeme == 'routes');
+    if (isRouteTable && key is SimpleStringLiteral) tables.add(key.value);
+    super.visitMapLiteralEntry(node);
+  }
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (_namedNavigationMethods.contains(node.methodName.name)) {
+      final arguments = node.argumentList.arguments;
+      final target = node.target;
+      final staticNavigator =
+          target is SimpleIdentifier && target.name == 'Navigator';
+      final routeIndex = staticNavigator ? 1 : 0;
+      if (arguments.length > routeIndex &&
+          arguments[routeIndex] is SimpleStringLiteral) {
+        uses.add((arguments[routeIndex] as SimpleStringLiteral).value);
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+int _staleGeneratedCount(String root) {
+  var count = 0;
+  for (final entity in _projectFiles(Directory(root))) {
+    if (!_isGenerated(entity.path)) continue;
+    final suffix = RegExp(r'\.(g|freezed|pb)\.dart$').firstMatch(entity.path);
+    if (suffix == null) continue;
+    final source = File(
+      entity.path.replaceRange(suffix.start, suffix.end, '.dart'),
+    );
+    if (source.existsSync() &&
+        source.lastModifiedSync().isAfter(entity.lastModifiedSync())) {
+      count++;
+    }
+  }
+  return count;
+}
+
+Iterable<File> _projectFiles(Directory directory) sync* {
+  for (final entity in directory.listSync(followLinks: false)) {
+    if (entity is Directory) {
+      if (_ignoredProjectDirectories.contains(p.basename(entity.path))) {
+        continue;
+      }
+      yield* _projectFiles(entity);
+    } else if (entity is File) {
+      yield entity;
+    }
+  }
+}
+
+const _ignoredProjectDirectories = {'.dart_tool', '.git', 'build'};
+const _namedNavigationMethods = {
+  'popAndPushNamed',
+  'pushNamed',
+  'pushNamedAndRemoveUntil',
+  'pushReplacementNamed',
+  'restorablePopAndPushNamed',
+  'restorablePushNamed',
+  'restorablePushNamedAndRemoveUntil',
+  'restorablePushReplacementNamed',
+};
 
 String? _dartSdkPath() {
   final resolved = File(Platform.resolvedExecutable);

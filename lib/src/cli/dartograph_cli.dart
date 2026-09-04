@@ -5,9 +5,13 @@ import 'package:path/path.dart' as p;
 
 import '../analysis/baseline.dart';
 import '../analysis/reachability_analyzer.dart';
+import '../analysis/symbol_query.dart';
+import '../export/bridge_exporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../index/analyzer_graph_index.dart';
+import '../index/bridge_index.dart';
+import 'agent_skill.dart';
 import 'changed_files.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
@@ -44,6 +48,7 @@ Future<int> runDartograph(
   StringSink? error,
   IndexPackage? indexPackage,
   ChangedFilesSince? changedFilesSince,
+  DateTime Function()? now,
 }) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
@@ -79,10 +84,163 @@ Future<int> runDartograph(
         indexPackage ?? AnalyzerGraphIndex().index,
         changedFilesSince ?? ChangedFiles.since,
       );
+    case 'query':
+      return await _runQuery(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
+    case 'skill':
+      return await _runSkill(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+      );
+    case 'bridges':
+      return await _runBridges(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        now ?? DateTime.now,
+      );
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
   }
+}
+
+Future<int> _runQuery(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  String? baselinePath;
+  late final String requested;
+  late final String rootPath;
+  if (arguments.length == 2) {
+    requested = arguments[0];
+    rootPath = arguments[1];
+  } else if (arguments.length == 4 && arguments[1] == '--baseline') {
+    requested = arguments[0];
+    baselinePath = arguments[2];
+    rootPath = arguments[3];
+  } else {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(rootPath);
+    final limitations = _limitations(indexed);
+    final suppressedIds = <String>{};
+    if (baselinePath != null) {
+      final baseline = await BaselineStore.read(File(baselinePath));
+      final reachability = ReachabilityAnalyzer().analyze(
+        indexed.graph.snapshot(),
+        roots: indexed.retentionRoots,
+        limitations: limitations,
+      );
+      for (final finding in reachability.deadDeclarations) {
+        if (baseline.filter([finding]).suppressedCount == 1) {
+          suppressedIds.add(finding.id);
+        }
+      }
+    }
+    final document = querySymbol(
+      graph: indexed.graph.snapshot(),
+      roots: indexed.retentionRoots,
+      requested: requested,
+      limitations: limitations,
+      suppressedIds: suppressedIds,
+    );
+    output.write(encodeSymbolQueryDocument(document));
+    return document['status'] == 'notFound'
+        ? ExitStatus.usage.code
+        : ExitStatus.success.code;
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+Future<int> _runSkill(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  if (arguments.isEmpty) {
+    output.write(agentSkillMarkdown);
+    return ExitStatus.success.code;
+  }
+  final force = arguments.length == 3 && arguments[2] == '--force';
+  if ((arguments.length != 2 && !force) || arguments[0] != '--install') {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final directory = Directory(p.join(arguments[1], 'dartograph'));
+    await directory.create(recursive: true);
+    final skill = File(p.join(directory.path, 'SKILL.md'));
+    if (await skill.exists() && !force) {
+      error.writeln('Skill already exists. Pass --force to overwrite it.');
+      return ExitStatus.usage.code;
+    }
+    await skill.writeAsString(agentSkillMarkdown);
+    output.writeln('Installed dartograph skill.');
+    return ExitStatus.success.code;
+  } on FileSystemException {
+    error.writeln(
+      'Skill installation failed: check the destination permissions.',
+    );
+    return ExitStatus.failure.code;
+  }
+}
+
+Future<int> _runBridges(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  DateTime Function() now,
+) async {
+  if (arguments.length != 3 ||
+      arguments[0] != '--format' ||
+      arguments[1] != 'json') {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final root = Directory(arguments[2]).absolute.resolveSymbolicLinksSync();
+    final indexed = indexBridges(root);
+    output.write(
+      exportBridgeFacts(
+        project: root,
+        generatedAt: now(),
+        facts: indexed.facts,
+        limitations: indexed.limitations,
+      ),
+    );
+    return ExitStatus.success.code;
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+List<String> _limitations(AnalyzerGraphResult result) {
+  final details = [...result.limitationDetails];
+  for (final limitation in result.limitations) {
+    if (limitation == AnalyzerLimitation.conditionalConfiguration &&
+        details.any((item) => item.startsWith('conditional-imports:'))) {
+      continue;
+    }
+    details.add(_describeLimitation(limitation));
+  }
+  return details.toSet().toList()..sort();
 }
 
 Future<int> _runDead(
@@ -143,8 +301,7 @@ Future<int> _runDead(
   }
   try {
     final indexed = await indexPackage(rootPath);
-    final limitations = indexed.limitations.map(_describeLimitation).toList()
-      ..sort();
+    final limitations = _limitations(indexed);
     final result = ReachabilityAnalyzer().analyze(
       indexed.graph.snapshot(),
       roots: indexed.retentionRoots,
@@ -214,8 +371,7 @@ Future<int> _runBaseline(
   }
   try {
     final indexed = await indexPackage(arguments[2]);
-    final limitations = indexed.limitations.map(_describeLimitation).toList()
-      ..sort();
+    final limitations = _limitations(indexed);
     final result = ReachabilityAnalyzer().analyze(
       indexed.graph.snapshot(),
       roots: indexed.retentionRoots,
@@ -260,7 +416,7 @@ Future<int> _runGraph(
   }
   try {
     final result = await indexPackage(arguments[2]);
-    final limitations = result.limitations.map(_describeLimitation);
+    final limitations = _limitations(result);
     final snapshot = result.graph.snapshot();
     output.write(switch (format) {
       'dot' => GraphExporter.dot(snapshot, limitations: limitations),
@@ -306,6 +462,9 @@ Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid> <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
+       dartograph skill [--install <skills-directory> [--force]]
+       dartograph bridges --format json <package-root>
 
 Exit codes:
   0   success

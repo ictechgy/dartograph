@@ -25,6 +25,29 @@ void main() {
     );
     expect(sourceFixture.existsSync(), isTrue);
     await _copyFixture(sourceFixture, fixtureDirectory);
+    await File('${fixtureDirectory.path}/lib/routes.dart').writeAsString('''
+void navigate(dynamic context, dynamic navigator) {
+  Navigator.pushNamed(context, '/missing');
+  navigator.pushNamed('/known');
+  Navigator.pushNamed(context, '/inline');
+}
+final routes = {'/known': Object()};
+final app = MaterialApp(routes: {'/inline': Object()});
+''');
+    final generated = File('${fixtureDirectory.path}/lib/model.g.dart');
+    final source = File('${fixtureDirectory.path}/lib/model.dart');
+    await source.writeAsString('class ModelSource {}\n');
+    final old = DateTime.utc(2020);
+    await generated.setLastModified(old);
+    await source.setLastModified(old.add(const Duration(days: 1)));
+    final ignoredDirectory = Directory('${fixtureDirectory.path}/.dart_tool')
+      ..createSync();
+    final ignoredGenerated = File('${ignoredDirectory.path}/noise.g.dart')
+      ..writeAsStringSync('// generated');
+    final ignoredSource = File('${ignoredDirectory.path}/noise.dart')
+      ..writeAsStringSync('class Noise {}');
+    await ignoredGenerated.setLastModified(old);
+    await ignoredSource.setLastModified(old.add(const Duration(days: 1)));
     final copiedNames = await fixtureDirectory
         .list(recursive: true)
         .map((entity) => entity.uri.pathSegments.last)
@@ -133,6 +156,14 @@ void main() {
     expect(
       result.limitations,
       contains(AnalyzerLimitation.conditionalConfiguration),
+    );
+    expect(
+      result.limitationDetails,
+      containsAll(const [
+        'conditional-imports: 1 directive(s) use only the analyzer-selected configuration',
+        'string-routes: 1 named route use(s) have no matching route table entry',
+        'generated-code-staleness: 1 generated file(s) are older than their source',
+      ]),
     );
   });
 

@@ -68,5 +68,5 @@
 | 1 골격 | 완료 | 실제 Flutter 샘플에서 결정적 graph 출력 |
 | 2 보존 규칙 · dead | 완료 | 실제 meta·pragma·plugin 반례 코퍼스 |
 | 3 도입 경로 | 완료 | 결정적 baseline, NUL 안전 `--since`, 4종 리포터, 격리 설치 검증 |
-| 4 에이전트 표면 · bridges | 다음 | isthmus 가 기다림 |
-| 5 순환 · 규칙 · 지표 · 릴리스 | 미착수 | |
+| 4 에이전트 표면 · bridges | 완료 | query·skill과 isthmus GRAPH-EXCHANGE v1 조인 검증 |
+| 5 순환 · 규칙 · 지표 · 릴리스 | 다음 | |

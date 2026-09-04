@@ -8,7 +8,7 @@
 
 Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `docs/PRD.md` — 특히 "영구 무료 약속" 절.
 
-## 현재 상태 — Phase 3 완료
+## 현재 상태 — Phase 4 완료
 
 - 작업 브랜치: `feature/phase-0-analyzer-validation`
 - `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
@@ -23,15 +23,20 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - `--since`는 merge-base 이후 커밋, staged·unstaged, untracked 파일을 NUL 안전하게 합치고 심볼릭 경로를 정규화한다
 - text · JSON · GitHub Actions · SARIF 리포터가 finding 근거와 limitation을 보존한다
 - 임시 소스 사본과 격리된 pub cache에서 `pub global activate --source path` 계약을 검증하며 원본 `.dart_tool`을 바꾸지 않는다
-- 전체 제품 라인 커버리지는 Phase 3 끝 기준 95.57%다
+- `query`가 cartograph `SymbolQueryDocument` 필드로 모호성·양방향 이웃·멤버·도달 경로·baseline 억제·한계를 답한다
+- 조건부 directive, 미일치 문자열 route, 오래된 생성 코드가 프로젝트 실제 개수와 함께 limitation에 들어간다
+- `skill`이 Dart 고유 삭제 안전 규칙을 출력·설치하며 기존 파일은 `--force` 없이는 덮어쓰지 않는다
+- `bridges --format json`이 세 Flutter 채널 종류와 `invokeMethod`를 GRAPH-EXCHANGE v1로 내고 동적·미귀속·파싱 오류 개수를 보존한다
+- isthmus Phase 0 실제 fixture 조인은 채널 1, 메서드 1, 미처리 호출 1, 호출 없는 핸들러 2를 재현했다
+- 전체 제품 라인 커버리지는 Phase 4 끝 기준 93.36%다
 
 ## 다음 할 일 (순서대로)
 
-1. cartograph `SymbolQueryDocument` 스키마를 필드 단위로 옮기고 `query` 계약 테스트를 만든다
-2. 조건부 구성, 문자열 route, 생성 코드 신선도 limitation을 실제 개수와 함께 낸다
-3. Dart 안전 규칙을 담은 `skill` 출력·설치 계약을 만든다
-4. isthmus `GRAPH-EXCHANGE.md`와 기존 Dart 추출기를 기준으로 `bridges --format json`을 구현한다
-5. 전체 analyze/test/coverage/corpus/CLI 게이트를 유지한다
+1. 반복형 Tarjan SCC와 결정적 끊을 후보를 테스트 우선으로 구현한다
+2. YAML 레이어 규칙과 위반 경로·근거를 구현한다
+3. Martin 계열 지표와 0분모 계약을 구현한다
+4. `cycles`·`rules`·`metrics`와 `--strict` 종료 코드 계약을 완성한다
+5. 전체 analyze/test/coverage/corpus/CLI 게이트와 자기 분석을 유지한다
 
 ## 미리 알아 둘 것
 
@@ -47,3 +52,4 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - LocalSend·Hiddify는 50k 미달, Ente·FlClash는 스택 미달이었다. AppFlowy는 전용 Rust 생성물이 없어 0진단 재현 비용이 과도했다
 - analyzer 14.3.0은 Invoice Ninja의 기준 analyzer보다 새로워 프로젝트 자체 분석 0 issues와 달리 진단 20개를 냈다. 참조 정확성 기준값과 성능 관찰을 구분해야 한다
 - 원본 저장소를 그대로 path activate하면 격리 `PUB_CACHE` 경로가 원본 `.dart_tool/package_config.json`에 기록된다. 설치 검증은 반드시 필요한 소스만 임시 사본으로 옮겨 실행한다
+- 구문 기반 bridge 추출은 교차 파일 수신자를 확정하지 않는다. 호출 사실을 `channel: null`, `dynamic: true`와 `unattributed-method-invocations`로 남겨 downstream이 조인하지 않게 한다
