@@ -70,6 +70,9 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 - 생성 파일은 보수적으로 보존하며 오래된 산출물을 한계로 보고한다.
 - `main` 진입점은 여러 개일 수 있다. v0.1은 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
+- `bridges`는 Flutter services의 직접 import만 채널 provenance로 사용한다. re-export
+  barrel을 거친 사용은 추측해 연결하지 않고 `flutter-services-reexports` limitation으로
+  보고한다.
 
 분석 캐시는 대상 저장소 밖의 OS 사용자 캐시 아래 `dartograph/<project-root-hash>`에
 저장된다. 삭제해도 안전하며 다음 실행에서 다시 만들어진다. 캐시를 읽거나 쓸 수 없으면

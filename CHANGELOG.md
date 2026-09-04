@@ -6,6 +6,7 @@
 - Flutter services import provenance와 어휘 범위를 따르는 MethodChannel 추출
 - cascade와 invokeListMethod/invokeMapMethod, 동적·미귀속·잘못된 호출 limitation 보강
 - EventChannel·BasicMessageChannel, 조건부 import, re-export를 거짓 사실 대신 limitation으로 보고
+- Flutter services re-export를 거친 사용은 추측하지 않고 문서화된 누락 방향으로 보존
 - explain의 미발견·파일 근거, analyzer 신원·생성 코드·중첩 의존 캐시 판정 보강
 - 잘못된 CLI 호출과 Git 실패를 구분하고 옵션 모양의 skill 경로를 거부
 

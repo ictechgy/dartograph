@@ -42,6 +42,30 @@ void main() {
     ]);
   });
 
+  test('a reachable member keeps its container but not dead siblings', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::root'))
+      ..addNode(GraphNode(id: 'package:app/model.dart::Widget'))
+      ..addNode(GraphNode(id: 'package:app/model.dart::Widget.live'))
+      ..addNode(GraphNode(id: 'package:app/model.dart::Widget.dead'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'app::root',
+          targetId: 'package:app/model.dart::Widget.live',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {'app::root': RetentionReason.mainEntryPoint},
+    );
+
+    expect(result.deadDeclarations.map((finding) => finding.id), [
+      'package:app/model.dart::Widget.dead',
+    ]);
+  });
+
   test('explanations choose a deterministic shortest preservation path', () {
     final graph = CodeGraph();
     for (final id in const ['z-root', 'a-root', 'middle', 'target']) {

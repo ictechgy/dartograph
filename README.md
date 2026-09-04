@@ -65,7 +65,8 @@ staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전
 `query`는 전체 그래프 대신 한 심볼의 양방향 이웃·멤버·보존 경로·한계를 cartograph와
 같은 필드 이름으로 답한다. `bridges`는 Flutter `MethodChannel` 생성과
 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 isthmus `GRAPH-EXCHANGE`
-버전 1로 내며, 동적·미귀속·부분 파싱 사실을 숨기지 않는다. EventChannel과
+버전 1로 내며, 동적 이름은 fact로, 미귀속·잘못된 호출과 부분 파싱은 limitation
+개수로 숨김없이 남긴다. EventChannel과
 BasicMessageChannel은 현재 조인 범위 밖이므로 사실로 오인하지 않고 limitation으로 센다.
 `cycles`·`rules`·`metrics`는 기본적으로 보고만 하고, `--strict`일 때만 발견을 종료
 코드 1로 바꾼다. 지표는 라이브러리별 Ca·Ce·불안정도·추상도·주계열 거리를 계산한다.
@@ -82,6 +83,9 @@ dartograph는 삭제 가능 여부를 판정하거나 코드를 자동 삭제하
 - `main`은 여러 개일 수 있으며 `lib/`, `bin/`, `example/`의 진입점을 보존한다.
 - `lib/<package-name>.dart`가 export한 공개 선언과 공개 멤버는 외부 소비자 API로 보존한다.
 - 동적 호출과 네이티브 동작은 정적 그래프가 완전히 증명할 수 없다.
+- `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다.
+  Flutter services를 다시 export하는 barrel 경유 사용은 사실에서 제외하고
+  `flutter-services-reexports` limitation으로 알린다.
 
 해석 결과 캐시는 분석 대상 밖의 OS 사용자 캐시(`~/Library/Caches`,
 `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) 아래 `dartograph/<project-root-hash>`로
