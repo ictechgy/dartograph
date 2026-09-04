@@ -214,7 +214,11 @@ String _elementId(Element element, String root) {
     if (name.isNotEmpty) {
       names.add(name);
     } else if (current is ExtensionElement) {
-      names.add('<unnamed-extension@${current.firstFragment.offset}>');
+      final sourceUri = current.firstFragment.libraryFragment.source.uri;
+      final sourceId = _libraryId(sourceUri, root);
+      names.add(
+        '<unnamed-extension@$sourceId#${current.firstFragment.offset}>',
+      );
     } else {
       names.add('<unnamed-${current.kind.name.toLowerCase()}>');
     }
