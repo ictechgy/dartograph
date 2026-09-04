@@ -9,6 +9,12 @@ void main() {
 
     expect(status, ExitStatus.success.code);
     expect(output.toString(), contains('Exit codes:'));
+    expect(
+      output.toString(),
+      contains(
+        '1   dead findings, or cycles/rules/metrics findings with --strict',
+      ),
+    );
   });
 
   test('short help prints the exit contract and succeeds', () async {

@@ -640,7 +640,7 @@ Usage: dartograph [--help] [--version]
 
 Exit codes:
   0   success
-  1   findings with --strict, or a configured threshold exceeded
+  1   dead findings, or cycles/rules/metrics findings with --strict
   2   analysis failure
   64  usage error
 ''';
