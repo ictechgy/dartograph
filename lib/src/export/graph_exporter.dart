@@ -24,6 +24,8 @@ abstract final class GraphExporter {
           <String, Object>{
             if (node.column != null) 'column': node.column!,
             'id': node.id,
+            'isAbstract': node.isAbstract,
+            'isTypeDeclaration': node.isTypeDeclaration,
             if (node.line != null) 'line': node.line!,
             if (node.sourceUri != null) 'sourceUri': node.sourceUri!,
             'synthesized': node.synthesized,

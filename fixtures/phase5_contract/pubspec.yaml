@@ -1,0 +1,3 @@
+name: phase5_contract
+environment:
+  sdk: ^3.11.0

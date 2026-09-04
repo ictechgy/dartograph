@@ -1,0 +1,9 @@
+layers:
+  - name: first
+    match: ["project:lib/a.dart*"]
+  - name: second
+    match: ["project:lib/b.dart*"]
+rules:
+  - name: first cannot reach second
+    from: first
+    deny: [second]

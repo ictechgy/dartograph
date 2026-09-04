@@ -10,6 +10,8 @@ final class GraphNode {
     int? line,
     int? column,
     bool synthesized = false,
+    bool isTypeDeclaration = false,
+    bool isAbstract = false,
   }) {
     if (id.isEmpty) {
       throw ArgumentError.value(id, 'id', 'must not be empty');
@@ -20,12 +22,21 @@ final class GraphNode {
     if (column != null && column < 1) {
       throw ArgumentError.value(column, 'column', 'must be 1-based');
     }
+    if (isAbstract && !isTypeDeclaration) {
+      throw ArgumentError.value(
+        isAbstract,
+        'isAbstract',
+        'requires a type declaration',
+      );
+    }
     return GraphNode._(
       id: id,
       sourceUri: sourceUri,
       line: line,
       column: column,
       synthesized: synthesized,
+      isTypeDeclaration: isTypeDeclaration,
+      isAbstract: isAbstract,
     );
   }
 
@@ -35,6 +46,8 @@ final class GraphNode {
     required this.line,
     required this.column,
     required this.synthesized,
+    required this.isTypeDeclaration,
+    required this.isAbstract,
   });
 
   /// 라이브러리 정체성과 선언 경로에서 만든 안정적인 그래프 ID다.
@@ -52,6 +65,12 @@ final class GraphNode {
   /// 알려진 생성 코드에서 온 정점인지 나타낸다.
   final bool synthesized;
 
+  /// Martin 추상도 계산에서 타입 선언의 분모에 포함되는지 나타낸다.
+  final bool isTypeDeclaration;
+
+  /// 타입 선언이 추상 클래스나 추상 인터페이스인지 나타낸다.
+  final bool isAbstract;
+
   @override
   bool operator ==(Object other) =>
       other is GraphNode &&
@@ -59,8 +78,18 @@ final class GraphNode {
       sourceUri == other.sourceUri &&
       line == other.line &&
       column == other.column &&
-      synthesized == other.synthesized;
+      synthesized == other.synthesized &&
+      isTypeDeclaration == other.isTypeDeclaration &&
+      isAbstract == other.isAbstract;
 
   @override
-  int get hashCode => Object.hash(id, sourceUri, line, column, synthesized);
+  int get hashCode => Object.hash(
+    id,
+    sourceUri,
+    line,
+    column,
+    synthesized,
+    isTypeDeclaration,
+    isAbstract,
+  );
 }

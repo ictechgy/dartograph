@@ -224,16 +224,20 @@ final class _RouteCollector extends RecursiveAstVisitor<void> {
 
 int _staleGeneratedCount(String root) {
   var count = 0;
-  for (final entity in _projectFiles(Directory(root))) {
-    if (!_isGenerated(entity.path)) continue;
-    final suffix = RegExp(r'\.(g|freezed|pb)\.dart$').firstMatch(entity.path);
-    if (suffix == null) continue;
-    final source = File(
-      entity.path.replaceRange(suffix.start, suffix.end, '.dart'),
-    );
-    if (source.existsSync() &&
-        source.lastModifiedSync().isAfter(entity.lastModifiedSync())) {
-      count++;
+  for (final name in _sourceDirectories) {
+    final directory = Directory(p.join(root, name));
+    if (!directory.existsSync()) continue;
+    for (final entity in _projectFiles(directory)) {
+      if (!_isGenerated(entity.path)) continue;
+      final suffix = RegExp(r'\.(g|freezed|pb)\.dart$').firstMatch(entity.path);
+      if (suffix == null) continue;
+      final source = File(
+        entity.path.replaceRange(suffix.start, suffix.end, '.dart'),
+      );
+      if (source.existsSync() &&
+          source.lastModifiedSync().isAfter(entity.lastModifiedSync())) {
+        count++;
+      }
     }
   }
   return count;
@@ -324,6 +328,10 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
             synthesized: _isGenerated(
               element.firstFragment.libraryFragment!.source.fullName,
             ),
+            isTypeDeclaration: element is InterfaceElement,
+            isAbstract:
+                (element is ClassElement && element.isAbstract) ||
+                element is MixinElement,
           ),
         );
       }
@@ -345,7 +353,11 @@ RetentionReason? _retentionReason(
 ) {
   if (element is TopLevelFunctionElement &&
       element.displayName == 'main' &&
-      source.startsWith('project:lib/')) {
+      const [
+        'project:lib/',
+        'project:bin/',
+        'project:example/',
+      ].any(source.startsWith)) {
     return RetentionReason.mainEntryPoint;
   }
   if (source.startsWith('project:test/') ||
@@ -369,7 +381,21 @@ RetentionReason? _retentionReason(
       return RetentionReason.vmEntryPoint;
     }
   }
+  if (_overridesInheritedMember(element)) {
+    return RetentionReason.overrideContract;
+  }
   return null;
+}
+
+bool _overridesInheritedMember(Element element) {
+  if (element is! ExecutableElement) return false;
+  final enclosing = element.enclosingElement;
+  final name = element.name;
+  return enclosing is InterfaceElement &&
+      name != null &&
+      enclosing.inheritedMembers.values.any(
+        (candidate) => candidate.name == name,
+      );
 }
 
 Set<AnalyzerLimitation> _addPluginRoots(
@@ -631,7 +657,10 @@ List<String> _dartFilesUnder(
   for (final context in collection.contexts) {
     paths.addAll(
       context.contextRoot.analyzedFiles().where(
-        (path) => path.endsWith('.dart') && isPathWithinRoot(path, root),
+        (path) =>
+            path.endsWith('.dart') &&
+            isPathWithinRoot(path, root) &&
+            _isStandardSourcePath(path, root),
       ),
     );
   }
@@ -641,6 +670,7 @@ List<String> _dartFilesUnder(
         .whereType<File>()
         .map((file) => file.path)
         .where(_isGenerated)
+        .where((path) => _isStandardSourcePath(path, root))
         .where(
           (path) => !p
               .split(p.relative(path, from: root))
@@ -649,6 +679,20 @@ List<String> _dartFilesUnder(
   );
   return paths.toList()..sort();
 }
+
+bool _isStandardSourcePath(String path, String root) {
+  final relative = p.relative(path, from: root);
+  final segments = p.split(relative);
+  return segments.isNotEmpty && _sourceDirectories.contains(segments.first);
+}
+
+const _sourceDirectories = {
+  'bin',
+  'example',
+  'integration_test',
+  'lib',
+  'test',
+};
 
 AnalysisContext _contextIncluding(
   AnalysisContextCollection collection,

@@ -11,6 +11,8 @@ void main() {
         line: 2,
         column: 3,
         synthesized: true,
+        isTypeDeclaration: true,
+        isAbstract: true,
       ),
       GraphNode(id: 'a'),
     ],
@@ -20,7 +22,7 @@ void main() {
   test('JSON graph output has stable sorted keys and facts', () {
     expect(
       GraphExporter.json(snapshot, limitations: const ['single configuration']),
-      '{"edges":[{"kind":"call","source":"b","target":"a"}],"limitations":["single configuration"],"nodes":[{"id":"a","synthesized":false},{"column":3,"id":"b","line":2,"sourceUri":"project:lib/b.dart","synthesized":true}]}\n',
+      '{"edges":[{"kind":"call","source":"b","target":"a"}],"limitations":["single configuration"],"nodes":[{"id":"a","isAbstract":false,"isTypeDeclaration":false,"synthesized":false},{"column":3,"id":"b","isAbstract":true,"isTypeDeclaration":true,"line":2,"sourceUri":"project:lib/b.dart","synthesized":true}]}\n',
     );
   });
 

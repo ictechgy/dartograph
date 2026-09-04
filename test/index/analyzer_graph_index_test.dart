@@ -34,6 +34,21 @@ void navigate(dynamic context, dynamic navigator) {
 final routes = {'/known': Object()};
 final app = MaterialApp(routes: {'/inline': Object()});
 ''');
+    await Directory('${fixtureDirectory.path}/bin').create();
+    await File('${fixtureDirectory.path}/bin/cli.dart').writeAsString('''
+import 'package:graph_fixture/api.dart';
+void main() => Service();
+''');
+    await Directory(
+      '${fixtureDirectory.path}/fixtures/nested/lib',
+    ).create(recursive: true);
+    await File(
+      '${fixtureDirectory.path}/fixtures/nested/lib/noise.dart',
+    ).writeAsString('void main() {}');
+    await Directory('${fixtureDirectory.path}/tool').create();
+    await File(
+      '${fixtureDirectory.path}/tool/helper.dart',
+    ).writeAsString('void main() {}');
     final generated = File('${fixtureDirectory.path}/lib/model.g.dart');
     final source = File('${fixtureDirectory.path}/lib/model.dart');
     await source.writeAsString('class ModelSource {}\n');
@@ -76,7 +91,35 @@ final app = MaterialApp(routes: {'/inline': Object()});
     final edges = result.graph.edges;
 
     expect(ids, contains('package:graph_fixture/api.dart::Service'));
+    expect(ids.any((id) => id.startsWith('project:fixtures/')), isFalse);
+    expect(ids.any((id) => id.startsWith('project:tool/')), isFalse);
     expect(ids, contains('package:graph_fixture/api.dart::GeneratedModel'));
+    expect(
+      result.graph.node('package:graph_fixture/base.dart::Contract'),
+      isA<GraphNode>()
+          .having((node) => node.isTypeDeclaration, 'is type', isTrue)
+          .having((node) => node.isAbstract, 'is abstract', isTrue),
+    );
+    expect(
+      result.graph.node('package:graph_fixture/base.dart::Base'),
+      isA<GraphNode>()
+          .having((node) => node.isTypeDeclaration, 'is type', isTrue)
+          .having((node) => node.isAbstract, 'is abstract', isFalse),
+    );
+    expect(
+      result.graph.node('package:graph_fixture/base.dart::Trait'),
+      isA<GraphNode>()
+          .having((node) => node.isTypeDeclaration, 'is type', isTrue)
+          .having((node) => node.isAbstract, 'is abstract', isTrue),
+    );
+    expect(
+      result.retentionRoots['project:bin/cli.dart::main'],
+      RetentionReason.mainEntryPoint,
+    );
+    expect(
+      result.retentionRoots['package:graph_fixture/api.dart::Service.work'],
+      RetentionReason.overrideContract,
+    );
     expect(
       ids.where(
         (id) =>
@@ -95,6 +138,7 @@ final app = MaterialApp(routes: {'/inline': Object()});
         line: 3,
         column: 1,
         synthesized: true,
+        isTypeDeclaration: true,
       ),
     );
 

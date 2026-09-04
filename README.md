@@ -22,8 +22,9 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**Phase 4 완료.** 기존 코드베이스 도입 경로에 더해 에이전트용 심볼 질의·안전 스킬과
-Flutter 플랫폼 채널 교환 사실을 출력한다. 다음은 순환·레이어 규칙·지표다.
+**Phase 5 구현 완료.** 미사용 코드·파일, 순환, YAML 레이어 규칙, 라이브러리별
+Martin 지표, 에이전트 질의와 Flutter 플랫폼 채널 교환 사실을 한 그래프에서 낸다.
+다음은 v0.1.0 공개 릴리스 검증과 문서 마감이다.
 
 ```bash
 dart run dartograph graph --format dot .
@@ -34,6 +35,9 @@ dart run dartograph dead --format github-actions \
 dart run dartograph query ApiClient --baseline .dartograph-baseline.json .
 dart run dartograph skill
 dart run dartograph bridges --format json .
+dart run dartograph cycles --strict .
+dart run dartograph rules --config layers.yaml --strict .
+dart run dartograph metrics .
 ```
 
 `--since`는 전체 프로젝트 그래프를 만든 뒤 보고 위치만 좁힌다. 기준 ref 이후 커밋,
@@ -43,6 +47,8 @@ staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전
 `query`는 전체 그래프 대신 한 심볼의 양방향 이웃·멤버·보존 경로·한계를 cartograph와
 같은 필드 이름으로 답한다. `bridges`는 Flutter 채널 생성과 `invokeMethod` 사실을
 isthmus `GRAPH-EXCHANGE` 버전 1로 내며, 동적·미귀속·부분 파싱 사실을 숨기지 않는다.
+`cycles`·`rules`·`metrics`는 기본적으로 보고만 하고, `--strict`일 때만 발견을 종료
+코드 1로 바꾼다. 지표는 라이브러리별 Ca·Ce·불안정도·추상도·주계열 거리를 계산한다.
 
 | 문서 | 내용 |
 |---|---|

@@ -14,6 +14,7 @@ Before changing a declaration, run `dartograph query <name> <package-root>`.
 - `suppressedByBaseline: true` records a team decision and must be respected.
 - Dart main functions may be multiple. Check configured `entry_points` before narrowing roots.
 - Generated Dart can be stale; rebuild when `generated-code-staleness` is reported.
+- `overrideContract` means framework or runtime dispatch can call the override.
 - Conditional imports expose one analyzer-selected configuration only.
 - String routes without a route-table match remain limitations, not deletion evidence.
 

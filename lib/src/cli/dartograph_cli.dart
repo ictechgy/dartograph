@@ -4,9 +4,13 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 
 import '../analysis/baseline.dart';
+import '../analysis/architecture_metrics.dart';
+import '../analysis/cycle_detector.dart';
+import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../export/bridge_exporter.dart';
+import '../export/analysis_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../index/analyzer_graph_index.dart';
@@ -104,10 +108,174 @@ Future<int> runDartograph(
         stderrSink,
         now ?? DateTime.now,
       );
+    case 'cycles':
+      return await _runCycles(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
+    case 'rules':
+      return await _runRules(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
+    case 'metrics':
+      return await _runMetrics(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
   }
+}
+
+Future<int> _runCycles(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  final parsed = _strictRoot(arguments);
+  if (parsed == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(parsed.root);
+    final cycles = CycleDetector().detect(indexed.graph.snapshot());
+    output.write(
+      AnalysisReporter.cycles(cycles, limitations: _limitations(indexed)),
+    );
+    return parsed.strict && cycles.isNotEmpty
+        ? ExitStatus.findings.code
+        : ExitStatus.success.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+Future<int> _runRules(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  var strict = false;
+  String? config;
+  String? root;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--strict') {
+      if (strict) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      strict = true;
+    } else if (argument == '--config' && config == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      config = arguments[index];
+    } else if (!argument.startsWith('-') && root == null) {
+      root = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (config == null || root == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final ruleSet = LayerRuleSet.parse(await File(config).readAsString());
+    final indexed = await indexPackage(root);
+    final violations = LayerRuleEvaluator(
+      ruleSet,
+    ).evaluate(indexed.graph.snapshot());
+    output.write(
+      AnalysisReporter.rules(violations, limitations: _limitations(indexed)),
+    );
+    return strict && violations.isNotEmpty
+        ? ExitStatus.findings.code
+        : ExitStatus.success.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on FormatException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+Future<int> _runMetrics(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  final parsed = _strictRoot(arguments);
+  if (parsed == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(parsed.root);
+    final metrics = ArchitectureMetricsCalculator().calculate(
+      indexed.graph.snapshot(),
+    );
+    const tolerance = 0.3;
+    output.write(
+      AnalysisReporter.metrics(
+        metrics,
+        limitations: _limitations(indexed),
+        tolerance: tolerance,
+      ),
+    );
+    final exceedsTolerance = metrics.any(
+      (item) => !item.isolated && item.distance > tolerance,
+    );
+    return parsed.strict && exceedsTolerance
+        ? ExitStatus.findings.code
+        : ExitStatus.success.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+({String root, bool strict})? _strictRoot(List<String> arguments) {
+  if (arguments.length == 1 && !arguments.single.startsWith('-')) {
+    return (root: arguments.single, strict: false);
+  }
+  if (arguments.length == 2 &&
+      arguments.where((item) => item == '--strict').length == 1) {
+    final root = arguments.firstWhere((item) => item != '--strict');
+    if (!root.startsWith('-')) return (root: root, strict: true);
+  }
+  return null;
 }
 
 Future<int> _runQuery(
@@ -465,6 +633,9 @@ Usage: dartograph [--help] [--version]
        dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json <package-root>
+       dartograph cycles [--strict] <package-root>
+       dartograph rules --config <yaml-file> [--strict] <package-root>
+       dartograph metrics [--strict] <package-root>
 
 Exit codes:
   0   success

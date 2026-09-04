@@ -8,7 +8,7 @@
 
 Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만들고, 그 위에서 미사용 코드 · 파일 · 순환 · 레이어 규칙 · 지표를 근거와 함께 답하는 **영구 무료** CLI. [cartograph](../cartograph)의 자매. 자세한 것은 `docs/PRD.md` — 특히 "영구 무료 약속" 절.
 
-## 현재 상태 — Phase 4 완료
+## 현재 상태 — Phase 5 구현 완료
 
 - 작업 브랜치: `feature/phase-0-analyzer-validation`
 - `experiments/phase-0/analyzer_probe`에 analyzer 14.3.0 resolved-unit 프로브와 fixture가 있다
@@ -28,15 +28,21 @@ Dart/Flutter 코드베이스의 의존성 그래프를 `package:analyzer`로 만
 - `skill`이 Dart 고유 삭제 안전 규칙을 출력·설치하며 기존 파일은 `--force` 없이는 덮어쓰지 않는다
 - `bridges --format json`이 세 Flutter 채널 종류와 `invokeMethod`를 GRAPH-EXCHANGE v1로 내고 동적·미귀속·파싱 오류 개수를 보존한다
 - isthmus Phase 0 실제 fixture 조인은 채널 1, 메서드 1, 미처리 호출 1, 호출 없는 핸들러 2를 재현했다
-- 전체 제품 라인 커버리지는 Phase 4 끝 기준 93.36%다
+- 반복형 Tarjan SCC가 20,000 정점 체인과 150개 고정 난수 그래프 오라클을 통과하고 실제 순환 경로·간선·끊을 후보를 낸다
+- YAML 레이어 allow/deny 규칙이 같은 레이어를 허용하고 위반 경로·간선·소스 위치를 보존한다
+- Martin 지표는 라이브러리별 서로 다른 Ca/Ce, 추상 타입 비율, 0분모·고립 정점 계약으로 계산된다
+- `cycles`·`rules`·`metrics`는 일반 모드 0, `--strict` 발견 시 1을 컴파일 바이너리로 검증한다
+- analyzer는 표준 Dart 소스 루트만 색인하고 `bin`·`example` main과 동적 디스패치 override를 보존한다
+- 자기 분석은 순환 0건이며, dead는 아직 실제 구현에 연결하지 않은 `FactCache` 경계 3건만 남는다
+- 전체 제품 라인 커버리지는 Phase 5 끝 기준 91.48%다
 
 ## 다음 할 일 (순서대로)
 
-1. 반복형 Tarjan SCC와 결정적 끊을 후보를 테스트 우선으로 구현한다
-2. YAML 레이어 규칙과 위반 경로·근거를 구현한다
-3. Martin 계열 지표와 0분모 계약을 구현한다
-4. `cycles`·`rules`·`metrics`와 `--strict` 종료 코드 계약을 완성한다
-5. 전체 analyze/test/coverage/corpus/CLI 게이트와 자기 분석을 유지한다
+1. `pubspec.yaml`을 0.1.0 공개 메타데이터로 마감하고 CHANGELOG·CONTRIBUTING·SECURITY를 작성한다
+2. README 설치·명령·한계·비교표를 실제 CLI와 일치시킨다
+3. `dart pub publish --dry-run`과 패키지 산출물 설치 계약을 통과시킨다
+4. navigation_and_routing, path_provider 패키지, Invoice Ninja에서 도그푸딩 성공 기준을 재검증한다
+5. 자기 분석의 `FactCache` 3건을 구현에 연결하거나 불필요한 경계라면 제거해 findings 0을 만든다
 
 ## 미리 알아 둘 것
 
