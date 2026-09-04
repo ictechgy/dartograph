@@ -25,6 +25,8 @@ jobs:
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: ${{ matrix.dart }}
+      - name: Install analyzer-boundary scanner
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze
