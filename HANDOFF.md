@@ -9,7 +9,8 @@ _Last updated: 2026-09-05 01:49 KST by Codex_
 
 ## Current Status
 
-- `main`의 기준 커밋은 `7d3d601`(PR #2)다.
+- 0.1.1 제품 기준은 tag `v0.1.1`의 `b61bb87`, CI 복구는 `7d3d601`(PR #2)이며,
+  이 문서는 PR #3으로 그 위에 merge됐다.
 - dartograph `0.1.1`은 pub.dev와 GitHub Release `v0.1.1`에 공개됐다.
 - pub.dev에서 격리 설치한 0.1.1 바이너리의 전체 CLI 계약이 통과했다.
 - 필수 후속 구현이나 배포 blocker는 없다.
