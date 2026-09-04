@@ -22,8 +22,8 @@ dartograph 는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)*
 
 ## 상태
 
-**Phase 0 완료, Phase 1 진행 중.** analyzer 원천 검증을 마치고 제품 골격을 만드는 중이다.
-진행 순서는 [`docs/PLAN.md`](docs/PLAN.md)를 따른다.
+**Phase 1 완료.** analyzer 기반 그래프와 결정적인 DOT · JSON · Mermaid 출력이
+실제 Flutter 샘플에서 동작한다. 다음은 보존 규칙과 `dead` 분석이다.
 
 | 문서 | 내용 |
 |---|---|

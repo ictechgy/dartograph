@@ -1,0 +1,5 @@
+name: graph_fixture
+publish_to: none
+
+environment:
+  sdk: ^3.11.0

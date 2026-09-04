@@ -1,5 +1,11 @@
 import 'dart:io';
 
+import '../export/graph_exporter.dart';
+import '../index/analyzer_graph_index.dart';
+
+/// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
+typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
+
 /// CI 호출자가 의존하는 안정적인 프로세스 결과다.
 enum ExitStatus {
   /// 임계값을 넘는 발견 없이 명령이 끝났다.
@@ -21,11 +27,12 @@ enum ExitStatus {
 }
 
 /// 명령줄 경계를 실행하고 프로세스 종료 코드를 돌려준다.
-int runDartograph(
+Future<int> runDartograph(
   List<String> arguments, {
   StringSink? output,
   StringSink? error,
-}) {
+  IndexPackage? indexPackage,
+}) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
   final command = arguments.firstOrNull;
@@ -44,16 +51,71 @@ int runDartograph(
     case '_failure':
       stderrSink.writeln('Analysis failed: contract probe');
       return ExitStatus.failure.code;
+    case 'graph':
+      return await _runGraph(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
   }
 }
 
+Future<int> _runGraph(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  if (arguments.length != 3 || arguments[0] != '--format') {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  final format = arguments[1];
+  if (!const {'dot', 'json', 'mermaid'}.contains(format)) {
+    error.writeln('Unknown graph format: $format');
+    return ExitStatus.usage.code;
+  }
+  try {
+    final result = await indexPackage(arguments[2]);
+    final limitations = result.limitations.map(_describeLimitation);
+    final snapshot = result.graph.snapshot();
+    output.write(switch (format) {
+      'dot' => GraphExporter.dot(snapshot, limitations: limitations),
+      'json' => GraphExporter.json(snapshot, limitations: limitations),
+      _ => GraphExporter.mermaid(snapshot, limitations: limitations),
+    });
+    return ExitStatus.success.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+int _reportAnalysisFailure(StringSink error) {
+  error.writeln('Analysis failed: unable to index the package.');
+  return ExitStatus.failure.code;
+}
+
+String _describeLimitation(AnalyzerLimitation limitation) =>
+    switch (limitation) {
+      AnalyzerLimitation.conditionalConfiguration =>
+        'conditional imports and exports use one analyzer configuration',
+    };
+
 const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
+       dartograph graph --format <dot|json|mermaid> <package-root>
 
 Exit codes:
   0   success

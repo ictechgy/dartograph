@@ -1,0 +1,212 @@
+import 'dart:io';
+import 'dart:isolate';
+
+import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+void main() {
+  late Directory fixtureDirectory;
+
+  setUpAll(() async {
+    final libraryUri = await Isolate.resolvePackageUri(
+      Uri.parse('package:dartograph/dartograph.dart'),
+    );
+    if (libraryUri == null) {
+      throw StateError('Could not resolve the dartograph package root.');
+    }
+    final repositoryRoot = File.fromUri(libraryUri).parent.parent;
+    fixtureDirectory = await Directory.systemTemp.createTemp(
+      'dartograph-index-fixture.',
+    );
+    final sourceFixture = Directory(
+      '${repositoryRoot.path}/test/index/fixture',
+    );
+    expect(sourceFixture.existsSync(), isTrue);
+    await _copyFixture(sourceFixture, fixtureDirectory);
+    final copiedNames = await fixtureDirectory
+        .list(recursive: true)
+        .map((entity) => entity.uri.pathSegments.last)
+        .where((name) => name.isNotEmpty)
+        .toList();
+    expect(
+      File('${fixtureDirectory.path}/pubspec.yaml').existsSync(),
+      isTrue,
+      reason: 'copied entries: ${copiedNames.join(', ')}',
+    );
+    final result = await Process.run(Platform.resolvedExecutable, [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: fixtureDirectory.path);
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  });
+
+  tearDownAll(() => fixtureDirectory.delete(recursive: true));
+
+  test('resolved units become declaration and relationship facts', () async {
+    final root = fixtureDirectory.path;
+
+    final result = await AnalyzerGraphIndex().index(root);
+    final ids = result.graph.nodes.keys.toSet();
+    final edges = result.graph.edges;
+
+    expect(ids, contains('package:graph_fixture/api.dart::Service'));
+    expect(ids, contains('package:graph_fixture/api.dart::GeneratedModel'));
+    expect(
+      ids.where(
+        (id) =>
+            id.contains(
+              '<unnamed-extension@package:graph_fixture/unnamed.dart#',
+            ) &&
+            id.endsWith('>'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      result.graph.node('package:graph_fixture/api.dart::GeneratedModel'),
+      GraphNode(
+        id: 'package:graph_fixture/api.dart::GeneratedModel',
+        sourceUri: 'project:lib/model.g.dart',
+        line: 3,
+        column: 1,
+        synthesized: true,
+      ),
+    );
+
+    bool has(String sourceSuffix, String targetSuffix, EdgeKind kind) =>
+        edges.any(
+          (edge) =>
+              edge.sourceId.endsWith(sourceSuffix) &&
+              edge.targetId.endsWith(targetSuffix) &&
+              edge.kind == kind,
+        );
+
+    expect(has('::Service', '::Base', EdgeKind.inheritance), isTrue);
+    expect(has('::Service', '::Contract', EdgeKind.implements), isTrue);
+    expect(has('::Service', '::Trait', EdgeKind.mixin), isTrue);
+    expect(has('::Service', '::Service.work', EdgeKind.member), isTrue);
+    expect(has('::Service.work', '::Base.work', EdgeKind.override), isTrue);
+    expect(has('::Service.work', '::helper', EdgeKind.call), isTrue);
+    expect(has('::Service.work', '::value', EdgeKind.reference), isTrue);
+    expect(has('::value', '::Service', EdgeKind.call), isTrue);
+    expect(has('::invoke', '::Service.work', EdgeKind.call), isTrue);
+    expect(has('::invoke', '::value', EdgeKind.reference), isTrue);
+    expect(has('::invoke', '::value', EdgeKind.call), isFalse);
+    expect(has('::echo', '::Service', EdgeKind.reference), isTrue);
+    expect(has('::update', '::value', EdgeKind.reference), isTrue);
+    expect(has('::update', '::Service', EdgeKind.call), isTrue);
+    expect(
+      has(
+        'package:graph_fixture/api.dart',
+        'package:graph_fixture/base.dart',
+        EdgeKind.import,
+      ),
+      isTrue,
+    );
+    expect(
+      edges.where(
+        (edge) =>
+            edge.sourceId == 'package:graph_fixture/api.dart' &&
+            edge.targetId == 'package:graph_fixture/base.dart' &&
+            edge.kind == EdgeKind.import,
+      ),
+      hasLength(1),
+    );
+    expect(
+      has(
+        'package:graph_fixture/platform.dart',
+        'package:graph_fixture/platform_stub.dart',
+        EdgeKind.export,
+      ),
+      isTrue,
+    );
+    expect(
+      has(
+        'package:graph_fixture/platform.dart',
+        'package:graph_fixture/platform_io.dart',
+        EdgeKind.export,
+      ),
+      isFalse,
+    );
+    expect(
+      result.limitations,
+      contains(AnalyzerLimitation.conditionalConfiguration),
+    );
+  });
+
+  test('project ids use URL separators on Windows', () {
+    expect(
+      projectIdForPath(
+        r'C:\repo\lib\feature.dart',
+        r'C:\repo',
+        context: p.windows,
+      ),
+      'project:lib/feature.dart',
+    );
+    expect(
+      isPathWithinRoot(
+        r'C:\repo\lib\feature.dart',
+        r'C:\repo',
+        context: p.windows,
+      ),
+      isTrue,
+    );
+    expect(
+      isPathWithinRoot(
+        r'C:\repository\lib\feature.dart',
+        r'C:\repo',
+        context: p.windows,
+      ),
+      isFalse,
+    );
+  });
+
+  test('omits conditional configuration limitation when none exist', () async {
+    final plainPackage = await Directory.systemTemp.createTemp(
+      'dartograph-plain-fixture.',
+    );
+    addTearDown(() => plainPackage.delete(recursive: true));
+    await File('${plainPackage.path}/pubspec.yaml').writeAsString('''
+name: plain_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${plainPackage.path}/lib').create();
+    await File(
+      '${plainPackage.path}/lib/main.dart',
+    ).writeAsString('void main() {}\n');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: plainPackage.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(plainPackage.path);
+
+    expect(result.limitations, isEmpty);
+  });
+}
+
+Future<void> _copyFixture(Directory source, Directory destination) async {
+  final canonicalSource = Directory(await source.resolveSymbolicLinks());
+  await for (final entity in canonicalSource.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    final relativePath = entity.path.substring(canonicalSource.path.length + 1);
+    if (relativePath.startsWith('.dart_tool/') ||
+        relativePath == 'pubspec.lock') {
+      continue;
+    }
+    final targetPath = '${destination.path}/$relativePath';
+    if (entity is Directory) {
+      await Directory(targetPath).create(recursive: true);
+    } else if (entity is File) {
+      await File(targetPath).parent.create(recursive: true);
+      await entity.copy(targetPath);
+    }
+  }
+}

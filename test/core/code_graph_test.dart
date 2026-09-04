@@ -239,6 +239,7 @@ void main() {
       EdgeKind.mixin,
       EdgeKind.override,
       EdgeKind.import,
+      EdgeKind.export,
     ]);
     expect(EdgeKind.member.impliesUsage, isFalse);
   });

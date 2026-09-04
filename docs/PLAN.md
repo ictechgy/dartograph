@@ -65,8 +65,8 @@
 | Phase | 상태 | 비고 |
 |---|---|---|
 | 0 원천 검증 | 완료 | [`DECISION-analyzer.md`](DECISION-analyzer.md) |
-| 1 골격 | 다음 | analyzer 14.3.0 고정, 캐시 경계 포함 |
-| 2 보존 규칙 · dead | 미착수 | |
+| 1 골격 | 완료 | 실제 Flutter 샘플에서 결정적 graph 출력 |
+| 2 보존 규칙 · dead | 다음 | 오탐 코퍼스부터 |
 | 3 도입 경로 | 미착수 | |
 | 4 에이전트 표면 · bridges | 미착수 | isthmus 가 기다림 |
 | 5 순환 · 규칙 · 지표 · 릴리스 | 미착수 | |

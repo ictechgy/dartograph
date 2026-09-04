@@ -22,7 +22,10 @@ enum EdgeKind {
   member,
 
   /// 라이브러리가 다른 라이브러리를 import한다.
-  import;
+  import,
+
+  /// 라이브러리가 다른 라이브러리를 export한다.
+  export;
 
   /// 이 관계가 사용 도달성에 기여하는지 나타낸다.
   bool get impliesUsage => this != EdgeKind.member;
