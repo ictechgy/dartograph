@@ -31,6 +31,8 @@ void main() {
       expect(report['declarations'], 10);
       expect(report['references'], 6);
       expect(report['diagnostics'], 0);
+      expect(report['diagnosticCounts'], <String, Object?>{});
+      expect(report['diagnosticFiles'], <Object?>[]);
       expect(report['declarationIds'], [
         'package:phase0_fixture/main.dart::<unnamed-extension@22>',
         'package:phase0_fixture/main.dart::<unnamed-extension@22>.markerOne',

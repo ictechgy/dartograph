@@ -33,11 +33,13 @@ Future<void> _run(String rootArgument) async {
   var declarations = 0;
   var references = 0;
   var diagnostics = 0;
+  final diagnosticCounts = <String, int>{};
+  final diagnosticFiles = <String>{};
   final declarationIds = <String>[];
   final referenceIds = <String>[];
 
   try {
-    for (final path in _dartFilesUnder(root)) {
+    for (final path in _dartFilesUnder(root, collection)) {
       final context = _contextIncluding(collection, path);
       final result = await context.currentSession.getResolvedUnit(path);
       if (result is! ResolvedUnitResult) {
@@ -46,6 +48,16 @@ Future<void> _run(String rootArgument) async {
 
       files++;
       diagnostics += result.diagnostics.length;
+      final relativePath = path.substring(root.length + 1);
+      if (result.diagnostics.isNotEmpty) {
+        diagnosticFiles.add(relativePath);
+      }
+      for (final diagnostic in result.diagnostics) {
+        final key =
+            '${diagnostic.severity.name}:'
+            '${diagnostic.diagnosticCode.lowerCaseName}';
+        diagnosticCounts.update(key, (count) => count + 1, ifAbsent: () => 1);
+      }
       final counter = _FactCounter(root);
       result.unit.accept(counter);
       declarations += counter.declarations;
@@ -53,7 +65,6 @@ Future<void> _run(String rootArgument) async {
       declarationIds.addAll(counter.declarationIds);
       referenceIds.addAll(counter.referenceIds);
 
-      final relativePath = path.substring(root.length + 1);
       if (_isGenerated(relativePath)) {
         generatedFiles.add({
           'path': relativePath,
@@ -69,10 +80,18 @@ Future<void> _run(String rootArgument) async {
   stopwatch.stop();
   declarationIds.sort();
   referenceIds.sort();
+  final sortedDiagnosticCounts = <String, int>{};
+  final diagnosticKeys = diagnosticCounts.keys.toList()..sort();
+  for (final key in diagnosticKeys) {
+    sortedDiagnosticCounts[key] = diagnosticCounts[key]!;
+  }
+  final sortedDiagnosticFiles = diagnosticFiles.toList()..sort();
   stdout.writeln(
     jsonEncode({
       'declarationIds': declarationIds,
       'declarations': declarations,
+      'diagnosticCounts': sortedDiagnosticCounts,
+      'diagnosticFiles': sortedDiagnosticFiles,
       'diagnostics': diagnostics,
       'elapsedMs': stopwatch.elapsedMilliseconds,
       'files': files,
@@ -102,20 +121,33 @@ AnalysisContext _contextIncluding(
   }
 }
 
-List<String> _dartFilesUnder(String root) {
-  final paths = Directory(root)
+List<String> _dartFilesUnder(
+  String root,
+  AnalysisContextCollection collection,
+) {
+  final paths = <String>{};
+  for (final context in collection.contexts) {
+    paths.addAll(
+      context.contextRoot.analyzedFiles().where(
+        (path) => path.endsWith('.dart') && path.startsWith('$root/'),
+      ),
+    );
+  }
+
+  final generatedPaths = Directory(root)
       .listSync(recursive: true, followLinks: false)
       .whereType<File>()
       .map((file) => file.path)
-      .where((path) => path.endsWith('.dart'))
+      .where((path) => _isGenerated(path))
       .where((path) {
         final relativePath = path.substring(root.length + 1);
         final segments = Uri.file(relativePath).pathSegments;
         return !segments.contains('.dart_tool') && !segments.contains('build');
-      })
-      .toList();
-  paths.sort();
-  return paths;
+      });
+  paths.addAll(generatedPaths);
+
+  final sortedPaths = paths.toList()..sort();
+  return sortedPaths;
 }
 
 bool _isGenerated(String path) =>
