@@ -169,6 +169,78 @@ class Framework {
     expect(second.retentionRoots[callbackId], isNull);
     expect(cache.writeCount, 2);
   });
+
+  test('nested example dependencies invalidate analyzer facts', () async {
+    final workspace = await Directory.systemTemp.createTemp(
+      'dartograph-nested-package-cache.',
+    );
+    addTearDown(() => workspace.delete(recursive: true));
+    final dependency = Directory('${workspace.path}/dependency');
+    final application = Directory('${workspace.path}/application');
+    final example = Directory('${application.path}/example');
+    await Directory('${dependency.path}/lib').create(recursive: true);
+    await Directory('${application.path}/lib').create(recursive: true);
+    await Directory('${example.path}/lib').create(recursive: true);
+    await File('${dependency.path}/pubspec.yaml').writeAsString('''
+name: nested_dependency
+environment:
+  sdk: ^3.11.0
+''');
+    final dependencySource = File(
+      '${dependency.path}/lib/nested_dependency.dart',
+    );
+    await dependencySource.writeAsString('''
+class Framework {
+  void callback() {}
+}
+''');
+    await File('${application.path}/pubspec.yaml').writeAsString('''
+name: application
+environment:
+  sdk: ^3.11.0
+''');
+    await File(
+      '${application.path}/lib/application.dart',
+    ).writeAsString('class Application {}\n');
+    await File('${example.path}/pubspec.yaml').writeAsString('''
+name: nested_example
+environment:
+  sdk: ^3.11.0
+dependencies:
+  nested_dependency:
+    path: ../../dependency
+''');
+    await File('${example.path}/lib/main.dart').writeAsString('''
+import 'package:nested_dependency/nested_dependency.dart';
+class ExampleApplication extends Framework {
+  void callback() {}
+}
+''');
+    for (final package in [application, example]) {
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: package.path);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+    }
+    final cache = _MemoryFactCache();
+    final index = AnalyzerGraphIndex(cache: cache);
+    const callbackId =
+        'package:nested_example/main.dart::ExampleApplication.callback';
+
+    final first = await index.index(application.path);
+    expect(first.retentionRoots[callbackId], RetentionReason.overrideContract);
+    await dependencySource.writeAsString('''
+class Framework {
+  void renamed() {}
+}
+''');
+    final second = await index.index(application.path);
+
+    expect(second.retentionRoots[callbackId], isNull);
+    expect(cache.writeCount, 2);
+  });
 }
 
 final class _FailingFactCache implements FactCache {

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
@@ -197,7 +196,11 @@ Future<String?> _tryAnalysisCacheKey(String root) async {
 
 Future<String> _analysisCacheKey(String root) async {
   final files = await _analysisInputFiles(root);
-  final bytes = BytesBuilder(copy: false);
+  late Digest digest;
+  final digestSink = ChunkedConversionSink<Digest>.withCallback(
+    (digests) => digest = digests.single,
+  );
+  final bytes = sha256.startChunkedConversion(digestSink);
   bytes.add(utf8.encode('$_cacheIdentity\u0000${Platform.version}\u0000'));
   for (final file in files) {
     final relative = p.posix.joinAll(
@@ -206,13 +209,16 @@ Future<String> _analysisCacheKey(String root) async {
     final stat = await file.stat();
     bytes
       ..add(utf8.encode(relative))
-      ..addByte(0)
+      ..add(const [0])
       ..add(utf8.encode(stat.modified.microsecondsSinceEpoch.toString()))
-      ..addByte(0)
-      ..add(await file.readAsBytes())
-      ..addByte(0);
+      ..add(const [0]);
+    await for (final chunk in file.openRead()) {
+      bytes.add(chunk);
+    }
+    bytes.add(const [0]);
   }
-  return sha256.convert(bytes.takeBytes()).toString();
+  bytes.close();
+  return digest.toString();
 }
 
 Future<List<File>> _analysisInputFiles(String root) async {
@@ -232,24 +238,14 @@ Future<List<File>> _analysisInputFiles(String root) async {
     }
   }
 
-  for (final name in _sourceDirectories) {
-    final directory = Directory(p.join(root, name));
-    addDirectory(
-      directory.existsSync() ? await _resolved(directory) : directory,
+  Future<void> addPackage(Directory packageRoot) async {
+    addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
+    addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
+    final packageConfiguration = File(
+      p.join(packageRoot.path, '.dart_tool', 'package_config.json'),
     );
-  }
-  for (final path in [
-    p.join(root, 'analysis_options.yaml'),
-    p.join(root, 'pubspec.yaml'),
-    p.join(root, '.dart_tool', 'package_config.json'),
-  ]) {
-    addFile(File(path));
-  }
-
-  final packageConfiguration = File(
-    p.join(root, '.dart_tool', 'package_config.json'),
-  );
-  if (packageConfiguration.existsSync()) {
+    addFile(packageConfiguration);
+    if (!packageConfiguration.existsSync()) return;
     final document =
         (jsonDecode(await packageConfiguration.readAsString()) as Map)
             .cast<String, Object?>();
@@ -260,13 +256,35 @@ Future<List<File>> _analysisInputFiles(String root) async {
           .resolve(package['rootUri']! as String)
           .normalizePath();
       if (rootUri.scheme != 'file') continue;
-      final packageRoot = await _resolved(Directory(rootUri.toFilePath()));
-      if (p.equals(packageRoot.path, root)) continue;
-      addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
-      addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
-      final library = Directory(p.join(packageRoot.path, 'lib'));
+      final dependencyRoot = await _resolved(Directory(rootUri.toFilePath()));
+      if (p.equals(dependencyRoot.path, packageRoot.path)) continue;
+      addFile(File(p.join(dependencyRoot.path, 'pubspec.yaml')));
+      addFile(File(p.join(dependencyRoot.path, 'analysis_options.yaml')));
+      final library = Directory(p.join(dependencyRoot.path, 'lib'));
       addDirectory(library.existsSync() ? await _resolved(library) : library);
     }
+  }
+
+  final nestedPackages = <String, Directory>{};
+  for (final name in _sourceDirectories) {
+    final directory = Directory(p.join(root, name));
+    final resolved = directory.existsSync()
+        ? await _resolved(directory)
+        : directory;
+    addDirectory(resolved);
+    if (!resolved.existsSync()) continue;
+    for (final file in _projectFiles(resolved)) {
+      if (p.basename(file.path) != 'pubspec.yaml') continue;
+      final packageRoot = file.parent;
+      if (!p.equals(packageRoot.path, root)) {
+        nestedPackages[p.normalize(packageRoot.path)] = packageRoot;
+      }
+    }
+  }
+  await addPackage(Directory(root));
+  final nestedPaths = nestedPackages.keys.toList()..sort();
+  for (final path in nestedPaths) {
+    await addPackage(nestedPackages[path]!);
   }
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
@@ -630,7 +648,7 @@ RetentionReason? _retentionReason(
   }
   if (_isGenerated(source)) return RetentionReason.generatedCode;
   for (final annotation in node.metadata) {
-    final name = annotation.name.name;
+    final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
     if (name == 'override' && annotationLibrary == 'dart:core') {
       return RetentionReason.overrideContract;
@@ -1021,7 +1039,13 @@ AnalysisContext _contextIncluding(
   }
 }
 
-bool _isGenerated(String path) =>
-    path.endsWith('.g.dart') ||
-    path.endsWith('.freezed.dart') ||
-    path.endsWith('.pb.dart');
+bool _isGenerated(String path) => _generatedDartSuffixes.any(path.endsWith);
+
+const _generatedDartSuffixes = {
+  '.g.dart',
+  '.freezed.dart',
+  '.pb.dart',
+  '.pbenum.dart',
+  '.pbgrpc.dart',
+  '.pbjson.dart',
+};

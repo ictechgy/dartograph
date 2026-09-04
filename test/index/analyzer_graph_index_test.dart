@@ -322,6 +322,92 @@ environment:
 
     expect(result.limitations, isEmpty);
   });
+
+  test(
+    'prefixed visibleForTesting annotations remain retention roots',
+    () async {
+      final package = await Directory.systemTemp.createTemp(
+        'dartograph-prefixed-annotation.',
+      );
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/pubspec.yaml').writeAsString('''
+name: prefixed_annotation_fixture
+environment:
+  sdk: ^3.11.0
+dependencies:
+  meta: ^1.17.0
+''');
+      await Directory('${package.path}/lib').create();
+      await File('${package.path}/lib/main.dart').writeAsString('''
+import 'package:meta/meta.dart' as meta;
+@meta.visibleForTesting
+void retainedForTesting() {}
+void main() {}
+''');
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: package.path);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+      final result = await AnalyzerGraphIndex().index(package.path);
+      final retained = result.retentionRoots.entries.singleWhere(
+        (entry) => entry.key.endsWith('::retainedForTesting'),
+      );
+
+      expect(retained.value, RetentionReason.visibleForTesting);
+    },
+  );
+
+  test('protobuf sibling outputs are synthesized retention roots', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-protobuf-generated.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: protobuf_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${package.path}/lib').create();
+    for (final entry in const {
+      'message.pbenum.dart': 'GeneratedEnum',
+      'message.pbgrpc.dart': 'GeneratedGrpc',
+      'message.pbjson.dart': 'GeneratedJson',
+    }.entries) {
+      await File(
+        '${package.path}/lib/${entry.key}',
+      ).writeAsString('class ${entry.value} {}\n');
+    }
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+    final generated = result.graph.nodes.values
+        .where((node) => node.id.contains('::Generated'))
+        .toList();
+
+    expect(generated, hasLength(3));
+    expect(
+      generated,
+      everyElement(
+        isA<GraphNode>().having(
+          (node) => node.synthesized,
+          'synthesized',
+          isTrue,
+        ),
+      ),
+    );
+    expect(
+      generated.map((node) => result.retentionRoots[node.id]),
+      everyElement(RetentionReason.generatedCode),
+    );
+  });
 }
 
 Future<void> _copyFixture(Directory source, Directory destination) async {
