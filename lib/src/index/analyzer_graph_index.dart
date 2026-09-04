@@ -1048,4 +1048,5 @@ const _generatedDartSuffixes = {
   '.pbenum.dart',
   '.pbgrpc.dart',
   '.pbjson.dart',
+  '.pbserver.dart',
 };

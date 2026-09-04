@@ -375,6 +375,7 @@ environment:
       'message.pbenum.dart': 'GeneratedEnum',
       'message.pbgrpc.dart': 'GeneratedGrpc',
       'message.pbjson.dart': 'GeneratedJson',
+      'message.pbserver.dart': 'GeneratedServer',
     }.entries) {
       await File(
         '${package.path}/lib/${entry.key}',
@@ -392,7 +393,7 @@ environment:
         .where((node) => node.id.contains('::Generated'))
         .toList();
 
-    expect(generated, hasLength(3));
+    expect(generated, hasLength(4));
     expect(
       generated,
       everyElement(
