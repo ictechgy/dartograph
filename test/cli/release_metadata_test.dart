@@ -31,6 +31,11 @@ void main() {
               as Map<String, Object?>;
 
       expect(pubspec['version'], toolVersion);
+      final repository = Uri.parse(pubspec['repository']! as String);
+      expect(repository.scheme, 'https');
+      expect(repository.host, 'github.com');
+      expect(repository.path, endsWith('/dartograph'));
+      expect(pubspec['issue_tracker'], '${repository.toString()}/issues');
       expect(output.toString(), 'dartograph $toolVersion\n');
       expect((bridge['tool'] as Map<String, Object?>)['version'], toolVersion);
     },
