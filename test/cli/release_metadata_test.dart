@@ -40,4 +40,31 @@ void main() {
       expect((bridge['tool'] as Map<String, Object?>)['version'], toolVersion);
     },
   );
+
+  test('bridge timestamps are normalized to exactly three UTC decimals', () {
+    final bridge =
+        jsonDecode(
+              exportBridgeFacts(
+                project: '/project',
+                generatedAt: DateTime.utc(2026, 9, 4, 12, 30, 45, 123, 456),
+                facts: const [],
+                limitations: const [],
+              ),
+            )
+            as Map<String, Object?>;
+
+    expect(bridge['generatedAt'], '2026-09-04T12:30:45.123Z');
+
+    final zeroMilliseconds =
+        jsonDecode(
+              exportBridgeFacts(
+                project: '/project',
+                generatedAt: DateTime.parse('2026-09-04T21:30:45+09:00'),
+                facts: const [],
+                limitations: const [],
+              ),
+            )
+            as Map<String, Object?>;
+    expect(zeroMilliseconds['generatedAt'], '2026-09-04T12:30:45.000Z');
+  });
 }

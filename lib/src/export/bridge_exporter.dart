@@ -14,7 +14,10 @@ String exportBridgeFacts({
     'format': 'bridge-facts',
     'version': 1,
     'tool': {'name': 'dartograph', 'version': toolVersion},
-    'generatedAt': generatedAt.toUtc().toIso8601String(),
+    'generatedAt': DateTime.fromMillisecondsSinceEpoch(
+      generatedAt.millisecondsSinceEpoch,
+      isUtc: true,
+    ).toIso8601String(),
     'platform': 'dart',
     'target': facts.isEmpty ? null : 'flutter',
     'project': project,

@@ -253,12 +253,14 @@ void main() {
   });
 
   test(
-    'bridges emits GRAPH-EXCHANGE facts for all Flutter channel types',
+    'bridges emits isthmus-compatible MethodChannel facts and limitations',
     () async {
       final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
       addTearDown(() => root.delete(recursive: true));
       await Directory('${root.path}/lib').create();
       await File('${root.path}/lib/channels.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
 const name = 'dev.example/method';
 final method = MethodChannel(name);
 final events = EventChannel('dev.example/events');
@@ -279,6 +281,8 @@ void call(String operation) {
 }
 ''');
       await File('${root.path}/lib/cross_file.dart').writeAsString('''
+import 'package:flutter/services.dart';
+
 void callExternal() {
   externalChannel.invokeMethod('crossFile');
 }
@@ -320,11 +324,11 @@ void callExternal() {
       expect(sourceLines, [...sourceLines]..sort());
       expect(
         facts.where((fact) => (fact as Map)['kind'] == 'channel-create'),
-        hasLength(7),
+        hasLength(5),
       );
       expect(
         facts.where((fact) => (fact as Map)['kind'] == 'method-invoke'),
-        hasLength(6),
+        hasLength(5),
       );
       final dynamicInvocation = facts.cast<Map<String, Object?>>().singleWhere(
         (fact) => fact['method'] == 'dynamicChannelCall',
@@ -346,21 +350,16 @@ void callExternal() {
           .cast<Map<String, Object?>>()
           .singleWhere((fact) => fact['method'] == 'constantLater');
       expect(forwardConstantInvocation['dynamic'], isFalse);
-      final unattributed = facts.cast<Map<String, Object?>>().singleWhere(
-        (fact) => fact['method'] == 'crossFile',
+      expect(
+        facts.cast<Map<String, Object?>>().where(
+          (fact) => fact['method'] == 'crossFile',
+        ),
+        isEmpty,
       );
-      expect(unattributed['channel'], isNull);
-      expect(unattributed['dynamic'], isTrue);
       expect(
         document['limitations'],
         contains(
           'dynamic-channel-names: 2 channel constructors use a non-literal name',
-        ),
-      );
-      expect(
-        document['limitations'],
-        contains(
-          'unattributed-method-invocations: 1 invocation(s) could not be assigned to a channel',
         ),
       );
       expect(
@@ -375,6 +374,330 @@ void callExternal() {
           'dynamic-method-names: 1 method invocations use a non-literal name',
         ),
       );
+      expect(
+        document['limitations'],
+        contains(
+          'unresolved-receiver-invocations: 1 invokeMethod call has an unresolved receiver',
+        ),
+      );
+      expect(
+        document['limitations'],
+        contains('unscanned-event-channels: 1 EventChannel constructor'),
+      );
+      expect(
+        document['limitations'],
+        contains(
+          'unscanned-basic-message-channels: 1 BasicMessageChannel constructor',
+        ),
+      );
     },
   );
+
+  test(
+    'bridges ignores MethodChannel-looking code without Flutter provenance',
+    () async {
+      final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+      addTearDown(() => root.delete(recursive: true));
+      await Directory('${root.path}/lib').create();
+      await File('${root.path}/lib/fake.dart').writeAsString(r'''
+class MethodChannel {
+  MethodChannel(String name);
+  void invokeMethod(String method) {}
+}
+
+final fake = MethodChannel('not/flutter');
+void call() => fake.invokeMethod('notFlutter');
+''');
+      final output = StringBuffer();
+
+      final status = await runDartograph(
+        ['bridges', '--format', 'json', root.path],
+        output: output,
+        now: () => DateTime.utc(2026, 9, 4, 12),
+      );
+
+      expect(status, ExitStatus.success.code);
+      final document = jsonDecode(output.toString()) as Map<String, Object?>;
+      expect(document['facts'], isEmpty);
+      expect(document['target'], isNull);
+    },
+  );
+
+  test('bridges reports conditional imports and Flutter re-exports', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/conditional.dart').writeAsString(r'''
+import 'stub.dart'
+  if (dart.library.io) 'package:flutter/services.dart';
+final channel = MethodChannel('dev.example/conditional');
+''');
+    await File(
+      '${root.path}/lib/barrel.dart',
+    ).writeAsString("export 'package:flutter/services.dart';\n");
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      now: () => DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    expect(document['facts'], isEmpty);
+    expect(
+      document['limitations'],
+      contains(
+        'conditional-flutter-services-imports: 1 Dart source file has configuration-dependent provenance',
+      ),
+    );
+    expect(
+      document['limitations'],
+      contains(
+        'flutter-services-reexports: 1 Dart source file re-exports Flutter services',
+      ),
+    );
+  });
+
+  test('bridges keeps local constants out of top-level bindings', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/scopes.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+final outer = MethodChannel(name);
+const name = 'dev.example/outer';
+void first() {
+  const name = 'dev.example/inner';
+  final inner = MethodChannel(name);
+  inner.invokeMethod('inside');
+}
+void second() {
+  outer.invokeMethod('outside');
+}
+''');
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      now: () => DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final facts = (document['facts'] as List<Object?>)
+        .cast<Map<String, Object?>>();
+    expect(
+      facts.singleWhere((fact) => fact['method'] == 'inside')['channel'],
+      'dev.example/inner',
+    );
+    expect(
+      facts.singleWhere((fact) => fact['method'] == 'outside')['channel'],
+      'dev.example/outer',
+    );
+  });
+
+  test('bridges accounts for cascade, sibling, and incomplete invokes', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/invokes.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+final channel = MethodChannel('dev.example/invokes');
+void cascades() {
+  channel
+    ..invokeListMethod<int>('list')
+    ..invokeMapMethod<String, int>('map');
+}
+void incomplete() {
+  invokeMethod('implicit');
+  channel.invokeMethod();
+}
+''');
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      now: () => DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final facts = (document['facts'] as List<Object?>)
+        .cast<Map<String, Object?>>();
+    expect(
+      facts
+          .where((fact) => fact['kind'] == 'method-invoke')
+          .map((fact) => fact['method']),
+      ['list', 'map'],
+    );
+    expect(
+      document['limitations'],
+      contains(
+        'unresolved-receiver-invocations: 1 invokeMethod call has an unresolved receiver',
+      ),
+    );
+    expect(
+      document['limitations'],
+      contains('invalid-method-invocations: 1 invocation has no method name'),
+    );
+  });
+
+  test(
+    'bridges respects prefixed imports, combinators, and prefix shadowing',
+    () async {
+      final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+      addTearDown(() => root.delete(recursive: true));
+      await Directory('${root.path}/lib').create();
+      await File('${root.path}/lib/prefixed.dart').writeAsString(r'''
+import 'package:flutter/services.dart' as services show MethodChannel;
+
+final prefixed = const services.MethodChannel('dev.example/prefixed');
+void call() => prefixed.invokeMethod('real');
+void shadow(Object services) {
+  services.MethodChannel('not/flutter');
+}
+''');
+      await File('${root.path}/lib/hidden.dart').writeAsString(r'''
+import 'package:flutter/services.dart' hide MethodChannel;
+
+class MethodChannel {
+  MethodChannel(String name);
+}
+final hidden = MethodChannel('not/flutter');
+''');
+      await File('${root.path}/lib/alias.dart').writeAsString(r'''
+import 'package:flutter/services.dart' show MethodChannel;
+
+typedef MethodChannel = String;
+final alias = MethodChannel('not/flutter');
+''');
+      final output = StringBuffer();
+
+      final status = await runDartograph(
+        ['bridges', '--format', 'json', root.path],
+        output: output,
+        now: () => DateTime.utc(2026, 9, 4, 12),
+      );
+
+      expect(status, ExitStatus.success.code);
+      final document = jsonDecode(output.toString()) as Map<String, Object?>;
+      final facts = (document['facts'] as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(facts, hasLength(2));
+      expect(facts.map((fact) => fact['channel']).toSet(), {
+        'dev.example/prefixed',
+      });
+      expect(facts.singleWhere((fact) => fact['method'] == 'real'), isNotNull);
+    },
+  );
+
+  test('bridges does not resolve pattern variables as outer constants', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/pattern.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+const method = 'outer';
+final channel = MethodChannel('dev.example/pattern');
+void call(Object value) {
+  if (value case final String method) {
+    channel.invokeMethod(method);
+  }
+}
+''');
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      now: () => DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final invocation = (document['facts'] as List<Object?>)
+        .cast<Map<String, Object?>>()
+        .singleWhere((fact) => fact['kind'] == 'method-invoke');
+    expect(invocation['method'], 'method');
+    expect(invocation['dynamic'], isTrue);
+    expect(
+      document['limitations'],
+      contains(
+        'pattern-variable-scopes: 1 pattern binding was resolved conservatively',
+      ),
+    );
+  });
+
+  test('bridges uses one-based UTF-8 byte columns', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/utf8.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+final channel = MethodChannel('dev.example/utf8');
+void call() { /* 한글 */ channel.invokeMethod('ping'); }
+''');
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      now: () => DateTime.utc(2026, 9, 4, 12),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final invocation = (document['facts'] as List<Object?>)
+        .cast<Map<String, Object?>>()
+        .singleWhere((fact) => fact['kind'] == 'method-invoke');
+    final location = invocation['location'] as Map<String, Object?>;
+    expect(location['column'], 36);
+  });
+
+  test('bridges rejects Unicode line controls in fact values', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/control.dart').writeAsString(
+      "import 'package:flutter/services.dart';\n"
+      "final channel = MethodChannel('dev.example/unsafe\\u2028name');\n",
+    );
+    final output = StringBuffer();
+    final errors = StringBuffer();
+
+    final status = await runDartograph(
+      ['bridges', '--format', 'json', root.path],
+      output: output,
+      error: errors,
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(output, isEmpty);
+    expect(errors.toString(), contains('Analysis failed:'));
+  });
+
+  test('bridges accepts -- before a positional root', () async {
+    final root = await Directory.systemTemp.createTemp('dartograph-bridges-');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/empty.dart').writeAsString('void main() {}');
+    final output = StringBuffer();
+
+    final status = await runDartograph([
+      'bridges',
+      '--format',
+      'json',
+      '--',
+      root.path,
+    ], output: output);
+
+    expect(status, ExitStatus.success.code);
+  });
 }
