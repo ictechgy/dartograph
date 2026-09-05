@@ -51,6 +51,10 @@ expect_status 1 "metrics strict findings" metrics --strict fixtures/phase5_contr
 expect_status 1 "metrics trailing strict" metrics fixtures/phase5_contract --strict
 expect_status 2 "analysis failure" dead --format json fixtures/does-not-exist
 expect_status 64 "usage error" no-such-command
+expect_status 0 "batch query" query --batch fixtures/phase5_contract/query_batch.json fixtures/phase5_contract
+expect_status 64 "batch query partial miss" query --batch fixtures/phase5_contract/query_batch_missing.json fixtures/phase5_contract
+expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
+expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "CLI contract failed: $FAILURES case(s)" >&2

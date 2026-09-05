@@ -184,7 +184,8 @@ final class AnalyzerGraphIndex {
 }
 
 const _cacheSchemaVersion = 1;
-const _cacheIdentity = 'dartograph-analysis-$toolVersion-cache-v1';
+const _cacheIdentity =
+    'dartograph-analysis-$toolVersion-cache-v2-source-evidence';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -436,6 +437,27 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
 }
 
 List<String> _agentLimitations(String root, List<ResolvedUnitResult> units) {
+  final sourceGaps = <String>{};
+  for (final unit in units) {
+    final source = _sourcePathId(unit.path, root);
+    if (unit.diagnostics.any(
+      (error) => error.diagnosticCode.severity.name == 'ERROR',
+    )) {
+      sourceGaps.add('source-analysis-errors: $source');
+    }
+    final visitor = _UnresolvedInvocationVisitor();
+    unit.unit.accept(visitor);
+    if (visitor.found) sourceGaps.add('source-unresolved-invocations: $source');
+    if (unit.unit.directives.any(
+      (directive) => switch (directive) {
+        ImportDirective() => directive.configurations.isNotEmpty,
+        ExportDirective() => directive.configurations.isNotEmpty,
+        _ => false,
+      },
+    )) {
+      sourceGaps.add('source-conditional-configuration: $source');
+    }
+  }
   final conditionalCount = units.fold<int>(0, (count, unit) {
     return count +
         unit.unit.directives
@@ -458,6 +480,9 @@ List<String> _agentLimitations(String root, List<ResolvedUnitResult> units) {
       .length;
   final staleGenerated = _staleGeneratedCount(root);
   return [
+    if (sourceGaps.isNotEmpty)
+      'analysis gaps may affect reachability outside the source files where they were observed',
+    ...sourceGaps.toList()..sort(),
     if (conditionalCount > 0)
       'conditional-imports: $conditionalCount directive(s) use only the analyzer-selected configuration',
     if (unmatchedRoutes > 0)
@@ -465,6 +490,15 @@ List<String> _agentLimitations(String root, List<ResolvedUnitResult> units) {
     if (staleGenerated > 0)
       'generated-code-staleness: $staleGenerated generated file(s) are older than their source',
   ];
+}
+
+final class _UnresolvedInvocationVisitor extends RecursiveAstVisitor<void> {
+  bool found = false;
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.methodName.element == null) found = true;
+    super.visitMethodInvocation(node);
+  }
 }
 
 final class _RouteCollector extends RecursiveAstVisitor<void> {

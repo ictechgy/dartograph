@@ -311,7 +311,10 @@ final class ReachabilityAnalyzer {
             column: node.column,
             reason: 'unreachable from all retention roots',
             retentionRootsChecked: rootsChecked,
-            limitations: limitations,
+            limitations: limitationsForSource(
+              limitations,
+              node.sourceUri ?? node.id.split('::').first,
+            ),
           ),
         )
         .toList();
@@ -360,7 +363,10 @@ final class ReachabilityAnalyzer {
             source: _librarySource(node.id),
             reason: 'no reachable declaration or reachable library import',
             retentionRootsChecked: rootsChecked,
-            limitations: limitations,
+            limitations: limitationsForSource(
+              limitations,
+              _librarySource(node.id),
+            ),
           ),
         )
         .toList();
@@ -377,6 +383,16 @@ final class ReachabilityAnalyzer {
     );
   }
 }
+
+/// 소스 한계는 관측된 파일에만 붙이고 전역 한계는 모든 finding에 보존한다.
+List<String> limitationsForSource(List<String> limitations, String source) =>
+    limitations
+        .where(
+          (item) => !item.startsWith('source-') || item.endsWith(': $source'),
+        )
+        .toSet()
+        .toList()
+      ..sort();
 
 String _librarySource(String id) {
   final uri = Uri.parse(id);

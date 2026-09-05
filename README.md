@@ -48,6 +48,8 @@ dart run dartograph baseline --write .dartograph-baseline.json .
 dart run dartograph dead --format github-actions \
   --baseline .dartograph-baseline.json --since origin/main .
 dart run dartograph query ApiClient --baseline .dartograph-baseline.json .
+dart run dartograph query --batch requests.json .
+dart run dartograph compare ../before-checkout ../after-checkout
 dart run dartograph skill
 dart run dartograph bridges --format json .
 dart run dartograph cycles --strict .

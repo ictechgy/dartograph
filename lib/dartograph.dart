@@ -1,6 +1,8 @@
 /// 모든 분석이 공유하는 그래프 원천 타입을 공개한다.
 library;
 
+export 'src/analysis/symbol_query.dart' show querySymbol, SymbolQuerySession;
+
 export 'src/core/code_graph.dart';
 export 'src/core/fact_cache.dart';
 export 'src/core/graph_edge.dart';
