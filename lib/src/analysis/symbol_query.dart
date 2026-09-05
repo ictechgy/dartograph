@@ -13,71 +13,138 @@ Map<String, Object?> querySymbol({
   required String requested,
   required List<String> limitations,
   Set<String> suppressedIds = const {},
-}) {
-  final matches = graph.nodes
-      .where(
-        (node) =>
-            node.id == requested ||
-            node.id.split('::').last == requested ||
-            _simpleName(node.id) == requested,
-      )
-      .toList();
-  if (matches.isEmpty) {
-    return _document('notFound', requested, limitations);
+}) => SymbolQuerySession(
+  graph: graph,
+  roots: roots,
+  limitations: limitations,
+).query(requested, suppressedIds: suppressedIds);
+
+/// 한 그래프의 도달성과 이름·이웃 색인을 여러 질의가 공유한다.
+final class SymbolQuerySession {
+  /// 입력을 고정해 일괄 질의 중 결과가 바뀌지 않게 한다.
+  SymbolQuerySession({
+    required this.graph,
+    required Map<String, RetentionReason> roots,
+    required List<String> limitations,
+  }) : roots = Map.unmodifiable(roots),
+       limitations = List.unmodifiable(limitations) {
+    analysis = ReachabilityAnalyzer().analyze(
+      graph,
+      roots: this.roots,
+      limitations: this.limitations,
+    );
+    for (final node in graph.nodes) {
+      _nodes[node.id] = node;
+      for (final name in {
+        node.id,
+        node.id.split('::').last,
+        _simpleName(node.id),
+      }) {
+        _names.putIfAbsent(name, () => []).add(node);
+      }
+    }
+    for (final edge in graph.edges) {
+      _outgoing.putIfAbsent(edge.sourceId, () => []).add(edge);
+      _incoming.putIfAbsent(edge.targetId, () => []).add(edge);
+    }
   }
-  if (matches.length > 1) {
+
+  /// 분석에 사용한 불변 그래프다.
+  final GraphSnapshot graph;
+
+  /// 질의 사이에 공유하는 보존 루트다.
+  final Map<String, RetentionReason> roots;
+
+  /// 모든 응답이 함께 전달하는 분석 한계다.
+  final List<String> limitations;
+
+  /// 일괄 baseline 처리에도 재사용하는 도달성 결과다.
+  late final ReachabilityResult analysis;
+  final Map<String, GraphNode> _nodes = {};
+  final Map<String, List<GraphNode>> _names = {};
+  final Map<String, List<GraphEdge>> _outgoing = {};
+  final Map<String, List<GraphEdge>> _incoming = {};
+
+  /// 기존 단일 질의와 같은 문서 계약으로 한 요청을 처리한다.
+  Map<String, Object?> query(
+    String requested, {
+    Set<String> suppressedIds = const {},
+  }) {
+    final matches = _names[requested] ?? const <GraphNode>[];
+    if (matches.isEmpty) {
+      return _document('notFound', requested, limitations);
+    }
+    if (matches.length > 1) {
+      return _document(
+        'ambiguous',
+        requested,
+        limitations,
+        candidates: [
+          for (final node in matches)
+            {'qualifiedName': node.id, 'usr': node.id},
+        ],
+      );
+    }
+    final node = matches.single;
+    final explanation = analysis.explain(node.id);
+    final reachableMember = analysis.reachableIds
+        .where((id) => id.startsWith('${node.id}.'))
+        .firstOrNull;
+    final state = roots.containsKey(node.id)
+        ? 'retained'
+        : explanation.reachable
+        ? 'reachable'
+        : reachableMember != null
+        ? 'retainedByMember'
+        : 'unreachable';
+    final path = switch (state) {
+      'retained' => [node.id],
+      'reachable' => explanation.path,
+      'retainedByMember' => analysis.explain(reachableMember!).path,
+      _ => null,
+    };
     return _document(
-      'ambiguous',
+      'found',
       requested,
       limitations,
-      candidates: [
-        for (final node in matches) {'qualifiedName': node.id, 'usr': node.id},
-      ],
+      result: {
+        'subject': _subject(node),
+        'reachability': {
+          if (state == 'retainedByMember') 'witness': reachableMember,
+          'state': state,
+          'reason': roots[node.id]?.name,
+          'path': path,
+          'suppressedByBaseline':
+              state == 'unreachable' && suppressedIds.contains(node.id),
+        },
+        'usedBy': _neighbors(node.id, reverse: true),
+        'dependsOn': _neighbors(node.id),
+        'members': _neighbors(node.id, members: true),
+        'declaredIn': _neighbors(
+          node.id,
+          reverse: true,
+          members: true,
+        ).firstOrNull,
+        'truncated': {'usedBy': false, 'dependsOn': false, 'members': false},
+      },
     );
   }
-  final node = matches.single;
-  final analysis = ReachabilityAnalyzer().analyze(
-    graph,
-    roots: roots,
-    limitations: limitations,
-  );
-  final explanation = analysis.explain(node.id);
-  final reachableMember = analysis.reachableIds
-      .where((id) => id.startsWith('${node.id}.'))
-      .firstOrNull;
-  final state = roots.containsKey(node.id)
-      ? 'retained'
-      : explanation.reachable
-      ? 'reachable'
-      : reachableMember != null
-      ? 'retainedByMember'
-      : 'unreachable';
-  final path = switch (state) {
-    'retained' => [node.id],
-    'reachable' => explanation.path,
-    'retainedByMember' => analysis.explain(reachableMember!).path,
-    _ => null,
-  };
-  return _document(
-    'found',
-    requested,
-    limitations,
-    result: {
-      'subject': _subject(node),
-      'reachability': {
-        'state': state,
-        'reason': roots[node.id]?.name,
-        'path': path,
-        'suppressedByBaseline':
-            state == 'unreachable' && suppressedIds.contains(node.id),
-      },
-      'usedBy': _neighbors(graph, node.id, incoming: true),
-      'dependsOn': _neighbors(graph, node.id, incoming: false),
-      'members': _members(graph, node.id, incoming: false),
-      'declaredIn': _members(graph, node.id, incoming: true).firstOrNull,
-      'truncated': {'usedBy': false, 'dependsOn': false, 'members': false},
-    },
-  );
+
+  List<Map<String, Object?>> _neighbors(
+    String id, {
+    bool reverse = false,
+    bool members = false,
+  }) {
+    final grouped = <String, List<GraphEdge>>{};
+    for (final edge
+        in (reverse ? _incoming : _outgoing)[id] ?? const <GraphEdge>[]) {
+      if ((edge.kind == EdgeKind.member) != members) continue;
+      grouped
+          .putIfAbsent(reverse ? edge.sourceId : edge.targetId, () => [])
+          .add(edge);
+    }
+    return _describeNeighbors(_nodes, grouped);
+  }
 }
 
 Map<String, Object?> _document(
@@ -123,45 +190,10 @@ Map<String, Object?>? _location(GraphNode node) => node.sourceUri == null
     ? null
     : {'path': node.sourceUri, 'line': node.line, 'column': node.column};
 
-List<Map<String, Object?>> _neighbors(
-  GraphSnapshot graph,
-  String id, {
-  required bool incoming,
-}) {
-  final grouped = <String, List<GraphEdge>>{};
-  for (final edge in graph.edges.where(
-    (edge) => edge.kind != EdgeKind.member,
-  )) {
-    if ((incoming ? edge.targetId : edge.sourceId) != id) continue;
-    grouped
-        .putIfAbsent(incoming ? edge.sourceId : edge.targetId, () => [])
-        .add(edge);
-  }
-  return _describeNeighbors(graph, grouped);
-}
-
-List<Map<String, Object?>> _members(
-  GraphSnapshot graph,
-  String id, {
-  required bool incoming,
-}) {
-  final grouped = <String, List<GraphEdge>>{};
-  for (final edge in graph.edges.where(
-    (edge) => edge.kind == EdgeKind.member,
-  )) {
-    if ((incoming ? edge.targetId : edge.sourceId) != id) continue;
-    grouped
-        .putIfAbsent(incoming ? edge.sourceId : edge.targetId, () => [])
-        .add(edge);
-  }
-  return _describeNeighbors(graph, grouped);
-}
-
 List<Map<String, Object?>> _describeNeighbors(
-  GraphSnapshot graph,
+  Map<String, GraphNode> nodes,
   Map<String, List<GraphEdge>> grouped,
 ) {
-  final nodes = {for (final node in graph.nodes) node.id: node};
   final result = <Map<String, Object?>>[];
   for (final id in grouped.keys.toList()..sort()) {
     final node = nodes[id]!;

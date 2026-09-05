@@ -9,6 +9,7 @@ import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
+import '../analysis/graph_comparison.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
@@ -59,6 +60,13 @@ Future<int> runDartograph(
   final stderrSink = error ?? stderr;
   final command = arguments.firstOrNull;
   switch (command) {
+    case 'compare':
+      return _runCompare(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+      );
     case null:
     case '--help':
     case '-h':
@@ -133,6 +141,39 @@ Future<int> runDartograph(
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
+  }
+}
+
+Future<int> _runCompare(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+) async {
+  if (arguments.length != 2 || arguments.any((a) => a.startsWith('--'))) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final before = await indexPackage(arguments[0]);
+    final after = await indexPackage(arguments[1]);
+    output.write(
+      encodeSymbolQueryDocument(
+        compareGraphs(
+          before: before.graph.snapshot(),
+          after: after.graph.snapshot(),
+          beforeRoots: before.retentionRoots,
+          afterRoots: after.retentionRoots,
+          beforeLimitations: _limitations(before),
+          afterLimitations: _limitations(after),
+        ),
+      ),
+    );
+    return ExitStatus.success.code;
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
   }
 }
 
@@ -286,13 +327,42 @@ Future<int> _runQuery(
   IndexPackage indexPackage,
 ) async {
   String? baselinePath;
-  late final String requested;
+  String? batchPath;
+  late final List<String> requests;
   late final String rootPath;
-  if (arguments.length == 2) {
-    requested = arguments[0];
+  if (arguments.length >= 3 &&
+      arguments[0] == '--batch' &&
+      (arguments.length == 3 ||
+          (arguments.length == 5 && arguments[2] == '--baseline'))) {
+    batchPath = arguments[1];
+    rootPath = arguments.last;
+    if (rootPath.startsWith('-')) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    if (arguments.length == 5) baselinePath = arguments[3];
+    try {
+      final file = File(batchPath);
+      if (await file.length() > 1024 * 1024) throw const FormatException();
+      final value = jsonDecode(await file.readAsString());
+      if (value is! List ||
+          value.isEmpty ||
+          value.length > 1000 ||
+          value.any((item) => item is! String || item.trim().isEmpty)) {
+        throw const FormatException();
+      }
+      requests = value.cast<String>();
+    } on Exception {
+      error.writeln(
+        'Invalid batch: provide a JSON array of 1–1000 non-empty symbol names (maximum 1 MiB).',
+      );
+      return ExitStatus.usage.code;
+    }
+  } else if (arguments.length == 2 && !arguments.first.startsWith('--')) {
+    requests = [arguments[0]];
     rootPath = arguments[1];
   } else if (arguments.length == 4 && arguments[1] == '--baseline') {
-    requested = arguments[0];
+    requests = [arguments[0]];
     baselinePath = arguments[2];
     rootPath = arguments[3];
   } else {
@@ -302,29 +372,37 @@ Future<int> _runQuery(
   try {
     final indexed = await indexPackage(rootPath);
     final limitations = _limitations(indexed);
+    final session = SymbolQuerySession(
+      graph: indexed.graph.snapshot(),
+      roots: indexed.retentionRoots,
+      limitations: limitations,
+    );
     final suppressedIds = <String>{};
     if (baselinePath != null) {
       final baseline = await _readBaseline(File(baselinePath));
-      final reachability = ReachabilityAnalyzer().analyze(
-        indexed.graph.snapshot(),
-        roots: indexed.retentionRoots,
-        limitations: limitations,
-      );
-      for (final finding in reachability.deadDeclarations) {
-        if (baseline.filter([finding]).suppressedCount == 1) {
-          suppressedIds.add(finding.id);
-        }
+      final findings = session.analysis.deadDeclarations;
+      final remaining = baseline
+          .filter(findings)
+          .findings
+          .map((f) => f.id)
+          .toSet();
+      for (final finding in findings) {
+        if (!remaining.contains(finding.id)) suppressedIds.add(finding.id);
       }
     }
-    final document = querySymbol(
-      graph: indexed.graph.snapshot(),
-      roots: indexed.retentionRoots,
-      requested: requested,
-      limitations: limitations,
-      suppressedIds: suppressedIds,
-    );
+    final results = [
+      for (final requested in requests)
+        session.query(requested, suppressedIds: suppressedIds),
+    ];
+    final document = batchPath == null
+        ? results.single
+        : <String, Object?>{
+            'format': 'symbol-query-batch',
+            'version': 1,
+            'results': results,
+          };
     output.write(encodeSymbolQueryDocument(document));
-    return document['status'] == 'notFound'
+    return results.any((result) => result['status'] == 'notFound')
         ? ExitStatus.usage.code
         : ExitStatus.success.code;
   } on _InvalidBaseline {
@@ -670,6 +748,8 @@ Usage: dartograph [--help] [--version]
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] <package-root>
+       dartograph compare <before-package-root> <after-package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json <package-root>
        dartograph cycles [--strict] <package-root>

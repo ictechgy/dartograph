@@ -91,6 +91,10 @@ BridgeIndexResult indexBridges(String rootPath) {
       .where((fact) => fact['dynamic'] == true)
       .length;
   return BridgeIndexResult(facts, [
+    if (facts.any(
+      (fact) => fact['kind'] == 'method-invoke' && !fact.containsKey('symbol'),
+    ))
+      'missing-caller-symbols: some invocations have source locations but no supported enclosing declaration name',
     if (dynamicChannels > 0)
       'dynamic-channel-names: $dynamicChannels channel constructors use a non-literal name',
     if (dynamicMethodNames > 0)
@@ -375,6 +379,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     final channel = _bridgeName(arguments.arguments.first);
     facts.add(
       _fact(
+        node,
         node.offset,
         'channel-create',
         channel.value,
@@ -405,6 +410,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     if (method.dynamic) dynamicMethodNames++;
     facts.add(
       _fact(
+        node,
         node.methodName.offset,
         'method-invoke',
         channel.value,
@@ -463,6 +469,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   }
 
   Map<String, Object?> _fact(
+    AstNode node,
     int offset,
     String kind,
     String channel, {
@@ -476,7 +483,9 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     final lineOffset = lineInfo.getOffsetOfLine(location.lineNumber - 1);
     final utf8Column =
         utf8.encode(source.substring(lineOffset, offset)).length + 1;
+    final symbol = _enclosingSymbol(node);
     return {
+      'symbol': ?symbol,
       'kind': kind,
       'channel': channel,
       'method': ?method,
@@ -535,6 +544,32 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
     return null;
   }
+}
+
+Map<String, Object?>? _enclosingSymbol(AstNode node) {
+  final names = <String>[];
+  for (
+    AstNode? current = node.parent;
+    current != null;
+    current = current.parent
+  ) {
+    final name = switch (current) {
+      MethodDeclaration() => current.name.lexeme,
+      FunctionDeclaration() => current.name.lexeme,
+      ClassDeclaration() => current.namePart.typeName.lexeme,
+      MixinDeclaration() => current.name.lexeme,
+      EnumDeclaration() => current.namePart.typeName.lexeme,
+      _ => null,
+    };
+    if (name != null) names.add(name);
+    if (current is ExtensionDeclaration ||
+        current is ExtensionTypeDeclaration ||
+        current is ConstructorDeclaration) {
+      return null;
+    }
+  }
+  if (names.isEmpty) return null;
+  return {'qualifiedName': names.reversed.join('.')};
 }
 
 Map<String, _BridgeName> _topLevelChannels(
