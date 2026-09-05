@@ -7,8 +7,9 @@
   익명 extension의 source·offset 보조 ID는 편집에 따라 달라질 수 있으므로 영구 식별자로 과장하지 않는다.
 - 프로젝트 경로는 canonical root 기준 project: ID로 정규화한다. OS 경로 구분자·symlink·루트 밖 경로를 검증한다.
 - main은 lib/·bin/·example/의 여러 진입점을 보수적으로 보존한다. `dartograph.yaml`의 `entry_points`가 있으면
-  나열된 진입점 파일의 main만 보존 루트로 좁히고, 없으면 기본 보수 정책을 유지한다. 비어 있거나 절대·루트 밖·비문자열
-  경로는 조용히 무시하지 않고 FormatException으로 실패시킨다. main이 없는 진입점은 configured-entry-point-without-main 한계로 남긴다.
+  나열된 진입점 파일의 main만 보존 루트로 좁히고, 없으면 기본 보수 정책을 유지한다. 항목은 lib/·bin/·example/ 아래
+  실제로 존재하는 .dart여야 하며 비어 있거나 절대·루트 밖·비문자열·범위 밖·미존재·비.dart 경로는 조용히 무시하지 않고
+  FormatException으로 실패시킨다. 존재하지만 main이 없는 진입점은 configured-entry-point-without-main 한계로 남긴다.
 - 테스트·실제 meta annotation·정확한 pragma·override·public barrel API·plugin entry point의 보존 근거를 유지한다.
   annotation은 prefix와 실제 library identity를 확인하며 이름만 같은 가짜 선언을 보존하지 않는다.
 - 생성 파일 목록은 _generatedDartSuffixes를 따른다. protobuf sibling도 synthesized/보존 대상이며 사용자 part와 구분한다.

@@ -699,13 +699,20 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
   }
 }
 
+/// `entry_points`가 가리킬 수 있는 보존 루트 디렉터리다.
+/// 이 밖의 `main`은 원래 mainEntryPoint 루트가 아니므로 설정으로 받지 않는다.
+const _entryPointDirectories = {'bin', 'example', 'lib'};
+
 /// 프로젝트 루트의 선택적 `dartograph.yaml`에서 `entry_points`를 읽어
-/// `project:` source ID 집합으로 정규화한다.
+/// canonical `project:` source ID 집합으로 변환한다.
 ///
 /// 파일이나 `entry_points` 키가 없으면 null을 반환해 기본 보수 정책
-/// (`lib/`·`bin/`·`example/`의 모든 main 보존)을 유지한다. 값이 비어 있거나
-/// 절대 경로·루트 탈출 경로를 포함하면 [FormatException]을 던진다. 잘못된
-/// 설정으로 보존 루트를 조용히 좁히지 않기 위해서다.
+/// (`lib/`·`bin/`·`example/`의 모든 main 보존)을 유지한다. 항목이 비어 있거나
+/// 문자열이 아니거나, 절대·루트 밖 경로이거나, `lib/`·`bin/`·`example/` 밖이거나,
+/// 존재하지 않거나, `.dart`가 아니면 [FormatException]을 던진다. 잘못된 설정으로
+/// 사용자가 선언한 build target이 조용히 무시되거나 보존 루트가 잘못 좁혀지는
+/// 것을 막기 위해서다. malformed YAML의 `YamlException`도 `FormatException`이라
+/// 같은 종료 코드 계약(2)을 따른다.
 Set<String>? _readEntryPoints(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return null;
@@ -717,7 +724,7 @@ Set<String>? _readEntryPoints(String root) {
   if (raw == null) return null;
   if (raw is! YamlList || raw.isEmpty) {
     throw const FormatException(
-      'entry_points must be a non-empty list of project-relative paths',
+      'entry_points must be a non-empty list of project-relative .dart paths',
     );
   }
   final sources = <String>{};
@@ -727,20 +734,41 @@ Set<String>? _readEntryPoints(String root) {
         'entry_points entries must be non-empty strings',
       );
     }
-    sources.add('project:${_normalizeEntryPoint(entry)}');
+    sources.add(_entryPointSourceId(root, entry));
   }
   return sources;
 }
 
-/// 사용자 설정 경로를 POSIX 프로젝트 상대 경로로 정규화하고 검증을 수행한다.
-String _normalizeEntryPoint(String entry) {
-  final posix = p.posix.normalize(entry.replaceAll(r'\', p.posix.separator));
-  if (p.posix.isAbsolute(posix) || posix == '..' || posix.startsWith('../')) {
+/// 사용자 설정 진입점을 검증하고 analyzer source ID와 일치하는 canonical
+/// `project:` ID로 변환한다. symlink·대소문자 차이를 resolveSymbolicLinks로
+/// 정규화해 보존 루트 매칭이 어긋나지 않게 한다.
+String _entryPointSourceId(String root, String entry) {
+  final lexical = p.posix.normalize(entry.replaceAll(r'\', p.posix.separator));
+  if (p.posix.isAbsolute(lexical) ||
+      lexical == '..' ||
+      lexical.startsWith('../')) {
     throw FormatException(
       'entry_points must be project-relative paths: $entry',
     );
   }
-  return posix;
+  final file = File(p.join(root, lexical));
+  if (!file.existsSync()) {
+    throw FormatException('entry_points file does not exist: $entry');
+  }
+  final id = projectIdForPath(file.resolveSymbolicLinksSync(), root);
+  if (!id.startsWith('project:')) {
+    throw FormatException(
+      'entry_points must resolve inside the package: $entry',
+    );
+  }
+  final relative = id.substring('project:'.length);
+  if (!_entryPointDirectories.contains(relative.split('/').first) ||
+      !relative.endsWith('.dart')) {
+    throw FormatException(
+      'entry_points must be .dart files under lib/, bin/, or example/: $entry',
+    );
+  }
+  return id;
 }
 
 RetentionReason? _retentionReason(

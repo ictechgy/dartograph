@@ -96,7 +96,7 @@ entry_points:
   - lib/main_production.dart
 ```
 
-`entry_points`는 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로나 루트 밖(`..`) 경로, 비문자열 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 나열한 진입점에 `main`이 없으면 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며, 기본 정책으로 분석한 결과를 재사용하지 않는다.
+`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 identity를 v3로 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.
