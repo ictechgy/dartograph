@@ -14,14 +14,18 @@ _Last updated: 2026-09-06 by Codex (PR #7 기준으로 갱신)_
 - pub.dev `dartograph 0.2.0` 및 GitHub Release `v0.2.0` 공개 완료.
 - 지침 기준: `c4d121d` (PR #7 merge). Astra 공식 가이드에 맞춘 지침·skill·CI 최적화와
   `doc/AGENT-WORKFLOW-AUDIT.md`가 반영됐다. 문서 작업 시작 시 main과 작업 트리는 깨끗했다.
-- 이 문서는 `c4d121d`에서 만든 `docs/handoff-0.2.0-current` 브랜치에서 갱신한다.
-  0.2.0 갱신 원본은 미머지 `docs/handoff-020`(`ce5ec23`)이며 그 내용을 보존해 가져왔다.
+- 0.2.0 HANDOFF 갱신은 PR #8(`docs/handoff-0.2.0-current`)로 main에 머지됐다. 미머지 원본
+  `docs/handoff-020`(`ce5ec23`)의 내용을 보존해 가져왔고 그 브랜치는 삭제했다.
+- main에는 0.2.0 이후 **미릴리스** `entry_points`(`dartograph.yaml`) 기능이 추가됐다. 아직 태그·pub.dev 발행 전이다.
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
 - 제품 배포 blocker는 없다. HANDOFF 내용이 Git 상태보다 우선하지 않으므로 재개 시 실제 상태를 확인한다.
 
 ## Completed
 
+- `dartograph.yaml`의 `entry_points`(미릴리스): 선언된 build target 파일의 `main`만 보존 루트로 좁힌다.
+  인덱스가 설정을 직접 읽어 CLI·skill 표면은 unchanged이고 모든 명령에 균일 적용된다.
+  없으면 기본 보수 정책. 잘못된 설정은 FormatException(종료 2), `main` 없는 진입점은 limitation으로 보고한다.
 - `query --batch <requests.json> [--baseline <file>] <root>`: 색인·도달성·이웃·baseline 공유.
   1–1000개 문자열, 최대 1 MiB. 순서·중복을 보존하며 미발견이 하나라도 있으면 전체 64,
   개별 결과는 모두 반환한다.
@@ -52,8 +56,9 @@ _Last updated: 2026-09-06 by Codex (PR #7 기준으로 갱신)_
 ## Important Context / Decisions
 
 - Facts:
-  - cache identity는 `dartograph-analysis-$toolVersion-cache-v2-source-evidence`다.
+  - cache identity는 `dartograph-analysis-$toolVersion-cache-v3-entry-points`다.
     추출 의미 변경 시 revision을 갱신한다. 내용 해시와 입력 변경 검사를 유지한다.
+    `dartograph.yaml`(entry_points)도 캐시 키에 포함한다.
   - 소스 한계는 파일 수준 관측이다. 다른 파일의 동적 호출도 영향을 줄 수 있으며 한계 없음은 안전성 보증이 아니다.
   - compare는 인과 증명이나 삭제 판정이 아니다. rename은 삭제/추가로 보이며 matched SDK·의존성·설정은 호출자가 준비한다.
   - bridge의 qualifiedName은 어휘적 이름이다. Dart 컴파일러 USR을 발명하지 않는다.

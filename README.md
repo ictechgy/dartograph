@@ -82,7 +82,7 @@ dartograph는 삭제 가능 여부를 판정하거나 코드를 자동 삭제하
 - 조건부 import/export는 analyzer가 고른 한 구성만 본다.
 - 문자열 route가 route table과 연결되지 않으면 한계로 보고하며 삭제 근거로 쓰지 않는다.
 - 생성 코드가 소스보다 오래됐으면 한계로 보고한다. 생성 선언 자체는 보수적으로 보존한다.
-- `main`은 여러 개일 수 있으며 `lib/`, `bin/`, `example/`의 진입점을 보존한다.
+- `main`은 여러 개일 수 있으며 기본적으로 `lib/`, `bin/`, `example/`의 진입점을 보존한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힐 수 있다.
 - `lib/<package-name>.dart`가 export한 공개 선언과 공개 멤버는 외부 소비자 API로 보존한다.
 - 동적 호출과 네이티브 동작은 정적 그래프가 완전히 증명할 수 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다.

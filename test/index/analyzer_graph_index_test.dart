@@ -409,6 +409,158 @@ environment:
       everyElement(RetentionReason.generatedCode),
     );
   });
+
+  test(
+    'entry_points narrows main retention to declared build targets',
+    () async {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+
+      final conservative = await AnalyzerGraphIndex().index(package.path);
+      expect(
+        conservative.retentionRoots.entries
+            .where((entry) => entry.key.endsWith('::main'))
+            .map((entry) => entry.value),
+        everyElement(RetentionReason.mainEntryPoint),
+      );
+      expect(
+        conservative.retentionRoots.keys
+            .where((id) => id.endsWith('::main'))
+            .length,
+        3,
+        reason: 'lib/main.dart·lib/main_dev.dart·bin/cli.dart의 main을 모두 보존',
+      );
+
+      await File('${package.path}/dartograph.yaml').writeAsString('''
+entry_points:
+  - lib/main.dart
+''');
+      final narrowed = await AnalyzerGraphIndex().index(package.path);
+      final mainRoots = narrowed.retentionRoots.entries
+          .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+          .map((entry) => entry.key)
+          .toList();
+      expect(
+        mainRoots.where((id) => id.endsWith('main_dev.dart::main')),
+        isEmpty,
+        reason: '설정되지 않은 진입점의 main은 강제 루트가 아니다',
+      );
+      expect(
+        mainRoots.where((id) => id.endsWith('bin/cli.dart::main')),
+        isEmpty,
+        reason: '다른 디렉터리의 설정되지 않은 main도 루트가 아니다',
+      );
+      expect(
+        mainRoots.where((id) => id.endsWith('main.dart::main')),
+        isNotEmpty,
+        reason: '설정된 lib/main.dart의 main은 보존 루트로 남는다',
+      );
+    },
+  );
+
+  test('entry_points accepts non-lib build targets under bin/', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/dartograph.yaml').writeAsString('''
+entry_points:
+  - bin/cli.dart
+''');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+    final mainRoots = result.retentionRoots.entries
+        .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+        .map((entry) => entry.key)
+        .toList();
+
+    expect(mainRoots, hasLength(1), reason: '설정된 bin/cli.dart의 main만 보존 루트다');
+    expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+  });
+
+  test(
+    'configured entry point without a main is reported as a limitation',
+    () async {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/dartograph.yaml').writeAsString('''
+entry_points:
+  - lib/main.dart
+  - lib/no_main.dart
+''');
+
+      final result = await AnalyzerGraphIndex().index(package.path);
+
+      expect(
+        result.limitationDetails,
+        contains('configured-entry-point-without-main: lib/no_main.dart'),
+      );
+    },
+  );
+
+  test(
+    'invalid entry_points config fails instead of silently narrowing',
+    () async {
+      for (final config in const [
+        'entry_points: []\n',
+        'entry_points:\n  - /abs/main.dart\n',
+        'entry_points:\n  - ../escape/main.dart\n',
+        'entry_points:\n  - 42\n',
+        'entry_points:\n  - lib/does_not_exist.dart\n',
+        'entry_points:\n  - test/helper_test.dart\n',
+        'entry_points:\n  - lib/notes.txt\n',
+      ]) {
+        final package = await _entryPointPackage();
+        addTearDown(() => package.delete(recursive: true));
+        await File('${package.path}/dartograph.yaml').writeAsString(config);
+
+        await expectLater(
+          AnalyzerGraphIndex().index(package.path),
+          throwsA(isA<FormatException>()),
+          reason: 'config: $config',
+        );
+      }
+    },
+  );
+}
+
+/// 여러 디렉터리의 main과 검증 케이스를 갖춘 임시 패키지를 만든다.
+///
+/// - `lib/main.dart`, `lib/main_dev.dart`, `bin/cli.dart`: main 진입점
+/// - `lib/no_main.dart`: 존재하지만 main이 없는 파일(limitation 케이스)
+/// - `test/helper_test.dart`: 보존 루트 범위 밖 .dart(거부 케이스)
+/// - `lib/notes.txt`: .dart가 아닌 파일(거부 케이스)
+Future<Directory> _entryPointPackage() async {
+  final package = await Directory.systemTemp.createTemp(
+    'dartograph-entry-points.',
+  );
+  await File('${package.path}/pubspec.yaml').writeAsString('''
+name: entry_points_fixture
+environment:
+  sdk: ^3.11.0
+''');
+  await Directory('${package.path}/lib').create();
+  await File(
+    '${package.path}/lib/main.dart',
+  ).writeAsString('void main() => production();\nvoid production() {}\n');
+  await File(
+    '${package.path}/lib/main_dev.dart',
+  ).writeAsString('void main() => development();\nvoid development() {}\n');
+  await File(
+    '${package.path}/lib/no_main.dart',
+  ).writeAsString('class Helper {}\n');
+  await File('${package.path}/lib/notes.txt').writeAsString('not dart\n');
+  await Directory('${package.path}/bin').create();
+  await File('${package.path}/bin/cli.dart').writeAsString('void main() {}\n');
+  await Directory('${package.path}/test').create();
+  await File(
+    '${package.path}/test/helper_test.dart',
+  ).writeAsString('class HelperTest {}\n');
+  final pubGet = await Process.run(Platform.resolvedExecutable, const [
+    'pub',
+    'get',
+    '--offline',
+  ], workingDirectory: package.path);
+  expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+  return package;
 }
 
 Future<void> _copyFixture(Directory source, Directory destination) async {

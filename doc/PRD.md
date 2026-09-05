@@ -49,7 +49,6 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 ### 나중에 (v0.2+)
 
 - 멀티 패키지(melos 워크스페이스) 지원
-- 실제 build target으로 루트를 좁히는 `entry_points` 설정
 - Pigeon 생성 API 형태를 검증한 뒤 추가하는 정적 브리지 추출
 
 ### 하지 않는 것
@@ -70,7 +69,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 
 Dart 는 리플렉션이 없어 목록이 짧다. 그래서 더 정확할 수 있다.
 
-- `main()` — **여러 개일 수 있다.** `flutter run -t lib/main_dev.dart`. v0.1은 `lib/`, `bin/`, `example/` 아래 모든 `main`을 보수적 루트로 본다
+- `main()` — **여러 개일 수 있다.** `flutter run -t lib/main_dev.dart`. 기본적으로 `lib/`, `bin/`, `example/` 아래 모든 `main`을 보수적 루트로 본다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 루트로 좁힌다(구현됨).
 - `runApp` 에 넘겨진 위젯 트리 — 도달성으로 자연히 따라온다
 - 테스트(`test/`, `integration_test/`), `@visibleForTesting`
 - 생성 코드가 참조하는 사용자 선언: `json_serializable` 의 `fromJson`/`toJson`, `freezed`, `build_runner` 산출물이 참조하는 것. 생성 코드는 `synthesized` 로 표시하되 그 참조는 유효한 간선이다
