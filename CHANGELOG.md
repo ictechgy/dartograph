@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - 소스별 분석 오류·미해석 호출·조건부 구성의 한계를 finding에 연결
 - 단일 색인·도달성 계산을 공유하는 `query --batch`와 라이브러리용 `SymbolQuerySession`

@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.1.1은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.2.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -75,7 +75,7 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.1.1
+- run: dart pub global activate dartograph 0.2.0
 - run: dartograph dead --format github-actions --since origin/main .
 ```
 
