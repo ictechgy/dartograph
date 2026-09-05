@@ -458,6 +458,24 @@ entry_points:
     },
   );
 
+  test('entry_points accepts non-lib build targets under bin/', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/dartograph.yaml').writeAsString('''
+entry_points:
+  - bin/cli.dart
+''');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+    final mainRoots = result.retentionRoots.entries
+        .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+        .map((entry) => entry.key)
+        .toList();
+
+    expect(mainRoots, hasLength(1), reason: '설정된 bin/cli.dart의 main만 보존 루트다');
+    expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+  });
+
   test(
     'configured entry point without a main is reported as a limitation',
     () async {
