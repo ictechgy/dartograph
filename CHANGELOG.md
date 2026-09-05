@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- 소스별 분석 오류·미해석 호출·조건부 구성의 한계를 finding에 연결
+- 단일 색인·도달성 계산을 공유하는 `query --batch`와 라이브러리용 `SymbolQuerySession`
+- 두 checkout의 그래프 변화와 사라진 도달 경로를 설명하는 `compare`
+- bridge fact에 지원되는 Dart 선언 이름을 추가하고 isthmus 양방향 근거 왕복 검증
+- 소스 변형 회귀 평가와 질의 세션 성능 측정 도구
+
 ## 0.1.1
 
 - isthmus GRAPH-EXCHANGE v1에 맞춘 UTC 밀리초 생성 시각과 UTF-8 byte 위치
