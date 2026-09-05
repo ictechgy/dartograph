@@ -45,6 +45,8 @@ _Last updated: 2026-09-06 by Codex (PR #7 기준으로 갱신)_
   변형 불변성·root 손실·member witness의 주요 회귀.
 - `test/cli/batch_query_test.dart`, `test/cli/graph_compare_test.dart`: 새 CLI 동작.
 - `tool/benchmark_query.dart`, `tool/verify_bridge_query.dart`: 성능 동등성·isthmus 왕복.
+- `lib/src/export/bridge_exporter.dart`: 결정적 GRAPH-EXCHANGE JSON·UTC 밀리초.
+- `.github/workflows/ci.yml`: Dart 3.11.0/3.13.3 matrix와 PR #7 최적화 경로.
 - `doc/USAGE.md`: 실제 명령과 알려진 한계. `CHANGELOG.md`: 0.2.0 릴리스 내역.
 
 ## Important Context / Decisions
@@ -74,7 +76,7 @@ _Last updated: 2026-09-06 by Codex (PR #7 기준으로 갱신)_
   선언 이름과 양쪽 위치 보존 확인. Swift 컴파일러/실제 앱 검증을 대체하지 않는다.
 - PR #6 지침 문서: GLM blocker 없음, 링크·범위 감사 통과, Dart 3.11.0/3.13.3 CI 성공.
 - PR #7 Astra 지침·skill·CI 최적화: GLM blocker 없음, CI 경로 중복 제거(테스트 2→1, 격리 활성화 3→1),
-  Dart 3.11.0/3.13.3 CI 성공. 이번 handoff 갱신은 문서만 바꾸므로 제품 테스트를 재실행하지 않았다.
+  Dart 3.11.0/3.13.3 CI 성공.
 - 이번 handoff 시작 시 pub.dev 최신 0.2.0, 공개 Release, PR #6 merge 상태를 다시 조회했다.
   제품 테스트는 문서만 갱신하므로 재실행하지 않았다.
 
@@ -82,10 +84,11 @@ _Last updated: 2026-09-06 by Codex (PR #7 기준으로 갱신)_
 
 - 필수 제품 작업 없음. handoff 브랜치가 main에 반영됐는지는 다음 세션에서 확인한다.
 - 선택 과제: 실제 사용자 작업의 정확성·반복 사용 평가, Pigeon/re-export 지원. 새 요구가 있을 때 범위를 정한다.
+  Pigeon·re-export·추가 채널 작업은 실패하는 공개 소스 fixture로 시작한다.
 - 검토 후 의도적으로 보류한 항목(간과가 아님):
-  - `package:args` 전환 — 수제 파싱은 "순수 Dart·최소 의존·결정적" 의도된 설계. 전면 교체는 CLI 계약과 다수 테스트 재작성을 요구한다.
+  - `package:args` 전환 — `package:args`도 순수 Dart·무전이 의존이라 "최소 의존" 자체는 차별화가 아니다. 진짜 사유는 비용이다: 전면 교체는 CLI 계약과 다수 테스트 재작성을 요구하지만 이득이 미미하다. 수제 파싱은 기존 결정적 계약을 유지한다.
   - isolate 병렬화로 cold-run 30초 SLA 달성 — `doc/DECISION-analyzer.md`의 311k LoC cold 35.9초가 목표 초과. 30초 검증에 대형 실제 Flutter 체크아웃이 필요하며 측정 없는 최적화는 금지된다.
-  - melos 멀티패키지 — 대형 신규 기능. PRD v0.2+ 범위로 유지한다.
+  - melos 멀티패키지 — 대형 신규 기능. `doc/PRD.md`의 v0.2+ 범위로 유지한다.
   - EventChannel·BasicMessageChannel fact화 — isthmus와 GRAPH-EXCHANGE 시맨틱 조율 없이 fact kind를 바꾸지 않는다. 현재는 limitation으로만 센다.
 - 무료·JSON·MCP만으로 해자가 입증되지는 않았다. 코퍼스도 MIT fork가 복사할 수 있다.
   사용자 피드백 유입·회귀 대응·외부 계약 채택은 검증할 전략 가설이다.
