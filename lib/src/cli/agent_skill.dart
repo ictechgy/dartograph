@@ -1,23 +1,40 @@
-/// 에이전트가 dartograph의 비판정 출력을 안전하게 소비하는 스킬이다.
+/// 에이전트가 dartograph의 근거를 요청된 변경에 활용하도록 안내한다.
 const agentSkillMarkdown = '''---
 name: dartograph
-description: Query Dart dependency facts before changing apparently unused code.
+description: >
+  Inspect Dart/Flutter dependency and reachability evidence when reviewing
+  apparently unused code, callers, retention reasons, or graph changes.
+  Use for dartograph queries; not for formatting-only or unrelated edits.
 ---
 
 # dartograph
 
-Before changing a declaration, run `dartograph query <name> <package-root>`.
+Use the smallest query that answers the user's task. Follow the user's requested
+scope and existing approvals; this skill does not add a separate approval step.
+If invocation details are unclear, inspect `dartograph --help`.
 
-- A state is not a deletion verdict. Unreachable only describes graph reachability.
-- Read `limitations` in the same response, including when status is `notFound`.
-- `publicApi` means the package's representative library exports the declaration for external callers.
-- `suppressedByBaseline: true` records a team decision and must be respected.
-- Dart main functions may be multiple. Confirm the actual build target before narrowing roots.
-- Generated Dart can be stale; rebuild when `generated-code-staleness` is reported.
-- `overrideContract` means framework or runtime dispatch can call the override.
-- Conditional imports expose one analyzer-selected configuration only.
-- String routes without a route-table match remain limitations, not deletion evidence.
+- One declaration: `dartograph query <name-or-id> <package-root>`.
+- Several declarations: `dartograph query --batch <requests.json> <package-root>`.
+  Requests are a JSON array of 1–1000 non-empty strings, at most 1 MiB.
+  Read every result; a batch exit 64 can mean a partial notFound.
+- Existing findings: use `--baseline <file>` with query when that baseline applies.
+- Two prepared checkouts: `dartograph compare <before-root> <after-root>`.
+  Match SDK, dependencies and build configuration; compare does not prepare them.
+  A removed reference on a prior path is observed evidence, not proof of one cause.
+- Cross-language facts: use `dartograph bridges --format json <package-root>`
+  and the project's existing isthmus workflow when the task crosses native code.
 
-Passing these checks is not permission to delete. Change only what the user requested,
-and report the reachability evidence and limitations for human judgment.
+Read status, `limitations`, location and reachability together. `notFound`
+means absence from the graph, not verified dead code; `ambiguous` requires
+disambiguation. A state is not a deletion verdict. Empty limitations do not prove safety.
+`publicApi` and `overrideContract` explain conservative retention;
+`suppressedByBaseline: true` records a team decision and must be respected.
+Dart main functions may be multiple. Confirm the actual build target;
+other mains remain conservative roots. Generated sources, conditional imports,
+dynamic calls and unmatched string routes can limit the evidence.
+
+Reuse evidence for an unchanged snapshot. After an authorized change, run
+validation appropriate to its risk and report the result plus unresolved limits.
+Do not repeat full analysis for each symbol or broaden a routine task into a
+whole-project audit. Never infer permission to delete from an analysis result.
 ''';

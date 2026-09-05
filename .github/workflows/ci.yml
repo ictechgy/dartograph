@@ -30,10 +30,9 @@ jobs:
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze
-      - run: dart test
+      - name: Tests, coverage and isolated activation
+        run: tool/check-coverage.sh
       - run: tool/verify-false-positive-corpus.sh
-      - run: tool/check-coverage.sh
       - run: tool/check-analyzer-boundary.sh
       - run: tool/verify-cli-contract.sh
-      - run: tool/verify-global-activation.sh
       - run: dart pub publish --dry-run

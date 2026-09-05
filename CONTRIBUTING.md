@@ -1,33 +1,56 @@
 # Contributing
 
-dartograph에 기여해 주셔서 감사합니다. 제품 계약은 [`doc/PRD.md`](doc/PRD.md)에
-있으며, 소스 저장소 작업 규칙은 checkout의 `AGENTS.md`에 있습니다.
-
-## 원칙
-
-- MIT와 상업적 사용을 포함한 영구 무료 약속을 지킵니다.
-- 유료 티어, 라이선스 키, 좌석·LoC 제한, 텔레메트리, 로그인을 추가하지 않습니다.
-- 삭제 가능 판정이나 자동 삭제를 추가하지 않습니다.
-- 모든 finding에 근거와 분석 한계를 보존합니다.
-- `package:analyzer` import는 `lib/src/index/` 안에만 둡니다.
-- 사용자 출력은 영어, 코드 주석은 한국어로 씁니다.
+제품 범위는 [PRD](doc/PRD.md), 공통 작업 원칙은 [AGENTS.md](AGENTS.md)가 정본입니다.
+Dart 최소 버전은 pubspec.yaml, 검증 SDK는 .github/workflows/ci.yml을 확인합니다.
 
 ## 개발
 
-Dart 3.11 이상이 필요합니다.
+의존성이 준비되지 않았으면 `dart pub get`을 실행합니다. 로컬 mise 환경에서는
+`mise exec dart@3.13.3 -- <command>`를 사용할 수 있습니다.
+격리 설치한 pub wrapper도 dart를 실행하므로 SDK가 PATH에 있어야 합니다.
+
+## 검증 선택
+
+| 변경 | 작업 중 필요한 근거 |
+|---|---|
+| Markdown 지침·사람용 문서 | diff, 링크, 적용 범위와 사실 정합성 |
+| 생성되는 skill 안내 | 설치/덮어쓰기 기존 테스트, YAML metadata, 요청별 사용 시나리오 검토 |
+| 분석·CLI 행동 | 관련 회귀 테스트와 dart analyze; 오탐은 보존/보고 양방향 사례 |
+| 캐시·교환·출력·배포 경계 | 관련 무효화·결정성·호환성·격리 설치 검증 |
+| 검증 도구·CI | 변경한 실행 경로와 실패 전파를 확인하고 두 SDK CI 결과 확인 |
+
+버그 수정은 재현 실패부터 확인하고 테스트의 기대값은 제품 구현과 독립적으로 작성합니다.
+문구·가역적인 저위험 변경은 소스를 복제하는 assertion을 추가하지 않습니다.
+테스트 선택과 확인된 한계를 보고하고, 같은 변경에 성공한 게이트를 관성적으로 반복하지 않습니다.
+
+## CI 게이트
+
+CI는 두 SDK에서 아래 게이트를 유지합니다. Markdown-only PR에도 동일한 required-check 이름을
+보존하며, 경로 필터로 검증을 누락하지 않습니다. 로컬 문서 작업에 이 전체 실행을 요구하지는 않습니다.
 
 ```bash
-dart pub get
 dart format --output=none --set-exit-if-changed .
 dart analyze
-dart test
-tool/verify-false-positive-corpus.sh
 tool/check-coverage.sh
+tool/verify-false-positive-corpus.sh
 tool/check-analyzer-boundary.sh
 tool/verify-cli-contract.sh
-tool/verify-global-activation.sh
+dart pub publish --dry-run
 ```
 
-동작 변경은 실패하는 테스트를 먼저 확인한 뒤 최소 구현으로 통과시킵니다. 오탐 수정은
-양방향 fixture를 먼저 추가합니다. Conventional Commits를 쓰고 `main`에 직접 커밋하지
-않습니다. 커밋 본문에는 변경 내용보다 변경 이유를 한국어로 적습니다.
+`check-coverage.sh`는 전체 `dart test`와 제품 라인 커버리지 90% 게이트를 실행합니다.
+그 테스트 안의 `test/tool/verify_global_activation_test.dart`가 격리 설치·설치본 CLI 계약을 확인합니다.
+따라서 CI에 별도 `dart test`와 `verify-global-activation.sh` 실행을 중복 추가하지 않습니다.
+컴파일된 native executable 검증은 `verify-cli-contract.sh`로 별도 유지합니다.
+자기 분석 findings 0도 전체 테스트에 포함됩니다. 실패한 검사를 생략하거나 임계값을 낮추지 않습니다.
+
+## 선택 검증과 릴리스
+
+- 반복 질의 성능: `dart run tool/benchmark_query.dart` — 합성 입력 결과 동등성과 시간; 실제 성능 보장은 아닙니다.
+- bridge 계약: `dart run tool/verify_bridge_query.dart <isthmus-main.js>` — 합성 Swift fact 왕복; 실제 compiler 검증을 대체하지 않습니다.
+- 설치 경계만 재확인할 때: `tool/verify-global-activation.sh`.
+- 공개 프로젝트 도그푸딩 대상은 [PLAN](doc/PLAN.md)을 참고하되 현재 환경과 준비 상태를 확인합니다.
+
+승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG·설치 예제의 버전을 맞추고,
+검증한 commit의 dry-run을 확인한 뒤 게시합니다. pub.dev 성공 후 같은 commit에 태그와 GitHub Release를 연결하고
+공개 패키지를 새 캐시에 설치해 확인합니다. 전파 지연 때 동일 버전을 다시 게시하지 않습니다.
