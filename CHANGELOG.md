@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `dartograph.yaml`의 `entry_points`로 실제 build target을 선언해 `main` 보존 루트를 좁히는 옵션 추가
+  - 설정하지 않으면 기존 보수 정책(`lib/`·`bin/`·`example/`의 모든 `main`)을 유지한다
+  - 비어 있거나 절대·루트 밖·비문자열 경로는 조용히 무시하지 않고 분석 실패로 알린다
+  - `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다
+  - 보존 루트 의미가 바뀌므로 해석 캐시 identity를 v3로 갱신하고 설정을 캐시 키에 포함한다
+
 ## 0.2.0
 
 - 소스별 분석 오류·미해석 호출·조건부 구성의 한계를 finding에 연결

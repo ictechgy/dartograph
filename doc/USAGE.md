@@ -87,7 +87,16 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 - 조건부 import/export는 공개 analyzer가 고른 단일 구성만 분석한다.
 - 동적 디스패치, 문자열 route, 네이티브 진입점은 정적 그래프가 완전히 증명하지 못한다.
 - 생성 파일은 보수적으로 보존하며 오래된 산출물을 한계로 보고한다.
-- `main` 진입점은 여러 개일 수 있다. v0.1은 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다.
+- `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다.
+
+```yaml
+# dartograph.yaml (프로젝트 루트, 선택)
+entry_points:
+  - lib/main.dart
+  - lib/main_production.dart
+```
+
+`entry_points`는 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로나 루트 밖(`..`) 경로, 비문자열 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 나열한 진입점에 `main`이 없으면 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며, 기본 정책으로 분석한 결과를 재사용하지 않는다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.

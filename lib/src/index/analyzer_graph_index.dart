@@ -96,12 +96,22 @@ final class AnalyzerGraphIndex {
 
       final graph = CodeGraph();
       final retentionRoots = <String, RetentionReason>{};
+      final entryPoints = _readEntryPoints(root);
+      final mainEntrySources = <String>{};
       for (final unit in units) {
         final libraryId = _libraryId(unit.libraryElement.uri, root);
         if (!graph.containsNode(libraryId)) {
           graph.addNode(GraphNode(id: libraryId));
         }
-        unit.unit.accept(_DeclarationCollector(graph, root, retentionRoots));
+        unit.unit.accept(
+          _DeclarationCollector(
+            graph,
+            root,
+            retentionRoots,
+            entryPoints,
+            mainEntrySources,
+          ),
+        );
       }
       final libraries = <String, LibraryElement>{};
       for (final unit in units) {
@@ -165,10 +175,20 @@ final class AnalyzerGraphIndex {
       if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
         limitations.add(AnalyzerLimitation.testCodeRetention);
       }
+      final limitationDetails = _agentLimitations(root, units);
+      if (entryPoints != null) {
+        final missing = entryPoints.difference(mainEntrySources).toList()
+          ..sort();
+        for (final source in missing) {
+          limitationDetails.add(
+            'configured-entry-point-without-main: ${source.substring('project:'.length)}',
+          );
+        }
+      }
       final result = AnalyzerGraphResult(
         graph: graph,
         limitations: limitations.toList()..sort((a, b) => a.index - b.index),
-        limitationDetails: _agentLimitations(root, units),
+        limitationDetails: limitationDetails,
         retentionRoots: Map.unmodifiable(retentionRoots),
       );
       if (cache != null &&
@@ -184,8 +204,7 @@ final class AnalyzerGraphIndex {
 }
 
 const _cacheSchemaVersion = 1;
-const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v2-source-evidence';
+const _cacheIdentity = 'dartograph-analysis-$toolVersion-cache-v3-entry-points';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -242,6 +261,7 @@ Future<List<File>> _analysisInputFiles(String root) async {
   Future<void> addPackage(Directory packageRoot) async {
     addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
     addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
+    addFile(File(p.join(packageRoot.path, 'dartograph.yaml')));
     final packageConfiguration = File(
       p.join(packageRoot.path, '.dart_tool', 'package_config.json'),
     );
@@ -614,11 +634,24 @@ String? _dartSdkPath() {
 }
 
 final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
-  _DeclarationCollector(this.graph, this.root, this.retentionRoots);
+  _DeclarationCollector(
+    this.graph,
+    this.root,
+    this.retentionRoots,
+    this.entryPoints,
+    this.mainEntrySources,
+  );
 
   final CodeGraph graph;
   final String root;
   final Map<String, RetentionReason> retentionRoots;
+
+  /// null이면 `lib/`·`bin/`·`example/`의 모든 main을 보수적으로 보존한다.
+  /// 값이 있으면 나열된 진입점 파일의 main만 보존 루트로 삼는다.
+  final Set<String>? entryPoints;
+
+  /// 관측된 main 진입점의 source ID다. 설정 검증 한계를 계산하는 데 쓴다.
+  final Set<String> mainEntrySources;
 
   @override
   void visitDeclaration(Declaration node) {
@@ -653,17 +686,69 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
         element.firstFragment.libraryFragment!.source.fullName,
         root,
       );
-      final reason = _retentionReason(node, element, source);
+      final reason = _retentionReason(
+        node,
+        element,
+        source,
+        entryPoints,
+        mainEntrySources,
+      );
       if (reason != null) retentionRoots[id] = reason;
     }
     super.visitDeclaration(node);
   }
 }
 
+/// 프로젝트 루트의 선택적 `dartograph.yaml`에서 `entry_points`를 읽어
+/// `project:` source ID 집합으로 정규화한다.
+///
+/// 파일이나 `entry_points` 키가 없으면 null을 반환해 기본 보수 정책
+/// (`lib/`·`bin/`·`example/`의 모든 main 보존)을 유지한다. 값이 비어 있거나
+/// 절대 경로·루트 탈출 경로를 포함하면 [FormatException]을 던진다. 잘못된
+/// 설정으로 보존 루트를 조용히 좁히지 않기 위해서다.
+Set<String>? _readEntryPoints(String root) {
+  final file = File(p.join(root, 'dartograph.yaml'));
+  if (!file.existsSync()) return null;
+  final document = loadYaml(file.readAsStringSync());
+  if (document is! YamlMap) {
+    throw const FormatException('dartograph.yaml must be a YAML mapping');
+  }
+  final raw = document['entry_points'];
+  if (raw == null) return null;
+  if (raw is! YamlList || raw.isEmpty) {
+    throw const FormatException(
+      'entry_points must be a non-empty list of project-relative paths',
+    );
+  }
+  final sources = <String>{};
+  for (final entry in raw) {
+    if (entry is! String || entry.trim().isEmpty) {
+      throw const FormatException(
+        'entry_points entries must be non-empty strings',
+      );
+    }
+    sources.add('project:${_normalizeEntryPoint(entry)}');
+  }
+  return sources;
+}
+
+/// 사용자 설정 경로를 POSIX 프로젝트 상대 경로로 정규화하고 검증을 수행한다.
+String _normalizeEntryPoint(String entry) {
+  final posix = p.posix.normalize(entry.replaceAll(r'\', p.posix.separator));
+  if (p.posix.isAbsolute(posix) || posix == '..' || posix.startsWith('../')) {
+    throw FormatException(
+      'entry_points must be project-relative paths: $entry',
+    );
+  }
+  return posix;
+}
+
 RetentionReason? _retentionReason(
   Declaration node,
   Element element,
   String source,
+  Set<String>? entryPoints,
+  Set<String> mainEntrySources,
 ) {
   if (element is TopLevelFunctionElement &&
       element.displayName == 'main' &&
@@ -672,7 +757,12 @@ RetentionReason? _retentionReason(
         'project:bin/',
         'project:example/',
       ].any(source.startsWith)) {
-    return RetentionReason.mainEntryPoint;
+    mainEntrySources.add(source);
+    if (entryPoints == null || entryPoints.contains(source)) {
+      return RetentionReason.mainEntryPoint;
+    }
+    // 설정된 진입점이 아닌 main은 강제 루트로 보존하지 않는다.
+    // 다른 보존 근거(pragma·생성 코드 등)는 계속 검사한다.
   }
   if (source.startsWith('project:test/') ||
       source.startsWith('project:integration_test/') ||
