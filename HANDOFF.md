@@ -15,7 +15,7 @@ _Last updated: 2026-09-06 (PR #11 merge 기준)_
   `entry_points`(#9), analyzer 호환 계약 테스트(#10), lakos 리서치·비교표(#11). 다음 릴리스(예: 0.3.0) 후보다.
 - 지침 기준: `c4d121d` (PR #7 merge). Astra 가이드 최적화와 `doc/AGENT-WORKFLOW-AUDIT.md` 반영.
 - 이번 세션에서 PR #8(HANDOFF 갱신)·#9(entry_points)·#10(analyzer 계약)·#11(lakos)을 머지했다.
-  모두 GLM 리뷰와 Dart 3.11.0/3.13.3 CI green 후 머지. 열린 PR은 없다.
+  모두 GLM 리뷰와 Dart 3.11.0/3.13.3 CI green 후 머지. 열린 제품 PR은 없다.
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
 - 제품 배포 blocker는 없다. HANDOFF 내용이 Git 상태보다 우선하지 않으므로 재개 시 실제 상태를 확인한다.
@@ -26,7 +26,7 @@ _Last updated: 2026-09-06 (PR #11 merge 기준)_
   인덱스가 설정을 직접 읽어 CLI·skill 표면은 unchanged이고 모든 명령에 균일 적용된다.
   없으면 기본 보수 정책. 항목은 `lib/`·`bin/`·`example/` 아래 존재하는 `.dart`여야 하며
   잘못된 설정은 FormatException(종료 2), `main` 없는 진입점은 limitation으로 보고한다.
-- analyzer 호환 범위 계약 테스트(PR #10): pubspec 제약과 `Isolate.resolvePackageUri`로 읽은
+- analyzer 호환 범위 계약 테스트(PR #10): pubspec 제약과 `Isolate.resolvePackageUri` 경로에서 읽은
   런타임 실제 버전이 `doc/DECISION-analyzer.md`의 검증 범위(14.3.x) 안인지 강제한다. 버전 트레드밀 가드.
 - lakos 리서치 정리(PR #11): `doc/RESEARCH.md`의 lakos "확인 필요"를 pub.dev 1차 출처로 검증해
   "확인됨"으로 옮기고 `doc/PRD.md` 비교표에 lakos 열을 추가했다(심볼 단위 미사용 코드·근거·에이전트 질의 없음).
@@ -78,7 +78,7 @@ _Last updated: 2026-09-06 (PR #11 merge 기준)_
 
 - 현재 main(`76fc3c8`) 로컬 검증: `dart format`·`dart analyze` clean, **전체 122개 테스트**, 라인 커버리지 **92.52%**(≥90 게이트). 오탐 코퍼스·CLI 계약·analyzer 경계 통과.
 - PR #8~#11 각각 GLM 리뷰 + Dart 3.11.0/3.13.3 CI green 후 머지. #9는 GLM이 찾은 blocker(범위 밖·미존재 entry_points의 조용한 무시+오보)를 fail-fast로 수정하고 재리뷰로 해결 확인.
-- 아래는 0.2.0 릴리스 시점의 기록이다.
+- 아래는 0.2.0 릴리스와 지침 PR(#6·#7) 시점의 기록이다.
 - 0.2.0 기능 검증: format·analyze 통과, 전체 116개 테스트, 라인 커버리지 92.47%.
 - 오탐 코퍼스·analyzer 경계·확장된 컴파일 CLI 계약·격리 path 활성화 통과.
 - GLM 기능 리뷰와 후속 리뷰의 실제 지적을 재현·수정했고 최종 차단 이슈 없음.
@@ -94,13 +94,14 @@ _Last updated: 2026-09-06 (PR #11 merge 기준)_
 
 ## Blockers & Open Questions
 
-- 필수 제품 작업 없음. 열린 PR 없음. 0.2.0 이후 미릴리스 변경(entry_points 등)은 다음 릴리스 후보다.
+- 필수 제품 작업 없음. 열린 제품 PR 없음. 0.2.0 이후 미릴리스 변경(entry_points 등)은 다음 릴리스 후보다.
 - 선택 과제: 실제 사용자 작업의 정확성·반복 사용 평가, Pigeon/re-export 지원. 새 요구가 있을 때 범위를 정한다.
   Pigeon·re-export·추가 채널 작업은 실패하는 공개 소스 fixture로 시작한다. lakos는 PR #11에서 확인됨으로 닫았다.
-- 이번 세션에서 검토 후 **변경하지 않기로 한 항목**(간과가 아님):
-  - bridges limitation "보강" — limitation은 이미 포괄·정확하다. 실질 개선은 isthmus 조율이 필요한 EventChannel·BasicMessageChannel fact화뿐이고, 나머지(복수형 문구·location 추가)는 `AGENTS.md`의 문구-변경 비권장이나 카운트+전역경고 설계 철학과 충돌한다.
+- 아래 두 목록은 다르다. **닫은 항목**은 다시 도출하지 말 것, **보류 항목**은 요구·측정·외부 조율이 생기면 재검토한다.
+- 검토 후 **닫은 항목**(간과가 아님):
+  - bridges limitation "보강" — limitation은 이미 포괄·정확해 안전한 실질 개선이 없다. 복수형 문구 정정은 `AGENTS.md`의 문구-변경 비권장에, location 추가는 카운트+전역경고 설계 철학에 각각 충돌한다. 유일한 실질 개선(EventChannel·BasicMessageChannel fact화)은 아래 보류 항목을 본다.
   - 대형 모듈 분리(`analyzer_graph_index`·`bridge_index`·`dartograph_cli`) — 세 파일은 코헤시브하고 92% 커버리지로 잘 테스트된다. 크기 주도 분리는 최소-diff·"요청받지 않은 리팩토링 임의 금지" 원칙과 충돌하고 회귀 위험만 있다. "큰 파일"은 결함이 아니라 스타일 선호다.
-- 검토 후 의도적으로 보류한 항목(간과가 아님):
+- 검토 후 **보류한 항목**(간과가 아님):
   - `package:args` 전환 — `package:args`도 순수 Dart·무전이 의존이라 "최소 의존" 자체는 차별화가 아니다. 진짜 사유는 비용이다: 전면 교체는 CLI 계약과 다수 테스트 재작성을 요구하지만 이득이 미미하다. 수제 파싱은 기존 결정적 계약을 유지한다.
   - isolate 병렬화로 cold-run 30초 SLA 달성 — `doc/DECISION-analyzer.md`의 311k LoC cold 35.9초가 목표 초과. 30초 검증에 대형 실제 Flutter 체크아웃이 필요하며 측정 없는 최적화는 금지된다.
   - melos 멀티패키지 — 대형 신규 기능. `doc/PRD.md`의 v0.2+ 범위로 유지한다.
