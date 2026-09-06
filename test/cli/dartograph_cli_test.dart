@@ -104,6 +104,14 @@ environment:
       ['baseline', '--write', '$root/baseline.json', '--force'],
       ['query', 'main', '--baseline'],
       ['query', 'main', '--baseline', '$root/baseline.json', '--format'],
+      // 4인자 분기의 baseline 슬롯도 같은 기준이어야 한다.
+      ['query', 'main', '--baseline', '-b.json', root],
+      // 술자가 `--`로 되돌아가면 아래 단일 대시 케이스가 다시 통과한다.
+      ['query', '-main', root],
+      ['query', 'main', '-pkg'],
+      ['baseline', '--write', '-b.json', root],
+      ['bridges', '--format', 'json', '-pkg'],
+      ['graph', '--format', 'json', '-pkg'],
       ['bridges', '--format', 'json', '--strict'],
       ['graph', '--format', 'json', '--strict'],
       // compare는 단일 대시도 거부해야 한다. `-h`는 실재하는 옵션이다.
