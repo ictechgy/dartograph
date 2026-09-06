@@ -144,21 +144,37 @@ int _compareFacts(Map<String, Object?> a, Map<String, Object?> b) {
   );
 }
 
-Iterable<File> _dartFiles(Directory directory) sync* {
+Iterable<File> _dartFiles(Directory directory) =>
+    _dartFilesIn(directory, <String>{});
+
+/// [directory] 아래의 Dart 소스를 심볼릭 링크까지 따라가며 돌려준다.
+///
+/// `followLinks: false` 목록에서 심볼릭 링크는 `Link`로 나와 `File`·`Directory`
+/// 분기에 걸리지 않는다. 링크된 소스도 analyzer가 분석하는 실제 입력이라
+/// 빠뜨리면 그 파일의 채널 사실이 통째로 누락된다.
+///
+/// [visitedLinkTargets]는 이미 따라간 디렉터리 링크의 실제 경로이며 링크 순환에서
+/// 무한 재귀하지 않게 한다.
+Iterable<File> _dartFilesIn(
+  Directory directory,
+  Set<String> visitedLinkTargets,
+) sync* {
   for (final entity in directory.listSync(followLinks: false)) {
     if (entity is Directory) {
       if (_excludedDirectories.contains(p.basename(entity.path))) continue;
-      yield* _dartFiles(entity);
+      yield* _dartFilesIn(entity, visitedLinkTargets);
     } else if (entity is File && entity.path.endsWith('.dart')) {
       yield entity;
-    } else if (entity is Link &&
-        entity.path.endsWith('.dart') &&
-        FileSystemEntity.typeSync(entity.path) == FileSystemEntityType.file) {
-      // `followLinks: false` 목록에서 심볼릭 링크는 Link로 나오므로 File 분기에
-      // 걸리지 않는다. 링크된 소스도 analyzer가 분석하는 실제 입력이라
-      // 빠뜨리면 그 파일의 채널 사실이 통째로 누락된다.
-      // 디렉터리 링크는 순환 위험이 있어 계속 제외한다.
-      yield File(entity.path);
+    } else if (entity is Link) {
+      // typeSync는 링크를 따라가므로 끊어진 링크는 notFound가 되어 제외된다.
+      final type = FileSystemEntity.typeSync(entity.path);
+      if (type == FileSystemEntityType.file && entity.path.endsWith('.dart')) {
+        yield File(entity.path);
+      } else if (type == FileSystemEntityType.directory &&
+          !_excludedDirectories.contains(p.basename(entity.path)) &&
+          visitedLinkTargets.add(entity.resolveSymbolicLinksSync())) {
+        yield* _dartFilesIn(Directory(entity.path), visitedLinkTargets);
+      }
     }
   }
 }

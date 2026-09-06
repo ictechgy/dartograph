@@ -19,15 +19,25 @@ class Camera {
 }
 ''');
     await Link('${root.path}/channel.dart').create('../outside/channel.dart');
+    // 디렉터리 링크와 순환 가드도 같은 픽스처에서 고정한다.
+    await Link('${root.path}/linked').create('../outside');
+    await Link('${outside.path}/self').create('../outside');
 
     final result = indexBridges(root.path);
 
-    final invocation = result.facts.singleWhere(
-      (f) => f['kind'] == 'method-invoke',
+    final invocations = result.facts
+        .where((f) => f['kind'] == 'method-invoke')
+        .toList();
+    // 파일 링크(channel.dart)와 디렉터리 링크(linked/) 양쪽에서 사실이 나온다.
+    // 순환 링크(outside/self)는 한 번만 따라가므로 경로가 늘어나지 않는다.
+    expect(
+      invocations.map((f) => (f['location']! as Map)['path']),
+      ['channel.dart', 'linked/channel.dart'],
     );
-    expect(invocation['channel'], 'camera');
-    expect(invocation['method'], 'takePhoto');
-    expect((invocation['location'] as Map)['path'], 'channel.dart');
+    for (final invocation in invocations) {
+      expect(invocation['channel'], 'camera');
+      expect(invocation['method'], 'takePhoto');
+    }
   });
 
   test(

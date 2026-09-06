@@ -209,6 +209,51 @@ void main() {
     expect(cache.writeCount, 2);
   });
 
+  test('linked directory contents invalidate analyzer facts', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'dartograph-symlink-dir-cache.',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    await File('${root.path}/pubspec.yaml').writeAsString('''
+name: symlink_dir_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${root.path}/lib').create();
+    // analyzer는 디렉터리 링크도 따라가 그 아래 소스를 분석 대상에 넣는다.
+    // 대상 디렉터리를 순회 대상 밖에 두어, 링크를 따라가지 않으면 그 내용이
+    // 캐시 입력에서 통째로 빠지게 만든다.
+    await Directory('${root.path}/shared').create();
+    final target = File('${root.path}/shared/thing.dart');
+    await target.writeAsString('class Alpha {}\n');
+    await Link('${root.path}/lib/linked').create('../shared');
+    // 자기 디렉터리를 가리키는 링크로 순환 가드를 함께 고정한다. 가드가 없으면
+    // 순회가 끝나지 않는다.
+    await Link('${root.path}/shared/self').create('../shared');
+    await File('${root.path}/lib/main.dart').writeAsString('void main() {}\n');
+    final cache = _MemoryFactCache();
+    final index = AnalyzerGraphIndex(cache: cache);
+
+    final first = await index.index(root.path);
+    expect(
+      first.graph.nodes.keys,
+      contains('project:lib/linked/thing.dart::Alpha'),
+    );
+    expect(
+      first.graph.nodes.keys,
+      isNot(contains('project:lib/linked/thing.dart::Beta')),
+    );
+
+    await target.writeAsString('class Alpha {}\nclass Beta {}\n');
+    final second = await index.index(root.path);
+
+    expect(
+      second.graph.nodes.keys,
+      contains('project:lib/linked/thing.dart::Beta'),
+    );
+    expect(cache.writeCount, 2);
+  });
+
   test('nested example dependencies invalidate analyzer facts', () async {
     final workspace = await Directory.systemTemp.createTemp(
       'dartograph-nested-package-cache.',
