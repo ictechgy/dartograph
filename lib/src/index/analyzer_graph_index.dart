@@ -748,8 +748,8 @@ const _entryPointDirectories = {'bin', 'example', 'lib'};
 /// canonical `project:` source ID 집합으로 변환한다.
 ///
 /// 파일이나 `entry_points` 키가 없으면 null을 반환해 기본 보수 정책
-/// (`lib/`·`bin/`·`example/`의 모든 main 보존)을 유지한다. 빈 문서와 주석뿐인
-/// 문서도 선언한 진입점이 없으므로 같게 취급한다. 항목이 비어 있거나
+/// (`lib/`·`bin/`·`example/`의 모든 main 보존)을 유지한다. 아무것도 선언하지 않는
+/// 문서(빈 문서·주석뿐·`---`만·명시적 `null`)도 같게 취급한다. 항목이 비어 있거나
 /// 문자열이 아니거나, 절대·루트 밖 경로이거나, `lib/`·`bin/`·`example/` 밖이거나,
 /// 존재하지 않거나, `.dart`가 아니면 [FormatException]을 던진다. 잘못된 설정으로
 /// 사용자가 선언한 build target이 조용히 무시되거나 보존 루트가 잘못 좁혀지는
@@ -759,9 +759,9 @@ Set<String>? _readEntryPoints(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return null;
   final document = loadYaml(file.readAsStringSync());
-  // 빈 문서와 주석뿐인 문서는 null이다. 선언한 진입점이 없다는 점에서 키가 없는
-  // 것과 같으므로 기본 보수 정책으로 되돌린다. 비어 있지 않은데 mapping이 아닌
-  // 문서만 거부한다.
+  // loadYaml은 빈 문서·주석뿐인 문서·`---`만 있는 문서·명시적 `null`을 모두
+  // null로 돌려준다. 선언한 진입점이 없다는 점에서 키가 없는 것과 같으므로 기본
+  // 보수 정책으로 되돌린다. 내용이 있는데 mapping이 아닌 문서만 거부한다.
   if (document == null) return null;
   if (document is! YamlMap) {
     throw const FormatException('dartograph.yaml must be a YAML mapping');

@@ -526,11 +526,18 @@ entry_points:
   test(
     'an empty dartograph.yaml keeps the default conservative policy',
     () async {
-      // 파일이나 키가 없으면 기본 보수 정책을 유지한다는 계약은 빈 문서에도
-      // 적용된다. yaml은 빈 문서와 주석뿐인 문서를 null로 돌려주므로, 이를
-      // 비-map으로 묶어 거부하면 `touch dartograph.yaml` 한 번으로 모든
-      // 명령이 실패한다.
-      for (final config in const ['', '# only a comment\n', 'other_key: 1\n']) {
+      // 파일이나 키가 없으면 기본 보수 정책을 유지한다는 계약은 아무것도
+      // 선언하지 않는 문서에도 적용된다. yaml은 빈 문서·주석뿐인 문서·`---`만
+      // 있는 문서·명시적 null을 모두 null로 돌려주므로, 이를 비-map으로 묶어
+      // 거부하면 `touch dartograph.yaml` 한 번으로 모든 명령이 실패한다.
+      for (final config in const [
+        '',
+        '# only a comment\n',
+        '---\n',
+        'null\n',
+        'other_key: 1\n',
+        '{}\n',
+      ]) {
         final package = await _entryPointPackage();
         addTearDown(() => package.delete(recursive: true));
         await File('${package.path}/dartograph.yaml').writeAsString(config);
