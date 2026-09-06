@@ -458,6 +458,26 @@ entry_points:
     },
   );
 
+  test('a leading BOM does not hide the entry_points key', () async {
+    // BOM이 키 이름에 섞이면 선언한 진입점이 조용히 무시되고 보존 루트가 잘못
+    // 좁혀진다. 이 기능이 막으려는 실패 모드 그 자체이므로, yaml이 BOM을
+    // 제거한다는 사실을 라이브러리 업그레이드에 대비해 고정한다.
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File(
+      '${package.path}/dartograph.yaml',
+    ).writeAsString('\uFEFFentry_points:\n  - bin/cli.dart\n');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+    final mainRoots = result.retentionRoots.entries
+        .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+        .map((entry) => entry.key)
+        .toList();
+
+    expect(mainRoots, hasLength(1));
+    expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+  });
+
   test('entry_points accepts non-lib build targets under bin/', () async {
     final package = await _entryPointPackage();
     addTearDown(() => package.delete(recursive: true));
@@ -507,6 +527,11 @@ entry_points:
         'entry_points:\n  - lib/does_not_exist.dart\n',
         'entry_points:\n  - test/helper_test.dart\n',
         'entry_points:\n  - lib/notes.txt\n',
+        '- lib/main.dart\n',
+        'a bare scalar document\n',
+        'entry_points: lib/main.dart\n',
+        'entry_points: 5\n',
+        'entry_points: {a: b}\n',
       ]) {
         final package = await _entryPointPackage();
         addTearDown(() => package.delete(recursive: true));
@@ -517,6 +542,38 @@ entry_points:
           throwsA(isA<FormatException>()),
           reason: 'config: $config',
         );
+      }
+    },
+  );
+
+  test(
+    'an empty dartograph.yaml keeps the default conservative policy',
+    () async {
+      // 파일이나 키가 없으면 기본 보수 정책을 유지한다는 계약은 아무것도
+      // 선언하지 않는 문서에도 적용된다. yaml은 빈 문서·주석뿐인 문서·`---`만
+      // 있는 문서·명시적 null을 모두 null로 돌려주므로, 이를 비-map으로 묶어
+      // 거부하면 `touch dartograph.yaml` 한 번으로 모든 명령이 실패한다.
+      for (final config in const [
+        '',
+        '# only a comment\n',
+        '---\n',
+        'null\n',
+        '~\n',
+        '\uFEFF',
+        'other_key: 1\n',
+        '{}\n',
+      ]) {
+        final package = await _entryPointPackage();
+        addTearDown(() => package.delete(recursive: true));
+        await File('${package.path}/dartograph.yaml').writeAsString(config);
+
+        final result = await AnalyzerGraphIndex().index(package.path);
+        final mainRoots = result.retentionRoots.entries
+            .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+            .map((entry) => entry.key)
+            .toList();
+
+        expect(mainRoots, hasLength(3), reason: 'config: $config');
       }
     },
   );
