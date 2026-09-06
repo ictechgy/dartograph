@@ -144,14 +144,53 @@ int _compareFacts(Map<String, Object?> a, Map<String, Object?> b) {
   );
 }
 
-Iterable<File> _dartFiles(Directory directory) sync* {
+Iterable<File> _dartFiles(Directory directory) =>
+    _dartFilesIn(directory, <String>{});
+
+/// [directory] 아래의 Dart 소스를 심볼릭 링크까지 따라가며 돌려준다.
+///
+/// `followLinks: false` 목록에서 심볼릭 링크는 `Link`로 나와 `File`·`Directory`
+/// 분기에 걸리지 않는다. 링크된 소스도 analyzer가 분석하는 실제 입력이라
+/// 빠뜨리면 그 파일의 채널 사실이 통째로 누락된다.
+///
+/// [visitedLinkTargets]는 이미 따라간 디렉터리 링크의 실제 경로이며 링크 순환에서
+/// 무한 재귀하지 않게 한다.
+Iterable<File> _dartFilesIn(
+  Directory directory,
+  Set<String> visitedLinkTargets,
+) sync* {
   for (final entity in directory.listSync(followLinks: false)) {
     if (entity is Directory) {
       if (_excludedDirectories.contains(p.basename(entity.path))) continue;
-      yield* _dartFiles(entity);
+      yield* _dartFilesIn(entity, visitedLinkTargets);
     } else if (entity is File && entity.path.endsWith('.dart')) {
       yield entity;
+    } else if (entity is Link) {
+      // typeSync는 링크를 따라가므로 끊어진 링크는 notFound가 되어 제외된다.
+      final type = FileSystemEntity.typeSync(entity.path);
+      if (type == FileSystemEntityType.file && entity.path.endsWith('.dart')) {
+        yield File(entity.path);
+      } else if (type == FileSystemEntityType.directory &&
+          !_excludedDirectories.contains(p.basename(entity.path))) {
+        final target = _resolvedLinkTarget(entity);
+        if (target != null && visitedLinkTargets.add(target)) {
+          yield* _dartFilesIn(Directory(entity.path), visitedLinkTargets);
+        }
+      }
     }
+  }
+}
+
+/// 디렉터리 링크의 실제 경로를 돌려주고, 해석에 실패하면 null을 돌려준다.
+///
+/// [FileSystemEntity.typeSync]로 종류를 확인한 뒤 실제 경로를 해석하기까지의
+/// 사이에 외부 프로세스가 대상을 지우면 [FileSystemException]이 난다. 그 경우
+/// 스캔 전체를 실패시키지 않고 그 링크만 건너뛴다.
+String? _resolvedLinkTarget(Link link) {
+  try {
+    return link.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
   }
 }
 
