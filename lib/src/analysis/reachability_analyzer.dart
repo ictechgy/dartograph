@@ -182,7 +182,12 @@ final class ReachabilityResult {
 
   /// [id]를 보존하는 도달 가능한 멤버 중 첫 번째다.
   ///
-  /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다.
+  /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다. 또한 그 값은
+  /// `_paths`의 키이므로 돌려준 witness는 반드시 직접 도달 경로를 갖는다.
+  /// [explain]이 witness로 한 단계만 재귀하고 끝나는 근거다.
+  ///
+  /// 라이브러리 ID에는 선언이 `::`로 붙으므로 `'$id.'` 접두는 걸리지 않는다.
+  /// 라이브러리는 항상 null이 되어 기존 라이브러리 분기 판정을 바꾸지 않는다.
   String? _reachableMemberOf(String id) => reachableIds
       .where((candidate) => candidate.startsWith('$id.'))
       .firstOrNull;
@@ -233,6 +238,8 @@ final class ReachabilityResult {
     if (!_paths.containsKey(id)) {
       // 도달 가능한 멤버가 있으면 컨테이너는 보존된다. deadDeclarations도 같은
       // 근거로 제외하므로, 여기서 미도달로 답하면 한 실행에서 상반된 결론이 된다.
+      // path·evidence는 witness까지의 실제 체인이라 `path.last == witness`다.
+      // 존재하지 않는 멤버→컨테이너 간선을 지어내지 않기 위해 그대로 돌려준다.
       final memberWitness = _reachableMemberOf(id);
       if (memberWitness != null) {
         final witnessExplanation = explain(memberWitness);

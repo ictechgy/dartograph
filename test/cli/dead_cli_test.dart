@@ -94,6 +94,7 @@ void main() {
     () async {
       final preserved = StringBuffer();
       final dead = StringBuffer();
+      final memberRetained = StringBuffer();
 
       expect(
         await runDartograph([
@@ -118,7 +119,26 @@ void main() {
         ExitStatus.findings.code,
       );
 
+      // 멤버만 도달 가능한 컨테이너다. dead가 발견에서 제외하는 선언이므로
+      // explain도 같은 결론과 종료 코드를 내야 한다. 계약은 종료 코드와
+      // reachable까지이고, witness·reason 문구는 고정하지 않는다.
+      expect(
+        await runDartograph([
+          'dead',
+          '--explain',
+          'package:false_positive_corpus/traits.dart::Decoration',
+          '--format',
+          'json',
+          corpusDirectory.path,
+        ], output: memberRetained),
+        ExitStatus.success.code,
+      );
+
       expect(jsonDecode(preserved.toString()), containsPair('reachable', true));
+      expect(
+        jsonDecode(memberRetained.toString()),
+        containsPair('reachable', true),
+      );
       expect(
         jsonDecode(preserved.toString()),
         containsPair('path', isNotEmpty),
