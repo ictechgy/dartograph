@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- `baseline`·`query`·`bridges`가 옵션 모양의 값을 경로로 받아들이던 문제 수정
+- 옵션 모양의 값을 경로로 받아들이던 문제 수정
   - `baseline --write --force .`은 `--force`라는 이름의 파일을 실제로 만들고 성공을 보고했다.
     이제 인덱싱과 쓰기 전에 usage 오류(64)로 거부한다
-  - 값이 빠진 `query <symbol> --baseline` 같은 호출도 분석 실패(2)가 아니라 usage 오류(64)다
+  - 값이 빠진 호출이 분석 실패(2)가 아니라 usage 오류(64)가 된다.
+    `query`·`bridges`·`graph`의 패키지 루트, `rules --config`와 `dead --baseline`·`--since`의 값이 대상이다
+  - `compare`는 `--`만 검사해 `compare -h .`처럼 실재하는 짧은 옵션을 경로로 받았다. 단일 대시도 거부한다
   - `-`로 시작하는 실제 경로는 `./-name`으로, `bridges`는 기존 `--` 이스케이프로 전달한다
 
 - `dead --explain`이 멤버로 보존된 컨테이너를 미도달로 단정하던 문제 수정

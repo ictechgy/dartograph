@@ -150,7 +150,9 @@ Future<int> _runCompare(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 2 || arguments.any((a) => a.startsWith('--'))) {
+  // 단일 대시도 거부한다. `--`만 보면 `compare -h .`처럼 실재하는 짧은 옵션이
+  // 경로가 되어 usage(64) 대신 분석 실패(2)로 보고된다.
+  if (arguments.length != 2 || arguments.any((a) => a.startsWith('-'))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -226,7 +228,8 @@ Future<int> _runRules(
       }
       strict = true;
     } else if (argument == '--config' && config == null) {
-      if (++index >= arguments.length) {
+      // 값이 빠진 호출에서 다음 옵션이 config 파일 경로가 되면 안 된다.
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
         error.write(_help);
         return ExitStatus.usage.code;
       }
@@ -548,8 +551,18 @@ Future<int> _runDead(
             return ExitStatus.usage.code;
           }
         case '--baseline':
+          // 값이 빠진 호출에서 다음 옵션이 baseline 파일 경로가 되면 안 된다.
+          if (value.startsWith('-')) {
+            error.write(_help);
+            return ExitStatus.usage.code;
+          }
           baselinePath = value;
         case '--since':
+          // git ref는 `-`로 시작할 수 없으므로 같은 기준을 적용한다.
+          if (value.startsWith('-')) {
+            error.write(_help);
+            return ExitStatus.usage.code;
+          }
           since = value;
       }
     } else if (!argument.startsWith('-') && rootPath == null) {
@@ -689,7 +702,11 @@ Future<int> _runGraph(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 3 || arguments[0] != '--format') {
+  // 옵션 모양의 값은 경로로 받지 않는다. `-`로 시작하는 실제 경로는
+  // `./-name`으로 전달한다.
+  if (arguments.length != 3 ||
+      arguments[0] != '--format' ||
+      arguments[2].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }

@@ -87,83 +87,90 @@ void main() {
     final package = await Directory.systemTemp.createTemp(
       'dartograph-option-usage.',
     );
-    final previous = Directory.current;
-    try {
-      await File('${package.path}/pubspec.yaml').writeAsString('''
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
 name: option_usage_fixture
 environment:
   sdk: ^3.11.0
 ''');
-      await Directory('${package.path}/lib').create();
-      await File(
-        '${package.path}/lib/main.dart',
-      ).writeAsString('void main() {}\n');
-      Directory.current = package;
+    await Directory('${package.path}/lib').create();
+    await File(
+      '${package.path}/lib/main.dart',
+    ).writeAsString('void main() {}\n');
+    final root = package.path;
 
-      // baseline은 인덱싱 전에 거부해야 한다. 통과하면 옵션 이름의 파일을
-      // 실제로 만들고 성공을 보고한다.
+    for (final invocation in [
+      ['baseline', '--write', '--force', root],
+      ['baseline', '--write', '$root/baseline.json', '--force'],
+      ['query', 'main', '--baseline'],
+      ['query', 'main', '--baseline', '$root/baseline.json', '--format'],
+      ['bridges', '--format', 'json', '--strict'],
+      ['graph', '--format', 'json', '--strict'],
+      // compare는 단일 대시도 거부해야 한다. `-h`는 실재하는 옵션이다.
+      ['compare', '-h', root],
+      ['rules', '--config', '--strict', root],
+      ['dead', '--format', 'text', '--baseline', '--strict', root],
+      ['dead', '--format', 'text', '--since', '--strict', root],
+    ]) {
       expect(
         await runDartograph(
-          const ['baseline', '--write', '--force', '.'],
+          invocation,
           output: StringBuffer(),
           error: StringBuffer(),
         ),
         ExitStatus.usage.code,
+        reason: invocation.join(' '),
       );
-      expect(File('${package.path}/--force').existsSync(), isFalse);
+    }
 
+    // 정상 경로와 `--` 이스케이프는 그대로 동작해야 한다.
+    for (final invocation in [
+      ['graph', '--format', 'json', root],
+      ['compare', root, root],
+      ['query', 'main', root],
+      ['bridges', '--format', 'json', root],
+      ['bridges', '--format', 'json', '--', root],
+      ['baseline', '--write', '$root/baseline.json', root],
+    ]) {
       expect(
-        await runDartograph(const [
-          'baseline',
-          '--write',
-          'baseline.json',
-          '--force',
-        ], error: StringBuffer()),
-        ExitStatus.usage.code,
-      );
-      expect(
-        await runDartograph(const [
-          'query',
-          'main',
-          '--baseline',
-        ], error: StringBuffer()),
-        ExitStatus.usage.code,
-      );
-      expect(
-        await runDartograph(const [
-          'query',
-          'main',
-          '--baseline',
-          'baseline.json',
-          '--format',
-        ], error: StringBuffer()),
-        ExitStatus.usage.code,
-      );
-      expect(
-        await runDartograph(const [
-          'bridges',
-          '--format',
-          'json',
-          '--strict',
-        ], error: StringBuffer()),
-        ExitStatus.usage.code,
-      );
-      // `--` 이스케이프는 그대로 동작해야 한다.
-      expect(
-        await runDartograph(const [
-          'bridges',
-          '--format',
-          'json',
-          '--',
-          '.',
-        ], output: StringBuffer()),
+        await runDartograph(
+          invocation,
+          output: StringBuffer(),
+          error: StringBuffer(),
+        ),
         ExitStatus.success.code,
+        reason: invocation.join(' '),
       );
-    } finally {
-      Directory.current = previous;
-      await package.delete(recursive: true);
     }
   });
+
+  test(
+    'baseline rejects an option-shaped destination before writing',
+    () async {
+      // 옵션 이름의 파일이 실제로 만들어지는지 보려면 상대 경로 해석 기준이
+      // 필요하다. cwd는 프로세스 전역이라 다른 테스트 파일과 경합하므로 인덱싱
+      // 없이 usage로 떨어지는 이 한 번만 감싼다.
+      final package = await Directory.systemTemp.createTemp(
+        'dartograph-baseline-usage.',
+      );
+      final previous = Directory.current;
+      try {
+        Directory.current = package;
+        expect(
+          await runDartograph(
+            const ['baseline', '--write', '--force', '.'],
+            output: StringBuffer(),
+            error: StringBuffer(),
+          ),
+          ExitStatus.usage.code,
+        );
+        expect(File('${package.path}/--force').existsSync(), isFalse);
+      } finally {
+        Directory.current = previous;
+        await package.delete(recursive: true);
+      }
+    },
+  );
 
   test('skill describes the implemented multiple-main policy', () async {
     final output = StringBuffer();
