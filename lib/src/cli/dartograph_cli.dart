@@ -358,10 +358,18 @@ Future<int> _runQuery(
       );
       return ExitStatus.usage.code;
     }
-  } else if (arguments.length == 2 && !arguments.first.startsWith('--')) {
+    // 옵션 모양의 값은 경로로 받지 않는다. 받으면 값이 빠진 호출이 usage(64)가
+    // 아니라 분석 실패(2)로 보고돼 사용자가 원인을 잘못 찾는다. 위 batch 분기와
+    // 같은 기준이며, `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
+  } else if (arguments.length == 2 &&
+      !arguments.first.startsWith('--') &&
+      !arguments[1].startsWith('-')) {
     requests = [arguments[0]];
     rootPath = arguments[1];
-  } else if (arguments.length == 4 && arguments[1] == '--baseline') {
+  } else if (arguments.length == 4 &&
+      arguments[1] == '--baseline' &&
+      !arguments[2].startsWith('-') &&
+      !arguments[3].startsWith('-')) {
     requests = [arguments[0]];
     baselinePath = arguments[2];
     rootPath = arguments[3];
@@ -456,9 +464,13 @@ Future<int> _runBridges(
   DateTime Function() now,
 ) async {
   final rootIndex = arguments.length == 4 && arguments[2] == '--' ? 3 : 2;
+  // 이스케이프 없이 온 옵션 모양의 값은 경로로 받지 않는다. 길이 검사가 먼저라
+  // 짧은 호출에서 인덱스를 벗어나지 않는다. `-`로 시작하는 실제 경로는 이미
+  // 있는 `--` 이스케이프로 전달한다.
   if (arguments.length != rootIndex + 1 ||
       arguments[0] != '--format' ||
-      arguments[1] != 'json') {
+      arguments[1] != 'json' ||
+      (rootIndex == 2 && arguments[2].startsWith('-'))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -631,7 +643,13 @@ Future<int> _runBaseline(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 3 || arguments[0] != '--write') {
+  // 옵션 모양의 값을 경로로 받으면 `baseline --write --force .`이 `--force`라는
+  // 이름의 파일을 실제로 만들고 성공을 보고한다. 인덱싱과 쓰기 전에 거부한다.
+  // `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
+  if (arguments.length != 3 ||
+      arguments[0] != '--write' ||
+      arguments[1].startsWith('-') ||
+      arguments[2].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }

@@ -83,6 +83,88 @@ void main() {
     }
   });
 
+  test('option-shaped positional paths are usage errors', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-option-usage.',
+    );
+    final previous = Directory.current;
+    try {
+      await File('${package.path}/pubspec.yaml').writeAsString('''
+name: option_usage_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory('${package.path}/lib').create();
+      await File(
+        '${package.path}/lib/main.dart',
+      ).writeAsString('void main() {}\n');
+      Directory.current = package;
+
+      // baseline은 인덱싱 전에 거부해야 한다. 통과하면 옵션 이름의 파일을
+      // 실제로 만들고 성공을 보고한다.
+      expect(
+        await runDartograph(
+          const ['baseline', '--write', '--force', '.'],
+          output: StringBuffer(),
+          error: StringBuffer(),
+        ),
+        ExitStatus.usage.code,
+      );
+      expect(File('${package.path}/--force').existsSync(), isFalse);
+
+      expect(
+        await runDartograph(const [
+          'baseline',
+          '--write',
+          'baseline.json',
+          '--force',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(
+        await runDartograph(const [
+          'query',
+          'main',
+          '--baseline',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(
+        await runDartograph(const [
+          'query',
+          'main',
+          '--baseline',
+          'baseline.json',
+          '--format',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(
+        await runDartograph(const [
+          'bridges',
+          '--format',
+          'json',
+          '--strict',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      // `--` 이스케이프는 그대로 동작해야 한다.
+      expect(
+        await runDartograph(const [
+          'bridges',
+          '--format',
+          'json',
+          '--',
+          '.',
+        ], output: StringBuffer()),
+        ExitStatus.success.code,
+      );
+    } finally {
+      Directory.current = previous;
+      await package.delete(recursive: true);
+    }
+  });
+
   test('skill describes the implemented multiple-main policy', () async {
     final output = StringBuffer();
 
