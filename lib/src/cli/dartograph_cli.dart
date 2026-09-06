@@ -539,6 +539,9 @@ Future<int> _runDead(
       final value = arguments[index];
       switch (argument) {
         case '--explain':
+          // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
+          // 있으므로 대시 가드를 적용하지 않는다. 값이 빠진 오타는 뒤따르는
+          // 위치 인자가 남아 이미 usage(64)로 떨어진다.
           explainId = value;
         case '--format':
           reportFormat = value == 'github-actions'
@@ -790,6 +793,9 @@ Usage: dartograph [--help] [--version]
        dartograph cycles [--strict] <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
        dartograph metrics [--strict] <package-root>
+
+Paths and files that begin with "-" are rejected as usage errors so that a
+missing option value is not silently consumed. Pass such a path as "./-name".
 
 Exit codes:
   0   success
