@@ -169,6 +169,45 @@ class Framework {
     expect(second.retentionRoots[callbackId], isNull);
     expect(cache.writeCount, 2);
   });
+  test('linked source contents invalidate analyzer facts', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'dartograph-symlink-cache.',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    await File('${root.path}/pubspec.yaml').writeAsString('''
+name: symlink_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${root.path}/lib').create();
+    // 링크 대상을 순회 대상 디렉터리(bin·example·integration_test·lib·test) 밖에
+    // 두어야 대상 파일 자체는 캐시 입력으로 잡히지 않는다. analyzer는 링크 경로를
+    // 그대로 분석하므로, 링크가 입력에서 빠지면 캐시만 낡은 사실을 돌려준다.
+    await Directory('${root.path}/shared').create();
+    final target = File('${root.path}/shared/shared.dart');
+    await target.writeAsString('class Alpha {}\n');
+    await Link('${root.path}/lib/shared.dart').create('../shared/shared.dart');
+    await File('${root.path}/lib/main.dart').writeAsString('''
+import 'shared.dart';
+void main() {
+  Alpha();
+}
+''');
+    final cache = _MemoryFactCache();
+    final index = AnalyzerGraphIndex(cache: cache);
+
+    final first = await index.index(root.path);
+    expect(
+      first.graph.nodes.keys,
+      isNot(contains('project:lib/shared.dart::Beta')),
+    );
+
+    await target.writeAsString('class Alpha {}\nclass Beta {}\n');
+    final second = await index.index(root.path);
+
+    expect(second.graph.nodes.keys, contains('project:lib/shared.dart::Beta'));
+    expect(cache.writeCount, 2);
+  });
 
   test('nested example dependencies invalidate analyzer facts', () async {
     final workspace = await Directory.systemTemp.createTemp(

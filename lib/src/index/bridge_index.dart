@@ -151,6 +151,14 @@ Iterable<File> _dartFiles(Directory directory) sync* {
       yield* _dartFiles(entity);
     } else if (entity is File && entity.path.endsWith('.dart')) {
       yield entity;
+    } else if (entity is Link &&
+        entity.path.endsWith('.dart') &&
+        FileSystemEntity.typeSync(entity.path) == FileSystemEntityType.file) {
+      // `followLinks: false` 목록에서 심볼릭 링크는 Link로 나오므로 File 분기에
+      // 걸리지 않는다. 링크된 소스도 analyzer가 분석하는 실제 입력이라
+      // 빠뜨리면 그 파일의 채널 사실이 통째로 누락된다.
+      // 디렉터리 링크는 순환 위험이 있어 계속 제외한다.
+      yield File(entity.path);
     }
   }
 }

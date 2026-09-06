@@ -586,9 +586,22 @@ Iterable<File> _projectFiles(Directory directory) sync* {
       yield* _projectFiles(entity);
     } else if (entity is File) {
       yield entity;
+    } else if (entity is Link && _linksToFile(entity)) {
+      // `followLinks: false` 목록에서 심볼릭 링크는 Link로 나와 File 분기에
+      // 걸리지 않는다. analyzer는 링크 경로를 그대로 분석하므로 링크를 빠뜨리면
+      // 대상이 바뀌어도 캐시 키가 그대로여서 낡은 사실을 돌려준다.
+      // 디렉터리 링크는 순환 위험이 있어 계속 제외한다.
+      yield File(entity.path);
     }
   }
 }
+
+/// 심볼릭 링크가 실제 파일을 가리키는지 확인한다.
+///
+/// [FileSystemEntity.typeSync]는 기본적으로 링크를 따라가므로 끊어진 링크는
+/// `notFound`, 디렉터리 링크는 `directory`를 돌려준다.
+bool _linksToFile(Link link) =>
+    FileSystemEntity.typeSync(link.path) == FileSystemEntityType.file;
 
 const _ignoredProjectDirectories = {'.dart_tool', '.git', 'build'};
 const _namedNavigationMethods = {
