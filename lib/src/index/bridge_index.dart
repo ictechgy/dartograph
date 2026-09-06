@@ -171,11 +171,26 @@ Iterable<File> _dartFilesIn(
       if (type == FileSystemEntityType.file && entity.path.endsWith('.dart')) {
         yield File(entity.path);
       } else if (type == FileSystemEntityType.directory &&
-          !_excludedDirectories.contains(p.basename(entity.path)) &&
-          visitedLinkTargets.add(entity.resolveSymbolicLinksSync())) {
-        yield* _dartFilesIn(Directory(entity.path), visitedLinkTargets);
+          !_excludedDirectories.contains(p.basename(entity.path))) {
+        final target = _resolvedLinkTarget(entity);
+        if (target != null && visitedLinkTargets.add(target)) {
+          yield* _dartFilesIn(Directory(entity.path), visitedLinkTargets);
+        }
       }
     }
+  }
+}
+
+/// 디렉터리 링크의 실제 경로를 돌려주고, 해석에 실패하면 null을 돌려준다.
+///
+/// [FileSystemEntity.typeSync]로 종류를 확인한 뒤 실제 경로를 해석하기까지의
+/// 사이에 외부 프로세스가 대상을 지우면 [FileSystemException]이 난다. 그 경우
+/// 스캔 전체를 실패시키지 않고 그 링크만 건너뛴다.
+String? _resolvedLinkTarget(Link link) {
+  try {
+    return link.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
   }
 }
 

@@ -30,10 +30,10 @@ class Camera {
         .toList();
     // 파일 링크(channel.dart)와 디렉터리 링크(linked/) 양쪽에서 사실이 나온다.
     // 순환 링크(outside/self)는 한 번만 따라가므로 경로가 늘어나지 않는다.
-    expect(
-      invocations.map((f) => (f['location']! as Map)['path']),
-      ['channel.dart', 'linked/channel.dart'],
-    );
+    expect(invocations.map((f) => (f['location']! as Map)['path']), [
+      'channel.dart',
+      'linked/channel.dart',
+    ]);
     for (final invocation in invocations) {
       expect(invocation['channel'], 'camera');
       expect(invocation['method'], 'takePhoto');
