@@ -11,7 +11,12 @@ import 'package:yaml/yaml.dart';
 /// 그 문서의 절차대로 API 표면을 다시 검증하고 이 상수를 함께 갱신해야 한다.
 const _validatedMajor = 14;
 const _validatedMinor = 3;
-const _validatedConstraint = '>=14.3.0 <14.4.0';
+
+/// 검증 범위의 pubspec 제약 문자열이다. 위 major/minor에서 도출해 두 상수가
+/// 서로 어긋나지 않도록 단일 사실 출처를 유지한다.
+const _validatedConstraint =
+    '>=$_validatedMajor.$_validatedMinor.0 '
+    '<$_validatedMajor.${_validatedMinor + 1}.0';
 
 void main() {
   test(
@@ -37,14 +42,14 @@ void main() {
     );
 
     expect(resolved, isNotNull, reason: 'package:analyzer를 해석하지 못했다.');
-    final match = RegExp(
-      r'analyzer-(\d+)\.(\d+)\.(\d+)',
-    ).firstMatch(resolved!.toFilePath());
-    expect(
-      match,
-      isNotNull,
-      reason: '해석된 analyzer 경로에서 버전을 읽지 못했다: ${resolved.toFilePath()}',
-    );
+    final path = resolved!.toFilePath();
+    // hosted 캐시의 `analyzer-X.Y.Z` 디렉터리 세그먼트만 대상으로 읽어
+    // 경로 앞부분의 무관한 부분 문자열을 잡지 않는다.
+    final segment = path
+        .split(Platform.pathSeparator)
+        .lastWhere((part) => part.startsWith('analyzer-'), orElse: () => '');
+    final match = RegExp(r'^analyzer-(\d+)\.(\d+)\.(\d+)').firstMatch(segment);
+    expect(match, isNotNull, reason: '해석된 analyzer 경로에서 버전을 읽지 못했다: $path');
 
     final major = int.parse(match!.group(1)!);
     final minor = int.parse(match.group(2)!);
