@@ -7,6 +7,11 @@
 ## 결정
 
 1. v0.1은 `package:analyzer` **`>=14.3.0 <14.4.0`** 범위만 허용한다.
+   이 범위는 `test/index/analyzer_version_contract_test.dart`가 pubspec 제약과
+   런타임에 `Isolate.resolvePackageUri`로 해석된 실제 버전 양쪽으로 강제한다.
+   범위를 넓히려면 이 문서의 API 표면(`declaredFragment.element`, `Identifier.element`,
+   `Element.library`, `Element.enclosingElement`, `Element.firstFragment`)을 새 버전에서
+   다시 컴파일·검증하고 그 테스트의 상수를 함께 갱신한다.
 2. analyzer를 import하는 제품 코드는 `lib/src/index/`에만 둔다.
 3. 이름 있는 정점 ID는 `library URI + enclosing lookup-name path`로 만든다.
 4. `package:` URI가 없는 프로젝트 파일은 절대 `file:` URI 대신
