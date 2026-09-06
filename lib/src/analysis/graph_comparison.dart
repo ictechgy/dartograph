@@ -89,7 +89,9 @@ Map<String, Object?> _loss(
   List<String> afterLimitations,
 ) {
   final direct = old.explain(id);
-  final witness = direct.reachable
+  // 직접 도달을 먼저 가른다. explain은 멤버로 보존된 컨테이너도 reachable로
+  // 답하므로, reachable만 보면 witness를 남길 대상을 놓친다.
+  final witness = old.reachableIds.contains(id)
       ? null
       : old.reachableIds
             .where((candidate) => candidate.startsWith('$id.'))

@@ -64,6 +64,16 @@ void main() {
     expect(result.deadDeclarations.map((finding) => finding.id), [
       'package:app/model.dart::Widget.dead',
     ]);
+    // dead가 보존으로 판정한 컨테이너는 explain도 같은 근거로 설명해야 한다.
+    // 한쪽만 미도달이라고 답하면 같은 실행에서 상반된 결론이 나온다.
+    final explanation = result.explain('package:app/model.dart::Widget');
+    expect(explanation.reachable, isTrue);
+    expect(explanation.reason, 'retained by a reachable member');
+    expect(explanation.witness, 'package:app/model.dart::Widget.live');
+    expect(explanation.path, [
+      'app::root',
+      'package:app/model.dart::Widget.live',
+    ]);
   });
 
   test('explanations choose a deterministic shortest preservation path', () {
