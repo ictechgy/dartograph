@@ -150,7 +150,9 @@ Future<int> _runCompare(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 2 || arguments.any((a) => a.startsWith('--'))) {
+  // 단일 대시도 거부한다. `--`만 보면 `compare -h .`처럼 실재하는 짧은 옵션이
+  // 경로가 되어 usage(64) 대신 분석 실패(2)로 보고된다.
+  if (arguments.length != 2 || arguments.any((a) => a.startsWith('-'))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -226,7 +228,8 @@ Future<int> _runRules(
       }
       strict = true;
     } else if (argument == '--config' && config == null) {
-      if (++index >= arguments.length) {
+      // 값이 빠진 호출에서 다음 옵션이 config 파일 경로가 되면 안 된다.
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
         error.write(_help);
         return ExitStatus.usage.code;
       }
@@ -358,10 +361,18 @@ Future<int> _runQuery(
       );
       return ExitStatus.usage.code;
     }
-  } else if (arguments.length == 2 && !arguments.first.startsWith('--')) {
+    // 옵션 모양의 값은 경로로 받지 않는다. 받으면 값이 빠진 호출이 usage(64)가
+    // 아니라 분석 실패(2)로 보고돼 사용자가 원인을 잘못 찾는다. 위 batch 분기와
+    // 같은 기준이며, `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
+  } else if (arguments.length == 2 &&
+      !arguments.first.startsWith('--') &&
+      !arguments[1].startsWith('-')) {
     requests = [arguments[0]];
     rootPath = arguments[1];
-  } else if (arguments.length == 4 && arguments[1] == '--baseline') {
+  } else if (arguments.length == 4 &&
+      arguments[1] == '--baseline' &&
+      !arguments[2].startsWith('-') &&
+      !arguments[3].startsWith('-')) {
     requests = [arguments[0]];
     baselinePath = arguments[2];
     rootPath = arguments[3];
@@ -456,9 +467,13 @@ Future<int> _runBridges(
   DateTime Function() now,
 ) async {
   final rootIndex = arguments.length == 4 && arguments[2] == '--' ? 3 : 2;
+  // 이스케이프 없이 온 옵션 모양의 값은 경로로 받지 않는다. 길이 검사가 먼저라
+  // 짧은 호출에서 인덱스를 벗어나지 않는다. `-`로 시작하는 실제 경로는 이미
+  // 있는 `--` 이스케이프로 전달한다.
   if (arguments.length != rootIndex + 1 ||
       arguments[0] != '--format' ||
-      arguments[1] != 'json') {
+      arguments[1] != 'json' ||
+      (rootIndex == 2 && arguments[2].startsWith('-'))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -524,6 +539,9 @@ Future<int> _runDead(
       final value = arguments[index];
       switch (argument) {
         case '--explain':
+          // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
+          // 있으므로 대시 가드를 적용하지 않는다. 값이 빠진 오타는 뒤따르는
+          // 위치 인자가 남아 이미 usage(64)로 떨어진다.
           explainId = value;
         case '--format':
           reportFormat = value == 'github-actions'
@@ -536,8 +554,18 @@ Future<int> _runDead(
             return ExitStatus.usage.code;
           }
         case '--baseline':
+          // 값이 빠진 호출에서 다음 옵션이 baseline 파일 경로가 되면 안 된다.
+          if (value.startsWith('-')) {
+            error.write(_help);
+            return ExitStatus.usage.code;
+          }
           baselinePath = value;
         case '--since':
+          // git ref는 `-`로 시작할 수 없으므로 같은 기준을 적용한다.
+          if (value.startsWith('-')) {
+            error.write(_help);
+            return ExitStatus.usage.code;
+          }
           since = value;
       }
     } else if (!argument.startsWith('-') && rootPath == null) {
@@ -631,7 +659,13 @@ Future<int> _runBaseline(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 3 || arguments[0] != '--write') {
+  // 옵션 모양의 값을 경로로 받으면 `baseline --write --force .`이 `--force`라는
+  // 이름의 파일을 실제로 만들고 성공을 보고한다. 인덱싱과 쓰기 전에 거부한다.
+  // `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
+  if (arguments.length != 3 ||
+      arguments[0] != '--write' ||
+      arguments[1].startsWith('-') ||
+      arguments[2].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -671,7 +705,11 @@ Future<int> _runGraph(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  if (arguments.length != 3 || arguments[0] != '--format') {
+  // 옵션 모양의 값은 경로로 받지 않는다. `-`로 시작하는 실제 경로는
+  // `./-name`으로 전달한다.
+  if (arguments.length != 3 ||
+      arguments[0] != '--format' ||
+      arguments[2].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -755,6 +793,9 @@ Usage: dartograph [--help] [--version]
        dartograph cycles [--strict] <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
        dartograph metrics [--strict] <package-root>
+
+Paths and files that begin with "-" are rejected as usage errors so that a
+missing option value is not silently consumed. Pass such a path as "./-name".
 
 Exit codes:
   0   success
