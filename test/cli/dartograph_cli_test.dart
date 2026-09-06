@@ -100,7 +100,8 @@ environment:
     final root = package.path;
 
     for (final invocation in [
-      ['baseline', '--write', '--force', root],
+      // baseline 목적지가 옵션 모양인 케이스는 아래 cwd 통제 테스트에 둔다.
+      // 가드가 회귀하면 상대 경로가 프로세스 cwd(저장소 루트)에 쓰인다.
       ['baseline', '--write', '$root/baseline.json', '--force'],
       ['query', 'main', '--baseline'],
       ['query', 'main', '--baseline', '$root/baseline.json', '--format'],
@@ -109,7 +110,6 @@ environment:
       // 술자가 `--`로 되돌아가면 아래 단일 대시 케이스가 다시 통과한다.
       ['query', '-main', root],
       ['query', 'main', '-pkg'],
-      ['baseline', '--write', '-b.json', root],
       ['bridges', '--format', 'json', '-pkg'],
       ['graph', '--format', 'json', '-pkg'],
       ['bridges', '--format', 'json', '--strict'],
@@ -164,15 +164,18 @@ environment:
       final previous = Directory.current;
       try {
         Directory.current = package;
-        expect(
-          await runDartograph(
-            const ['baseline', '--write', '--force', '.'],
-            output: StringBuffer(),
-            error: StringBuffer(),
-          ),
-          ExitStatus.usage.code,
-        );
-        expect(File('${package.path}/--force').existsSync(), isFalse);
+        for (final destination in const ['--force', '-b.json']) {
+          expect(
+            await runDartograph(
+              ['baseline', '--write', destination, '.'],
+              output: StringBuffer(),
+              error: StringBuffer(),
+            ),
+            ExitStatus.usage.code,
+            reason: destination,
+          );
+          expect(File('${package.path}/$destination').existsSync(), isFalse);
+        }
       } finally {
         Directory.current = previous;
         await package.delete(recursive: true);
