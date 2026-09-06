@@ -180,6 +180,13 @@ final class ReachabilityResult {
   /// 전체 결과에 적용되는 분석 한계다.
   final List<String> limitations;
 
+  /// [id]를 보존하는 도달 가능한 멤버 중 첫 번째다.
+  ///
+  /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다.
+  String? _reachableMemberOf(String id) => reachableIds
+      .where((candidate) => candidate.startsWith('$id.'))
+      .firstOrNull;
+
   /// [id]의 보존 경로 또는 모든 루트에서 미도달한 근거를 돌려준다.
   ReachabilityExplanation explain(String id) {
     if (!_nodeIds.contains(id)) {
@@ -224,6 +231,23 @@ final class ReachabilityResult {
       );
     }
     if (!_paths.containsKey(id)) {
+      // 도달 가능한 멤버가 있으면 컨테이너는 보존된다. deadDeclarations도 같은
+      // 근거로 제외하므로, 여기서 미도달로 답하면 한 실행에서 상반된 결론이 된다.
+      final memberWitness = _reachableMemberOf(id);
+      if (memberWitness != null) {
+        final witnessExplanation = explain(memberWitness);
+        return ReachabilityExplanation(
+          id: id,
+          reachable: true,
+          reason: 'retained by a reachable member',
+          rootsChecked: const [],
+          path: witnessExplanation.path,
+          evidence: witnessExplanation.evidence,
+          retentionReason: null,
+          limitations: limitations,
+          witness: memberWitness,
+        );
+      }
       return ReachabilityExplanation(
         id: id,
         reachable: false,

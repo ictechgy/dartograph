@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `dead --explain`이 멤버로 보존된 컨테이너를 미도달로 단정하던 문제 수정
+  - 같은 실행의 `dead`가 발견에서 제외한 선언을 `explain`은 "unreachable from all
+    retention roots"로 답하고 종료 코드 1을 냈다
+  - 이제 `retained by a reachable member` 근거와 witness 멤버, 그 멤버까지의 실제
+    경로를 함께 돌려주고 종료 코드 0을 낸다
+  - `query`의 `retainedByMember` 상태와 `compare`의 witness 표기는 그대로 유지된다
+
 - 심볼릭 링크로 연결된 Dart 소스를 분석 캐시 입력과 bridge 스캔에 포함
   - analyzer는 파일·디렉터리 링크를 모두 따라가 분석하는데 입력 목록에서는 빠져 있어,
     링크 대상을 수정해도 캐시 키가 그대로여서 낡은 그래프를 돌려주던 문제를 수정한다
