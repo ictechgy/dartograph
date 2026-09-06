@@ -507,6 +507,8 @@ entry_points:
         'entry_points:\n  - lib/does_not_exist.dart\n',
         'entry_points:\n  - test/helper_test.dart\n',
         'entry_points:\n  - lib/notes.txt\n',
+        '- lib/main.dart\n',
+        'a bare scalar document\n',
       ]) {
         final package = await _entryPointPackage();
         addTearDown(() => package.delete(recursive: true));
@@ -517,6 +519,29 @@ entry_points:
           throwsA(isA<FormatException>()),
           reason: 'config: $config',
         );
+      }
+    },
+  );
+
+  test(
+    'an empty dartograph.yaml keeps the default conservative policy',
+    () async {
+      // 파일이나 키가 없으면 기본 보수 정책을 유지한다는 계약은 빈 문서에도
+      // 적용된다. yaml은 빈 문서와 주석뿐인 문서를 null로 돌려주므로, 이를
+      // 비-map으로 묶어 거부하면 `touch dartograph.yaml` 한 번으로 모든
+      // 명령이 실패한다.
+      for (final config in const ['', '# only a comment\n', 'other_key: 1\n']) {
+        final package = await _entryPointPackage();
+        addTearDown(() => package.delete(recursive: true));
+        await File('${package.path}/dartograph.yaml').writeAsString(config);
+
+        final result = await AnalyzerGraphIndex().index(package.path);
+        final mainRoots = result.retentionRoots.entries
+            .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+            .map((entry) => entry.key)
+            .toList();
+
+        expect(mainRoots, hasLength(3), reason: 'config: $config');
       }
     },
   );
