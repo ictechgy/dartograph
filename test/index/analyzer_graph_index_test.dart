@@ -458,6 +458,26 @@ entry_points:
     },
   );
 
+  test('a leading BOM does not hide the entry_points key', () async {
+    // BOM이 키 이름에 섞이면 선언한 진입점이 조용히 무시되고 보존 루트가 잘못
+    // 좁혀진다. 이 기능이 막으려는 실패 모드 그 자체이므로, yaml이 BOM을
+    // 제거한다는 사실을 라이브러리 업그레이드에 대비해 고정한다.
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File(
+      '${package.path}/dartograph.yaml',
+    ).writeAsString('\uFEFFentry_points:\n  - bin/cli.dart\n');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+    final mainRoots = result.retentionRoots.entries
+        .where((entry) => entry.value == RetentionReason.mainEntryPoint)
+        .map((entry) => entry.key)
+        .toList();
+
+    expect(mainRoots, hasLength(1));
+    expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+  });
+
   test('entry_points accepts non-lib build targets under bin/', () async {
     final package = await _entryPointPackage();
     addTearDown(() => package.delete(recursive: true));
@@ -509,6 +529,9 @@ entry_points:
         'entry_points:\n  - lib/notes.txt\n',
         '- lib/main.dart\n',
         'a bare scalar document\n',
+        'entry_points: lib/main.dart\n',
+        'entry_points: 5\n',
+        'entry_points: {a: b}\n',
       ]) {
         final package = await _entryPointPackage();
         addTearDown(() => package.delete(recursive: true));
@@ -535,6 +558,8 @@ entry_points:
         '# only a comment\n',
         '---\n',
         'null\n',
+        '~\n',
+        '\uFEFF',
         'other_key: 1\n',
         '{}\n',
       ]) {
