@@ -28,10 +28,16 @@
 - `dependency-cruiser`: 레이어 규칙 · 순환 · Mermaid/GraphViz/HTML 출력. cartograph 의 `rules` 와 직접 겹침
 - 결론: JS/TS 는 포화. dartograph 는 JS 를 다루지 않는다
 
+### `lakos` (Dart 의존성 그래프 도구)
+
+- 2026-09-06 pub.dev 확인: **2.0.7**, 약 5개월 전 발행, verified publisher(olegalexander.com), **MIT**. 143 likes · 7.18k downloads로 활발하다. https://pub.dev/packages/lakos
+- 기능: 내부 Dart **라이브러리** 의존성을 Graphviz dot/json으로 시각화, 순환 검출, orphan 식별, metrics(CCD·ACD·NCCD·instability·sloc). CI용 종료 코드(`DependencyCycleDetected=5`).
+- **한계(원문)**: *"Only `import` and `export` directives are supported; `library` and `part` are not."* 노드가 라이브러리(파일) 단위이며 **심볼 단위 그래프가 없다.**
+- **함의**: dartograph의 `graph`(라이브러리 dot)·`cycles`·`metrics`와 겹친다. 그러나 lakos는 **심볼 단위 미사용 코드 · `dead --explain` 근거 · 에이전트 `query` · platform channel `bridges`를 다루지 않는다.** dartograph의 차별화는 심볼 단위 도달성 + 근거 + 에이전트 표면이다. `doc/PRD.md` 비교표에 반영했다.
+
 ## 확인 필요
 
-- **`lakos`** — Dart 의존성 그래프 도구로 기억. 현재 유지보수 상태 미확인. 겹치는 부분이 있으면 README 비교표에 넣는다
-- **Pigeon 이 생성한 코드의 형태** — 채널 이름이 생성 코드 안의 상수로 들어가는지, 그러면 `bridges` 가 그것을 "정적 참조" 로 분류할 수 있는지
+- **Pigeon 이 생성한 코드의 형태** — 채널 이름이 생성 코드 안의 상수로 들어가는지, 그러면 `bridges` 가 그것을 "정적 참조" 로 분류할 수 있는지. 아직 실측하지 않았다. `doc/PRD.md`와 HANDOFF 방침대로 Pigeon 정적 추출은 생성 API 형태를 측정한 뒤에만 추가한다
 
 ## Dart 가 Swift · Kotlin 보다 쉬운 이유 (설계에 반영)
 
@@ -52,3 +58,4 @@ cartograph의 같은 절과 동일. 추가로:
 - DCM 가격 — https://dcm.dev/pricing/
 - DCM unused code 문서 — https://dcm.dev/docs/cli/code-quality-checks/unused-code/
 - knip 비교 — https://knip.dev/explanations/comparison-and-migration
+- lakos — https://pub.dev/packages/lakos (2026-09-06 확인)
