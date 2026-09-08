@@ -1,26 +1,26 @@
 # Handoff
 
-_Last updated: 2026-09-08 (0.3.0 릴리스 + 감사 backlog 7건 정리, PR #19 merge 기준)_
+_Last updated: 2026-09-08 (0.3.0 릴리스 + 감사 backlog 7건 정리, PR #21 merge 기준)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
 - 이번 세션은 이전 9축 감사가 남긴 backlog의 상위 4건을 재현→수정→회귀→GLM 리뷰로
   반영하고(PR #18), 0.2.0 이후 누적된 미릴리스 변경 전체를 0.3.0으로 공개한 뒤(PR #19,
-  pub.dev·GitHub Release), 남은 backlog 7건(릴리스 전 처리 목록)도 정리했다
-  (`fix/pre-release-backlog`). 새 대형 기능 요청은 없었다.
+  pub.dev·GitHub Release), 남은 backlog 7건(릴리스 전 처리 목록)도 정리해 머지했다(PR #21).
+  새 대형 기능 요청은 없었다.
 
 ## Current Status
 
 - 릴리스 기준: `v0.3.0` → `92826d0` (PR #19 merge). pub.dev(latest 0.3.0)·GitHub Release
   공개 완료. 새 격리 캐시 설치로 `dartograph 0.3.0`을 확인했다.
-- main 기준: `92826d0` (PR #19 merge). 0.2.0 이후 누적됐던 `entry_points`(#9)·analyzer 계약
+- main 기준: `ca4286f` (PR #21 merge). 0.2.0 이후 누적됐던 `entry_points`(#9)·analyzer 계약
   테스트(#10)·lakos(#11)·결함 수정(#13~#17)·감사 backlog 상위 4건은 모두 0.3.0에 릴리스됐다.
-  이후 감사 backlog의 남은 7건(릴리스 전 처리 목록)을 브랜치 `fix/pre-release-backlog`에서
-  정리했으며 이는 **미릴리스**(다음 0.3.x/0.4.0 후보)다.
+  이후 감사 backlog의 남은 7건(릴리스 전 처리 목록)을 PR #21로 머지했으며, 이 7건은
+  **0.3.0 이후 미릴리스**(CHANGELOG `Unreleased`, 다음 0.3.x/0.4.0 후보)다.
 - 지침 기준: `c4d121d` (PR #7 merge).
-- 이번 세션은 backlog 상위 4건을 PR #18로, 0.3.0 릴리스를 PR #19로 머지·게시했다.
-  열린 제품 PR은 없다.
+- 이번 세션은 backlog 상위 4건(PR #18)·0.3.0 릴리스(PR #19)·HANDOFF 인계(PR #20)·backlog
+  7건(PR #21)을 모두 머지했다. 열린 제품 PR은 없다.
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
 - 제품 배포 blocker는 없다. HANDOFF 내용이 Git 상태보다 우선하지 않으므로 재개 시 실제 상태를 확인한다.
@@ -170,6 +170,12 @@ _Last updated: 2026-09-08 (0.3.0 릴리스 + 감사 backlog 7건 정리, PR #19 
   빈 캐시에서 exit 69). `dart format`·`dart analyze` clean(각각 exit 0), **전체 139개 테스트 통과**
   (exit 0), 오탐 코퍼스·CLI 계약 스크립트 exit 0. PR #18·#19 각각 두 SDK(3.11.0/3.13.3) CI green
   후 머지했고 CI의 `check-coverage.sh`가 커버리지 게이트(≥90)를 검증했다.
+- backlog 7건(PR #21) 로컬 검증: format·analyze clean, **전체 143개 테스트 통과**, 오탐 코퍼스·
+  CLI 계약 exit 0(graph json·mermaid·skill·bridges·baseline write·dead --baseline 게이트 포함),
+  clean git에서 dry-run 경고 0(71 KB). PR #21 두 SDK CI green 후 머지. GLM packet-review가 A~G를
+  승인하고, C의 우려(`_runRules` 첫 try가 `LayerRuleSet.parse`의 ArgumentError를 놓친다)는
+  `layer_rules.dart`의 모든 throw가 `FormatException`임을 확인해 기각했다. 후속 제안 2건
+  (graph json·baseline 소비 게이트, 부재 baseline의 dead+query 대칭)을 반영했다.
 - **0.3.0 릴리스 검증**: clean git에서 `dart pub publish --dry-run` 경고 0(70 KB). pub.dev 게시
   성공(latest 0.3.0 전파 확인), 태그 v0.3.0(annotated "dartograph 0.3.0")·GitHub Release 공개,
   새 격리 캐시에 `dart pub global activate dartograph 0.3.0` 후 설치 바이너리가 `dartograph 0.3.0`을
@@ -321,23 +327,28 @@ GLM 리뷰가 남긴 후속 후보(이번 범위 밖, 낮음):
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로의 AGENTS.md를 읽는다.
-2. **0.3.0이 릴리스됐다**(main `92826d0`, pub.dev latest 0.3.0, 태그 v0.3.0·GitHub Release 공개,
-   새 캐시 설치 확인). 미릴리스 변경은 없으므로 완료된 구현·배포를 반복하지 않는다.
-3. 감사 backlog의 릴리스 전 처리 목록은 모두 처리됐다(`fix/pre-release-backlog`). 남은 후보는
-   **선택 과제**(code_graph nodes hoist, FactCache 미주입, ReachabilityResult 미export, metrics
-   tolerance 문서, analyzer 버전 캐시 키, query --baseline dead file, PRD 비교표 README)와
-   enum과 같은 계열인 **extension type의 `.values` 공백 확인**이다.
+2. **0.3.0이 릴리스됐다**(pub.dev latest 0.3.0, 태그 v0.3.0·GitHub Release 공개, 새 캐시 설치
+   확인). 이후 backlog 7건이 PR #21로 머지돼 **미릴리스**(CHANGELOG `Unreleased`)로 누적됐다.
+   완료된 구현·배포를 반복하지 않는다.
+3. 감사 backlog의 릴리스 전 처리 목록은 모두 처리되어 PR #21로 머지됐다. 남은 후보는 GLM 후속
+   2건(baseline-write 오류 메시지, Mermaid `"`·`\` escape)·**선택 과제**(code_graph nodes hoist,
+   FactCache 미주입, ReachabilityResult 미export, metrics tolerance 문서, analyzer 버전 캐시 키,
+   query --baseline dead file, PRD 비교표 README)·enum과 같은 계열인 **extension type의
+   `.values` 공백 확인**이다.
 4. 새 사용자 요청이 없다면 닫은·보류 항목은 위 근거를 먼저 읽고 다시 도출하지 않는다.
 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
 `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.3.0 is released
-(main 92826d0, PR #19; pub.dev latest 0.3.0, tag v0.3.0 and GitHub Release published, fresh-cache
-install verified). This session merged the audit backlog top four (bridge channel declaration order,
-.values enum-constant false positive, empty channel name, dead --since diff.relative) as PR #18 and
-the 0.3.0 release as PR #19; there are NO unreleased changes. GLM review via packet-review approved
-both the main and delta passes. Local line coverage cannot run in the sandbox (VM service blocked);
-CI check-coverage.sh covers it on two SDKs. The remaining audit backlog and the closed/deferred
-lists were assessed deliberately; read the rationale before re-flagging. Follow the next explicit
-user task.`
+(pub.dev latest 0.3.0, tag v0.3.0 and GitHub Release published, fresh-cache install verified).
+This session merged the audit backlog top four as PR #18, the 0.3.0 release as PR #19, a HANDOFF
+update as PR #20, and the seven remaining pre-release-backlog items as PR #21 (SECURITY listing,
+cli-contract graph/skill/bridges/baseline gates, baseline & rules-config error messages,
+_librarySource percent-decoding, Mermaid escaping, public_member_api_docs error, layers.yaml docs +
+--explain help). Those seven are UNRELEASED (CHANGELOG Unreleased, next 0.3.x/0.4.0 candidate);
+main is ca4286f. GLM packet-review approved the work. Local line coverage cannot run in the sandbox
+(VM service blocked); CI check-coverage.sh covers it on two SDKs. The remaining audit backlog
+(GLM follow-ups: baseline-write error message, Mermaid quote/backslash escaping; optional tasks;
+extension-type .values check) and the closed/deferred lists were assessed deliberately; read the
+rationale before re-flagging. Follow the next explicit user task.`
