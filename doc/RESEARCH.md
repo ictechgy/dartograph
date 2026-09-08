@@ -1,6 +1,7 @@
 # dartograph 리서치 노트
 
-2026-09-04 기준. **확인됨** 은 1차 출처를 직접 읽은 것, **확인 필요** 는 GLM 또는 기억에서 나온 주장이다.
+2026-09-04 기준(이후 절별 갱신: 09-06 lakos, 09-08 경쟁·자매 도구 대조와 Tier 2 구현 마감).
+**확인됨** 은 1차 출처를 직접 읽은 것, **확인 필요** 는 GLM 또는 기억에서 나온 주장이다.
 
 ## 확인됨
 
@@ -109,6 +110,12 @@ Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `af
   `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
 - Tier 4(cosmetic): metrics zone 라벨(zone-of-pain·main-sequence), 순환 노드 색칠, redundant public,
   anon export.
+
+Tier 1~2 심사 때 목록에 들지 않은 나머지 강점들은 의도적으로 미채택이다(재도출하지 않는다):
+dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query --depth/--limit`·
+`affected`·`graph --level`로 실질 충족, knip sarif 리포터는 기존 `--format sarif`로 충족,
+`--watch`/`--cache`는 런타임·캐시 관심(측정 없는 최적화 금지 보류 항목), madge
+`.leaves()`/`.depends()`는 `query` 이웃과 `dead`로 응답 가능, `.orphans()`는 dead file 관측과 겹침.
 
 **흡수하지 않을 것 (기존 결정과 충돌):**
 

@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속 + operator 결함 + affected·html·level/collapse·인라인 ignore, PR #29~#35 merge 기준)_
+_Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속 + operator 결함 + affected·html·level/collapse·인라인 ignore, PR #29~#34 merge 기준)_
 
 ## Goal
 
@@ -152,7 +152,7 @@ _Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속
 - `test/index/fixture/lib/model.g.dart`에 part 파일 ignore 핀(`IgnoredInPart`).
   index 테스트 setUpAll이 `lib/ignored.dart`(마커 8케이스)·`lib/operators.dart` 생성.
 - `tool/verify-cli-contract.sh`: affected 4 + graph html/level/collapse 8 케이스 추가.
-- 신규 테스트: `test/analysis/affected_analyzer_test.dart`(8)·`test/analysis/graph_projection_test.dart`(8)·
+- 신규 테스트: `test/analysis/affected_analyzer_test.dart`(7)·`test/analysis/graph_projection_test.dart`(8)·
   `test/cli/affected_cli_test.dart`(8)·`test/cli/graph_level_cli_test.dart`(6) + 기존 파일 회귀
   (adoption·graph_exporter·dartograph_cli·analyzer_graph_index).
 - `doc/RESEARCH.md`: Tier 2 4건 "구현·머지됨"으로 이동(module 제외 근거 포함), 남은 후보는
@@ -165,7 +165,8 @@ _Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속
   - **연산자 간선**: `MethodReferenceExpression.element`가 Binary/Index/Prefix/Postfix/
     Assignment 공통 API(14.3.0). 복합 대입의 인덱스 읽기는 `readElement`(writeElement만
     보면 `Score.[]` 오탐 — 실측). 순수 쓰기(`m[i]=v`)의 IndexExpression.element는 읽기
-    간선을 만들지 않는다(실측: `Box.[]` dead 유지 — 가드 불필요). 내장 연산자는
+    간선을 만들지 않는다(scratch `Box.[]` dead 유지 실측 → 코퍼스 `WriteOnly.[]`로 영구
+    고정, 가드 불필요). 내장 연산자는
     `_add`의 containsNode 양끝 검사로 필터(ID 공간 `dart:core::` vs `package:…::` 분리).
     단항 `-` lookupName=`unary-`(이항 `-`와 공존 가능, ID 충돌 없음).
   - **affected**: 전파는 import/export 간선만(선언 수준 call/reference는 안 탐 — 라이브러리
@@ -352,8 +353,9 @@ precedingComments parsing with leading-comment guard, directive must head a line
 closure documented vs baseline, cache identity v5). The extension-type .values gap is CLOSED (language
 forbids ==/hashCode on extension types; interface dispatch already retained via overrideContract; do
 NOT re-investigate). All six PRs merged with two-SDK CI green and GLM packet-review (blocking issues
-in #33/#34 were reproduced, fixed, and pinned; reviewer approved without re-review). Everything is
-UNRELEASED (CHANGELOG Unreleased) with prior backlog. Remaining absorption candidates are Tier 3/4
+in #33/#34 were reproduced, fixed, and pinned; reviewer approved without re-review). This handoff
+itself is the docs PR following them. Everything is UNRELEASED (CHANGELOG Unreleased) with prior
+backlog. Remaining absorption candidates are Tier 3/4
 only; external-retentions stays contract-blocked (PR #27). Local coverage runs via the dedicated port
 ($AGENT_GUARD_LOOPBACK_PORT, format_coverage uses -i); packet-review must use --files (not --diff) and
 is rate-limited to 6/hour; ripgrep is absent locally (check-analyzer-boundary delegated to CI); clear
