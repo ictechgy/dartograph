@@ -41,7 +41,11 @@
 Periphery(Swift, 현재 상업화·OSS 저장소는 MIT 아카이브), knip(JS/TS), dependency-cruiser(JS/TS),
 madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확인한 v0.3.0 기준 상태다.
 
-**dartograph 현황 (소스 확인):**
+**dartograph 현황 (2026-09-08 리서치 시점, 소스 확인):**
+
+아래 gap 중 `query --depth/--limit`·`cycles --explain`/`rules --explain`·
+`dead --report-test-only`는 이후 구현·머지됐다(PR #24·#25·#26, CHANGELOG Unreleased).
+external-retentions는 계약상 dartograph 범위가 아님이 확정됐다(아래 "흡수 후보와 결과" 참조).
 
 - `query`는 이웃 깊이가 `depth: 1`로 고정되고 `truncated`가 항상 false다
   (`lib/src/analysis/symbol_query.dart`). `--depth`·`--limit` 인자가 없다.
@@ -77,12 +81,18 @@ madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확�
 - madge: `.orphans()`·`.leaves()`·`.depends()`, 순환 노드 색칠 DOT, `--image svg`(GraphViz 직행),
   `--circular --image`(순환만), `--stdin` 파이프.
 
-**흡수 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):**
+**흡수 후보와 결과 (2026-09-08 리서치 → 이후 구현):**
 
-- Tier 1(자매 parity, 근거 질의 철학 정합): `query --depth/--limit`, `dead --report-test-only`,
-  `--external-retentions`(isthmus GRAPH-EXCHANGE 조율 필요).
-- Tier 2(근거·CI): `cycles --explain`·`rules --explain`, `--affected` 영향 반경,
-  `graph --format html`, `graph --level` + `--collapse`, 인라인 ignore 주석.
+구현·머지됨 (CHANGELOG Unreleased, 다음 0.3.x/0.4.0 후보):
+
+- `query --depth/--limit` (PR #24) — cartograph SymbolQueryDocument parity.
+- `cycles --explain`·`rules --explain` (PR #25) — cartograph 근거 parity.
+- `dead --report-test-only` (PR #26) — cartograph parity, info 심각도.
+
+남은 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):
+
+- Tier 2(근거·CI): `--affected` 영향 반경, `graph --format html`, `graph --level` + `--collapse`,
+  인라인 ignore 주석.
 - Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
   `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
 - Tier 4(cosmetic): metrics zone 라벨(zone-of-pain·main-sequence), 순환 노드 색칠, redundant public,
@@ -94,6 +104,30 @@ madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확�
 - IDE 플러그인·language server → PRD "IDE 플러그인 금지".
 - melos/모노레포·EventChannel/BasicMessageChannel fact화·`package:args` → HANDOFF 보류 목록.
 - assign-only property·read/write 간선 → cartograph도 "아직 known limitation". 고난도(간선 종류 신설).
+- `--external-retentions`(isthmus 조인 역방향 소비) → **dartograph 단독 구현 불가, 계약으로 확정.**
+  아래 "external-retentions 범위" 참조.
+
+### external-retentions 범위 (2026-09-08 확정)
+
+초기 리서치는 cartograph의 `dead --external-retentions`(isthmus 조인 역방향 소비)를 Tier 1
+흡수 후보로 꼽았다. 권위 계약을 직접 읽어 **dartograph 단독으로는 구현 대상이 아님**을 확정했다.
+
+- `isthmus/docs/GRAPH-EXCHANGE.md`(lib/src/index/AGENTS.md가 정본으로 지목)의 "자매 도구가
+  해야 할 일" 표가 dartograph의 **읽을 것(consume)** 열을 "(없음 — Dart 쪽이 부르는 쪽)"으로
+  명시한다. Flutter↔Swift에서 Dart는 호출측(`MethodChannel`·`invokeMethod`)이고 Swift가
+  핸들러측이라, 외부 보존 근거는 핸들러측(cartograph·kartograph)만 소비한다.
+- 설치본 isthmus 0.2.0의 `retentions`는 `--for cartograph`만 수용한다
+  (`dist/cli/retentions-command.js`가 그 외 값을 usage로 거부). `--for dartograph` producer가
+  없고, `CartographRetentionsDocument`(version 0)는 Swift USR/qualifiedName으로 키잉되며
+  수신측 Swift 문서를 요구한다.
+- dartograph가 소비하려면 (a) isthmus가 Dart 식별자 키의 `--for dartograph` producer를 추가하고
+  (b) dartograph `bridges`가 Dart측 핸들러(`setMethodCallHandler`)도 추출해야 한다. (b)는
+  GRAPH-EXCHANGE fact-kind 변경이라 HANDOFF 보류("isthmus와 시맨틱 조율 없이 fact kind를
+  바꾸지 않는다")와 lib/src/index/AGENTS.md("자매 저장소를 임의로 수정하지 않는다",
+  "소비자와 왕복 검증한다")에 막히고, 왕복 검증 상대(isthmus producer)도 없다.
+
+따라서 `lib/`에 `externalBridge` 보존 이유가 없는 것은 결함이 아니라 계약상 범위다. isthmus
+선행 작업(producer + GRAPH-EXCHANGE 확장) 없이 dartograph에서 구현하지 않는다.
 
 ## 확인 필요
 
@@ -124,3 +158,5 @@ cartograph의 같은 절과 동일. 추가로:
 - knip — https://github.com/webpro-nl/knip (packages/docs 원본, 2026-09-08 확인)
 - dependency-cruiser — https://github.com/sverweij/dependency-cruiser (doc/cli.md 등, 2026-09-08 확인)
 - madge — https://github.com/pahen/madge (README, 2026-09-08 확인)
+- isthmus GRAPH-EXCHANGE 계약(정본) — https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md (2026-09-08 확인)
+- isthmus 0.2.0 설치본 — `npm i -g isthmus-cli` 후 `isthmus retentions --help`와 `dist/cli/retentions-command.js`(`--for cartograph`만 수용, 2026-09-08 확인)
