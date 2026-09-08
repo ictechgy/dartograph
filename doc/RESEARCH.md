@@ -1,6 +1,7 @@
 # dartograph 리서치 노트
 
-2026-09-04 기준. **확인됨** 은 1차 출처를 직접 읽은 것, **확인 필요** 는 GLM 또는 기억에서 나온 주장이다.
+2026-09-04 기준(이후 절별 갱신: 09-06 lakos, 09-08 경쟁·자매 도구 대조와 Tier 2 구현 마감).
+**확인됨** 은 1차 출처를 직접 읽은 것, **확인 필요** 는 GLM 또는 기억에서 나온 주장이다.
 
 ## 확인됨
 
@@ -46,6 +47,10 @@ madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확�
 아래 gap 중 `query --depth/--limit`·`cycles --explain`/`rules --explain`·
 `dead --report-test-only`는 이후 구현·머지됐다(PR #24·#25·#26, CHANGELOG Unreleased).
 external-retentions는 계약상 dartograph 범위가 아님이 확정됐다(아래 "흡수 후보와 결과" 참조).
+Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `affected`(PR #31),
+`graph --format html`(PR #32), `graph --level`+`--collapse`(PR #33, module 제외 —
+단일 패키지 분석이라 해당 없음), 인라인 ignore 주석(PR #34). 아래 현황 목록은
+리서치 시점의 기록으로 남긴다.
 
 - `query`는 이웃 깊이가 `depth: 1`로 고정되고 `truncated`가 항상 false다
   (`lib/src/analysis/symbol_query.dart`). `--depth`·`--limit` 인자가 없다.
@@ -88,15 +93,29 @@ external-retentions는 계약상 dartograph 범위가 아님이 확정됐다(아
 - `query --depth/--limit` (PR #24) — cartograph SymbolQueryDocument parity.
 - `cycles --explain`·`rules --explain` (PR #25) — cartograph 근거 parity.
 - `dead --report-test-only` (PR #26) — cartograph parity, info 심각도.
+- `affected <git-ref>` (PR #31) — dependency-cruiser `--affected` 흡수. 변경 라이브러리 +
+  import/export 역방향 전이적 종속자, 최단 의존 사슬 path·depth 근거. 라이브러리 수준 관측.
+- `graph --format html` (PR #32) — cartograph HTMLGraphRenderer 1차 출처 이식. 자기완결
+  (no-CDN) 단일 파일, 캔버스 힘 기반 배치, nodeLimit 400(degree 랭크) + truncatedFrom 정직 보고.
+- `graph --level file|type|symbol` + `--collapse <n>` (PR #33) — cartograph GraphLevel·
+  dependency-cruiser collapse 흡수. **module 해상도는 제외**: dartograph는 단일 패키지
+  분석(의존 패키지는 정점 아님)이라 module 접힘은 단일 정점 — file이 가장 거친 해상도.
+  기본 symbol은 byte-for-byte 보존.
+- `// dartograph:ignore` (PR #34) — Periphery comment command 흡수. 선언 단위,
+  `retentionReason: inlineIgnore` 보존 루트 모델(도달성 전이 — baseline과 대비 문서화).
 
 남은 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):
 
-- Tier 2(근거·CI): `--affected` 영향 반경, `graph --format html`, `graph --level` + `--collapse`,
-  인라인 ignore 주석.
 - Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
   `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
 - Tier 4(cosmetic): metrics zone 라벨(zone-of-pain·main-sequence), 순환 노드 색칠, redundant public,
   anon export.
+
+Tier 1~2 심사 때 목록에 들지 않은 나머지 강점들은 의도적으로 미채택이다(재도출하지 않는다):
+dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query --depth/--limit`·
+`affected`·`graph --level`로 실질 충족, knip sarif 리포터는 기존 `--format sarif`로 충족,
+`--watch`/`--cache`는 런타임·캐시 관심(측정 없는 최적화 금지 보류 항목), madge
+`.leaves()`/`.depends()`는 `query` 이웃과 `dead`로 응답 가능, `.orphans()`는 dead file 관측과 겹침.
 
 **흡수하지 않을 것 (기존 결정과 충돌):**
 
