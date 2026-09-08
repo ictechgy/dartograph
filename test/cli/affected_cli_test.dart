@@ -116,6 +116,41 @@ void main() {
   });
 
   test(
+    'a matched source without a library node counts toward the limitation',
+    () async {
+      // 소스 URI는 매치되지만 라이브러리 노드가 없는(ghost) 선언 — 조용히
+      // 사라지지 않고 unmapped 한계로 보고된다.
+      final ghost = File(p.join(directory.path, 'lib/ghost.dart'));
+      await ghost.writeAsString('// ghost\n');
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/ghost.dart::run',
+            sourceUri: 'project:lib/ghost.dart',
+          ),
+        );
+      final output = StringBuffer();
+      final status = await runDartograph(
+        ['affected', 'HEAD', directory.path],
+        output: output,
+        error: StringBuffer(),
+        indexPackage: (_) async =>
+            AnalyzerGraphResult(graph: graph, limitations: const []),
+        changedFilesSince: (_, _) async => {
+          p.normalize(p.join(canonicalRoot, 'lib/ghost.dart')),
+        },
+      );
+
+      expect(status, ExitStatus.success.code);
+      expect(output.toString(), contains('"changed":[]'));
+      expect(
+        output.toString(),
+        contains('changed-dart-files-without-library: 1'),
+      );
+    },
+  );
+
+  test(
     'changed files outside the package root are not counted as unmapped',
     () async {
       final status = await runDartograph(

@@ -211,5 +211,60 @@ void main() {
     // 되지 않는다. 존재하지 않는 라이브러리를 changed로 답하지 않는다.
     expect(result.changed, isEmpty);
     expect(result.affected, isEmpty);
+    // 조용히 사라지지 않고 호출자가 한계로 보고할 수 있게 돌아온다.
+    expect(result.unattributedSources, ['project:lib/ghost.dart']);
+  });
+
+  test('equal-length paths break ties by sorted intermediary', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart'))
+      ..addNode(GraphNode(id: 'project:lib/b.dart'))
+      ..addNode(GraphNode(id: 'project:lib/c.dart'))
+      ..addNode(
+        GraphNode(id: 'project:lib/d.dart', sourceUri: 'project:lib/d.dart'),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart',
+          targetId: 'project:lib/c.dart',
+          kind: EdgeKind.import,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart',
+          targetId: 'project:lib/b.dart',
+          kind: EdgeKind.import,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/c.dart',
+          targetId: 'project:lib/d.dart',
+          kind: EdgeKind.import,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/b.dart',
+          targetId: 'project:lib/d.dart',
+          kind: EdgeKind.import,
+        ),
+      );
+
+    final result = AffectedAnalysis.analyze(graph.snapshot(), {
+      'project:lib/d.dart',
+    });
+
+    // a에서 d까지 b·c 경유 동률 사슬은 정렬된 인접 순서(b < c)로 결정된다.
+    final a = result.affected.firstWhere(
+      (item) => item.id == 'project:lib/a.dart',
+    );
+    expect(a.depth, 2);
+    expect(a.path, [
+      'project:lib/a.dart',
+      'project:lib/b.dart',
+      'project:lib/d.dart',
+    ]);
   });
 }

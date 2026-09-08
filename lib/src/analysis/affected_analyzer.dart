@@ -26,7 +26,11 @@ final class AffectedLibrary {
 /// 변경 라이브러리와 전이적 종속자 계산 결과다.
 final class AffectedResult {
   /// 영향 반경 결과를 만든다.
-  const AffectedResult({required this.changed, required this.affected});
+  const AffectedResult({
+    required this.changed,
+    required this.affected,
+    required this.unattributedSources,
+  });
 
   /// 변경 소스가 귀속된 라이브러리 ID(정렬)다. part 파일의 변경은
   /// 호스트 라이브러리로 귀속된다.
@@ -34,6 +38,10 @@ final class AffectedResult {
 
   /// 변경 라이브러리에 import·export로 전이적으로 의존하는 라이브러리다.
   final List<AffectedLibrary> affected;
+
+  /// 매치됐지만 라이브러리 노드로 귀속되지 못한 변경 소스(정렬)다.
+  /// 호출자가 조용한 누락 대신 한계로 보고할 수 있게 돌려준다.
+  final List<String> unattributedSources;
 }
 
 /// Git 기준점 이후 변경된 라이브러리와 그 영향 반경을 계산한다.
@@ -51,6 +59,7 @@ abstract final class AffectedAnalysis {
   ) {
     final nodeIds = <String>{for (final node in graph.nodes) node.id};
     final seeds = <String>{};
+    final attributed = <String>{};
     for (final node in graph.nodes) {
       final source = node.sourceUri;
       if (source == null || !changedSources.contains(source)) continue;
@@ -58,8 +67,14 @@ abstract final class AffectedAnalysis {
       // 귀속시킨다(선언의 sourceUri는 실제 part 파일, ID는 호스트 라이브러리).
       final separator = node.id.indexOf('::');
       final library = separator < 0 ? node.id : node.id.substring(0, separator);
-      if (nodeIds.contains(library)) seeds.add(library);
+      if (nodeIds.contains(library)) {
+        seeds.add(library);
+        attributed.add(source);
+      }
     }
+    final unattributed =
+        changedSources.where((source) => !attributed.contains(source)).toList()
+          ..sort();
     final sortedSeeds = seeds.toList()..sort();
 
     final dependents = <String, List<String>>{};
@@ -68,6 +83,11 @@ abstract final class AffectedAnalysis {
         continue;
       }
       (dependents[edge.targetId] ??= <String>[]).add(edge.sourceId);
+    }
+    // GraphSnapshot이 간선을 정렬하지만 동률 경로의 결정성을 이 모듈 안에서
+    // 보증한다(중개자 동률은 정렬된 인접 순서로 깨진다).
+    for (final list in dependents.values) {
+      list.sort();
     }
 
     final depths = <String, int>{for (final seed in sortedSeeds) seed: 0};
@@ -93,6 +113,10 @@ abstract final class AffectedAnalysis {
             )
             .toList()
           ..sort((a, b) => a.id.compareTo(b.id));
-    return AffectedResult(changed: sortedSeeds, affected: affected);
+    return AffectedResult(
+      changed: sortedSeeds,
+      affected: affected,
+      unattributedSources: unattributed,
+    );
   }
 }

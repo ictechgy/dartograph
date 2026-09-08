@@ -178,7 +178,10 @@ Future<int> _runAffected(
     final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
     final snapshot = indexed.graph.snapshot();
     // dead --since와 같은 canonical 매칭: sourceUri가 심볼릭 링크 경로일 수
-    // 있으므로 실 경로로 해석해 Git 변경 파일과 비교한다.
+    // 있으므로 실 경로로 해석해 Git 변경 파일과 비교한다. `project:` 스킴은
+    // 루트 패키지 안 파일 전용이다(projectIdForPath가 루트 밖 경로에는
+    // file:// URI를 돌려준다) — 의존 패키지 소스가 같은 스킴으로 오매칭될
+    // 여지가 없다.
     final sources = <String>{
       for (final node in snapshot.nodes)
         if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
@@ -194,16 +197,19 @@ Future<int> _runAffected(
     }
     // 패키지 안에 있는데 어떤 분석 라이브러리에도 속하지 않는 변경 Dart 파일은
     // 영향 반경 계산에서 조용히 사라지므로 한계로 남긴다(삭제 파일은 Git 단계에서
-    // 이미 제외된다 — ChangedFiles 계약).
-    final unmappedDartFiles = changed
-        .where(
-          (path) =>
-              p.extension(path) == '.dart' &&
-              p.isWithin(canonicalRoot, path) &&
-              !matchedChangedFiles.contains(path),
-        )
-        .length;
+    // 이미 제외된다 — ChangedFiles 계약). 소스 URI는 매치됐지만 라이브러리
+    // 노드로 귀속되지 못한 경우(unattributedSources)도 같은 한계로 센다.
     final result = AffectedAnalysis.analyze(snapshot, changedSources);
+    final unmappedDartFiles =
+        changed
+            .where(
+              (path) =>
+                  p.extension(path) == '.dart' &&
+                  p.isWithin(canonicalRoot, path) &&
+                  !matchedChangedFiles.contains(path),
+            )
+            .length +
+        result.unattributedSources.length;
     final limitations = _limitations(indexed);
     if (unmappedDartFiles > 0) {
       limitations.add(
