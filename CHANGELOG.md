@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `query`에 `--depth <n>`·`--limit <n>` 추가 (cartograph SymbolQueryDocument parity)
+  - `--depth`(기본 1)는 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 BFS로 따라가고, 각
+    이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 여러 간선
+    종류를 `edges`에 모두 싣고, 여러 경로로 닿는 이웃은 최단 깊이 한 번만 보고한다
+  - `--limit`은 방향별 이웃 수를 제한하며, 생략하면 해당 방향 `truncated`가 `true`가 되고
+    생략된 이웃은 더 확장하지 않는다. 포함 관계(`members`·`declaredIn`)는 항상 한 단계다
+  - 기본값(depth 1, limit 없음)에서 기존 출력을 보존한다. 단, 재귀처럼 자기 자신으로
+    향하는 사용 간선은 cartograph와 같이 자기 자신의 이웃에서 제외된다(옛 1-hop 순회는
+    포함했다). 1 미만·비정수·값 빠짐·중복 플래그는 usage(64)다. `--batch`·`--baseline`과
+    함께 쓸 수 있다
 - 입력 오류 메시지를 원인별로 구분해 원인을 반대로 가리키지 않게 수정
   - baseline 파일이 없으면 "unable to index the package" 대신 "Baseline is invalid:
     create it with dartograph baseline --write"를 낸다

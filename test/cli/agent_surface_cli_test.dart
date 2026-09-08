@@ -195,6 +195,176 @@ void main() {
     expect(document['result'], isNull);
   });
 
+  // Root→A→B→C 사용 체인. --depth/--limit이 CLI를 거쳐 이웃 순회에 닿는지
+  // 관측 가능하게 하려면 2-hop 사슬이 필요하다(indexed()는 1-hop뿐).
+  AnalyzerGraphResult chain() {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'lib::Root'))
+      ..addNode(GraphNode(id: 'lib::A'))
+      ..addNode(GraphNode(id: 'lib::B'))
+      ..addNode(GraphNode(id: 'lib::C'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'lib::Root',
+          targetId: 'lib::A',
+          kind: EdgeKind.reference,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'lib::A',
+          targetId: 'lib::B',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'lib::B',
+          targetId: 'lib::C',
+          kind: EdgeKind.call,
+        ),
+      );
+    return AnalyzerGraphResult(
+      graph: graph,
+      limitations: const [],
+      retentionRoots: const {'lib::Root': RetentionReason.mainEntryPoint},
+    );
+  }
+
+  List<Object?> dependsOnNames(Map<String, Object?> document) {
+    final result = document['result'] as Map<String, Object?>;
+    return (result['dependsOn'] as List)
+        .map((n) => (n as Map)['qualifiedName'])
+        .toList();
+  }
+
+  test('query --depth follows the usage chain further', () async {
+    final shallow = StringBuffer();
+    expect(
+      await runDartograph(
+        const ['query', 'A', '.'],
+        output: shallow,
+        indexPackage: (_) async => chain(),
+      ),
+      ExitStatus.success.code,
+    );
+    expect(
+      dependsOnNames(jsonDecode(shallow.toString()) as Map<String, Object?>),
+      ['lib::B'],
+    );
+
+    final deep = StringBuffer();
+    expect(
+      await runDartograph(
+        const ['query', 'A', '--depth', '2', '.'],
+        output: deep,
+        indexPackage: (_) async => chain(),
+      ),
+      ExitStatus.success.code,
+    );
+    expect(
+      dependsOnNames(jsonDecode(deep.toString()) as Map<String, Object?>),
+      ['lib::B', 'lib::C'],
+    );
+  });
+
+  test('query --limit caps a direction and reports truncation', () async {
+    final output = StringBuffer();
+    expect(
+      await runDartograph(
+        const ['query', 'A', '--depth', '2', '--limit', '1', '.'],
+        output: output,
+        indexPackage: (_) async => chain(),
+      ),
+      ExitStatus.success.code,
+    );
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    expect(dependsOnNames(document), ['lib::B']);
+    final truncated =
+        (document['result'] as Map<String, Object?>)['truncated'] as Map;
+    expect(truncated['dependsOn'], isTrue);
+  });
+
+  test('query --depth/--limit reach a batch request', () async {
+    final directory = await Directory.systemTemp.createTemp('query-depth.');
+    addTearDown(() => directory.delete(recursive: true));
+    final requests = File('${directory.path}/requests.json');
+    await requests.writeAsString('["A"]');
+    final output = StringBuffer();
+    expect(
+      await runDartograph(
+        ['query', '--batch', requests.path, '--depth', '2', '.'],
+        output: output,
+        indexPackage: (_) async => chain(),
+      ),
+      ExitStatus.success.code,
+    );
+    final results = (jsonDecode(output.toString()) as Map)['results'] as List;
+    expect(dependsOnNames((results.single as Map).cast<String, Object?>()), [
+      'lib::B',
+      'lib::C',
+    ]);
+  });
+
+  test('query rejects a depth or limit below one as a usage error', () async {
+    for (final args in [
+      const ['query', 'A', '--depth', '0', '.'],
+      const ['query', 'A', '--limit', '0', '.'],
+      const ['query', 'A', '--depth', '-1', '.'],
+    ]) {
+      var calls = 0;
+      expect(
+        await runDartograph(
+          args,
+          error: StringBuffer(),
+          indexPackage: (_) async {
+            calls++;
+            return chain();
+          },
+        ),
+        ExitStatus.usage.code,
+        reason: args.join(' '),
+      );
+      expect(calls, 0, reason: '${args.join(' ')} must not index');
+    }
+  });
+
+  test('query rejects a non-integer or missing depth value', () async {
+    for (final args in [
+      const ['query', 'A', '--depth', 'x', '.'],
+      const ['query', 'A', '--depth'],
+      const ['query', 'A', '--limit', '--depth', '2', '.'],
+    ]) {
+      expect(
+        await runDartograph(
+          args,
+          error: StringBuffer(),
+          indexPackage: (_) async => chain(),
+        ),
+        ExitStatus.usage.code,
+        reason: args.join(' '),
+      );
+    }
+  });
+
+  test('query rejects a repeated depth or limit flag', () async {
+    // `--config`·`--baseline` 중복 거부와 일관되게 last-wins로 조용히 받지 않는다.
+    for (final args in [
+      const ['query', 'A', '--depth', '2', '--depth', '3', '.'],
+      const ['query', 'A', '--limit', '1', '--limit', '2', '.'],
+    ]) {
+      expect(
+        await runDartograph(
+          args,
+          error: StringBuffer(),
+          indexPackage: (_) async => chain(),
+        ),
+        ExitStatus.usage.code,
+        reason: args.join(' '),
+      );
+    }
+  });
+
   test('skill prints Dart-specific safety rules', () async {
     final output = StringBuffer();
     expect(
