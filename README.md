@@ -43,6 +43,7 @@ dartograph --version
 
 ```bash
 dart run dartograph graph --format dot .
+dart run dartograph graph --format html .
 dart run dartograph dead --format text .
 dart run dartograph baseline --write .dartograph-baseline.json .
 dart run dartograph dead --format github-actions \
