@@ -87,9 +87,14 @@ abstract final class GraphExporter {
 
   /// Mermaid 라벨은 HTML 엔티티로 escape한다. DOT용 [_escape](백슬래시)는
   /// `<no-library>`·`<unnamed-extension@...>`처럼 dartograph가 스스로 만든 노드 ID를
-  /// Mermaid가 HTML 태그로 오해하게 만든다.
+  /// Mermaid가 HTML 태그로 오해하게 만든다. 따옴표는 인용 문자열을 중간에 끊고,
+  /// `#`·역슬래시는 Mermaid가 문서화한 엔티티 코드(`#35;`·`#92;`·`#quot;`)로
+  /// 디코딩되므로, `#`을 먼저 바꿔야 이후에 도입하는 코드가 다시 깨지지 않는다.
   static String _escapeMermaid(String value) => value
+      .replaceAll('#', '#35;')
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
+      .replaceAll('>', '&gt;')
+      .replaceAll(r'\', '#92;')
+      .replaceAll('"', '#quot;');
 }

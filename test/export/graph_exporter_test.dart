@@ -40,6 +40,20 @@ void main() {
     );
   });
 
+  test('Mermaid escapes quotes, backslashes, and hashes with entity codes', () {
+    final special = GraphSnapshot(
+      nodes: [GraphNode(id: r'q"#\')],
+      edges: const [],
+    );
+    // 따옴표는 인용 문자열을 중간에 끊어 라벨 구조를 깬다. Mermaid 문서는
+    // `#quot;`·10진 코드(`#92;`)를 escape로 정의하고, `#` 자체도 코드로
+    // 디코딩되므로 먼저 `#35;`로 바꿔야 인코딩이 손실 없다.
+    expect(
+      GraphExporter.mermaid(special),
+      'flowchart LR\n  n0["q#quot;#35;#92;"]\n',
+    );
+  });
+
   test('Mermaid escapes angle brackets and ampersands in its own node ids', () {
     final special = GraphSnapshot(
       nodes: [

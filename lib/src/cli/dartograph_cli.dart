@@ -822,7 +822,13 @@ Future<int> _runBaseline(
       limitations: limitations,
     );
     final findings = [...result.deadDeclarations, ...result.deadFiles];
-    await BaselineStore.write(Baseline.capture(findings), File(arguments[1]));
+    try {
+      await BaselineStore.write(Baseline.capture(findings), File(arguments[1]));
+    } on FileSystemException {
+      // 인덱싱은 이미 성공했다. 쓰기 실패(부모 생성·rename·권한)를
+      // "unable to index the package"로 답하면 원인을 반대로 가리킨다.
+      return _reportBaselineWriteFailure(error);
+    }
     output.writeln('Baseline wrote ${findings.length} finding(s).');
     return ExitStatus.success.code;
   } on StateError {
@@ -885,6 +891,11 @@ Future<int> _runGraph(
 
 int _reportAnalysisFailure(StringSink error) {
   error.writeln('Analysis failed: unable to index the package.');
+  return ExitStatus.failure.code;
+}
+
+int _reportBaselineWriteFailure(StringSink error) {
+  error.writeln('Baseline write failed: unable to write the baseline file.');
   return ExitStatus.failure.code;
 }
 
