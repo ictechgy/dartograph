@@ -27,10 +27,12 @@ printf '%s' "$finding_ids" | grep -q 'unused_file.dart'
 # 정규식 메타문자라 고정 문자열로 찾는다.
 printf '%s' "$finding_ids" | grep -qF 'Vector.*'
 printf '%s' "$finding_ids" | grep -qF 'Meters.~/'
+# 같은 줄 꼬리 `// dartograph:ignore`는 억제가 아니다 — 계속 보고돼야 한다.
+printf '%s' "$finding_ids" | grep -qF 'trailingNotIgnored'
 # 쓰기(`w[0] = 7`)만 소비된 읽기 연산자는 계속 보고돼야 한다.
 printf '%s' "$finding_ids" | grep -qF 'WriteOnly.[]'
 # 보존 항목에도 연산자 ID(`+`·`unary-`·`-`)가 메타문자를 포함하므로 -F로 통일한다.
-for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel 'Vector.+' 'Vector.unary-' 'Meters.-' 'WriteOnly.[]='; do
+for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel 'Vector.+' 'Vector.unary-' 'Meters.-' 'WriteOnly.[]=' keptByIgnoreComment; do
   if printf '%s' "$finding_ids" | grep -qF "$preserved"; then
     echo "preserved declaration reported: $preserved" >&2
     exit 1

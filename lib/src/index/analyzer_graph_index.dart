@@ -5,6 +5,7 @@ import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:path/path.dart' as p;
@@ -206,10 +207,11 @@ final class AnalyzerGraphIndex {
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
 const _cacheSchemaVersion = 2;
-// 연산자 호출 usage 간선 추가로 추출 의미가 바뀌어 identity를 v4로 올린다.
-// 직렬화 형식(노드·간선 필드)은 그대로라 schemaVersion은 v2를 유지한다.
+// 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
+// 추출 의미가 바뀌어 identity를 올린다. 직렬화 형식(노드·간선·루트 필드)은
+// 그대로라 schemaVersion은 v2를 유지한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v4-operator-edges';
+    'dartograph-analysis-$toolVersion-cache-v5-inline-ignore';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -701,14 +703,15 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
   /// 관측된 main 진입점의 source ID다. 설정 검증 한계를 계산하는 데 쓴다.
   final Set<String> mainEntrySources;
 
+  /// 컴파일 단위별로 캐시한 `dartograph:ignore` 주석의 부착 토큰 offset이다.
+  final Map<CompilationUnit, Set<int>> _ignoreClaims = {};
+
   @override
   void visitDeclaration(Declaration node) {
     final element = node.declaredFragment?.element;
     if (element != null && _isGraphElement(element)) {
-      final location = node
-          .thisOrAncestorOfType<CompilationUnit>()!
-          .lineInfo
-          .getLocation(node.offset);
+      final unit = node.thisOrAncestorOfType<CompilationUnit>()!;
+      final location = unit.lineInfo.getLocation(node.offset);
       final id = _elementId(element, root);
       if (!graph.containsNode(id)) {
         graph.addNode(
@@ -743,9 +746,90 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
         mainEntrySources,
       );
       if (reason != null) retentionRoots[id] = reason;
+      // 사용자의 명시적 억제 지시(인라인 주석)가 다른 보존 이유를 덮는다.
+      // _retentionReason은 항상 평가해 main 진입점 source 관측
+      // (mainEntrySources)이 건너뛰어지지 않게 한다.
+      if (_hasIgnoreClaim(node, _ignoreClaimsFor(unit))) {
+        retentionRoots[id] = RetentionReason.inlineIgnore;
+      }
     }
     super.visitDeclaration(node);
   }
+
+  Set<int> _ignoreClaimsFor(CompilationUnit unit) =>
+      _ignoreClaims.putIfAbsent(unit, () => _collectIgnoreClaims(unit));
+
+  /// `// dartograph:ignore` 주석이 부착되는 선언 claim 토큰의 offset을 모은다.
+  ///
+  /// 주석은 다음 실 토큰의 precedingComments 사슬에 붙는다(14.3.0 실측 계약).
+  /// 같은 줄 꼬리 주석은 다음 선언의 억제가 아니다 — 이전 실 토큰의 끝 줄보다
+  /// 아래 줄에서 시작하는 주석만 지시문이다(`void a() {} // dartograph:ignore`가
+  /// b를 억제하지 않는다). 선언 claim이 아닌 토큰(클래스 `{`·지시문·EOF 등)에
+  /// 붙은 주석은 [_hasIgnoreClaim]의 offset 대조에서 자연스럽게 버려진다.
+  static Set<int> _collectIgnoreClaims(CompilationUnit unit) {
+    final lineInfo = unit.lineInfo;
+    final claims = <int>{};
+    Token? token = unit.beginToken;
+    while (token != null && token.type != TokenType.EOF) {
+      var comment = token.precedingComments;
+      while (comment != null) {
+        if (_isIgnoreDirective(comment.lexeme)) {
+          // 파일 첫 토큰의 previous는 EOF 센티널(14.3.0 실측 offset -1)이라
+          // 이전 토큰 없음과 같이 취급한다. isEof와 offset을 함께 본다.
+          final previous = token.previous;
+          final leading =
+              previous == null ||
+              previous.isEof ||
+              previous.offset < 0 ||
+              lineInfo.getLocation(comment.offset).lineNumber >
+                  lineInfo.getLocation(previous.end).lineNumber;
+          if (leading) claims.add(token.offset);
+        }
+        comment = comment.next as CommentToken?;
+      }
+      token = token.next;
+    }
+    return claims;
+  }
+
+  /// 선언의 claim 토큰 offset들이 억제 주석과 매치되는지 확인한다.
+  ///
+  /// claim은 annotation `@`(metadata.first)·doc comment 뒤 키워드
+  /// (firstTokenAfterCommentAndMetadata)·선언 시작(node.offset)이다. 변수·필드는
+  /// fragment가 없어 VariableDeclaration이 노드를 만들고 마커는 감싸는
+  /// FieldDeclaration·TopLevelVariableDeclaration의 타입 키워드에 붙으므로
+  /// (14.3.0 실측) 감싼 선언의 claim도 대조한다 — `int a = 1, b = 2;`의 마커는
+  /// 두 변수 모두에 적용된다.
+  static bool _hasIgnoreClaim(Declaration node, Set<int> claims) {
+    if (_declarationClaims(node, claims)) return true;
+    if (node is VariableDeclaration) {
+      final field = node.thisOrAncestorOfType<FieldDeclaration>();
+      if (field != null && _declarationClaims(field, claims)) return true;
+      final topLevel = node.thisOrAncestorOfType<TopLevelVariableDeclaration>();
+      if (topLevel != null && _declarationClaims(topLevel, claims)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _declarationClaims(Declaration node, Set<int> claims) =>
+      claims.contains(node.offset) ||
+      claims.contains(node.firstTokenAfterCommentAndMetadata.offset) ||
+      (node.metadata.isNotEmpty && claims.contains(node.metadata.first.offset));
+}
+
+/// `dartograph:ignore`로 시작하는 줄 주석 지시문이다.
+///
+/// `//` 접두를 벗긴 본문이 마커로 **시작**해야 하므로 산문이 마커를 언급해도
+/// 오해석되지 않는다. doc comment(`///`)와 블록 주석은 문서지 지시문이 아니다.
+/// 마커 뒤에 단어 문자가 오면(`dartograph:ignorex`) 다른 토큰으로 본다.
+final _ignoreDirective = RegExp(r'^dartograph:ignore(?![A-Za-z0-9_])');
+
+bool _isIgnoreDirective(String lexeme) {
+  final text = lexeme.trim();
+  if (!text.startsWith('//') || text.startsWith('///')) return false;
+  return _ignoreDirective.hasMatch(text.substring(2).trim());
 }
 
 /// `entry_points`가 가리킬 수 있는 보존 루트 디렉터리다.
@@ -952,10 +1036,12 @@ Set<AnalyzerLimitation> _addPluginRoots(
       limitations.add(AnalyzerLimitation.ambiguousPluginEntryPoint);
     }
     for (final candidate in candidates) {
-      roots[candidate] = RetentionReason.pluginEntryPoint;
+      // 선언 수준 이유(inlineIgnore 등 사용자 지시 포함)가 이미 있으면 덮지
+      // 않는다 — publicApi와 같은 putIfAbsent 규약이다.
+      roots.putIfAbsent(candidate, () => RetentionReason.pluginEntryPoint);
       final registration = '$candidate.registerWith';
       if (graph.containsNode(registration)) {
-        roots[registration] = RetentionReason.pluginEntryPoint;
+        roots.putIfAbsent(registration, () => RetentionReason.pluginEntryPoint);
       }
     }
   }

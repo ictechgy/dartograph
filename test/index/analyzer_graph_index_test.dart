@@ -53,6 +53,44 @@ class FrameworkCallback extends Framework {
   void invokedByFramework() {}
 }
 ''');
+    await File('${fixtureDirectory.path}/lib/ignored.dart').writeAsString('''
+// dartograph:ignore
+void ignoredAbove() {}
+
+void trailingNotIgnored() {} // dartograph:ignore
+
+// dartograph:ignore
+@Deprecated('use something else')
+class IgnoredAnnotated {}
+
+/// doc comment
+// dartograph:ignore
+void docThenMarker() {}
+
+// dartograph:ignore
+/// doc after marker
+void markerThenDoc() {}
+
+/// doc comment
+// dartograph:ignore
+@Deprecated('use something else')
+void docMarkerAnnotation() {}
+
+class FieldHolder {
+  // dartograph:ignore
+  int fieldIgnored = 0;
+  int fieldControl = 1;
+}
+
+// kept: prose that mentions dartograph:ignore mid-sentence is not a directive
+int proseMention = 2;
+
+enum IgnoredEnumConstants {
+  // dartograph:ignore
+  keptConstant,
+  plainConstant,
+}
+''');
     await File('${fixtureDirectory.path}/lib/operators.dart').writeAsString('''
 class Vector {
   final int x;
@@ -366,6 +404,45 @@ void main() => Service();
       isTrue,
     );
   });
+
+  test(
+    'dartograph:ignore comments become inlineIgnore retention roots',
+    () async {
+      final result = await AnalyzerGraphIndex().index(fixtureDirectory.path);
+      String? reason(String id) => result
+          .retentionRoots['package:graph_fixture/ignored.dart::$id']
+          ?.name;
+
+      // 선언 위 마커(파일 첫 줄·annotation 위·doc 앞뒤·doc+marker+annotation)는
+      // 억제로 해석된다.
+      expect(reason('ignoredAbove'), 'inlineIgnore');
+      expect(reason('IgnoredAnnotated'), 'inlineIgnore');
+      expect(reason('docThenMarker'), 'inlineIgnore');
+      expect(reason('markerThenDoc'), 'inlineIgnore');
+      expect(reason('docMarkerAnnotation'), 'inlineIgnore');
+      // 변수·필드는 마커가 감싸는 선언의 타입 키워드에 붙는다.
+      expect(reason('FieldHolder.fieldIgnored'), 'inlineIgnore');
+      expect(reason('FieldHolder.fieldControl'), isNull);
+      // enum 상수도 선언 단위로 억제된다(컨테이너 enum은 영향받지 않는다).
+      expect(reason('IgnoredEnumConstants.keptConstant'), 'inlineIgnore');
+      expect(reason('IgnoredEnumConstants.plainConstant'), isNull);
+      expect(reason('IgnoredEnumConstants'), isNull);
+      // 같은 줄 꼬리 주석은 다음 선언의 억제가 아니다(오귀속 방지).
+      expect(reason('trailingNotIgnored'), isNull);
+      // 산문이 마커를 언급해도 지시문이 아니다(본문 시작 마커만).
+      expect(reason('proseMention'), isNull);
+      // 선언만 억제된다 — 파일(라이브러리)은 루트가 되지 않는다.
+      expect(
+        result.retentionRoots.containsKey('package:graph_fixture/ignored.dart'),
+        isFalse,
+      );
+      // part 파일의 마커는 호스트 라이브러리 귀속 선언을 억제한다.
+      expect(
+        result.retentionRoots['package:graph_fixture/api.dart::IgnoredInPart'],
+        RetentionReason.inlineIgnore,
+      );
+    },
+  );
 
   test('project ids use URL separators on Windows', () {
     expect(

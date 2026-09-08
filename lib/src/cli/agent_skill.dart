@@ -32,6 +32,8 @@ Read status, `limitations`, location and reachability together. `notFound`
 means absence from the graph, not verified dead code; `ambiguous` requires
 disambiguation. A state is not a deletion verdict. Empty limitations do not prove safety.
 `publicApi` and `overrideContract` explain conservative retention;
+`inlineIgnore` records a repository author's `// dartograph:ignore` directive
+heading a declaration and must be respected like a baseline;
 `suppressedByBaseline: true` records a team decision and must be respected.
 Dart main functions may be multiple. Confirm the actual build target.
 Without `dartograph.yaml` `entry_points`, other mains stay conservative roots;

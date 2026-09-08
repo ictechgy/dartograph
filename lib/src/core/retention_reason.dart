@@ -1,4 +1,5 @@
-/// 그래프 밖의 실행 계약 때문에 선언을 도달성 루트로 보존하는 이유다.
+/// 그래프 밖의 실행 계약이나 사용자 지시 때문에 선언을 도달성 루트로
+/// 보존하는 이유다.
 enum RetentionReason {
   /// 패키지의 `lib/`, `bin/`, `example/` 아래 실행 진입점이다.
   mainEntryPoint,
@@ -20,4 +21,7 @@ enum RetentionReason {
 
   /// Flutter 플러그인 manifest가 등록 클래스를 이름으로 가리킨다.
   pluginEntryPoint,
+
+  /// `// dartograph:ignore` 인라인 주석이 바로 위 선언의 보고 억제를 지시한다.
+  inlineIgnore,
 }
