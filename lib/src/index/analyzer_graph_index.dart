@@ -738,22 +738,20 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
         element.firstFragment.libraryFragment!.source.fullName,
         root,
       );
-      // 사용자의 명시적 억제 지시(인라인 주석)가 다른 보존 이유보다 먼저다.
-      // 둘 다 보존이지만 explain은 실제로 작동한 근거를 답해야 한다.
-      final claims = _ignoreClaimsFor(unit);
-      final ignored =
-          claims.contains(node.offset) ||
-          claims.contains(node.firstTokenAfterCommentAndMetadata.offset);
-      final reason = ignored
-          ? RetentionReason.inlineIgnore
-          : _retentionReason(
-              node,
-              element,
-              source,
-              entryPoints,
-              mainEntrySources,
-            );
+      final reason = _retentionReason(
+        node,
+        element,
+        source,
+        entryPoints,
+        mainEntrySources,
+      );
       if (reason != null) retentionRoots[id] = reason;
+      // 사용자의 명시적 억제 지시(인라인 주석)가 다른 보존 이유를 덮는다.
+      // _retentionReason은 항상 평가해 main 진입점 source 관측
+      // (mainEntrySources)이 건너뛰어지지 않게 한다.
+      if (_hasIgnoreClaim(node, _ignoreClaimsFor(unit))) {
+        retentionRoots[id] = RetentionReason.inlineIgnore;
+      }
     }
     super.visitDeclaration(node);
   }
@@ -763,12 +761,11 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
 
   /// `// dartograph:ignore` 주석이 부착되는 선언 claim 토큰의 offset을 모은다.
   ///
-  /// 주석은 다음 실 토큰의 precedingComments 사슬에 붙는다. 실 토큰이 선언의
-  /// 첫 토큰(annotation `@`·doc 뒤 키워드)이면 그 선언의 억제로 해석한다.
-  /// 같은 줄 꼬리 주석(이전 실 토큰의 끝 줄에서 끝나지 않고 시작된 주석)은
-  /// 다음 선언의 억제가 아니다 — `void a() {} // dartograph:ignore`가 b를
-  /// 억제하지 않는다. 선언 claim이 아닌 토큰(클래스 `{`·`;` 등)에 붙은
-  /// 주석은 visitDeclaration의 offset 대조에서 자연스럽게 버려진다.
+  /// 주석은 다음 실 토큰의 precedingComments 사슬에 붙는다(14.3.0 실측 계약).
+  /// 같은 줄 꼬리 주석은 다음 선언의 억제가 아니다 — 이전 실 토큰의 끝 줄보다
+  /// 아래 줄에서 시작하는 주석만 지시문이다(`void a() {} // dartograph:ignore`가
+  /// b를 억제하지 않는다). 선언 claim이 아닌 토큰(클래스 `{`·지시문·EOF 등)에
+  /// 붙은 주석은 [_hasIgnoreClaim]의 offset 대조에서 자연스럽게 버려진다.
   static Set<int> _collectIgnoreClaims(CompilationUnit unit) {
     final lineInfo = unit.lineInfo;
     final claims = <int>{};
@@ -776,12 +773,13 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
     while (token != null && token.type != TokenType.EOF) {
       var comment = token.precedingComments;
       while (comment != null) {
-        if (comment.lexeme.contains('dartograph:ignore')) {
-          // 파일 첫 토큰의 previous는 offset -1의 EOF 센티널이라 이전 토큰
-          // 없음과 같이 취급한다.
+        if (_isIgnoreDirective(comment.lexeme)) {
+          // 파일 첫 토큰의 previous는 EOF 센티널(14.3.0 실측 offset -1)이라
+          // 이전 토큰 없음과 같이 취급한다. isEof와 offset을 함께 본다.
           final previous = token.previous;
           final leading =
               previous == null ||
+              previous.isEof ||
               previous.offset < 0 ||
               lineInfo.getLocation(comment.offset).lineNumber >
                   lineInfo.getLocation(previous.end).lineNumber;
@@ -793,6 +791,45 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
     }
     return claims;
   }
+
+  /// 선언의 claim 토큰 offset들이 억제 주석과 매치되는지 확인한다.
+  ///
+  /// claim은 annotation `@`(metadata.first)·doc comment 뒤 키워드
+  /// (firstTokenAfterCommentAndMetadata)·선언 시작(node.offset)이다. 변수·필드는
+  /// fragment가 없어 VariableDeclaration이 노드를 만들고 마커는 감싸는
+  /// FieldDeclaration·TopLevelVariableDeclaration의 타입 키워드에 붙으므로
+  /// (14.3.0 실측) 감싼 선언의 claim도 대조한다 — `int a = 1, b = 2;`의 마커는
+  /// 두 변수 모두에 적용된다.
+  static bool _hasIgnoreClaim(Declaration node, Set<int> claims) {
+    if (_declarationClaims(node, claims)) return true;
+    if (node is VariableDeclaration) {
+      final field = node.thisOrAncestorOfType<FieldDeclaration>();
+      if (field != null && _declarationClaims(field, claims)) return true;
+      final topLevel = node.thisOrAncestorOfType<TopLevelVariableDeclaration>();
+      if (topLevel != null && _declarationClaims(topLevel, claims)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _declarationClaims(Declaration node, Set<int> claims) =>
+      claims.contains(node.offset) ||
+      claims.contains(node.firstTokenAfterCommentAndMetadata.offset) ||
+      (node.metadata.isNotEmpty && claims.contains(node.metadata.first.offset));
+}
+
+/// `dartograph:ignore`로 시작하는 줄 주석 지시문이다.
+///
+/// `//` 접두를 벗긴 본문이 마커로 **시작**해야 하므로 산문이 마커를 언급해도
+/// 오해석되지 않는다. doc comment(`///`)와 블록 주석은 문서지 지시문이 아니다.
+/// 마커 뒤에 단어 문자가 오면(`dartograph:ignorex`) 다른 토큰으로 본다.
+final _ignoreDirective = RegExp(r'^dartograph:ignore(?![A-Za-z0-9_])');
+
+bool _isIgnoreDirective(String lexeme) {
+  final text = lexeme.trim();
+  if (!text.startsWith('//') || text.startsWith('///')) return false;
+  return _ignoreDirective.hasMatch(text.substring(2).trim());
 }
 
 /// `entry_points`가 가리킬 수 있는 보존 루트 디렉터리다.
@@ -999,10 +1036,12 @@ Set<AnalyzerLimitation> _addPluginRoots(
       limitations.add(AnalyzerLimitation.ambiguousPluginEntryPoint);
     }
     for (final candidate in candidates) {
-      roots[candidate] = RetentionReason.pluginEntryPoint;
+      // 선언 수준 이유(inlineIgnore 등 사용자 지시 포함)가 이미 있으면 덮지
+      // 않는다 — publicApi와 같은 putIfAbsent 규약이다.
+      roots.putIfAbsent(candidate, () => RetentionReason.pluginEntryPoint);
       final registration = '$candidate.registerWith';
       if (graph.containsNode(registration)) {
-        roots[registration] = RetentionReason.pluginEntryPoint;
+        roots.putIfAbsent(registration, () => RetentionReason.pluginEntryPoint);
       }
     }
   }

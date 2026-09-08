@@ -74,15 +74,21 @@ dead finding을 억제하는 `--baseline`과는 결합하지 않으며 `--since`
 GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 
-`// dartograph:ignore` 주석은 바로 아래 선언의 dead 보고를 억제한다. 주석은 선언(또는 그
-annotation·doc comment) 바로 위의 줄에 있어야 하고,
-`void foo() {} // dartograph:ignore` **같은 줄 꼬리 주석은 다음 선언의 억제로 해석되지
-않는다**. 마커는 부분 문자열로
-일치하므로 `// dartograph:ignore — reflection 진입점`처럼 이유를 뒤에 적을 수 있다.
-억제된 선언은 `retentionReason: inlineIgnore` 보존 루트가 되어 `dead --explain`·`query`가
-그 근거를 답하고, 다른 보존 이유가 함께 있어도 사용자 지시인 `inlineIgnore`이 먼저 답해진다.
-주석이 붙은 선언만 억제된다(멤버·파일로 전파되지 않는다). 파일 수준 억제는 지원하지
-않는다 — 파일 finding에는 baseline을 쓴다.
+`// dartograph:ignore` 줄 주석은 그 아래 선언의 dead 보고를 억제한다. 마커가 주석 본문
+**시작**에 와야 지시문이다: 산문이 마커를 언급해도 오해석되지 않고, doc comment(`///`)와
+블록 주석은 지시문이 아니며, `// dartograph:ignore — reflection 진입점`처럼 이유를 뒤에
+적을 수 있다. 마커와 선언 사이에 빈 줄이나 다른 주석이 있어도(코드가 끼지 않는 한)
+유효하고, `void foo() {} // dartograph:ignore` **같은 줄 꼬리 주석은 다음 선언의 억제로
+해석되지 않는다**. 변수·필드는 감싸는 선언에 붙은 마커가 적용된다
+(`int a = 1, b = 2;`면 두 변수 모두). 선언이 아닌 위치(library 지시문·파일 끝 등)의
+마커는 오류 없이 무시된다.
+
+억제된 선언은 `retentionReason: inlineIgnore` 보존 루트가 되어 `dead --explain`·`query`·
+compare가 그 근거를 답하고, 다른 보존 이유가 함께 있어도 사용자 지시가 먼저 답해진다.
+보존은 도달성 루트로 동작하므로 **억제된 선언이 참조하는 것도 도달 가능해져 보고에서
+함께 사라진다** — Periphery의 의도적 진입점과 같은 모델이며, 해당 finding만 억제하는
+baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일 finding은 주석으로
+억제되지 않는다). 멤버는 따라 억제되지 않는다.
 
 `query --depth <n>`(기본 1)은 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 따라가며, 각
 이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 간선 종류는 모두
