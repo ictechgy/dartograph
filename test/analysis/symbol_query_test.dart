@@ -115,14 +115,18 @@ void main() {
       expect(truncatedOf(result)['usedBy'], isFalse);
     });
 
-    test('an omitted neighbour past the limit is not expanded further', () {
-      // limit 2면 D는 생략되고, D에서 더 확장하지 않는다.
-      final dependsOn = list(resultOf('A', depth: 3, limit: 2), 'dependsOn');
-      expect(dependsOn.map((n) => n['qualifiedName']).toList(), [
-        'lib::B',
-        'lib::C',
-      ]);
-    });
+    test(
+      'a limit reached at a shallower depth omits deeper reachable nodes',
+      () {
+        // D는 depth 2로 도달 가능하지만 limit 2가 depth 1에서 가득 차면 생략된다.
+        // 개수 제한이 남은 요청 깊이보다 우선한다.
+        final dependsOn = list(resultOf('A', depth: 3, limit: 2), 'dependsOn');
+        expect(dependsOn.map((n) => n['qualifiedName']).toList(), [
+          'lib::B',
+          'lib::C',
+        ]);
+      },
+    );
 
     test('no limit means no truncation', () {
       final result = resultOf('A', depth: 3);
@@ -164,6 +168,50 @@ void main() {
       // M의 멤버는 dependsOn이 아니라 members에 담긴다.
       expect(list(resultOf('M'), 'dependsOn'), isEmpty);
       expect(list(resultOf('M'), 'members'), hasLength(3));
+    });
+  });
+
+  group('query self reference', () {
+    // 재귀 호출처럼 자기 자신으로 향하는 사용 간선은 cartograph와 같이
+    // 자기 자신의 이웃으로 실리지 않는다(visited가 start로 초기화되므로).
+    // 옛 1-hop 순회는 self-loop를 dependsOn/usedBy에 포함했으므로 이는
+    // depth=1에서도 관측되는 좁은 동작 델타다.
+    Map<String, Object?> selfRefResult() {
+      final graph = GraphSnapshot(
+        nodes: [
+          GraphNode(id: 'lib::Rec'),
+          GraphNode(id: 'lib::Caller'),
+        ],
+        edges: const [
+          GraphEdge(
+            sourceId: 'lib::Rec',
+            targetId: 'lib::Rec',
+            kind: EdgeKind.call,
+          ),
+          GraphEdge(
+            sourceId: 'lib::Caller',
+            targetId: 'lib::Rec',
+            kind: EdgeKind.call,
+          ),
+        ],
+      );
+      return SymbolQuerySession(
+            graph: graph,
+            roots: const {'lib::Caller': RetentionReason.mainEntryPoint},
+            limitations: const [],
+          ).query('Rec')['result']
+          as Map<String, Object?>;
+    }
+
+    test('a self-referential symbol is not its own neighbour', () {
+      final result = selfRefResult();
+      expect(
+        list(result, 'dependsOn').map((n) => n['qualifiedName']).toList(),
+        isEmpty,
+      );
+      expect(list(result, 'usedBy').map((n) => n['qualifiedName']).toList(), [
+        'lib::Caller',
+      ]);
     });
   });
 }

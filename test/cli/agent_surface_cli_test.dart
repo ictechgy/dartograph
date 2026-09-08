@@ -347,6 +347,24 @@ void main() {
     }
   });
 
+  test('query rejects a repeated depth or limit flag', () async {
+    // `--config`·`--baseline` 중복 거부와 일관되게 last-wins로 조용히 받지 않는다.
+    for (final args in [
+      const ['query', 'A', '--depth', '2', '--depth', '3', '.'],
+      const ['query', 'A', '--limit', '1', '--limit', '2', '.'],
+    ]) {
+      expect(
+        await runDartograph(
+          args,
+          error: StringBuffer(),
+          indexPackage: (_) async => chain(),
+        ),
+        ExitStatus.usage.code,
+        reason: args.join(' '),
+      );
+    }
+  });
+
   test('skill prints Dart-specific safety rules', () async {
     final output = StringBuffer();
     expect(

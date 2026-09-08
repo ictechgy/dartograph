@@ -341,14 +341,21 @@ Future<int> _runQuery(
   // `--depth`/`--limit`은 위치 인자 사이에 어디든 올 수 있다. 먼저 뽑아내고
   // 남은 위치 인자만 기존 형태 계약으로 검증한다. 값이 빠졌거나(다음 토큰이
   // 옵션이거나 없음) 1 미만·비정수면 usage(64)다. cartograph와 같은 하한이다.
-  var depth = 1;
-  int? limit;
+  // 중복 플래그는 last-wins로 조용히 받아들이지 않는다. 같은 CLI의 `--config`·
+  // `--baseline` 중복 거부와 일관되게 usage(64)다.
+  int? depthOption;
+  int? limitOption;
   final positional = <String>[];
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (argument != '--depth' && argument != '--limit') {
       positional.add(argument);
       continue;
+    }
+    if ((argument == '--depth' && depthOption != null) ||
+        (argument == '--limit' && limitOption != null)) {
+      error.write(_help);
+      return ExitStatus.usage.code;
     }
     if (index + 1 >= arguments.length) {
       error.write(_help);
@@ -360,11 +367,13 @@ Future<int> _runQuery(
       return ExitStatus.usage.code;
     }
     if (argument == '--depth') {
-      depth = value;
+      depthOption = value;
     } else {
-      limit = value;
+      limitOption = value;
     }
   }
+  final depth = depthOption ?? 1;
+  final limit = limitOption;
   if (positional.length >= 3 &&
       positional[0] == '--batch' &&
       (positional.length == 3 ||
