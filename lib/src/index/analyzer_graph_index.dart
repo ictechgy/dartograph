@@ -5,6 +5,7 @@ import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:path/path.dart' as p;
@@ -206,10 +207,11 @@ final class AnalyzerGraphIndex {
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
 const _cacheSchemaVersion = 2;
-// 연산자 호출 usage 간선 추가로 추출 의미가 바뀌어 identity를 v4로 올린다.
-// 직렬화 형식(노드·간선 필드)은 그대로라 schemaVersion은 v2를 유지한다.
+// 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
+// 추출 의미가 바뀌어 identity를 올린다. 직렬화 형식(노드·간선·루트 필드)은
+// 그대로라 schemaVersion은 v2를 유지한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v4-operator-edges';
+    'dartograph-analysis-$toolVersion-cache-v5-inline-ignore';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -701,14 +703,15 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
   /// 관측된 main 진입점의 source ID다. 설정 검증 한계를 계산하는 데 쓴다.
   final Set<String> mainEntrySources;
 
+  /// 컴파일 단위별로 캐시한 `dartograph:ignore` 주석의 부착 토큰 offset이다.
+  final Map<CompilationUnit, Set<int>> _ignoreClaims = {};
+
   @override
   void visitDeclaration(Declaration node) {
     final element = node.declaredFragment?.element;
     if (element != null && _isGraphElement(element)) {
-      final location = node
-          .thisOrAncestorOfType<CompilationUnit>()!
-          .lineInfo
-          .getLocation(node.offset);
+      final unit = node.thisOrAncestorOfType<CompilationUnit>()!;
+      final location = unit.lineInfo.getLocation(node.offset);
       final id = _elementId(element, root);
       if (!graph.containsNode(id)) {
         graph.addNode(
@@ -735,16 +738,60 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
         element.firstFragment.libraryFragment!.source.fullName,
         root,
       );
-      final reason = _retentionReason(
-        node,
-        element,
-        source,
-        entryPoints,
-        mainEntrySources,
-      );
+      // 사용자의 명시적 억제 지시(인라인 주석)가 다른 보존 이유보다 먼저다.
+      // 둘 다 보존이지만 explain은 실제로 작동한 근거를 답해야 한다.
+      final claims = _ignoreClaimsFor(unit);
+      final ignored =
+          claims.contains(node.offset) ||
+          claims.contains(node.firstTokenAfterCommentAndMetadata.offset);
+      final reason = ignored
+          ? RetentionReason.inlineIgnore
+          : _retentionReason(
+              node,
+              element,
+              source,
+              entryPoints,
+              mainEntrySources,
+            );
       if (reason != null) retentionRoots[id] = reason;
     }
     super.visitDeclaration(node);
+  }
+
+  Set<int> _ignoreClaimsFor(CompilationUnit unit) =>
+      _ignoreClaims.putIfAbsent(unit, () => _collectIgnoreClaims(unit));
+
+  /// `// dartograph:ignore` 주석이 부착되는 선언 claim 토큰의 offset을 모은다.
+  ///
+  /// 주석은 다음 실 토큰의 precedingComments 사슬에 붙는다. 실 토큰이 선언의
+  /// 첫 토큰(annotation `@`·doc 뒤 키워드)이면 그 선언의 억제로 해석한다.
+  /// 같은 줄 꼬리 주석(이전 실 토큰의 끝 줄에서 끝나지 않고 시작된 주석)은
+  /// 다음 선언의 억제가 아니다 — `void a() {} // dartograph:ignore`가 b를
+  /// 억제하지 않는다. 선언 claim이 아닌 토큰(클래스 `{`·`;` 등)에 붙은
+  /// 주석은 visitDeclaration의 offset 대조에서 자연스럽게 버려진다.
+  static Set<int> _collectIgnoreClaims(CompilationUnit unit) {
+    final lineInfo = unit.lineInfo;
+    final claims = <int>{};
+    Token? token = unit.beginToken;
+    while (token != null && token.type != TokenType.EOF) {
+      var comment = token.precedingComments;
+      while (comment != null) {
+        if (comment.lexeme.contains('dartograph:ignore')) {
+          // 파일 첫 토큰의 previous는 offset -1의 EOF 센티널이라 이전 토큰
+          // 없음과 같이 취급한다.
+          final previous = token.previous;
+          final leading =
+              previous == null ||
+              previous.offset < 0 ||
+              lineInfo.getLocation(comment.offset).lineNumber >
+                  lineInfo.getLocation(previous.end).lineNumber;
+          if (leading) claims.add(token.offset);
+        }
+        comment = comment.next as CommentToken?;
+      }
+      token = token.next;
+    }
+    return claims;
   }
 }
 

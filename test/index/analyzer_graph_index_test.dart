@@ -53,6 +53,24 @@ class FrameworkCallback extends Framework {
   void invokedByFramework() {}
 }
 ''');
+    await File('${fixtureDirectory.path}/lib/ignored.dart').writeAsString('''
+// dartograph:ignore
+void ignoredAbove() {}
+
+void trailingNotIgnored() {} // dartograph:ignore
+
+// dartograph:ignore
+@Deprecated('use something else')
+class IgnoredAnnotated {}
+
+/// doc comment
+// dartograph:ignore
+void docThenMarker() {}
+
+// dartograph:ignore
+/// doc after marker
+void markerThenDoc() {}
+''');
     await File('${fixtureDirectory.path}/lib/operators.dart').writeAsString('''
 class Vector {
   final int x;
@@ -366,6 +384,24 @@ void main() => Service();
       isTrue,
     );
   });
+
+  test(
+    'dartograph:ignore comments become inlineIgnore retention roots',
+    () async {
+      final result = await AnalyzerGraphIndex().index(fixtureDirectory.path);
+      String? reason(String id) => result
+          .retentionRoots['package:graph_fixture/ignored.dart::$id']
+          ?.name;
+
+      // 선언 바로 위(파일 첫 줄·annotation 위·doc 앞뒤) 마커는 억제로 해석된다.
+      expect(reason('ignoredAbove'), 'inlineIgnore');
+      expect(reason('IgnoredAnnotated'), 'inlineIgnore');
+      expect(reason('docThenMarker'), 'inlineIgnore');
+      expect(reason('markerThenDoc'), 'inlineIgnore');
+      // 같은 줄 꼬리 주석은 다음 선언의 억제가 아니다(오귀속 방지).
+      expect(reason('trailingNotIgnored'), isNull);
+    },
+  );
 
   test('project ids use URL separators on Windows', () {
     expect(

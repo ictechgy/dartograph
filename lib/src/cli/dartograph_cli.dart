@@ -1128,6 +1128,11 @@ graph --format html emits a single self-contained document with no CDN
 references. Graphs above 400 nodes keep the most connected nodes and say so
 on the page; use --format dot for the full graph.
 
+A "// dartograph:ignore" comment on the line directly above a declaration
+suppresses its dead report by retaining it as an inlineIgnore root. A trailing
+comment at the end of a line does not suppress the next declaration. Only the
+annotated declaration is suppressed; file findings need a baseline.
+
 graph --level projects the graph to a resolution: file folds declarations
 into their libraries, type folds members into top-level declarations, symbol
 (the default) keeps the graph unchanged. Folded internal relations are dropped

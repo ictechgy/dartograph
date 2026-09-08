@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `// dartograph:ignore` 인라인 주석 추가 (Periphery comment command 흡수)
+  - 주석 바로 아래 선언(또는 그 annotation·doc comment)의 dead 보고를 억제한다.
+    같은 줄 꼬리 주석(`void foo() {} // dartograph:ignore`)은 다음 선언의 억제로
+    해석하지 않는다(오귀속 방지). 마커는 부분 문자열이라 이유를 뒤에 적을 수 있다
+  - 억제된 선언은 `retentionReason: inlineIgnore` 보존 루트가 되어 `dead --explain`·
+    `query`·compare가 그 근거를 답한다. 다른 보존 이유보다 사용자 지시가 먼저다.
+    주석이 붙은 선언만 억제되고 멤버·파일로 전파되지 않는다(파일 finding은 baseline)
+  - 보존 루트 추출 의미가 바뀌어 분석 캐시 identity를 v5로 올린다. 옛 캐시는
+    자동으로 재분석된다(직렬화 형식 불변)
 - `graph`에 `--level <file|type|symbol>`·`--collapse <n>` 추가
   (cartograph `graph --level`·dependency-cruiser `--collapse` 흡수)
   - `--level file`은 선언을 소속 라이브러리로, `type`은 멤버를 최상위 선언
