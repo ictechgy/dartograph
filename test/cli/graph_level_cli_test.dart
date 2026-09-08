@@ -111,16 +111,17 @@ void main() {
 
   test('graph --collapse summarizes the file level into folders', () async {
     final output = StringBuffer();
+    // 플래그 순서는 무관하다(--collapse가 --level보다 앞에 와도 같다).
     expect(
       await runDartograph(
         [
           'graph',
           '--format',
           'json',
-          '--level',
-          'file',
           '--collapse',
           '1',
+          '--level',
+          'file',
           '.',
         ],
         output: output,

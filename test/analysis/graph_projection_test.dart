@@ -112,9 +112,35 @@ void main() {
       edges: const [],
     );
 
-    final projected = GraphProjection.atLevel(orphan, GraphLevel.type);
+    final typeLevel = GraphProjection.atLevel(orphan, GraphLevel.type);
+    expect(typeLevel.nodes.single.id, 'project:lib/a.dart::Ghost.run');
 
-    expect(projected.nodes.single.id, 'project:lib/a.dart::Ghost.run');
+    // file 수준에서도 라이브러리 노드가 없으면 같은 보수 규칙을 쓴다.
+    final fileLevel = GraphProjection.atLevel(orphan, GraphLevel.file);
+    expect(fileLevel.nodes.single.id, 'project:lib/a.dart::Ghost.run');
+  });
+
+  test('type folding is transitive and covers getter/setter pairs', () {
+    final nested = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'project:lib/a.dart'),
+        GraphNode(id: 'project:lib/a.dart::Foo'),
+        GraphNode(id: 'project:lib/a.dart::Foo.bar'),
+        GraphNode(id: 'project:lib/a.dart::Foo.bar.baz'),
+        GraphNode(id: 'project:lib/a.dart::Foo.value'),
+        GraphNode(id: 'project:lib/a.dart::Foo.value='),
+      ],
+      edges: const [],
+    );
+
+    final projected = GraphProjection.atLevel(nested, GraphLevel.type);
+
+    // 대표가 다시 멤버 ID면 최상위 컨테이너까지 전이적으로 접히고,
+    // setter 접미(`=`) 쌍도 같은 컨테이너로 모인다.
+    expect(projected.nodes.map((node) => node.id).toList(), [
+      'project:lib/a.dart',
+      'project:lib/a.dart::Foo',
+    ]);
   });
 
   test('collapse summarizes libraries to folder depth', () {
