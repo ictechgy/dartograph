@@ -53,6 +53,63 @@ class FrameworkCallback extends Framework {
   void invokedByFramework() {}
 }
 ''');
+    await File('${fixtureDirectory.path}/lib/operators.dart').writeAsString('''
+class Vector {
+  final int x;
+  Vector(this.x);
+  Vector operator +(Vector other) => Vector(x + other.x);
+  Vector operator *(Vector other) => Vector(x * other.x);
+}
+
+class Counter {
+  final int n;
+  Counter(this.n);
+  Counter operator +(int step) => Counter(n + step);
+  Counter operator -() => Counter(-n);
+  Counter operator -(Counter other) => Counter(n - other.n);
+}
+
+class Score {
+  final List<int> cells = [0, 0];
+  int operator [](int index) => cells[index];
+  void operator []=(int index, int value) {
+    cells[index] = value;
+  }
+}
+
+class Matrix {
+  final List<int> cells;
+  Matrix(this.cells);
+  int operator [](int index) => cells[index];
+  void operator []=(int index, int value) {
+    cells[index] = value;
+  }
+}
+
+extension type Meters(int value) {
+  Meters operator -(Meters other) => Meters(value - other.value);
+  Meters operator ~/(int divisor) => Meters(value ~/ divisor);
+}
+
+void useOperators() {
+  final sum = Vector(1) + Vector(2);
+  final neg = -Counter(1);
+  var counter = Counter(0);
+  counter++;
+  counter += 2;
+  final matrix = Matrix([1, 2]);
+  final first = matrix[0];
+  matrix[1] = 5;
+  final delta = Meters(9) - Meters(3);
+  final difference = Counter(2) - Counter(1);
+  final score = Score();
+  score[0] += 1;
+  score[1]++;
+  Matrix? maybeMatrix = Matrix([0]);
+  final probe = maybeMatrix?[0];
+  print('\$sum \$neg \$counter \$first \$delta \$difference \$probe \${matrix.cells} \${score.cells}');
+}
+''');
     await Directory('${fixtureDirectory.path}/bin').create();
     await File('${fixtureDirectory.path}/bin/cli.dart').writeAsString('''
 import 'package:graph_fixture/api.dart';
@@ -267,6 +324,46 @@ void main() => Service();
         'string-routes: 1 named route use(s) have no matching route table entry',
         'generated-code-staleness: 1 generated file(s) are older than their source',
       ]),
+    );
+  });
+
+  test('operator invocations become usage edges', () async {
+    final result = await AnalyzerGraphIndex().index(fixtureDirectory.path);
+    const source = 'package:graph_fixture/operators.dart::useOperators';
+    bool has(String target, [EdgeKind kind = EdgeKind.call]) =>
+        result.graph.edges.any(
+          (edge) =>
+              edge.sourceId == source &&
+              edge.targetId ==
+                  'package:graph_fixture/operators.dart::$target' &&
+              edge.kind == kind,
+        );
+    // 연산자 구문(`a + b`·`a[i]`·`-a`·`a++`)은 SimpleIdentifier가 아니라
+    // 토큰이라 기존 참조 수집에서 전부 빠져 사용 중인데 dead로 보고됐다.
+    expect(has('Vector.+'), isTrue); // 이항
+    expect(has('Counter.unary-'), isTrue); // 전위 단항(analyzer lookupName)
+    expect(has('Counter.+'), isTrue); // 후위 `++`·복합 대입 `+=`
+    expect(has('Matrix.[]'), isTrue); // 인덱스 읽기(null-aware `?[0]` 포함)
+    expect(has('Matrix.[]=', EdgeKind.reference), isTrue); // 기존 writeElement 경로
+    expect(has('Meters.-'), isTrue); // extension type 이항
+    // 단항 `-`와 이항 `-`가 같은 클래스에 공존해도 lookupName(unary-·-)으로
+    // ID가 갈린다(analyzer가 수렴시키면 두 간선 중 하나가 사라진다).
+    expect(has('Counter.-'), isTrue); // 이항
+    // 복합 대입·증감(`score[0] += 1`·`score[1]++`)의 인덱스 읽기·쓰기.
+    expect(has('Score.[]'), isTrue);
+    expect(has('Score.[]=', EdgeKind.call), isTrue);
+    // 미사용 연산자는 노드로 남아 dead가 계속 보고할 수 있다.
+    expect(
+      result.graph.containsNode(
+        'package:graph_fixture/operators.dart::Vector.*',
+      ),
+      isTrue,
+    );
+    expect(
+      result.graph.containsNode(
+        'package:graph_fixture/operators.dart::Meters.~/',
+      ),
+      isTrue,
     );
   });
 

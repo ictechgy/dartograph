@@ -1,5 +1,6 @@
 import 'enums.dart';
 import 'model.dart';
+import 'operators.dart';
 import 'traits.dart';
 
 void main() {
@@ -11,6 +12,15 @@ void main() {
   for (final level in TelemetryLevel.values) {
     print(level.name);
   }
+  // 연산자를 연산자 구문으로만 소비한다. `+`·단항 `-`·복합 대입 `-=`는
+  // 식별자가 아닌 토큰 참조라 사용 간선이 빠져 dead로 잘못 보고됐었다(오탐 회귀).
+  print((Vector(1) + Vector(2)).x);
+  print((-Vector(3)).x);
+  var walked = Meters(9);
+  walked -= Meters(3);
+  final writeOnly = WriteOnly();
+  writeOnly[0] = 7;
+  print('$walked ${writeOnly.cells}');
 }
 
 String routeFactory(String route) => route == '/settings' ? 'settings' : 'home';
