@@ -70,6 +70,47 @@ void main() {
       isFalse,
     );
   });
+
+  test(
+    'since keeps repository-root paths when diff.relative is set and the package is nested',
+    () async {
+      final repository = await Directory.systemTemp.createTemp(
+        'changed-files-relative.',
+      );
+      addTearDown(() => repository.delete(recursive: true));
+      await _git(repository, ['init', '-q']);
+      await _git(repository, ['config', 'user.email', 'test@example.invalid']);
+      await _git(repository, ['config', 'user.name', 'Test']);
+      // 패키지 루트를 저장소 루트 아래 하위 디렉터리에 둔다.
+      final packageRoot = p.join(repository.path, 'package');
+      final tracked = File(p.join(packageRoot, 'lib', 'tracked.dart'));
+      tracked.createSync(recursive: true);
+      tracked.writeAsStringSync('initial');
+      await _git(repository, ['add', '.']);
+      await _git(repository, ['commit', '-qm', 'initial']);
+      final reference = (await _git(repository, ['rev-parse', 'HEAD'])).trim();
+
+      File(
+        p.join(packageRoot, 'lib', 'committed.dart'),
+      ).writeAsStringSync('committed');
+      await _git(repository, ['add', '.']);
+      await _git(repository, ['commit', '-qm', 'later']);
+      File(
+        p.join(packageRoot, 'lib', 'staged.dart'),
+      ).writeAsStringSync('staged');
+      await _git(repository, ['add', 'package/lib/staged.dart']);
+      // diff.relative=true면 cwd(패키지 루트) 기준 상대 경로로 출력이 바뀐다.
+      await _git(repository, ['config', 'diff.relative', 'true']);
+
+      final changed = await ChangedFiles.since(reference, packageRoot);
+
+      final root = await repository.resolveSymbolicLinks();
+      expect(changed, {
+        p.normalize(p.join(root, 'package', 'lib', 'committed.dart')),
+        p.normalize(p.join(root, 'package', 'lib', 'staged.dart')),
+      });
+    },
+  );
 }
 
 Future<String> _git(Directory directory, List<String> arguments) async {

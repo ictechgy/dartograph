@@ -203,7 +203,9 @@ final class AnalyzerGraphIndex {
   }
 }
 
-const _cacheSchemaVersion = 1;
+// 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올린다. 옛 캐시는 decode에서
+// schemaVersion 불일치로 거부되어 재분석되므로 캐시 identity는 그대로 둔다.
+const _cacheSchemaVersion = 2;
 const _cacheIdentity = 'dartograph-analysis-$toolVersion-cache-v3-entry-points';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
@@ -394,6 +396,7 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
           'column': ?node.column,
           'id': node.id,
           'isAbstract': node.isAbstract,
+          'isEnumConstant': node.isEnumConstant,
           'isTypeDeclaration': node.isTypeDeclaration,
           'line': ?node.line,
           'sourceUri': ?node.sourceUri,
@@ -423,6 +426,7 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
           synthesized: node['synthesized']! as bool,
           isTypeDeclaration: node['isTypeDeclaration']! as bool,
           isAbstract: node['isAbstract']! as bool,
+          isEnumConstant: node['isEnumConstant']! as bool,
         ),
       );
     }
@@ -720,6 +724,7 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
             isAbstract:
                 (element is ClassElement && element.isAbstract) ||
                 element is MixinElement,
+            isEnumConstant: element is FieldElement && element.isEnumConstant,
           ),
         );
       }

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- `.values`로만 소비되는 enum 상수의 미도달 오탐 수정
+  - enum 상수는 enum→상수 `member` 간선만 있어 사용으로 치지 않고, 컨테이너 구제는
+    멤버→컨테이너 단방향이라 상수를 살리지 못했다. `Status.values`처럼 개별 상수를
+    직접 참조하지 않는 소비만 있으면 도달 가능한 enum의 상수까지 `dead`로 잘못 보고됐다
+  - 이제 enum이 도달 가능하면 그 상수도 보존하고, `explain`은 `retained by its
+    reachable enum` 근거와 enum까지의 실제 경로를 돌려준다. enum 자체가 미도달이면
+    상수도 계속 보고한다
+  - 노드 직렬화에 enum-상수 표시를 추가해 캐시 스키마를 v2로 올린다. 옛 캐시는
+    decode에서 거부되어 재분석된다
+
+- Flutter 채널 사실 추출의 조용한 누락·전면 실패 결함 수정
+  - 클래스 등 선언 본문에서 `static final _channel = MethodChannel(...)`이 사용처보다
+    뒤에 선언되면 method-invoke 사실이 통째로 누락되고 위치·심볼 없는
+    `unresolved-receiver-invocations` 카운트로 강등됐다. 이제 선언 본문의 필드를 먼저
+    훑어 선언 순서와 무관하게 해결한다. 동명 최상위 채널을 가리는 규칙은 유지된다
+  - `MethodChannel('')`처럼 빈 채널·메서드 이름 한 줄이 `bridges` 출력 전체를 실패시키고
+    파일·줄 정보도 남기지 않았다. 이제 그 사실만 건너뛰고 `empty-bridge-names` 한계로
+    집계하며 나머지 사실은 정상 출력한다. 제어 문자가 든 이름은 계속 전면 거부한다
+
+- `dead --since`가 `diff.relative=true`와 하위 패키지에서 변경 파일을 놓치던 문제 수정
+  - `git diff`가 cwd 상대 경로를 출력하는데 저장소 루트와 join해 경로가 어긋나고
+    발견이 전부 사라졌다(종료 0). 이제 `git`을 `-c diff.relative=false`로 실행해
+    항상 저장소 루트 기준 경로를 쓴다
+
 - 옵션 모양의 값을 경로로 받아들이던 문제 수정
   - `baseline --write --force .`은 `--force`라는 이름의 파일을 실제로 만들고 성공을 보고했다.
     이제 인덱싱과 쓰기 전에 usage 오류(64)로 거부한다
