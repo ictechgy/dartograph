@@ -35,6 +35,66 @@
 - **한계(원문)**: *"Only `import` and `export` directives are supported; `library` and `part` are not."* 노드가 라이브러리(파일) 단위이며 **심볼 단위 그래프가 없다.**
 - **함의**: dartograph의 `graph`(라이브러리 dot)·`cycles`·`metrics`와 겹친다. 그러나 lakos는 **심볼 단위 미사용 코드 · `dead --explain` 근거 · 에이전트 `query` · platform channel `bridges`를 다루지 않는다.** dartograph의 차별화는 심볼 단위 도달성 + 근거 + 에이전트 표면이다. `doc/PRD.md` 비교표에 반영했다.
 
+### 경쟁·자매 도구 장점 대조 (2026-09-08)
+
+1차 출처(GitHub 원본 README·docs)를 직접 읽었다. cartograph(Swift 자매, v0.8.2),
+Periphery(Swift, 현재 상업화·OSS 저장소는 MIT 아카이브), knip(JS/TS), dependency-cruiser(JS/TS),
+madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확인한 v0.3.0 기준 상태다.
+
+**dartograph 현황 (소스 확인):**
+
+- `query`는 이웃 깊이가 `depth: 1`로 고정되고 `truncated`가 항상 false다
+  (`lib/src/analysis/symbol_query.dart`). `--depth`·`--limit` 인자가 없다.
+- `graph --format`은 `{dot, json, mermaid}`만 받는다(`lib/src/cli/dartograph_cli.dart`).
+  html 출력과 `--level`(module/file/type/symbol) 해상도, `--collapse` 폴더 요약이 없다.
+- `cycles`는 끊을 후보(`breakCandidate`)를 이미 내지만 `cycles --explain <node>`가 없고,
+  `rules --explain <node>`도 없다.
+- isthmus 조인을 **되읽지** 못한다: `bridges`로 사실을 내보내기만 하고 external-retentions를
+  소비하는 경로가 없다(`lib/`에 `externalBridge` 보존 이유 부재).
+- "테스트에서만 도달되는 프로덕션 선언" 개념이 없다(`--report-test-only` 부재).
+- 인라인 ignore 주석(`// dartograph:ignore`)이 없고, `dartograph.yaml`은 `entry_points`만 지원한다.
+- `init` 명령, `--affected`(변경 영향 반경), markdown·codeclimate·codeowners 리포터가 없다.
+
+**각 도구의 강점 (확인됨):**
+
+- cartograph: `query --depth/--limit`(다중 hop + truncation), `dead --report-test-only`,
+  `dead --external-retentions`(isthmus 조인 역방향 소비, reason `externalBridge`, `--explain`이
+  증거 인용), `cycles --explain`·`rules --explain`, `graph --level`·`--format html`(자기완결·no-CDN),
+  `.cartograph.yml`(include/exclude·thresholds·retention toggle·retained_names/files), `init`.
+- Periphery: 인라인 comment command(`// periphery:ignore[:all][:parameters]`, `override kind/location`),
+  redundant public 접근성, assign-only property, unused parameter(protocol/override 인지),
+  redundant protocol, `--retain-public`·`--report-exclude`·`--retain-files`, `.periphery.yml`.
+  상업 제품으로 전환·OSS 아카이브 — 이 프로젝트군이 채우는 자리와 같다.
+- knip: `--fix` 자동수정(삭제), `--production`/`--strict`(프로덕션 코드만), issue-type별
+  `--include`/`--exclude`·`rules`(error/warn/off), 리포터(codeclimate·codeowners·cycles·disclosure·
+  markdown·sarif·json), `--watch`, `--cache`, MCP 서버(`@knip/mcp`)·language server·VSCode/JetBrains,
+  100+ 플러그인, 모노레포 1급 지원.
+- dependency-cruiser: `--affected <git-ref>`(변경 모듈 + transitive dependents = 영향 반경),
+  `--focus`/`--reaches`/`--highlight`, `--collapse`(폴더 단위 요약), `--max-depth`,
+  출력 20여 종(err·dot·ddot·archi·flat·mermaid·d2·html·x-dot-webpage·markdown·csv·teamcity·
+  azure-devops·json·anon·baseline·metrics·null), `--init`, baseline/`--ignore-known`,
+  `depcruise-fmt`(재렌더)·`depcruise-wrap-stream-in-html`.
+- madge: `.orphans()`·`.leaves()`·`.depends()`, 순환 노드 색칠 DOT, `--image svg`(GraphViz 직행),
+  `--circular --image`(순환만), `--stdin` 파이프.
+
+**흡수 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):**
+
+- Tier 1(자매 parity, 근거 질의 철학 정합): `query --depth/--limit`, `dead --report-test-only`,
+  `--external-retentions`(isthmus GRAPH-EXCHANGE 조율 필요).
+- Tier 2(근거·CI): `cycles --explain`·`rules --explain`, `--affected` 영향 반경,
+  `graph --format html`, `graph --level` + `--collapse`, 인라인 ignore 주석.
+- Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
+  `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
+- Tier 4(cosmetic): metrics zone 라벨(zone-of-pain·main-sequence), 순환 노드 색칠, redundant public,
+  anon export.
+
+**흡수하지 않을 것 (기존 결정과 충돌):**
+
+- knip `--fix`·자동삭제 → PRD "삭제 판정·자동 삭제 금지".
+- IDE 플러그인·language server → PRD "IDE 플러그인 금지".
+- melos/모노레포·EventChannel/BasicMessageChannel fact화·`package:args` → HANDOFF 보류 목록.
+- assign-only property·read/write 간선 → cartograph도 "아직 known limitation". 고난도(간선 종류 신설).
+
 ## 확인 필요
 
 - **Pigeon 이 생성한 코드의 형태** — 채널 이름이 생성 코드 안의 상수로 들어가는지, 그러면 `bridges` 가 그것을 "정적 참조" 로 분류할 수 있는지. 아직 실측하지 않았다. `doc/PRD.md`와 HANDOFF 방침대로 Pigeon 정적 추출은 생성 API 형태를 측정한 뒤에만 추가한다
@@ -59,3 +119,8 @@ cartograph의 같은 절과 동일. 추가로:
 - DCM unused code 문서 — https://dcm.dev/docs/cli/code-quality-checks/unused-code/
 - knip 비교 — https://knip.dev/explanations/comparison-and-migration
 - lakos — https://pub.dev/packages/lakos (2026-09-06 확인)
+- cartograph(Swift 자매) — https://github.com/ictechgy/cartograph (README, 2026-09-08 확인)
+- Periphery — https://github.com/peripheryapp/periphery (아카이브 README, 2026-09-08 확인)
+- knip — https://github.com/webpro-nl/knip (packages/docs 원본, 2026-09-08 확인)
+- dependency-cruiser — https://github.com/sverweij/dependency-cruiser (doc/cli.md 등, 2026-09-08 확인)
+- madge — https://github.com/pahen/madge (README, 2026-09-08 확인)
