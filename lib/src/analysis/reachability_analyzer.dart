@@ -39,6 +39,10 @@ final class DeadFinding {
   final String reason;
 
   /// 도달성을 시작할 때 실제로 확인한 루트다.
+  ///
+  /// dead 발견에서는 확인한 전체 보존 루트다. `--report-test-only` 발견에서는
+  /// 이 선언에 실제로 도달한 witness 테스트 루트 하나로 의미가 좁아진다
+  /// (reason `reached only from test code`와 함께 읽는다).
   final List<String> retentionRootsChecked;
 
   /// 이 발견을 해석할 때 함께 보여야 하는 한계다.
@@ -468,13 +472,23 @@ final class ReachabilityAnalyzer {
       for (final node in graph.nodes) node.id: node.sourceUri,
     };
     final nodeIds = graph.nodes.map((node) => node.id).toSet();
+    // 루트 제거는 reason과 source 접두어를 **양쪽** 요구한다. visibleForTesting
+    // reason은 테스트 디렉터리 선언과 @visibleForTesting 프로덕션 선언이 공유하므로
+    // source로 가르고, reason으로 테스트 관련 루트임을 확인한다. 접두어가 인덱스와
+    // 어긋나도 프로덕션 루트를 오제거(거짓 양성)하지 않고 누락(안전)으로 편향된다.
     final nonTestRoots = <String, RetentionReason>{
       for (final entry in roots.entries)
-        if (!_isTestSource(sources[entry.key])) entry.key: entry.value,
+        if (!_isTestRoot(entry.value, sources[entry.key]))
+          entry.key: entry.value,
     };
     final testRootsChecked =
-        roots.keys
-            .where((id) => nodeIds.contains(id) && _isTestSource(sources[id]))
+        roots.entries
+            .where(
+              (entry) =>
+                  nodeIds.contains(entry.key) &&
+                  _isTestRoot(entry.value, sources[entry.key]),
+            )
+            .map((entry) => entry.key)
             .toList()
           ..sort();
     final withTests = analyze(graph, roots: roots, limitations: limitations);
@@ -533,6 +547,15 @@ const _testSourcePrefixes = [
 
 bool _isTestSource(String? source) =>
     source != null && _testSourcePrefixes.any(source.startsWith);
+
+/// 보존 루트를 테스트 루트로 분류한다. reason과 source 접두어를 **양쪽** 요구한다.
+///
+/// `visibleForTesting` reason은 테스트 디렉터리 선언과 `@visibleForTesting`
+/// 프로덕션 선언이 공유하므로 source 접두어로 가른다. 양쪽을 요구하면 인덱스의
+/// 테스트 디렉터리 접두어와 `_testSourcePrefixes`가 어긋나도 프로덕션 루트를
+/// 오제거(거짓 양성)하지 않고 누락(안전) 쪽으로 편향된다.
+bool _isTestRoot(RetentionReason reason, String? source) =>
+    reason == RetentionReason.visibleForTesting && _isTestSource(source);
 
 /// 소스 한계는 관측된 파일에만 붙이고 전역 한계는 모든 finding에 보존한다.
 List<String> limitationsForSource(List<String> limitations, String source) =>

@@ -511,4 +511,56 @@ void main() {
       isEmpty,
     );
   });
+
+  test('test-only reachability recognizes every test-directory prefix', () {
+    // _testSourcePrefixes의 네 접두어 각각이 테스트 루트로 분류되는지 고정한다.
+    // 인덱스의 _retentionReason 접두어와 어긋나면 이 테스트가 실패한다.
+    for (final prefix in const [
+      'project:test/',
+      'project:integration_test/',
+      'project:example/test/',
+      'project:example/integration_test/',
+    ]) {
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(id: 'app::prod', sourceUri: 'project:lib/prod.dart'),
+        )
+        ..addNode(
+          GraphNode(id: 'app::testRoot', sourceUri: '${prefix}x_test.dart'),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'app::testRoot',
+            targetId: 'app::prod',
+            kind: EdgeKind.call,
+          ),
+        );
+      final findings = ReachabilityAnalyzer().testOnlyDeclarations(
+        graph.snapshot(),
+        roots: const {'app::testRoot': RetentionReason.visibleForTesting},
+      );
+      expect(findings.map((f) => f.id), ['app::prod'], reason: prefix);
+    }
+  });
+
+  test('a test-source root with a non-testing reason is not removed', () {
+    // _isTestRoot는 reason과 source를 양쪽 요구한다. source가 테스트 디렉터리여도
+    // reason이 visibleForTesting가 아니면(인덱스 drift 가정) 테스트 루트로 제거하지
+    // 않아, 그 전용 callee를 거짓 양성으로 보고하지 않는다(누락으로 안전 편향).
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::prod', sourceUri: 'project:lib/prod.dart'))
+      ..addNode(GraphNode(id: 'app::oddRoot', sourceUri: 'project:test/x.dart'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'app::oddRoot',
+          targetId: 'app::prod',
+          kind: EdgeKind.call,
+        ),
+      );
+    final findings = ReachabilityAnalyzer().testOnlyDeclarations(
+      graph.snapshot(),
+      roots: const {'app::oddRoot': RetentionReason.mainEntryPoint},
+    );
+    expect(findings, isEmpty);
+  });
 }
