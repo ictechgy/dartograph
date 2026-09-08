@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - `// dartograph:ignore` 인라인 주석 추가 (Periphery comment command 흡수)
   - 선언 위에 오는 줄 주석(doc comment·블록 주석 제외)의 본문이 마커로 **시작**하면
