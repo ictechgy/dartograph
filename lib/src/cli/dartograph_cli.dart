@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
+import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
@@ -946,23 +947,78 @@ Future<int> _runGraph(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
+  // `--level`·`--collapse`는 위치 인자 사이에 어디든 올 수 있다(query의
+  // `--depth`/`--limit`과 같은 규칙). 값 빠짐·중복·알 수 없는 해상도·1 미만
+  // 또는 비정수 collapse는 usage(64)다.
+  GraphLevel? level;
+  int? collapse;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument != '--level' && argument != '--collapse') {
+      positional.add(argument);
+      continue;
+    }
+    if ((argument == '--level' && level != null) ||
+        (argument == '--collapse' && collapse != null)) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    if (index + 1 >= arguments.length) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    final value = arguments[++index];
+    if (argument == '--level') {
+      level = switch (value) {
+        'file' => GraphLevel.file,
+        'type' => GraphLevel.type,
+        'symbol' => GraphLevel.symbol,
+        _ => null,
+      };
+      if (level == null) {
+        error.writeln('Unknown graph level: $value');
+        return ExitStatus.usage.code;
+      }
+    } else {
+      collapse = int.tryParse(value);
+      if (collapse == null || collapse < 1) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+    }
+  }
+  // --collapse는 파일 수준 그래프의 폴더 요약이다. 다른 해상도와는 접는
+  // 기준이 겹쳐 의미가 정의되지 않으므로 결합을 거부한다.
+  if (collapse != null && level != GraphLevel.file) {
+    error.writeln('graph --collapse requires --level file.');
+    return ExitStatus.usage.code;
+  }
   // 옵션 모양의 값은 경로로 받지 않는다. `-`로 시작하는 실제 경로는
   // `./-name`으로 전달한다.
-  if (arguments.length != 3 ||
-      arguments[0] != '--format' ||
-      arguments[2].startsWith('-')) {
+  if (positional.length != 3 ||
+      positional[0] != '--format' ||
+      positional[2].startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
-  final format = arguments[1];
+  final format = positional[1];
   if (!const {'dot', 'json', 'mermaid', 'html'}.contains(format)) {
     error.writeln('Unknown graph format: $format');
     return ExitStatus.usage.code;
   }
   try {
-    final result = await indexPackage(arguments[2]);
+    final result = await indexPackage(positional[2]);
     final limitations = _limitations(result);
-    final snapshot = result.graph.snapshot();
+    // 기본 해상도(symbol)는 입력 스냅샷을 그대로 돌려주므로 기존 출력은
+    // byte-for-byte 보존된다.
+    var snapshot = GraphProjection.atLevel(
+      result.graph.snapshot(),
+      level ?? GraphLevel.symbol,
+    );
+    if (collapse != null) {
+      snapshot = GraphProjection.collapse(snapshot, collapse);
+    }
     output.write(switch (format) {
       'dot' => GraphExporter.dot(snapshot, limitations: limitations),
       'json' => GraphExporter.json(snapshot, limitations: limitations),
@@ -1039,7 +1095,7 @@ const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
-       dartograph graph --format <dot|json|mermaid|html> <package-root>
+       dartograph graph --format <dot|json|mermaid|html> [--level <file|type|symbol>] [--collapse <n>] <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
@@ -1071,6 +1127,13 @@ unlisted declarations are unaffected.
 graph --format html emits a single self-contained document with no CDN
 references. Graphs above 400 nodes keep the most connected nodes and say so
 on the page; use --format dot for the full graph.
+
+graph --level projects the graph to a resolution: file folds declarations
+into their libraries, type folds members into top-level declarations, symbol
+(the default) keeps the graph unchanged. Folded internal relations are dropped
+as self-loops. graph --collapse <n> (requires --level file) summarizes
+libraries into their first n path segments; folder nodes are aggregates and
+carry no source location.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

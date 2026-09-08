@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `graph`에 `--level <file|type|symbol>`·`--collapse <n>` 추가
+  (cartograph `graph --level`·dependency-cruiser `--collapse` 흡수)
+  - `--level file`은 선언을 소속 라이브러리로, `type`은 멤버를 최상위 선언
+    컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로 그린다. 접힘으로 생긴
+    자기 순환은 버려지고 간선은 대표 치환 후 중복 제거된다. 기본값 출력은 도입
+    전과 byte-for-byte 동일하다
+  - dartograph는 패키지 하나를 분석하므로 cartograph의 module 해상도는 없다
+    (패키지로 접으면 단일 정점) — `file`이 가장 거친 해상도다
+  - `--collapse <n>`은 파일 수준 그래프를 경로 앞 n세그먼트로 요약한다
+    (`project:lib/src/a.dart` → n=2에서 `project:lib/src`). 폴더 정점은 위치
+    필드 없는 집계다. `--level file` 외 결합·값 빠짐·중복·알 수 없는 해상도·
+    1 미만·비정수는 usage(64)다
 - `graph --format`에 `html` 추가 (cartograph `graph --format html` 흡수)
   - 외부 CDN·스크립트·폰트 참조가 전혀 없는 단일 자기완결 HTML이다. 네트워크가
     막힌 사내망·CI 아티팩트에서도 열리고, 그래프 사실은
