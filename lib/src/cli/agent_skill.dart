@@ -29,9 +29,11 @@ means absence from the graph, not verified dead code; `ambiguous` requires
 disambiguation. A state is not a deletion verdict. Empty limitations do not prove safety.
 `publicApi` and `overrideContract` explain conservative retention;
 `suppressedByBaseline: true` records a team decision and must be respected.
-Dart main functions may be multiple. Confirm the actual build target;
-other mains remain conservative roots. Generated sources, conditional imports,
-dynamic calls and unmatched string routes can limit the evidence.
+Dart main functions may be multiple. Confirm the actual build target.
+Without `dartograph.yaml` `entry_points`, other mains stay conservative roots;
+declaring entry_points narrows retention to the mains it lists. Generated
+sources, conditional imports, dynamic calls and unmatched string routes can
+limit the evidence.
 
 Reuse evidence for an unchanged snapshot. After an authorized change, run
 validation appropriate to its risk and report the result plus unresolved limits.

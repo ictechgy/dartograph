@@ -34,7 +34,7 @@ void main() {
     final status = await runDartograph(const ['--version'], output: output);
 
     expect(status, ExitStatus.success.code);
-    expect(output.toString(), 'dartograph 0.2.0\n');
+    expect(output.toString(), 'dartograph 0.3.0\n');
   });
 
   test(
@@ -191,7 +191,8 @@ environment:
       ExitStatus.success.code,
     );
     expect(output.toString(), contains('Confirm the actual build target'));
-    expect(output.toString(), isNot(contains('entry_points')));
+    // entry_points가 0.3.0부터 SKILL.md의 multiple-main 정책에 반영됐다.
+    expect(output.toString(), contains('entry_points'));
   });
 
   test('graph emits the selected format for a package', () async {
