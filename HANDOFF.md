@@ -1,33 +1,31 @@
 # Handoff
 
-_Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/handoff-audit-fixes` 미커밋)_
+_Last updated: 2026-09-08 (0.3.0 릴리스 완료, PR #19 merge 기준)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- 이번 세션은 이전 9축 감사가 남긴 backlog의 상위 4건(사용자에게 조용한 오답이나 전면
-  실패를 주던 결함)을 재현→수정→회귀 테스트로 반영했다. 제품 재배포나 새 대형 기능
-  요청은 없었다.
+- 이번 세션은 이전 9축 감사가 남긴 backlog의 상위 4건을 재현→수정→회귀→GLM 리뷰로
+  반영하고(PR #18), 이어서 0.2.0 이후 누적된 미릴리스 변경 전체를 0.3.0으로 공개했다
+  (PR #19, pub.dev·GitHub Release). 새 대형 기능 요청은 없었다.
 
 ## Current Status
 
-- 릴리스 기준: `v0.2.0` → `08fb197` (PR #5 merge). pub.dev·GitHub Release 공개 완료.
-- main 기준: `86ee109` (PR #17 merge)에 HANDOFF 커밋 `d40646e`가 얹혀 있다.
-  **0.2.0 이후 미릴리스 변경이 누적됐다** — `entry_points`(#9), analyzer 호환 계약
-  테스트(#10), lakos 리서치·비교표(#11), 결함 수정 4건(#13·#14·#15·#16), 그리고 이번
-  세션의 backlog 상위 4건. 다음 릴리스(예: 0.3.0) 후보다.
+- 릴리스 기준: `v0.3.0` → `92826d0` (PR #19 merge). pub.dev(latest 0.3.0)·GitHub Release
+  공개 완료. 새 격리 캐시 설치로 `dartograph 0.3.0`을 확인했다.
+- main 기준: `92826d0` (PR #19 merge). **미릴리스 변경 없음** — 0.2.0 이후 누적됐던
+  `entry_points`(#9)·analyzer 계약 테스트(#10)·lakos(#11)·결함 수정(#13~#17)·감사 backlog
+  상위 4건이 모두 0.3.0에 릴리스됐다.
 - 지침 기준: `c4d121d` (PR #7 merge).
-- 이번 세션은 감사 backlog 상위 4건을 브랜치 `docs/handoff-audit-fixes`에 **미커밋**으로
-  작업했다: bridge 채널 선언 순서(#1), `.values` enum 상수 오탐(#2), 빈 채널명 전면
-  실패(#3), `dead --since`의 `diff.relative` 경로 어긋남(#4). 커밋·PR·GLM 리뷰는 사용자
-  지시를 기다린다. 열린 제품 PR은 없다.
+- 이번 세션은 backlog 상위 4건을 PR #18로, 0.3.0 릴리스를 PR #19로 머지·게시했다.
+  열린 제품 PR은 없다.
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
 - 제품 배포 blocker는 없다. HANDOFF 내용이 Git 상태보다 우선하지 않으므로 재개 시 실제 상태를 확인한다.
 
 ## Completed
 
-### 이번 세션 (감사 backlog 상위 4건, 전부 미릴리스·미커밋)
+### 이번 세션 (감사 backlog 상위 4건 + 0.3.0 릴리스, PR #18·#19 머지)
 
 - **bridge 채널 선언 순서(#1)**: 클래스 등 선언 본문에서 `static final _c = MethodChannel(...)`이
   사용처보다 뒤에 선언되면 analyzer가 소스 순서로 방문하므로 사용처에서 `_c`를 해결하지
@@ -51,8 +49,13 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 - **`dead --since`의 `diff.relative`(#4)**: `git diff`가 cwd 상대 경로를 출력하는데 저장소 루트와
   join해, 패키지 루트≠저장소 루트 + `diff.relative=true`에서 변경 파일 집합이 어긋나 발견이
   전부 사라졌다(종료 0). `_run`이 git을 `-c diff.relative=false`로 실행해 경로를 고정한다.
+- **0.3.0 릴리스(PR #19)**: 위 4건(PR #18)과 0.2.0 이후 누적된 미릴리스 변경 전체를 0.3.0으로
+  공개했다. pubspec·toolVersion을 0.3.0으로 맞추고 CHANGELOG의 `Unreleased`를 `0.3.0`으로 옮겼다.
+  릴리스 전 처리 목록의 SKILL.md 문구(`entry_points` 반영)와 SECURITY.md(지원 0.3.x)를 정리하고
+  `isNot(contains('entry_points'))` 유물 단언을 제거·반전했다. pub.dev 게시·태그 v0.3.0·GitHub
+  Release·새 캐시 설치 확인까지 완료했다.
 
-### 이전 세션 (#13~#17, 미릴리스)
+### 이전 세션 (#13~#17, 0.3.0에 릴리스)
 
 - **심볼릭 링크 캐시 오염(PR #13, blocker)**: `listSync(followLinks: false)` 목록에서 링크는
   `Link` 인스턴스라 `File`·`Directory` 분기에 걸리지 않아 캐시 키 입력에서 빠졌다. analyzer는
@@ -82,7 +85,7 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 
 ### 이전 세션에서 유지되는 것
 
-- `dartograph.yaml`의 `entry_points`(미릴리스): 선언된 build target 파일의 `main`만 보존 루트로 좁힌다.
+- `dartograph.yaml`의 `entry_points`(0.3.0에 릴리스): 선언된 build target 파일의 `main`만 보존 루트로 좁힌다.
   없으면 기본 보수 정책. 잘못된 설정은 FormatException(종료 2), `main` 없는 진입점은 limitation.
 - analyzer 호환 범위 계약 테스트(PR #10): 런타임 실제 버전이 `doc/DECISION-analyzer.md`의
   검증 범위(14.3.x) 안인지 강제한다. 버전 트레드밀 가드.
@@ -123,7 +126,7 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 - `test/index/analyzer_graph_index_test.dart`: entry_points 축소·한계·거부·빈 문서·BOM 회귀.
 - `test/analysis/evidence_workflow_test.dart`: query `retainedByMember`·compare witness 회귀.
 - `.github/workflows/ci.yml`: Dart 3.11.0/3.13.3 matrix.
-- `doc/USAGE.md`: 실제 명령·한계·enum 보존. `CHANGELOG.md`: 0.2.0 내역과 `Unreleased` 6건.
+- `doc/USAGE.md`: 실제 명령·한계·enum 보존. `CHANGELOG.md`: 0.3.0(이번 릴리스)과 0.2.0 이하 내역.
 
 ## Important Context / Decisions
 
@@ -160,21 +163,26 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 
 ## Verification
 
-- 이번 세션 로컬 검증(브랜치 `docs/handoff-audit-fixes`, 미커밋): SDK는 homebrew `dart 3.13.3`,
-  의존성은 `dart pub get`(**온라인**)으로 격리 PUB_CACHE에 받아 `package_config.json`이 격리 경로를
-  가리킨다(`--offline`은 빈 캐시에서 exit 69). `dart format`·`dart analyze` clean(각각 exit 0),
-  **전체 139개 테스트 통과**(exit 0), 오탐 코퍼스·CLI 계약 스크립트 exit 0.
-  `dart pub publish --dry-run`은 미커밋 파일 경고뿐(커밋 시 해소, 패키지 69 KB·내용 정상).
+- 이번 세션 검증(0.3.0 릴리스, PR #18·#19): SDK는 homebrew `dart 3.13.3`, 의존성은 `dart pub get`
+  (**온라인**)으로 격리 PUB_CACHE에 받아 `package_config.json`이 격리 경로를 가리킨다(`--offline`은
+  빈 캐시에서 exit 69). `dart format`·`dart analyze` clean(각각 exit 0), **전체 139개 테스트 통과**
+  (exit 0), 오탐 코퍼스·CLI 계약 스크립트 exit 0. PR #18·#19 각각 두 SDK(3.11.0/3.13.3) CI green
+  후 머지했고 CI의 `check-coverage.sh`가 커버리지 게이트(≥90)를 검증했다.
+- **0.3.0 릴리스 검증**: clean git에서 `dart pub publish --dry-run` 경고 0(70 KB). pub.dev 게시
+  성공(latest 0.3.0 전파 확인), 태그 v0.3.0(annotated "dartograph 0.3.0")·GitHub Release 공개,
+  새 격리 캐시에 `dart pub global activate dartograph 0.3.0` 후 설치 바이너리가 `dartograph 0.3.0`을
+  출력(exit 0). 게시는 자격 증명을 `~/.config/dart/`에서 macOS pub이 읽는
+  `~/Library/Application Support/dart/pub-credentials.json`로 복사한 뒤 토큰 인증으로 성공했다
+  (OAuth 로컬 포트 바인딩은 sandbox EPERM).
 - GLM 리뷰는 agent-guard `packet-review`(샌드박스 내 유일한 GLM 경로, `--files` 단독)로 받았다.
   본 리뷰·delta 리뷰 모두 **차단 이슈 없음(승인)**. 본 리뷰의 최우선 지적(rescued enum 상수가
   `reachableIds`에 없어 query/compare가 갈릴 수 있다)은 실측으로 기각했다: `query`는 상수를
   `state: reachable`(path=enum까지)로 답하고, `compare`는 `deadDeclarations` 기반이라 rescue가
   자동 반영된다. 권고 #2(`_prescanFields` 2패스)·#3(비클래스 본문 prescan 커버리지)와 delta의
   non-blocking 2건(shadow-const, 비클래스 2패스)을 반영해 bridge_symbol_test가 7건으로 늘었다.
-- **라인 커버리지는 이번 세션 미실행**: sandbox가 `dart test --coverage`의 VM service(로컬 포트)를
-  차단해 가벼운 테스트 한 개로도 hang한다(커버리지 없는 `dart test`는 ~28초 통과). 재개 시 사용자
-  터미널에서 `tool/check-coverage.sh`로 확인한다. 새 테스트 6건이 새 코드 경로를 커버하므로 ≥90
-  게이트 유지를 기대하나 **미확정**이다.
+- **로컬 라인 커버리지는 sandbox에서 미실행**: `dart test --coverage`의 VM service(로컬 포트)가
+  차단되어 가벼운 테스트 한 개로도 hang한다(커버리지 없는 `dart test`는 ~28초 통과). 대신 PR CI의
+  `check-coverage.sh`가 두 SDK에서 ≥90 게이트를 통과시켰다.
 - 각 수정은 **수정 전 실패를 재현한 뒤** 통과시켰다. 이번 세션 재현 근거: bridge 채널 순서·
   shadowing·빈 채널명 3건과 `diff.relative` nested 1건은 제품 코드만 `git stash`했을 때 실패,
   enum 오탐은 `Status.values`만 소비하는 패키지에서 `dead --format json`이 상수 3건을 보고
@@ -206,15 +214,11 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 우선순위 상위 4건(bridge 채널 선언 순서, `.values` enum 상수 오탐, 빈 채널명, `dead --since`의
 `diff.relative`)은 이번 세션에서 처리해 Completed로 옮겼다. 아래는 남은 항목이다.
 
-다음 릴리스(0.3.0) 전에 정리할 것:
+릴리스 전 처리 목록 중 SKILL.md 문구(`entry_points` 반영 + `isNot(contains('entry_points'))`
+유물 단언 정리)와 SECURITY.md 지원 버전(0.3.x)은 0.3.0 릴리스(PR #19)에서 처리했다. 아래는 남은 항목이다.
 
-- `lib/src/cli/agent_skill.dart:32-33` — 생성되는 SKILL.md가 "other mains remain conservative
-  roots"를 무조건 단언한다. `entry_points`가 선언되면 사실이 아니다. entry_points가 아직
-  `Unreleased`라 지금은 무해하고 **릴리스와 함께 나가지 않게 막는 것**이 조치 시점이다.
-  함께: `test/cli/agent_surface_cli_test.dart:206`·`test/cli/dartograph_cli_test.dart`의
-  `isNot(contains('entry_points'))`는 기능이 없던 시절(1acf0d5)의 유물이라 제거한다.
-- `SECURITY.md:5` — 지원 버전이 `0.1.x`에 멈춰 현재 릴리스 0.2.0을 지원 밖으로 표기한다.
-  `CONTRIBUTING.md`의 릴리스 정합성 목록에 SECURITY.md를 추가한다.
+- `CONTRIBUTING.md`의 릴리스 정합성 목록에 SECURITY.md를 등재한다(이번 릴리스에서 SECURITY.md
+  지원 버전은 갱신했으나, 미래 릴리스를 위한 목록 등재는 아직).
 - `tool/verify-cli-contract.sh` — 유일한 네이티브 게이트가 10개 명령 중 `graph`·`baseline`·
   `skill`·`bridges` 4개를 한 번도 실행하지 않는다. `tool/AGENTS.md` 위반. *(미검증 발견)*
 - `lib/src/cli/dartograph_cli.dart`의 `_readBaseline`(:747)·`_runRules`(:213) — baseline 경로 부재는
@@ -324,24 +328,24 @@ _Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/ha
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로의 AGENTS.md를 읽는다.
-2. **이번 세션 4건은 미커밋이다**(`docs/handoff-audit-fixes`). 사용자 터미널에서
-   `tool/check-coverage.sh`로 커버리지 게이트(≥90)를 확인한 뒤(sandbox는 VM service 차단으로
-   불가), 커밋·PR·GLM 리뷰를 진행한다. Conventional Commits, main 직접 커밋 금지.
-3. 릴리스가 요청되면 0.3.0 minor bump를 검토한다(`entry_points`·#16 파괴적 변경·enum 보존·
-   캐시 schemaVersion v2가 사용자 표면 변화). 릴리스 전 처리 목록의 SKILL.md 문구와 SECURITY.md를
-   함께 정리하고 `CHANGELOG.md`의 `Unreleased` 6건을 옮긴다.
-4. 감사 backlog의 남은 항목(릴리스 전 처리 목록·선택 과제)이 다음 후보다. enum과 같은 계열인
-   **extension type의 `.values` 공백**은 이번 세션에서 재현하지 않았으니 확인 후보로 남는다.
-5. 새 사용자 요청이 없다면 완료된 구현·배포를 반복하지 않는다. 닫은·보류 항목은 위 근거를 먼저 읽는다.
+2. **0.3.0이 릴리스됐다**(main `92826d0`, pub.dev latest 0.3.0, 태그 v0.3.0·GitHub Release 공개,
+   새 캐시 설치 확인). 미릴리스 변경은 없으므로 완료된 구현·배포를 반복하지 않는다.
+3. 감사 backlog의 남은 항목이 다음 후보다. 릴리스 전 처리 목록의 남은 것(CONTRIBUTING의
+   SECURITY.md 등재, verify-cli-contract의 graph/baseline/skill/bridges 게이트, `_readBaseline`
+   오류 메시지, `_librarySource` 퍼센트 인코딩, Mermaid escape, ci `--fatal-infos`, layers.yaml
+   문서, `--help`의 `--explain` json 강제 안내)과 선택 과제를 검토한다. enum과 같은 계열인
+   **extension type의 `.values` 공백**은 재현하지 않았으니 확인 후보로 남는다.
+4. 새 사용자 요청이 없다면 닫은·보류 항목은 위 근거를 먼저 읽고 다시 도출하지 않는다.
 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
-`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.2.0 is released; main
-(86ee109 + d40646e) has unreleased entry_points, analyzer-contract test, lakos docs, defect fixes
-#13-#17, and this session's four backlog fixes (bridge channel declaration order, .values
-enum-constant false positive, empty channel name, dead --since diff.relative) UNCOMMITTED on branch
-docs/handoff-audit-fixes. Line coverage was NOT run this session (sandbox blocks the coverage VM
-service); run tool/check-coverage.sh in a host terminal before committing, then do Conventional
-Commits + PR + GLM review. The remaining audit backlog and the closed/deferred lists were assessed
-deliberately; read the rationale before re-flagging. Follow the next explicit user task.`
+`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.3.0 is released
+(main 92826d0, PR #19; pub.dev latest 0.3.0, tag v0.3.0 and GitHub Release published, fresh-cache
+install verified). This session merged the audit backlog top four (bridge channel declaration order,
+.values enum-constant false positive, empty channel name, dead --since diff.relative) as PR #18 and
+the 0.3.0 release as PR #19; there are NO unreleased changes. GLM review via packet-review approved
+both the main and delta passes. Local line coverage cannot run in the sandbox (VM service blocked);
+CI check-coverage.sh covers it on two SDKs. The remaining audit backlog and the closed/deferred
+lists were assessed deliberately; read the rationale before re-flagging. Follow the next explicit
+user task.`
