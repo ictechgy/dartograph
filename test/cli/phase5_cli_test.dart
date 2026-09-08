@@ -140,4 +140,24 @@ rules:
     expect(error.toString(), contains('Analysis failed:'));
     expect(error.toString(), isNot(contains(rules.path)));
   });
+
+  test(
+    'rules reports a config read failure distinctly from an index failure',
+    () async {
+      final error = StringBuffer();
+      final status = await runDartograph(
+        ['rules', '--config', '${temporary.path}/absent.yaml', temporary.path],
+        error: error,
+        indexPackage: (_) async => indexed,
+      );
+      // config 파일 부재는 FileSystemException이다. 인덱싱 실패로 뭉개지 않고
+      // 구분하되 기존 계약의 "Analysis failed:" 접두는 유지한다.
+      expect(status, ExitStatus.failure.code);
+      expect(
+        error.toString(),
+        'Analysis failed: unable to read the rules configuration.\n',
+      );
+      expect(error.toString(), isNot(contains('unable to index')));
+    },
+  );
 }

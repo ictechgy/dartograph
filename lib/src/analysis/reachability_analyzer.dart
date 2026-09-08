@@ -465,10 +465,12 @@ List<String> limitationsForSource(List<String> limitations, String source) =>
 String _librarySource(String id) {
   final uri = Uri.parse(id);
   final separator = uri.path.indexOf('/');
-  final relativePath = separator < 0
-      ? uri.path
-      : uri.path.substring(separator + 1);
-  return 'project:lib/$relativePath';
+  final encoded = separator < 0 ? uri.path : uri.path.substring(separator + 1);
+  // Uri.path는 퍼센트 인코딩을 유지한다(%20 등). analyzer가 실제 파일 경로에서 만든
+  // source 한계 ID는 디코딩된 경로를 쓰므로, 같은 모양으로 디코딩해야
+  // limitationsForSource의 endsWith 매칭이 성립해 그 파일의 한계가 finding에서
+  // 조용히 사라지지 않는다.
+  return 'project:lib/${Uri.decodeComponent(encoded)}';
 }
 
 final class _PathStep {

@@ -64,13 +64,13 @@ abstract final class GraphExporter {
   }) {
     final out = StringBuffer('flowchart LR\n');
     for (final limitation in limitations.toList()..sort()) {
-      out.writeln('  %% limitation: ${_escape(limitation)}');
+      out.writeln('  %% limitation: ${_escapeMermaid(limitation)}');
     }
     final ids = <String, String>{};
     for (var index = 0; index < graph.nodes.length; index++) {
       final node = graph.nodes[index];
       ids[node.id] = 'n$index';
-      out.writeln('  n$index["${_escape(node.id)}"]');
+      out.writeln('  n$index["${_escapeMermaid(node.id)}"]');
     }
     for (final edge in graph.edges) {
       out.writeln(
@@ -84,4 +84,12 @@ abstract final class GraphExporter {
       .replaceAll(r'\', r'\\')
       .replaceAll('"', r'\"')
       .replaceAll('\n', r'\n');
+
+  /// Mermaid 라벨은 HTML 엔티티로 escape한다. DOT용 [_escape](백슬래시)는
+  /// `<no-library>`·`<unnamed-extension@...>`처럼 dartograph가 스스로 만든 노드 ID를
+  /// Mermaid가 HTML 태그로 오해하게 만든다.
+  static String _escapeMermaid(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
 }

@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/dartograph-cli-contract.XXXXXX")"
-trap 'rm -f "$TEMPORARY_DIRECTORY/dartograph"; rmdir "$TEMPORARY_DIRECTORY"' EXIT
+trap 'rm -f "$TEMPORARY_DIRECTORY/dartograph" "$TEMPORARY_DIRECTORY/baseline.json"; rmdir "$TEMPORARY_DIRECTORY"' EXIT
 
 BINARY="${1:-$TEMPORARY_DIRECTORY/dartograph}"
 if [[ $# -eq 0 ]]; then
@@ -55,6 +55,15 @@ expect_status 0 "batch query" query --batch fixtures/phase5_contract/query_batch
 expect_status 64 "batch query partial miss" query --batch fixtures/phase5_contract/query_batch_missing.json fixtures/phase5_contract
 expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
 expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
+expect_status 0 "graph dot" graph --format dot fixtures/phase5_contract
+expect_status 0 "graph json" graph --format json fixtures/phase5_contract
+expect_status 0 "graph mermaid" graph --format mermaid fixtures/phase5_contract
+expect_status 2 "graph failure" graph --format dot fixtures/does-not-exist
+expect_status 0 "skill" skill
+expect_status 0 "bridges" bridges --format json fixtures/phase5_contract
+expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
+expect_status 0 "baseline write" baseline --write "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
+expect_status 0 "dead with written baseline" dead --format json --baseline "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "CLI contract failed: $FAILURES case(s)" >&2

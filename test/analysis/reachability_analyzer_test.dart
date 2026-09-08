@@ -340,4 +340,38 @@ void main() {
       isNot(contains('delete')),
     );
   });
+
+  test('a percent-encoded library id keeps its file-level limitation', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'package:app/main.dart'))
+      ..addNode(GraphNode(id: 'package:app/main.dart::main'))
+      ..addNode(GraphNode(id: 'package:app/foo%20bar.dart'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/main.dart',
+          targetId: 'package:app/main.dart::main',
+          kind: EdgeKind.member,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+      // analyzer는 실제(디코딩된) 파일 경로로 source 한계를 만든다.
+      limitations: const ['source-analysis-errors: project:lib/foo bar.dart'],
+    );
+
+    final file = result.deadFiles.singleWhere(
+      (finding) => finding.id == 'package:app/foo%20bar.dart',
+    );
+    // Uri.path의 %20를 디코딩해야 source가 analyzer 한계와 매치되어, 그 파일의
+    // 한계가 finding에서 조용히 사라지지 않는다.
+    expect(file.source, 'project:lib/foo bar.dart');
+    expect(
+      file.limitations,
+      contains('source-analysis-errors: project:lib/foo bar.dart'),
+    );
+  });
 }

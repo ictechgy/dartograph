@@ -245,8 +245,17 @@ Future<int> _runRules(
     error.write(_help);
     return ExitStatus.usage.code;
   }
+  final LayerRuleSet ruleSet;
   try {
-    final ruleSet = LayerRuleSet.parse(await File(config).readAsString());
+    ruleSet = LayerRuleSet.parse(await File(config).readAsString());
+  } on FileSystemException {
+    // config 파일 부재·읽기 실패는 인덱싱 실패와 다르다. 원인을 반대로 가리키지 않게
+    // 구분하되, 기존 계약(phase5_cli_test)이 단언하는 "Analysis failed:" 접두는 유지한다.
+    return _reportRulesConfigFailure(error);
+  } on FormatException {
+    return _reportRulesConfigFailure(error);
+  }
+  try {
     final indexed = await indexPackage(root);
     final violations = LayerRuleEvaluator(
       ruleSet,
@@ -257,10 +266,6 @@ Future<int> _runRules(
     return strict && violations.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
-  } on FormatException {
-    return _reportAnalysisFailure(error);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -744,10 +749,20 @@ int _reportAnalysisFailure(StringSink error) {
   return ExitStatus.failure.code;
 }
 
+int _reportRulesConfigFailure(StringSink error) {
+  error.writeln('Analysis failed: unable to read the rules configuration.');
+  return ExitStatus.failure.code;
+}
+
 Future<Baseline> _readBaseline(File file) async {
   try {
     return await BaselineStore.read(file);
   } on FormatException {
+    throw const _InvalidBaseline();
+  } on FileSystemException {
+    // baseline 경로가 없으면 PathNotFoundException(FileSystemException)이 난다.
+    // 이를 인덱싱 실패("unable to index the package")로 뭉개면 원인을 반대로 가리킨다.
+    // _reportInvalidBaseline의 "create it with baseline --write" 안내가 부재에도 맞다.
     throw const _InvalidBaseline();
   }
 }
@@ -793,6 +808,8 @@ Usage: dartograph [--help] [--version]
        dartograph cycles [--strict] <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
        dartograph metrics [--strict] <package-root>
+
+--explain requires --format json and does not combine with --baseline or --since.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

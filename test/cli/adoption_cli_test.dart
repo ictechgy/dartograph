@@ -301,4 +301,34 @@ void main() {
       );
     },
   );
+
+  test(
+    'a missing baseline file is reported as invalid, not an index failure',
+    () async {
+      final absent = p.join(directory.path, 'absent-baseline.json');
+      // dead와 query가 같은 _readBaseline을 공유하므로 둘 다 검증한다.
+      for (final arguments in [
+        ['dead', '--format', 'json', '--baseline', absent, directory.path],
+        ['query', 'dead', '--baseline', absent, directory.path],
+      ]) {
+        final errors = StringBuffer();
+        expect(
+          await runDartograph(
+            arguments,
+            error: errors,
+            indexPackage: (_) async => indexed,
+          ),
+          ExitStatus.failure.code,
+        );
+        // baseline 부재(PathNotFoundException)는 인덱싱 실패가 아니다. 원인을
+        // 반대로 가리키지 않고 정확한 안내를 낸다.
+        expect(
+          errors.toString(),
+          'Baseline is invalid: create it with dartograph baseline --write.\n',
+        );
+        expect(errors.toString(), isNot(contains('unable to index')));
+        expect(errors.toString(), isNot(contains(absent)));
+      }
+    },
+  );
 }

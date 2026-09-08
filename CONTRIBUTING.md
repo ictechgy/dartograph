@@ -51,6 +51,6 @@ dart pub publish --dry-run
 - 설치 경계만 재확인할 때: `tool/verify-global-activation.sh`.
 - 공개 프로젝트 도그푸딩 대상은 [PLAN](doc/PLAN.md)을 참고하되 현재 환경과 준비 상태를 확인합니다.
 
-승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG·설치 예제의 버전을 맞추고,
+승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG·설치 예제·SECURITY.md의 버전을 맞추고,
 검증한 commit의 dry-run을 확인한 뒤 게시합니다. pub.dev 성공 후 같은 commit에 태그와 GitHub Release를 연결하고
 공개 패키지를 새 캐시에 설치해 확인합니다. 전파 지연 때 동일 버전을 다시 게시하지 않습니다.

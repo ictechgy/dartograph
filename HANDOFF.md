@@ -1,21 +1,23 @@
 # Handoff
 
-_Last updated: 2026-09-08 (0.3.0 릴리스 완료, PR #19 merge 기준)_
+_Last updated: 2026-09-08 (0.3.0 릴리스 + 감사 backlog 7건 정리, PR #19 merge 기준)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
 - 이번 세션은 이전 9축 감사가 남긴 backlog의 상위 4건을 재현→수정→회귀→GLM 리뷰로
-  반영하고(PR #18), 이어서 0.2.0 이후 누적된 미릴리스 변경 전체를 0.3.0으로 공개했다
-  (PR #19, pub.dev·GitHub Release). 새 대형 기능 요청은 없었다.
+  반영하고(PR #18), 0.2.0 이후 누적된 미릴리스 변경 전체를 0.3.0으로 공개한 뒤(PR #19,
+  pub.dev·GitHub Release), 남은 backlog 7건(릴리스 전 처리 목록)도 정리했다
+  (`fix/pre-release-backlog`). 새 대형 기능 요청은 없었다.
 
 ## Current Status
 
 - 릴리스 기준: `v0.3.0` → `92826d0` (PR #19 merge). pub.dev(latest 0.3.0)·GitHub Release
   공개 완료. 새 격리 캐시 설치로 `dartograph 0.3.0`을 확인했다.
-- main 기준: `92826d0` (PR #19 merge). **미릴리스 변경 없음** — 0.2.0 이후 누적됐던
-  `entry_points`(#9)·analyzer 계약 테스트(#10)·lakos(#11)·결함 수정(#13~#17)·감사 backlog
-  상위 4건이 모두 0.3.0에 릴리스됐다.
+- main 기준: `92826d0` (PR #19 merge). 0.2.0 이후 누적됐던 `entry_points`(#9)·analyzer 계약
+  테스트(#10)·lakos(#11)·결함 수정(#13~#17)·감사 backlog 상위 4건은 모두 0.3.0에 릴리스됐다.
+  이후 감사 backlog의 남은 7건(릴리스 전 처리 목록)을 브랜치 `fix/pre-release-backlog`에서
+  정리했으며 이는 **미릴리스**(다음 0.3.x/0.4.0 후보)다.
 - 지침 기준: `c4d121d` (PR #7 merge).
 - 이번 세션은 backlog 상위 4건을 PR #18로, 0.3.0 릴리스를 PR #19로 머지·게시했다.
   열린 제품 PR은 없다.
@@ -214,36 +216,27 @@ _Last updated: 2026-09-08 (0.3.0 릴리스 완료, PR #19 merge 기준)_
 우선순위 상위 4건(bridge 채널 선언 순서, `.values` enum 상수 오탐, 빈 채널명, `dead --since`의
 `diff.relative`)은 이번 세션에서 처리해 Completed로 옮겼다. 아래는 남은 항목이다.
 
-릴리스 전 처리 목록 중 SKILL.md 문구(`entry_points` 반영 + `isNot(contains('entry_points'))`
-유물 단언 정리)와 SECURITY.md 지원 버전(0.3.x)은 0.3.0 릴리스(PR #19)에서 처리했다. 아래는 남은 항목이다.
+릴리스 전 처리 목록은 **모두 처리했다**. SKILL.md 문구·SECURITY.md 지원 버전은 0.3.0 릴리스(PR #19)에서,
+나머지 7건은 백로그 정리 브랜치(`fix/pre-release-backlog`)에서 재현→수정→회귀로 반영했다:
 
-- `CONTRIBUTING.md`의 릴리스 정합성 목록에 SECURITY.md를 등재한다(이번 릴리스에서 SECURITY.md
-  지원 버전은 갱신했으나, 미래 릴리스를 위한 목록 등재는 아직).
-- `tool/verify-cli-contract.sh` — 유일한 네이티브 게이트가 10개 명령 중 `graph`·`baseline`·
-  `skill`·`bridges` 4개를 한 번도 실행하지 않는다. `tool/AGENTS.md` 위반. *(미검증 발견)*
-- `lib/src/cli/dartograph_cli.dart`의 `_readBaseline`(:747)·`_runRules`(:213) — baseline 경로 부재는
-  `PathNotFoundException`이라 `on FormatException`(:750)에 걸리지 않고, layers.yaml 오류도 함께
-  `Analysis failed: unable to index the package.`로 뭉개져 원인을 반대로 가리킨다. 바로 옆
-  `_reportInvalidBaseline`에 정확한 문구가 이미 있다. `phase5_cli_test.dart:140`이
-  `Analysis failed:` 접두를 단언하므로 접두는 유지한 채 원인을 덧붙인다.
-- `lib/src/analysis/reachability_analyzer.dart`의 `_librarySource`(:428) — package URI에서
-  파일 경로를 추측 재구성해, 퍼센트 인코딩된 파일명에서 `limitationsForSource`의
-  `endsWith(': $source')`가 절대 매치되지 않아 그 파일의 한계가 finding에서 조용히 사라진다.
-  중첩 `example/`에서는 존재하는 다른 파일을 가리킨다. **파급이 크니 범위를 먼저 확인**한다
-  (`layer_rules.dart:203-205` 매칭 후보, `graph_exporter.dart:30`, `symbol_query.dart:189-191`).
-- `lib/src/export/graph_exporter.dart` — Mermaid 출력(:73)이 DOT용 `_escape`(:83)를 재사용해
-  `<no-library>`·`<unnamed-extension@...>` 같은 **자기가 만든** 노드 ID를 잘못 인코딩한다.
-  `_escapeMermaid`를 따로 두고 `&`·`<`·`>`만 엔티티 코드로 처리한다.
-- `.github/workflows/ci.yml:32` — `dart analyze`에 `--fatal-infos`가 없어
-  `public_member_api_docs: true`가 CI에서 실패를 만들지 못한다. 이번 세션에서 실제로 겪었다
-  (새로 쓴 테스트 코드의 info 3건이 exit 0으로 통과). `analysis_options.yaml`에서 강제할 규칙만
-  `errors:`로 승격하는 쪽이 범위가 좁다.
-- `doc/USAGE.md:39`, `README.md:56` — `rules`의 layers.yaml 스키마 설명이 한 문장뿐인데 실제
-  스키마는 엄격하다(`match`가 정점 ID와 sourceUri에 걸리는 glob). 같은 도구의 `entry_points`는
-  예시 블록까지 있어 비대칭이다.
-- `_help`가 `--explain`이 `--format json`을 강제한다는 사실을 알려주지 않는다
-  (`dartograph_cli.dart`의 explain 분기가 json·no-baseline·no-since를 요구). `dead --explain X
-  --format text .`이 설명 없이 64로 떨어진다. *(이 세션에서 실측.)*
+- CONTRIBUTING 릴리스 정합성 목록에 SECURITY.md 등재
+- `verify-cli-contract.sh`에 `graph`(dot·mermaid·실패)·`skill`·`bridges`(성공·실패)·`baseline --write` 게이트 추가
+- `_readBaseline`이 baseline 부재(FileSystemException)도 invalid로, `_runRules`가 config 부재·오류를
+  `Analysis failed: unable to read the rules configuration.`으로 구분(기존 `Analysis failed:` 접두·path 미노출 계약 유지)
+- `_librarySource`가 `Uri.path`의 퍼센트 인코딩을 `Uri.decodeComponent`로 디코딩해 파일 수준 한계가 매치됨
+  (파급은 dead **file** finding의 source뿐. layer_rules·graph_exporter·symbol_query는 `node.sourceUri`/`node.id`를 직접 써 무관)
+- Mermaid 전용 `_escapeMermaid`(`&`·`<`·`>` 엔티티)로 자체 노드 ID 인코딩
+- `analysis_options.yaml`의 `public_member_api_docs: error` 승격(CI `dart analyze`가 info를 실패로 잡음)
+- USAGE의 layers.yaml 스키마 예시 + `--help`의 `--explain` json 강제·no-baseline·no-since 안내
+
+GLM 리뷰가 남긴 후속 후보(이번 범위 밖, 낮음):
+
+- `_runBaseline`의 `BaselineStore.write` FileSystemException(쓰기 불가 경로)이 `on Exception`으로
+  "unable to index the package."로 답해, C가 고친 것과 같은 원인 오인이 baseline 쓰기 경로에 잔여한다.
+- `_escapeMermaid`가 `"`·`\`를 처리하지 않는다. 따옴표 포함 파일명은 Mermaid 라벨 구조를 깰 수 있어
+  `#quot;`(Mermaid 문법) 추가가 후속 후보다(각도 괄호가 합성 ID로 흔해 이번엔 `&`·`<`·`>`만 처리했다).
+
+아래는 **선택 과제**와 확인 후보다.
 
 선택 과제:
 
@@ -330,11 +323,10 @@ _Last updated: 2026-09-08 (0.3.0 릴리스 완료, PR #19 merge 기준)_
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로의 AGENTS.md를 읽는다.
 2. **0.3.0이 릴리스됐다**(main `92826d0`, pub.dev latest 0.3.0, 태그 v0.3.0·GitHub Release 공개,
    새 캐시 설치 확인). 미릴리스 변경은 없으므로 완료된 구현·배포를 반복하지 않는다.
-3. 감사 backlog의 남은 항목이 다음 후보다. 릴리스 전 처리 목록의 남은 것(CONTRIBUTING의
-   SECURITY.md 등재, verify-cli-contract의 graph/baseline/skill/bridges 게이트, `_readBaseline`
-   오류 메시지, `_librarySource` 퍼센트 인코딩, Mermaid escape, ci `--fatal-infos`, layers.yaml
-   문서, `--help`의 `--explain` json 강제 안내)과 선택 과제를 검토한다. enum과 같은 계열인
-   **extension type의 `.values` 공백**은 재현하지 않았으니 확인 후보로 남는다.
+3. 감사 backlog의 릴리스 전 처리 목록은 모두 처리됐다(`fix/pre-release-backlog`). 남은 후보는
+   **선택 과제**(code_graph nodes hoist, FactCache 미주입, ReachabilityResult 미export, metrics
+   tolerance 문서, analyzer 버전 캐시 키, query --baseline dead file, PRD 비교표 README)와
+   enum과 같은 계열인 **extension type의 `.values` 공백 확인**이다.
 4. 새 사용자 요청이 없다면 닫은·보류 항목은 위 근거를 먼저 읽고 다시 도출하지 않는다.
 
 ## Resume Prompt

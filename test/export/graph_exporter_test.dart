@@ -39,4 +39,20 @@ void main() {
       'flowchart LR\n  %% limitation: single configuration\n  n0["a"]\n  n1["b"]\n  n1 -->|call| n0\n',
     );
   });
+
+  test('Mermaid escapes angle brackets and ampersands in its own node ids', () {
+    final special = GraphSnapshot(
+      nodes: [
+        GraphNode(id: '<no-library>'),
+        GraphNode(id: 'a&b'),
+      ],
+      edges: const [],
+    );
+    // DOT용 백슬래시 escape가 아니라 HTML 엔티티로 처리해, dartograph가 스스로 만든
+    // `<no-library>` 같은 노드 ID를 Mermaid가 HTML 태그로 오해하지 않게 한다.
+    expect(
+      GraphExporter.mermaid(special),
+      'flowchart LR\n  n0["&lt;no-library&gt;"]\n  n1["a&amp;b"]\n',
+    );
+  });
 }
