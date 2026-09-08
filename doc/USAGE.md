@@ -36,9 +36,26 @@ dartograph metrics [--strict] <package-root>
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
-GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` 규칙을 사용한다.
-패키지의 `lib/<package-name>.dart`가 export한 공개 선언과 공개 멤버는 외부 소비자 API로
-보존하고 `query`에서 `reason: publicApi`로 설명한다.
+GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
+공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
+
+`rules --config`의 layers.yaml 스키마는 엄격하다. `layers`는 `name`과 `match`(정점 ID와
+`sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
+`rules`는 `name`·`from`(출발 레이어)·`allow` 또는 `deny`(정확히 하나, 대상 레이어 목록)를
+가진다. 알려지지 않은 키나 `allow`/`deny`가 둘 다 있거나 둘 다 없으면 분석 실패(종료 코드 2)다.
+
+```yaml
+# layers.yaml
+layers:
+  - name: ui
+    match: ["project:lib/ui/**"]
+  - name: data
+    match: ["project:lib/data/**"]
+rules:
+  - name: ui-must-not-reach-data-internals
+    from: ui
+    deny: [data]
+```
 
 모든 JSON 목록과 키는 결정적 순서로 출력된다. 같은 입력은 byte-for-byte 같은 결과를
 내야 한다. 단, `bridges`의 `generatedAt`은 실행 시각이다.

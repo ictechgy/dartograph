@@ -3,6 +3,10 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - experiments/**
+  errors:
+    # public_member_api_docs는 info로 나와 `dart analyze`가 실패하지 않는다.
+    # 강제할 규칙만 error로 승격해 CI에서 실제로 잡히게 한다.
+    public_member_api_docs: error
 
 linter:
   rules:
