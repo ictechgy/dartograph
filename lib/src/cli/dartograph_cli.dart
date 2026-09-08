@@ -633,6 +633,7 @@ Future<int> _runDead(
   String? since;
   ReportFormat? reportFormat;
   String? rootPath;
+  var reportTestOnly = false;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (const {
@@ -677,6 +678,12 @@ Future<int> _runDead(
           }
           since = value;
       }
+    } else if (argument == '--report-test-only') {
+      if (reportTestOnly) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      reportTestOnly = true;
     } else if (!argument.startsWith('-') && rootPath == null) {
       rootPath = argument;
     } else {
@@ -684,25 +691,33 @@ Future<int> _runDead(
       return ExitStatus.usage.code;
     }
   }
+  // --report-test-only는 "테스트가 유일한 호출자인 프로덕션 선언"이라는 다른
+  // 질문을 info로 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는
+  // --baseline과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
   if (rootPath == null ||
       reportFormat == null ||
       (explainId != null &&
           (reportFormat != ReportFormat.json ||
               baselinePath != null ||
-              since != null))) {
+              since != null ||
+              reportTestOnly)) ||
+      (reportTestOnly && baselinePath != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
     final indexed = await indexPackage(rootPath);
     final limitations = _limitations(indexed);
-    final result = ReachabilityAnalyzer().analyze(
-      indexed.graph.snapshot(),
-      roots: indexed.retentionRoots,
-      limitations: limitations,
-    );
+    final analyzer = ReachabilityAnalyzer();
+    final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
-      final explanation = result.explain(explainId);
+      final explanation = analyzer
+          .analyze(
+            snapshot,
+            roots: indexed.retentionRoots,
+            limitations: limitations,
+          )
+          .explain(explainId);
       output.writeln(jsonEncode(explanation.toJson()));
       return !explanation.known
           ? ExitStatus.usage.code
@@ -710,38 +725,58 @@ Future<int> _runDead(
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }
-    var findings = [...result.deadDeclarations, ...result.deadFiles]
-      ..sort((a, b) {
-        final kindOrder = a.kind.compareTo(b.kind);
-        return kindOrder != 0 ? kindOrder : a.id.compareTo(b.id);
-      });
+    // --report-test-only는 "테스트가 유일한 호출자인 프로덕션 선언"을 info로
+    // 답한다. 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지 않는다.
+    final report = reportTestOnly ? DeadReport.testOnly : DeadReport.dead;
+    final List<DeadFinding> findings;
+    if (reportTestOnly) {
+      findings = analyzer.testOnlyDeclarations(
+        snapshot,
+        roots: indexed.retentionRoots,
+        limitations: limitations,
+      );
+    } else {
+      final result = analyzer.analyze(
+        snapshot,
+        roots: indexed.retentionRoots,
+        limitations: limitations,
+      );
+      findings = [...result.deadDeclarations, ...result.deadFiles]
+        ..sort((a, b) {
+          final kindOrder = a.kind.compareTo(b.kind);
+          return kindOrder != 0 ? kindOrder : a.id.compareTo(b.id);
+        });
+    }
+    var reported = findings;
     if (since != null) {
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
       final scoped = <DeadFinding>[];
-      for (final finding in findings) {
+      for (final finding in reported) {
         final source = await _canonicalSource(canonicalRoot, finding.source);
         if (source == null || changed.contains(source)) scoped.add(finding);
       }
-      findings = scoped;
+      reported = scoped;
     }
     var suppressedCount = 0;
     if (baselinePath != null) {
       final filtered = (await _readBaseline(
         File(baselinePath),
-      )).filter(findings);
-      findings = filtered.findings;
+      )).filter(reported);
+      reported = filtered.findings;
       suppressedCount = filtered.suppressedCount;
     }
     output.write(
       DeadReporter.render(
         reportFormat,
-        findings,
+        reported,
         limitations: limitations,
         suppressedCount: suppressedCount,
+        report: report,
       ),
     );
-    return findings.isEmpty
+    if (reportTestOnly) return ExitStatus.success.code;
+    return reported.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
   } on _InvalidBaseline {
@@ -903,6 +938,7 @@ dartograph — dependency graphs for Dart and Flutter codebases
 Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid> <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
+       dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
@@ -916,8 +952,11 @@ Usage: dartograph [--help] [--version]
        dartograph metrics [--strict] <package-root>
 
 dead --explain requires --format json and does not combine with --baseline or
---since. cycles/rules --explain answer for one symbol and do not combine with
---strict; an id absent from the graph is reported as known:false with exit 64.
+--since. dead --report-test-only answers a different question (production
+declarations reached only from test code) at info severity, so it never fails
+the build and does not combine with --explain or --baseline. cycles/rules
+--explain answer for one symbol and do not combine with --strict; an id absent
+from the graph is reported as known:false with exit 64.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

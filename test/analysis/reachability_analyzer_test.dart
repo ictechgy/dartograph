@@ -374,4 +374,193 @@ void main() {
       contains('source-analysis-errors: project:lib/foo bar.dart'),
     );
   });
+
+  test('test-only reachability reports production code only tests reach', () {
+    final graph = CodeGraph()
+      // 프로덕션: main이 도달, 테스트만 도달, 어디서도 도달 못 함, @visibleForTesting.
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::usedByMain',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::usedByTestOnly',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::deadEverywhere',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::vftKept',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::reachedByVft',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      // 테스트 디렉터리 선언(루트)과 그 내부 헬퍼.
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod_test.dart::testMain',
+          sourceUri: 'project:test/prod_test.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod_test.dart::testHelper',
+          sourceUri: 'project:test/prod_test.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/main.dart::main',
+          targetId: 'package:app/prod.dart::usedByMain',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/prod_test.dart::testMain',
+          targetId: 'package:app/prod.dart::usedByTestOnly',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/prod_test.dart::testMain',
+          targetId: 'package:app/prod_test.dart::testHelper',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/prod.dart::vftKept',
+          targetId: 'package:app/prod.dart::reachedByVft',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    final findings = ReachabilityAnalyzer().testOnlyDeclarations(
+      graph.snapshot(),
+      roots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+        'package:app/prod_test.dart::testMain':
+            RetentionReason.visibleForTesting,
+        // @visibleForTesting 프로덕션 선언은 lib/ 소스라 테스트 루트가 아니다.
+        'package:app/prod.dart::vftKept': RetentionReason.visibleForTesting,
+      },
+    );
+
+    // 테스트에서만 도달되는 프로덕션 선언 하나만 보고된다.
+    expect(findings.map((finding) => finding.id), [
+      'package:app/prod.dart::usedByTestOnly',
+    ]);
+    expect(findings.single.reason, 'reached only from test code');
+    expect(findings.single.kind, 'declaration');
+    // 근거는 실제로 도달한 테스트 루트다(전체 테스트 루트 나열이 아니다).
+    expect(findings.single.retentionRootsChecked, [
+      'package:app/prod_test.dart::testMain',
+    ]);
+  });
+
+  test('test-only reachability is empty when nothing depends on tests', () {
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/prod.dart::used',
+          sourceUri: 'project:lib/prod.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/main.dart::main',
+          targetId: 'package:app/prod.dart::used',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    expect(
+      ReachabilityAnalyzer().testOnlyDeclarations(
+        graph.snapshot(),
+        roots: const {
+          'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+        },
+      ),
+      isEmpty,
+    );
+  });
+
+  test('test-only reachability recognizes every test-directory prefix', () {
+    // _testSourcePrefixes의 네 접두어 각각이 테스트 루트로 분류되는지 고정한다.
+    // 인덱스의 _retentionReason 접두어와 어긋나면 이 테스트가 실패한다.
+    for (final prefix in const [
+      'project:test/',
+      'project:integration_test/',
+      'project:example/test/',
+      'project:example/integration_test/',
+    ]) {
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(id: 'app::prod', sourceUri: 'project:lib/prod.dart'),
+        )
+        ..addNode(
+          GraphNode(id: 'app::testRoot', sourceUri: '${prefix}x_test.dart'),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'app::testRoot',
+            targetId: 'app::prod',
+            kind: EdgeKind.call,
+          ),
+        );
+      final findings = ReachabilityAnalyzer().testOnlyDeclarations(
+        graph.snapshot(),
+        roots: const {'app::testRoot': RetentionReason.visibleForTesting},
+      );
+      expect(findings.map((f) => f.id), ['app::prod'], reason: prefix);
+    }
+  });
+
+  test('a test-source root with a non-testing reason is not removed', () {
+    // _isTestRoot는 reason과 source를 양쪽 요구한다. source가 테스트 디렉터리여도
+    // reason이 visibleForTesting가 아니면(인덱스 drift 가정) 테스트 루트로 제거하지
+    // 않아, 그 전용 callee를 거짓 양성으로 보고하지 않는다(누락으로 안전 편향).
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::prod', sourceUri: 'project:lib/prod.dart'))
+      ..addNode(GraphNode(id: 'app::oddRoot', sourceUri: 'project:test/x.dart'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'app::oddRoot',
+          targetId: 'app::prod',
+          kind: EdgeKind.call,
+        ),
+      );
+    final findings = ReachabilityAnalyzer().testOnlyDeclarations(
+      graph.snapshot(),
+      roots: const {'app::oddRoot': RetentionReason.mainEntryPoint},
+    );
+    expect(findings, isEmpty);
+  });
 }

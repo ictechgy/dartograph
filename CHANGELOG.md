@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `dead --report-test-only` 추가 (cartograph parity)
+  - 테스트 디렉터리(`test/`·`integration_test/` 등) 보존 루트를 빼고 도달성을 다시
+    계산해, 프로덕션 선언인데 테스트에서만 도달되는 것을 고른다. 죽은 코드가 아니라
+    "테스트가 유일한 호출자"라는 관측이다
+  - `info` 심각도(text `info:`·github-actions `::notice`·sarif `note`·ruleId
+    `test-only-declaration`)로 보고하고 finding이 있어도 종료 코드 0이다(빌드를 실패
+    시키지 않는다). 테스트 디렉터리 내부 선언과 `@visibleForTesting` 프로덕션 선언은
+    보수적으로 제외한다
+  - 단일 대상 질의인 `--explain`, dead finding을 억제하는 `--baseline`과는 결합하지
+    않으며(usage 64) `--since`·`--format`은 허용한다
 - `cycles --explain <symbol-id>`·`rules --explain <symbol-id>` 추가 (cartograph 근거 parity)
   - `cycles --explain`은 한 정점이 강결합 요소로 참여하는 순환과 각각의 `breakCandidate`
     (끊을 후보 간선)를 JSON으로 낸다. 한 정점은 최대 하나의 강결합 요소에 속하므로 0·1개다

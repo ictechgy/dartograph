@@ -17,6 +17,7 @@ dartograph --version
 dartograph graph --format <dot|json|mermaid> <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
+dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
 dartograph baseline --write <file> <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
@@ -35,6 +36,14 @@ dartograph metrics [--strict] <package-root>
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
 `--explain`은 단일 대상의 전체 근거를 묻는 명령이라 `--baseline`·`--since`와 함께 쓰지 않는다.
 그래프에 없는 ID는 `known: false`와 종료 코드 64로 구분한다.
+
+`dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
+등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
+것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"
+라는 관측이므로 `info` 심각도로 보고되고 **finding이 있어도 종료 코드 0**이다(빌드를 실패
+시키지 않는다). 테스트 디렉터리 내부 선언과 `@visibleForTesting` 프로덕션 선언(테스트
+디렉터리 밖이라 루트로 남음)은 보수적으로 답에서 제외한다. 단일 대상 질의인 `--explain`,
+dead finding을 억제하는 `--baseline`과는 결합하지 않으며 `--since`·`--format`은 허용한다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
@@ -102,8 +111,8 @@ rules:
 
 | 코드 | 뜻 |
 |---:|---|
-| 0 | 명령 성공. 일반 보고 모드는 finding이 있어도 성공할 수 있음 |
-| 1 | `dead` finding, 또는 `--strict` 분석 명령의 finding |
+| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`(info)는 finding이 있어도 성공 |
+| 1 | `dead` finding(`--report-test-only` 제외), 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함 |
 | 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 
