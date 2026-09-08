@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `affected <git-ref> <package-root>` 명령 추가 (dependency-cruiser `--affected` 흡수)
+  - Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 파일이 귀속되는 라이브러리를
+    씨앗으로 import·export 간선을 역방향으로 건너, 전이적으로 의존하는 라이브러리를
+    JSON으로 답한다. part 파일의 변경은 호스트 라이브러리로 귀속된다
+  - 각 피영향 라이브러리는 가장 가까운 변경 라이브러리까지의 최단 의존 사슬 `path`와
+    `depth` 근거를 싣고, `changed`(씨앗)와 `affected`(종속자)는 겹치지 않는다. 영향
+    반경은 라이브러리(파일) 수준 관측이다
+  - 분석 대상 라이브러리에 속하지 않는 변경 Dart 파일은
+    `changed-dart-files-without-library` 한계로 알린다. Git 실패는 `--since`와 같은
+    진단·종료 코드 2, 보고 성공은 영향 개수와 무관하게 종료 코드 0이다
 - `dead --report-test-only` 추가 (cartograph parity)
   - 테스트 디렉터리(`test/`·`integration_test/` 등) 보존 루트를 빼고 도달성을 다시
     계산해, 프로덕션 선언인데 테스트에서만 도달되는 것을 고른다. 죽은 코드가 아니라

@@ -21,6 +21,10 @@ If invocation details are unclear, inspect `dartograph --help`.
 - Two prepared checkouts: `dartograph compare <before-root> <after-root>`.
   Match SDK, dependencies and build configuration; compare does not prepare them.
   A removed reference on a prior path is observed evidence, not proof of one cause.
+- Impact of pending changes: `dartograph affected <git-ref> <package-root>`
+  lists the libraries changed since that revision and their transitive
+  dependents with dependency-path evidence. It observes at library level;
+  an unlisted declaration is not proven unaffected.
 - Cross-language facts: use `dartograph bridges --format json <package-root>`
   and the project's existing isthmus workflow when the task crosses native code.
 
