@@ -30,6 +30,68 @@ void main() {
     }
   });
 
+  test('the default dead report renders at warning severity', () {
+    expect(
+      DeadReporter.render(ReportFormat.text, [finding]),
+      contains(': warning: declaration'),
+    );
+    expect(
+      DeadReporter.render(ReportFormat.text, [finding]),
+      contains('dead: 1 finding(s)'),
+    );
+    expect(
+      DeadReporter.render(ReportFormat.githubActions, [finding]),
+      contains('::warning '),
+    );
+    final sarif =
+        jsonDecode(DeadReporter.render(ReportFormat.sarif, [finding]))
+            as Map<String, Object?>;
+    final result = ((sarif['runs'] as List).single as Map)['results'] as List;
+    expect((result.single as Map)['level'], 'warning');
+    expect((result.single as Map)['ruleId'], 'dead-declaration');
+  });
+
+  test('the test-only report renders at info severity and never warns', () {
+    final testOnly = DeadFinding(
+      id: 'package:app/a.dart::onlyTested',
+      kind: 'declaration',
+      source: 'project:lib/a.dart',
+      line: 3,
+      column: 1,
+      reason: 'reached only from test code',
+      retentionRootsChecked: const ['package:app/a_test.dart::main'],
+    );
+    final text = DeadReporter.render(ReportFormat.text, [
+      testOnly,
+    ], report: DeadReport.testOnly);
+    expect(text, contains(': info: declaration'));
+    expect(text, contains('test-only: 1 finding(s)'));
+    expect(text, isNot(contains('warning')));
+
+    final actions = DeadReporter.render(ReportFormat.githubActions, [
+      testOnly,
+    ], report: DeadReport.testOnly);
+    expect(actions, contains('::notice '));
+    expect(actions, isNot(contains('::warning')));
+    expect(actions, contains('title=dartograph test-only'));
+
+    final sarif =
+        jsonDecode(
+              DeadReporter.render(ReportFormat.sarif, [
+                testOnly,
+              ], report: DeadReport.testOnly),
+            )
+            as Map<String, Object?>;
+    final run = (sarif['runs'] as List).single as Map;
+    final result = (run['results'] as List).single as Map;
+    expect(result['level'], 'note');
+    expect(result['ruleId'], 'test-only-declaration');
+    final rules = ((run['tool'] as Map)['driver'] as Map)['rules'] as List;
+    expect(rules, [
+      {'id': 'test-only-declaration'},
+    ]);
+  });
+
   test(
     'machine reporters emit deterministic valid documents and locations',
     () {

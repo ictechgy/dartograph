@@ -450,7 +450,89 @@ final class ReachabilityAnalyzer {
       limitations: List.unmodifiable(limitations),
     );
   }
+
+  /// 테스트 코드에서만 도달되는 프로덕션 선언을 info 발견으로 반환한다.
+  ///
+  /// cartograph `dead --report-test-only`와 같은 질문이다. 테스트 디렉터리 루트를
+  /// 빼고 도달성을 다시 계산해, 전체 루트로는 살아 있으나 테스트 루트 없이는
+  /// 미도달이 되는 **프로덕션** 선언(테스트 디렉터리 밖)을 고른다. 이들은 죽은
+  /// 코드가 아니라 "테스트가 유일한 호출자"라는 관측이며 삭제 권고가 아니다.
+  /// `@visibleForTesting` 프로덕션 선언은 테스트 디렉터리 밖이라 루트로 남아
+  /// 보수적으로 제외된다. 테스트 디렉터리 자체의 선언도 답에서 제외한다.
+  List<DeadFinding> testOnlyDeclarations(
+    GraphSnapshot graph, {
+    required Map<String, RetentionReason> roots,
+    List<String> limitations = const [],
+  }) {
+    final sources = <String, String?>{
+      for (final node in graph.nodes) node.id: node.sourceUri,
+    };
+    final nodeIds = graph.nodes.map((node) => node.id).toSet();
+    final nonTestRoots = <String, RetentionReason>{
+      for (final entry in roots.entries)
+        if (!_isTestSource(sources[entry.key])) entry.key: entry.value,
+    };
+    final testRootsChecked =
+        roots.keys
+            .where((id) => nodeIds.contains(id) && _isTestSource(sources[id]))
+            .toList()
+          ..sort();
+    final withTests = analyze(graph, roots: roots, limitations: limitations);
+    final withoutTests = analyze(
+      graph,
+      roots: nonTestRoots,
+      limitations: limitations,
+    );
+    final deadWithTests = withTests.deadDeclarations
+        .map((finding) => finding.id)
+        .toSet();
+    final findings = <DeadFinding>[];
+    for (final finding in withoutTests.deadDeclarations) {
+      // 전체 루트에서도 죽었으면 일반 dead 발견이지 테스트 전용이 아니다.
+      if (deadWithTests.contains(finding.id)) continue;
+      // 테스트 디렉터리 내부 선언은 cartograph와 같이 답에서 제외한다.
+      if (_isTestSource(finding.source)) continue;
+      // 이 선언을 살리는 실제 테스트 루트를 근거로 쓴다. 전체 테스트 루트를
+      // 나열하면 대부분 이 선언에 도달하지 않아 근거가 희석되고 20개를 넘으면
+      // 진짜 루트가 잘린다. test-only 선언은 모든 도달 경로가 테스트 루트에서
+      // 시작하므로(아니면 테스트 없이도 도달 가능) path.first가 곧 그 루트다.
+      final explanation = withTests.explain(finding.id);
+      final reachingRoot = explanation.reachable && explanation.path.isNotEmpty
+          ? explanation.path.first
+          : null;
+      findings.add(
+        DeadFinding(
+          id: finding.id,
+          kind: 'declaration',
+          source: finding.source,
+          line: finding.line,
+          column: finding.column,
+          reason: 'reached only from test code',
+          retentionRootsChecked: reachingRoot != null
+              ? [reachingRoot]
+              : testRootsChecked,
+          limitations: finding.limitations,
+        ),
+      );
+    }
+    return findings;
+  }
 }
+
+/// 테스트 코드의 보존 루트 source 접두어다.
+///
+/// `analyzer_graph_index.dart`의 `_retentionReason`이 테스트 디렉터리 선언에
+/// `visibleForTesting`를 부여하는 접두어와 일치해야 한다. 어긋나면 테스트 전용
+/// 도달 판정이 테스트 루트를 잘못 분류하므로 회귀로 고정한다.
+const _testSourcePrefixes = [
+  'project:test/',
+  'project:integration_test/',
+  'project:example/test/',
+  'project:example/integration_test/',
+];
+
+bool _isTestSource(String? source) =>
+    source != null && _testSourcePrefixes.any(source.startsWith);
 
 /// 소스 한계는 관측된 파일에만 붙이고 전역 한계는 모든 finding에 보존한다.
 List<String> limitationsForSource(List<String> limitations, String source) =>

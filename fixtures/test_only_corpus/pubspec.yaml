@@ -1,0 +1,3 @@
+name: test_only_corpus
+environment:
+  sdk: ^3.11.0
