@@ -110,6 +110,45 @@ final class LayerRule {
 
   /// 참이면 [targets] 밖을 위반으로, 거짓이면 안을 위반으로 본다.
   final bool allow;
+
+  /// 결정적인 JSON 필드 값을 만든다.
+  Map<String, Object> toJson() => {
+    'allow': allow,
+    'from': from,
+    'name': name,
+    'targets': targets.toList()..sort(),
+  };
+}
+
+/// 한 정점의 레이어 배치와 매치 근거, 그 레이어에서 출발하는 규칙이다.
+final class LayerExplanation {
+  /// 정점 ID와 존재 여부, 레이어 배치 근거를 묶는다.
+  const LayerExplanation({
+    required this.id,
+    required this.known,
+    required this.layer,
+    required this.matchedPattern,
+    required this.matchedCandidate,
+    required this.rules,
+  });
+
+  /// 설명 대상 정점 ID다.
+  final String id;
+
+  /// 대상 ID가 분석 그래프에 실제로 존재하는지 나타낸다.
+  final bool known;
+
+  /// 배치된 레이어 이름이다. 어떤 레이어에도 매치되지 않으면 null이다.
+  final String? layer;
+
+  /// 배치를 결정한 glob 패턴이다. 매치되지 않으면 null이다.
+  final String? matchedPattern;
+
+  /// 패턴이 매치된 후보(정점 ID 또는 sourceUri)다. 매치되지 않으면 null이다.
+  final String? matchedCandidate;
+
+  /// [layer]에서 출발하는 규칙의 결정적 목록이다. 없으면 빈 목록이다.
+  final List<LayerRule> rules;
 }
 
 /// 위반 경로와 판정에 사용된 소스·간선 근거다.
@@ -198,15 +237,65 @@ final class LayerRuleEvaluator {
     return List.unmodifiable(result);
   }
 
-  String? _layer(GraphNode node) {
+  /// [id]의 레이어 배치와 매치 근거, 그 레이어에서 출발하는 규칙을 답한다.
+  ///
+  /// 정점이 그래프에 없으면 `known: false`다. 있으면 어떤 레이어에도 매치되지
+  /// 않을 수 있고(layer·matchedPattern·matchedCandidate가 null), 그때 출발
+  /// 규칙도 빈 목록이다. 규칙은 설정 순서대로 결정적으로 실린다.
+  LayerExplanation explainNode(GraphSnapshot graph, String id) {
+    GraphNode? node;
+    for (final candidate in graph.nodes) {
+      if (candidate.id == id) {
+        node = candidate;
+        break;
+      }
+    }
+    if (node == null) {
+      return LayerExplanation(
+        id: id,
+        known: false,
+        layer: null,
+        matchedPattern: null,
+        matchedCandidate: null,
+        rules: const [],
+      );
+    }
+    final assignment = _assignment(node);
+    final layer = assignment?.layer;
+    final rules = layer == null
+        ? const <LayerRule>[]
+        : ruleSet.rules
+              .where((rule) => rule.from == layer)
+              .toList(growable: false);
+    return LayerExplanation(
+      id: id,
+      known: true,
+      layer: layer,
+      matchedPattern: assignment?.pattern,
+      matchedCandidate: assignment?.candidate,
+      rules: rules,
+    );
+  }
+
+  String? _layer(GraphNode node) => _assignment(node)?.layer;
+
+  /// first-match 레이어·패턴·후보를 찾는다. 순회는 layer→pattern→candidate로
+  /// `_layer`가 예전에 `candidates.any`로 찾던 것과 같은 first-match라 배치가
+  /// 바뀌지 않고, 매치된 패턴·후보만 추가로 드러낸다.
+  ({String layer, String pattern, String candidate})? _assignment(
+    GraphNode node,
+  ) {
     final candidates = <String>[
       node.id,
       if (node.sourceUri != null) node.sourceUri!,
     ];
     for (final layer in ruleSet.layers) {
       for (final pattern in layer.patterns) {
-        if (candidates.any((candidate) => _glob(pattern).hasMatch(candidate))) {
-          return layer.name;
+        final regex = _glob(pattern);
+        for (final candidate in candidates) {
+          if (regex.hasMatch(candidate)) {
+            return (layer: layer.name, pattern: pattern, candidate: candidate);
+          }
         }
       }
     }

@@ -185,18 +185,60 @@ Future<int> _runCycles(
   StringSink error,
   IndexPackage indexPackage,
 ) async {
-  final parsed = _strictRoot(arguments);
-  if (parsed == null) {
+  var strict = false;
+  String? explainId;
+  String? root;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--strict') {
+      if (strict) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      strict = true;
+    } else if (argument == '--explain') {
+      // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
+      // 않는다. 값이 빠진 오타는 뒤따르는 위치 인자가 남아 usage(64)로 떨어진다.
+      if (explainId != null) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      explainId = arguments[index];
+    } else if (!argument.startsWith('-') && root == null) {
+      root = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  // --explain은 한 정점의 근거를 묻는 질의라 finding 게이트(--strict)와 결합하지
+  // 않는다. dead --explain이 --baseline/--since를 배제하는 것과 같은 철학이다.
+  if (root == null || (strict && explainId != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final indexed = await indexPackage(parsed.root);
+    final indexed = await indexPackage(root);
+    final limitations = _limitations(indexed);
+    if (explainId != null) {
+      final explanation = CycleDetector().explain(
+        indexed.graph.snapshot(),
+        explainId,
+      );
+      output.write(
+        AnalysisReporter.cyclesExplain(explanation, limitations: limitations),
+      );
+      return explanation.known
+          ? ExitStatus.success.code
+          : ExitStatus.usage.code;
+    }
     final cycles = CycleDetector().detect(indexed.graph.snapshot());
-    output.write(
-      AnalysisReporter.cycles(cycles, limitations: _limitations(indexed)),
-    );
-    return parsed.strict && cycles.isNotEmpty
+    output.write(AnalysisReporter.cycles(cycles, limitations: limitations));
+    return strict && cycles.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
   } on FileSystemException {
@@ -218,6 +260,7 @@ Future<int> _runRules(
 ) async {
   var strict = false;
   String? config;
+  String? explainId;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -234,6 +277,14 @@ Future<int> _runRules(
         return ExitStatus.usage.code;
       }
       config = arguments[index];
+    } else if (argument == '--explain' && explainId == null) {
+      // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
+      // 않는다. 값이 빠진 오타는 뒤따르는 위치 인자가 남아 usage(64)로 떨어진다.
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      explainId = arguments[index];
     } else if (!argument.startsWith('-') && root == null) {
       root = argument;
     } else {
@@ -241,7 +292,9 @@ Future<int> _runRules(
       return ExitStatus.usage.code;
     }
   }
-  if (config == null || root == null) {
+  // --explain은 한 정점의 레이어 배치를 묻는 질의라 finding 게이트(--strict)와
+  // 결합하지 않는다. 레이어 배치는 ruleset에 의존하므로 --config는 계속 필요하다.
+  if (config == null || root == null || (strict && explainId != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -257,12 +310,22 @@ Future<int> _runRules(
   }
   try {
     final indexed = await indexPackage(root);
+    final limitations = _limitations(indexed);
+    if (explainId != null) {
+      final explanation = LayerRuleEvaluator(
+        ruleSet,
+      ).explainNode(indexed.graph.snapshot(), explainId);
+      output.write(
+        AnalysisReporter.rulesExplain(explanation, limitations: limitations),
+      );
+      return explanation.known
+          ? ExitStatus.success.code
+          : ExitStatus.usage.code;
+    }
     final violations = LayerRuleEvaluator(
       ruleSet,
     ).evaluate(indexed.graph.snapshot());
-    output.write(
-      AnalysisReporter.rules(violations, limitations: _limitations(indexed)),
-    );
+    output.write(AnalysisReporter.rules(violations, limitations: limitations));
     return strict && violations.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
@@ -847,10 +910,14 @@ Usage: dartograph [--help] [--version]
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json <package-root>
        dartograph cycles [--strict] <package-root>
+       dartograph cycles --explain <symbol-id> <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
+       dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
        dartograph metrics [--strict] <package-root>
 
---explain requires --format json and does not combine with --baseline or --since.
+dead --explain requires --format json and does not combine with --baseline or
+--since. cycles/rules --explain answer for one symbol and do not combine with
+--strict; an id absent from the graph is reported as known:false with exit 64.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

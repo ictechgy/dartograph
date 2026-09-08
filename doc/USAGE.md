@@ -24,7 +24,9 @@ dartograph compare <before-package-root> <after-package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph bridges --format json <package-root>
 dartograph cycles [--strict] <package-root>
+dartograph cycles --explain <symbol-id> <package-root>
 dartograph rules --config <yaml-file> [--strict] <package-root>
+dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
 dartograph metrics [--strict] <package-root>
 ```
 
@@ -66,6 +68,16 @@ rules:
     deny: [data]
 ```
 
+`cycles --explain <symbol-id>`는 한 정점이 강결합 요소로 참여하는 순환과 각각의
+`breakCandidate`(끊을 후보 간선)를 JSON으로 낸다. 한 정점은 최대 하나의 강결합 요소에
+속하므로 `cycles`는 0개 또는 1개다. `rules --explain <symbol-id>`는 그 정점이 배치된
+레이어, 배치를 결정한 `matchedPattern`·`matchedCandidate`, 그리고 그 레이어에서 출발하는
+`rules`를 JSON으로 낸다. 어떤 레이어에도 매치되지 않으면 `layer`·`matchedPattern`·
+`matchedCandidate`가 null이고 `rules`는 비어 있다(rules는 계속 `--config`를 요구한다).
+두 `--explain` 모두 단일 정점 질의라 `--strict`와 결합하지 않으며, 그래프에 없는 ID는
+`known: false`와 종료 코드 64로 구분한다. 알려진 ID는 순환·레이어 참여와 무관하게
+종료 코드 0이다(이 명령들은 기본적으로 보고만 하므로 explain은 finding 게이트가 아니다).
+
 모든 JSON 목록과 키는 결정적 순서로 출력된다. 같은 입력은 byte-for-byte 같은 결과를
 내야 한다. 단, `bridges`의 `generatedAt`은 실행 시각이다.
 
@@ -93,7 +105,7 @@ rules:
 | 0 | 명령 성공. 일반 보고 모드는 finding이 있어도 성공할 수 있음 |
 | 1 | `dead` finding, 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함 |
-| 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain` 대상이 그래프에 없음 |
+| 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 
 ## CI 예제
 
