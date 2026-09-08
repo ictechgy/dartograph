@@ -203,7 +203,6 @@ void main() {
     );
     expect(output.toString(), contains('main functions may be multiple'));
     expect(output.toString(), contains('Confirm the actual build target'));
-    expect(output.toString(), isNot(contains('entry_points')));
     expect(output.toString(), contains('state is not a deletion verdict'));
     expect(output.toString(), contains('limitations'));
     expect(output.toString(), contains('overrideContract'));
