@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `cycles --explain <symbol-id>`·`rules --explain <symbol-id>` 추가 (cartograph 근거 parity)
+  - `cycles --explain`은 한 정점이 강결합 요소로 참여하는 순환과 각각의 `breakCandidate`
+    (끊을 후보 간선)를 JSON으로 낸다. 한 정점은 최대 하나의 강결합 요소에 속하므로 0·1개다
+  - `rules --explain`은 정점이 배치된 레이어, 배치를 결정한 `matchedPattern`·
+    `matchedCandidate`, 그 레이어에서 출발하는 `rules`를 JSON으로 낸다. 매치된 레이어가
+    없으면 해당 필드들이 null·빈 목록이다(`--config`는 계속 필요)
+  - 두 `--explain` 모두 단일 정점 질의라 `--strict`와 결합하지 않으며(usage 64), 그래프에
+    없는 ID는 `known: false`와 종료 코드 64, 알려진 ID는 참여와 무관하게 종료 코드 0이다
 - `query`에 `--depth <n>`·`--limit <n>` 추가 (cartograph SymbolQueryDocument parity)
   - `--depth`(기본 1)는 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 BFS로 따라가고, 각
     이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 여러 간선

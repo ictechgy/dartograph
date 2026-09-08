@@ -50,6 +50,25 @@ final class CycleEdgeEvidence {
   Map<String, String> toJson() => {'from': from, 'kind': kind.name, 'to': to};
 }
 
+/// 한 정점이 참여하는 순환과 그 정점의 그래프 존재 여부다.
+final class CycleExplanation {
+  /// 정점 ID와 존재 여부, 참여 순환을 묶는다.
+  const CycleExplanation({
+    required this.id,
+    required this.known,
+    required this.cycles,
+  });
+
+  /// 설명 대상 정점 ID다.
+  final String id;
+
+  /// 대상 ID가 분석 그래프에 실제로 존재하는지 나타낸다.
+  final bool known;
+
+  /// [id]가 강결합 요소에 속하는 순환의 결정적 목록이다. 없으면 빈 목록이다.
+  final List<DependencyCycle> cycles;
+}
+
 final class _Frame {
   _Frame(this.node, this.successors);
 
@@ -159,6 +178,22 @@ final class CycleDetector {
           );
         })
         .toList(growable: false);
+  }
+
+  /// [id]가 참여하는 순환과 그 정점의 그래프 존재 여부를 결정적으로 답한다.
+  ///
+  /// 정점이 그래프에 없으면 `known: false`와 빈 목록이다. 있으면 강결합 요소가
+  /// 그 정점을 포함하는 순환만 남긴다. 한 정점은 최대 하나의 강결합 요소에
+  /// 속하므로 결과는 0개 또는 1개지만, 계약은 목록으로 유지한다.
+  CycleExplanation explain(GraphSnapshot graph, String id) {
+    final known = graph.nodes.any((node) => node.id == id);
+    if (!known) {
+      return CycleExplanation(id: id, known: false, cycles: const []);
+    }
+    final cycles = detect(
+      graph,
+    ).where((cycle) => cycle.component.contains(id)).toList(growable: false);
+    return CycleExplanation(id: id, known: true, cycles: cycles);
   }
 }
 

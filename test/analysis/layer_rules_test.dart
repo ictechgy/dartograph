@@ -166,4 +166,86 @@ rules:
       'domain must not depend on data',
     );
   });
+
+  test('explainNode names the layer, matched pattern and rules from it', () {
+    final rules = LayerRuleSet.parse('''
+layers:
+  - name: ui
+    match: ["project:lib/ui/**"]
+  - name: data
+    match: ["project:lib/data/**"]
+rules:
+  - name: ui must not reach data
+    from: ui
+    deny: [data]
+  - from: data
+    allow: []
+''');
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(id: 'screen', sourceUri: 'project:lib/ui/screen.dart'),
+      );
+
+    final explained = LayerRuleEvaluator(
+      rules,
+    ).explainNode(graph.snapshot(), 'screen');
+    expect(explained.known, isTrue);
+    expect(explained.layer, 'ui');
+    expect(explained.matchedPattern, 'project:lib/ui/**');
+    // 정점 ID가 sourceUri보다 먼저 후보로 검사되지만, ID는 패턴에 매치되지
+    // 않으므로 sourceUri가 매치 후보다.
+    expect(explained.matchedCandidate, 'project:lib/ui/screen.dart');
+    // ui에서 출발하는 규칙만 실린다(data 출발 규칙은 제외).
+    expect(explained.rules.map((rule) => rule.name).toList(), [
+      'ui must not reach data',
+    ]);
+    expect(explained.rules.single.toJson(), {
+      'allow': false,
+      'from': 'ui',
+      'name': 'ui must not reach data',
+      'targets': ['data'],
+    });
+  });
+
+  test('explainNode reports a present node matching no layer as known', () {
+    final rules = LayerRuleSet.parse('''
+layers:
+  - name: ui
+    match: ["project:lib/ui/**"]
+rules:
+  - from: ui
+    allow: []
+''');
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'other', sourceUri: 'project:lib/other.dart'));
+
+    final explained = LayerRuleEvaluator(
+      rules,
+    ).explainNode(graph.snapshot(), 'other');
+    expect(explained.known, isTrue);
+    expect(explained.layer, isNull);
+    expect(explained.matchedPattern, isNull);
+    expect(explained.matchedCandidate, isNull);
+    expect(explained.rules, isEmpty);
+  });
+
+  test('explainNode marks an id absent from the graph as unknown', () {
+    final rules = LayerRuleSet.parse('''
+layers:
+  - name: ui
+    match: ["project:lib/ui/**"]
+rules:
+  - from: ui
+    allow: []
+''');
+    final graph = CodeGraph()..addNode(GraphNode(id: 'screen'));
+
+    final explained = LayerRuleEvaluator(
+      rules,
+    ).explainNode(graph.snapshot(), 'missing');
+    expect(explained.known, isFalse);
+    expect(explained.id, 'missing');
+    expect(explained.layer, isNull);
+    expect(explained.rules, isEmpty);
+  });
 }

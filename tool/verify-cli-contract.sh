@@ -44,8 +44,13 @@ expect_status 1 "findings" dead --format json fixtures/false_positive_corpus
 expect_status 0 "cycles report" cycles fixtures/phase5_contract
 expect_status 1 "cycles strict findings" cycles --strict fixtures/phase5_contract
 expect_status 1 "cycles trailing strict" cycles fixtures/phase5_contract --strict
-expect_status 0 "rules report" rules --config fixtures/phase5_contract/layers.yaml fixtures/phase5_contract
-expect_status 1 "rules strict findings" rules --config fixtures/phase5_contract/layers.yaml --strict fixtures/phase5_contract
+  expect_status 0 "rules report" rules --config fixtures/phase5_contract/layers.yaml fixtures/phase5_contract
+  expect_status 1 "rules strict findings" rules --config fixtures/phase5_contract/layers.yaml --strict fixtures/phase5_contract
+  expect_status 0 "cycles explain" cycles --explain project:lib/a.dart::a fixtures/phase5_contract
+  expect_status 64 "cycles explain unknown" cycles --explain project:lib/missing.dart fixtures/phase5_contract
+  expect_status 64 "cycles explain with strict" cycles --explain project:lib/a.dart::a --strict fixtures/phase5_contract
+  expect_status 0 "rules explain" rules --config fixtures/phase5_contract/layers.yaml --explain project:lib/a.dart::a fixtures/phase5_contract
+  expect_status 64 "rules explain unknown" rules --config fixtures/phase5_contract/layers.yaml --explain project:lib/missing.dart fixtures/phase5_contract
 expect_status 0 "metrics report" metrics fixtures/phase5_contract
 expect_status 1 "metrics strict findings" metrics --strict fixtures/phase5_contract
 expect_status 1 "metrics trailing strict" metrics fixtures/phase5_contract --strict

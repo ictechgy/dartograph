@@ -117,6 +117,92 @@ void main() {
       }
     }
   });
+
+  test(
+    'explain returns the cycle a member takes part in with its break edge',
+    () {
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'a'))
+        ..addNode(GraphNode(id: 'b'))
+        ..addNode(GraphNode(id: 'c'))
+        ..addNode(GraphNode(id: 'leaf'))
+        ..addEdge(
+          const GraphEdge(sourceId: 'a', targetId: 'b', kind: EdgeKind.call),
+        )
+        ..addEdge(
+          const GraphEdge(sourceId: 'b', targetId: 'c', kind: EdgeKind.call),
+        )
+        ..addEdge(
+          const GraphEdge(sourceId: 'c', targetId: 'a', kind: EdgeKind.call),
+        )
+        ..addEdge(
+          const GraphEdge(sourceId: 'a', targetId: 'leaf', kind: EdgeKind.call),
+        );
+
+      final explained = CycleDetector().explain(graph.snapshot(), 'b');
+      expect(explained.known, isTrue);
+      expect(explained.cycles, hasLength(1));
+      expect(explained.cycles.single.component, ['a', 'b', 'c']);
+      // leaf는 a가 호출하지만 어떤 순환에도 속하지 않는다.
+      expect(explained.cycles.single.breakCandidate.toJson(), {
+        'from': 'a',
+        'kind': 'call',
+        'to': 'b',
+      });
+    },
+  );
+
+  test(
+    'explain reports an acyclic but present node as known with no cycle',
+    () {
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'a'))
+        ..addNode(GraphNode(id: 'leaf'))
+        ..addEdge(
+          const GraphEdge(sourceId: 'a', targetId: 'leaf', kind: EdgeKind.call),
+        );
+
+      final explained = CycleDetector().explain(graph.snapshot(), 'leaf');
+      expect(explained.known, isTrue);
+      expect(explained.cycles, isEmpty);
+    },
+  );
+
+  test('explain marks an id absent from the graph as unknown', () {
+    final graph = CodeGraph()..addNode(GraphNode(id: 'a'));
+    final explained = CycleDetector().explain(graph.snapshot(), 'missing');
+    expect(explained.known, isFalse);
+    expect(explained.cycles, isEmpty);
+    expect(explained.id, 'missing');
+  });
+
+  test('explain returns a self-loop cycle for the node itself', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'self'))
+      ..addNode(GraphNode(id: 'other'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'self',
+          targetId: 'self',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'self',
+          targetId: 'other',
+          kind: EdgeKind.reference,
+        ),
+      );
+
+    final explained = CycleDetector().explain(graph.snapshot(), 'self');
+    expect(explained.known, isTrue);
+    expect(explained.cycles, hasLength(1));
+    expect(explained.cycles.single.component, ['self']);
+    expect(explained.cycles.single.path, ['self', 'self']);
+    // other는 self가 참조하지만 순환에 속하지 않는다.
+    expect(CycleDetector().explain(graph.snapshot(), 'other').cycles, isEmpty);
+  });
 }
 
 List<String> _cyclicComponents(GraphSnapshot graph) {

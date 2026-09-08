@@ -160,4 +160,115 @@ rules:
       expect(error.toString(), isNot(contains('unable to index')));
     },
   );
+
+  test('cycles --explain names the cycle a member takes part in', () async {
+    final output = StringBuffer();
+    final status = await run([
+      'cycles',
+      '--explain',
+      'a',
+      temporary.path,
+    ], output);
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    expect(document['explain'], 'cycles');
+    expect(document['known'], isTrue);
+    expect(document['id'], 'a');
+    final cycle =
+        (document['cycles']! as List<Object?>).single as Map<String, Object?>;
+    expect(cycle, containsPair('component', ['a', 'b']));
+    expect(cycle, contains('breakCandidate'));
+  });
+
+  test(
+    'cycles --explain reports an unknown id as known:false with code 64',
+    () async {
+      final output = StringBuffer();
+      final status = await run([
+        'cycles',
+        '--explain',
+        'missing',
+        temporary.path,
+      ], output);
+
+      expect(status, ExitStatus.usage.code);
+      final document = jsonDecode(output.toString()) as Map<String, Object?>;
+      expect(document['known'], isFalse);
+      expect(document['cycles'], isEmpty);
+    },
+  );
+
+  test('cycles --explain does not combine with --strict', () async {
+    expect(
+      await run([
+        'cycles',
+        '--explain',
+        'a',
+        '--strict',
+        temporary.path,
+      ], StringBuffer()),
+      ExitStatus.usage.code,
+    );
+  });
+
+  test('rules --explain names the layer, match and rules from it', () async {
+    final output = StringBuffer();
+    final status = await run([
+      'rules',
+      '--config',
+      rules.path,
+      '--explain',
+      'a',
+      temporary.path,
+    ], output);
+
+    expect(status, ExitStatus.success.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    expect(document['explain'], 'rules');
+    expect(document['known'], isTrue);
+    expect(document['layer'], 'first');
+    expect(document['matchedPattern'], 'a');
+    expect(document['matchedCandidate'], 'a');
+    final rule =
+        (document['rules']! as List<Object?>).single as Map<String, Object?>;
+    expect(rule, containsPair('from', 'first'));
+    expect(rule, containsPair('name', 'first cannot reach second'));
+  });
+
+  test(
+    'rules --explain reports an unknown id as known:false with code 64',
+    () async {
+      final output = StringBuffer();
+      final status = await run([
+        'rules',
+        '--config',
+        rules.path,
+        '--explain',
+        'missing',
+        temporary.path,
+      ], output);
+
+      expect(status, ExitStatus.usage.code);
+      final document = jsonDecode(output.toString()) as Map<String, Object?>;
+      expect(document['known'], isFalse);
+      expect(document['layer'], isNull);
+      expect(document['rules'], isEmpty);
+    },
+  );
+
+  test('rules --explain does not combine with --strict', () async {
+    expect(
+      await run([
+        'rules',
+        '--config',
+        rules.path,
+        '--explain',
+        'a',
+        '--strict',
+        temporary.path,
+      ], StringBuffer()),
+      ExitStatus.usage.code,
+    );
+  });
 }
