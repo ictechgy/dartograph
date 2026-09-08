@@ -7,17 +7,22 @@ import '../core/graph_snapshot.dart';
 import 'reachability_analyzer.dart';
 
 /// cartograph의 SymbolQueryDocument 필드 계약으로 그래프 하나를 질의한다.
+///
+/// [depth]는 사용 관계(usedBy·dependsOn)를 몇 단계까지 따라갈지이며 기본 1이다.
+/// [limit]은 방향별로 보고할 이웃의 최대 개수며 null이면 제한하지 않는다.
 Map<String, Object?> querySymbol({
   required GraphSnapshot graph,
   required Map<String, RetentionReason> roots,
   required String requested,
   required List<String> limitations,
   Set<String> suppressedIds = const {},
+  int depth = 1,
+  int? limit,
 }) => SymbolQuerySession(
   graph: graph,
   roots: roots,
   limitations: limitations,
-).query(requested, suppressedIds: suppressedIds);
+).query(requested, suppressedIds: suppressedIds, depth: depth, limit: limit);
 
 /// 한 그래프의 도달성과 이름·이웃 색인을 여러 질의가 공유한다.
 final class SymbolQuerySession {
@@ -66,9 +71,16 @@ final class SymbolQuerySession {
   final Map<String, List<GraphEdge>> _incoming = {};
 
   /// 기존 단일 질의와 같은 문서 계약으로 한 요청을 처리한다.
+  ///
+  /// [depth]는 사용 관계(usedBy·dependsOn)를 따라가는 단계 수이며 최소 1이다.
+  /// 포함 관계(members·declaredIn)는 cartograph와 같이 항상 한 단계다.
+  /// [limit]은 방향별 이웃 최대 개수며 null이면 제한하지 않는다. 제한으로
+  /// 생략하면 `truncated`를 세워 잘린 사실을 숨기지 않는다.
   Map<String, Object?> query(
     String requested, {
     Set<String> suppressedIds = const {},
+    int depth = 1,
+    int? limit,
   }) {
     final matches = _names[requested] ?? const <GraphNode>[];
     if (matches.isEmpty) {
@@ -109,6 +121,19 @@ final class SymbolQuerySession {
       'retainedByMember' => analysis.explain(reachableMember!).path,
       _ => null,
     };
+    final usedBy = _usage(node.id, incoming: true, depth: depth, limit: limit);
+    final dependsOn = _usage(
+      node.id,
+      incoming: false,
+      depth: depth,
+      limit: limit,
+    );
+    final members = _containment(node.id, incoming: false, limit: limit);
+    final declaredIn = _containment(
+      node.id,
+      incoming: true,
+      limit: limit,
+    ).neighbors.firstOrNull;
     return _document(
       'found',
       requested,
@@ -123,34 +148,107 @@ final class SymbolQuerySession {
           'suppressedByBaseline':
               state == 'unreachable' && suppressedIds.contains(node.id),
         },
-        'usedBy': _neighbors(node.id, reverse: true),
-        'dependsOn': _neighbors(node.id),
-        'members': _neighbors(node.id, members: true),
-        'declaredIn': _neighbors(
-          node.id,
-          reverse: true,
-          members: true,
-        ).firstOrNull,
-        'truncated': {'usedBy': false, 'dependsOn': false, 'members': false},
+        'usedBy': usedBy.neighbors,
+        'dependsOn': dependsOn.neighbors,
+        'members': members.neighbors,
+        'declaredIn': declaredIn,
+        'truncated': {
+          'usedBy': usedBy.truncated,
+          'dependsOn': dependsOn.truncated,
+          'members': members.truncated,
+        },
       },
     );
   }
 
-  List<Map<String, Object?>> _neighbors(
-    String id, {
-    bool reverse = false,
-    bool members = false,
+  /// 사용 관계(`impliesUsage`) 간선만 따라 BFS로 이웃을 모은다.
+  ///
+  /// cartograph `GraphNeighborhood.usage`와 같다. `visited`로 최단 깊이만 남기고,
+  /// 같은 이웃에 닿는 여러 간선 종류를 모아 id로 정렬하며, [limit]으로 생략하면
+  /// `truncated`를 세우고 그 이웃은 더 확장하지 않는다. 요청 깊이 밖은 원래
+  /// 조회 범위가 아니므로 truncated로 세지 않는다.
+  ({List<Map<String, Object?>> neighbors, bool truncated}) _usage(
+    String start, {
+    required bool incoming,
+    required int depth,
+    int? limit,
   }) {
-    final grouped = <String, List<GraphEdge>>{};
-    for (final edge
-        in (reverse ? _incoming : _outgoing)[id] ?? const <GraphEdge>[]) {
-      if ((edge.kind == EdgeKind.member) != members) continue;
-      grouped
-          .putIfAbsent(reverse ? edge.sourceId : edge.targetId, () => [])
-          .add(edge);
+    final cap = limit == null ? null : (limit < 1 ? 1 : limit);
+    final collected = <Map<String, Object?>>[];
+    final visited = <String>{start};
+    var frontier = <String>[start];
+    var truncated = false;
+    final maxDepth = depth < 1 ? 1 : depth;
+    for (var level = 1; level <= maxDepth; level++) {
+      final kindsByNeighbor = <String, Set<EdgeKind>>{};
+      for (final current in frontier) {
+        final edges =
+            (incoming ? _incoming : _outgoing)[current] ?? const <GraphEdge>[];
+        for (final edge in edges) {
+          if (!edge.kind.impliesUsage) continue;
+          final other = incoming ? edge.sourceId : edge.targetId;
+          if (visited.contains(other)) continue;
+          kindsByNeighbor.putIfAbsent(other, () => <EdgeKind>{}).add(edge.kind);
+        }
+      }
+      final next = <String>[];
+      for (final other in kindsByNeighbor.keys.toList()..sort()) {
+        visited.add(other);
+        final node = _nodes[other];
+        if (node == null) continue;
+        if (cap != null && collected.length >= cap) {
+          truncated = true;
+          continue;
+        }
+        collected.add(_neighborMap(node, kindsByNeighbor[other]!, level));
+        next.add(other);
+      }
+      frontier = next;
+      if (frontier.isEmpty) break;
     }
-    return _describeNeighbors(_nodes, grouped);
+    return (neighbors: collected, truncated: truncated);
   }
+
+  /// 포함(`member`) 관계만 한 단계 따라간다. cartograph `containment`와 같다.
+  ///
+  /// 타입의 멤버가 의존자로 오인되지 않게 사용 관계와 분리하고, [limit]으로
+  /// 생략하면 `truncated`를 세운다.
+  ({List<Map<String, Object?>> neighbors, bool truncated}) _containment(
+    String start, {
+    required bool incoming,
+    int? limit,
+  }) {
+    final cap = limit == null ? null : (limit < 1 ? 1 : limit);
+    final others = <String>{};
+    final edges =
+        (incoming ? _incoming : _outgoing)[start] ?? const <GraphEdge>[];
+    for (final edge in edges) {
+      if (edge.kind != EdgeKind.member) continue;
+      others.add(incoming ? edge.sourceId : edge.targetId);
+    }
+    final collected = <Map<String, Object?>>[];
+    var truncated = false;
+    for (final other in others.toList()..sort()) {
+      final node = _nodes[other];
+      if (node == null) continue;
+      if (cap != null && collected.length >= cap) {
+        truncated = true;
+        break;
+      }
+      collected.add(_neighborMap(node, const {EdgeKind.member}, 1));
+    }
+    return (neighbors: collected, truncated: truncated);
+  }
+
+  Map<String, Object?> _neighborMap(
+    GraphNode node,
+    Set<EdgeKind> kinds,
+    int depth,
+  ) => {
+    ..._subject(node),
+    'edges': kinds.map((kind) => kind.name).toList()..sort(),
+    'depth': depth,
+  }..remove('accessibility');
 }
 
 Map<String, Object?> _document(
@@ -195,24 +293,5 @@ Map<String, Object?> _subject(GraphNode node) => {
 Map<String, Object?>? _location(GraphNode node) => node.sourceUri == null
     ? null
     : {'path': node.sourceUri, 'line': node.line, 'column': node.column};
-
-List<Map<String, Object?>> _describeNeighbors(
-  Map<String, GraphNode> nodes,
-  Map<String, List<GraphEdge>> grouped,
-) {
-  final result = <Map<String, Object?>>[];
-  for (final id in grouped.keys.toList()..sort()) {
-    final node = nodes[id]!;
-    result.add(
-      {
-        ..._subject(node),
-        'edges': grouped[id]!.map((edge) => edge.kind.name).toSet().toList()
-          ..sort(),
-        'depth': 1,
-      }..remove('accessibility'),
-    );
-  }
-  return result;
-}
 
 String _simpleName(String id) => id.split('::').last.split('.').last;

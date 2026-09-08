@@ -338,17 +338,44 @@ Future<int> _runQuery(
   String? batchPath;
   late final List<String> requests;
   late final String rootPath;
-  if (arguments.length >= 3 &&
-      arguments[0] == '--batch' &&
-      (arguments.length == 3 ||
-          (arguments.length == 5 && arguments[2] == '--baseline'))) {
-    batchPath = arguments[1];
-    rootPath = arguments.last;
+  // `--depth`/`--limit`은 위치 인자 사이에 어디든 올 수 있다. 먼저 뽑아내고
+  // 남은 위치 인자만 기존 형태 계약으로 검증한다. 값이 빠졌거나(다음 토큰이
+  // 옵션이거나 없음) 1 미만·비정수면 usage(64)다. cartograph와 같은 하한이다.
+  var depth = 1;
+  int? limit;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument != '--depth' && argument != '--limit') {
+      positional.add(argument);
+      continue;
+    }
+    if (index + 1 >= arguments.length) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    final value = int.tryParse(arguments[++index]);
+    if (value == null || value < 1) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    if (argument == '--depth') {
+      depth = value;
+    } else {
+      limit = value;
+    }
+  }
+  if (positional.length >= 3 &&
+      positional[0] == '--batch' &&
+      (positional.length == 3 ||
+          (positional.length == 5 && positional[2] == '--baseline'))) {
+    batchPath = positional[1];
+    rootPath = positional.last;
     if (rootPath.startsWith('-')) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
-    if (arguments.length == 5) baselinePath = arguments[3];
+    if (positional.length == 5) baselinePath = positional[3];
     try {
       final file = File(batchPath);
       if (await file.length() > 1024 * 1024) throw const FormatException();
@@ -369,18 +396,18 @@ Future<int> _runQuery(
     // 옵션 모양의 값은 경로로 받지 않는다. 받으면 값이 빠진 호출이 usage(64)가
     // 아니라 분석 실패(2)로 보고돼 사용자가 원인을 잘못 찾는다. 위 batch 분기와
     // 같은 기준이며, `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
-  } else if (arguments.length == 2 &&
-      !arguments.first.startsWith('--') &&
-      !arguments[1].startsWith('-')) {
-    requests = [arguments[0]];
-    rootPath = arguments[1];
-  } else if (arguments.length == 4 &&
-      arguments[1] == '--baseline' &&
-      !arguments[2].startsWith('-') &&
-      !arguments[3].startsWith('-')) {
-    requests = [arguments[0]];
-    baselinePath = arguments[2];
-    rootPath = arguments[3];
+  } else if (positional.length == 2 &&
+      !positional.first.startsWith('--') &&
+      !positional[1].startsWith('-')) {
+    requests = [positional[0]];
+    rootPath = positional[1];
+  } else if (positional.length == 4 &&
+      positional[1] == '--baseline' &&
+      !positional[2].startsWith('-') &&
+      !positional[3].startsWith('-')) {
+    requests = [positional[0]];
+    baselinePath = positional[2];
+    rootPath = positional[3];
   } else {
     error.write(_help);
     return ExitStatus.usage.code;
@@ -408,7 +435,12 @@ Future<int> _runQuery(
     }
     final results = [
       for (final requested in requests)
-        session.query(requested, suppressedIds: suppressedIds),
+        session.query(
+          requested,
+          suppressedIds: suppressedIds,
+          depth: depth,
+          limit: limit,
+        ),
     ];
     final document = batchPath == null
         ? results.single
@@ -800,8 +832,8 @@ Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid> <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph compare <before-package-root> <after-package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json <package-root>

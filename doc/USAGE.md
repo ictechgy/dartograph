@@ -18,8 +18,8 @@ dartograph graph --format <dot|json|mermaid> <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph baseline --write <file> <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph compare <before-package-root> <after-package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph bridges --format json <package-root>
@@ -38,6 +38,15 @@ dartograph metrics [--strict] <package-root>
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
 GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
+
+`query --depth <n>`(기본 1)은 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 따라가며, 각
+이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 간선 종류는 모두
+모아 `edges`에 싣고, 같은 이웃이 여러 경로로 닿으면 최단 깊이 한 번만 보고한다.
+`--limit <n>`은 방향별로 보고할 이웃 수를 제한하며, 제한으로 생략하면 해당 방향의
+`truncated`가 `true`가 되고 생략된 이웃은 더 확장하지 않는다. 포함 관계(`members`·
+`declaredIn`)는 사용 관계가 아니므로 `--depth`와 무관하게 항상 한 단계다. 두 값 모두 1
+미만·비정수·값 빠짐은 usage(64)다. `--depth`·`--limit`은 `--batch`·`--baseline`과 함께
+쓸 수 있다.
 
 `rules --config`의 layers.yaml 스키마는 엄격하다. `layers`는 `name`과 `match`(정점 ID와
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
