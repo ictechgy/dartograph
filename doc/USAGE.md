@@ -14,7 +14,7 @@ dartograph --version
 ## 명령
 
 ```text
-dartograph graph --format <dot|json|mermaid|html> <package-root>
+dartograph graph --format <dot|json|mermaid|html> [--level <file|type|symbol>] [--collapse <n>] <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
@@ -31,6 +31,22 @@ dartograph rules --config <yaml-file> [--strict] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
 dartograph metrics [--strict] <package-root>
 ```
+
+`graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
+`type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
+그린다(기본값 출력은 수준 도입 전과 byte-for-byte 동일). 접힌 라이브러리·컨테이너
+내부 관계는 자기 순환이 되어 사라지고, 남는 간선은 양끝이 대표로 바뀌고 종류별로
+중복 제거된다. 조상 정점이 없는 선언은 그대로 남는다. dartograph는 패키지 하나를
+분석하므로 cartograph의 module 해상도에 대응하는 것은 없다(패키지로 접으면 단일
+정점) — `file`이 가장 거친 해상도다.
+
+`graph --collapse <n>`은 `--level file` 그래프를 경로 앞 n세그먼트로 요약한다
+(dependency-cruiser `--collapse` 대응): `project:lib/src/a/x.dart`는 n=2에서
+`project:lib/src`로, `package:name/src/x.dart`는 n=1에서 `package:name`으로 접힌다.
+세그먼트가 n 이하인 ID는 그대로다. 폴더 정점은 파일이 아닌 집계이므로 `sourceUri`·
+`line` 같은 위치를 갖지 않는다. 같은 폴더로 접힌 관계는 자기 순환이 되어 사라진다.
+`--collapse`는 `--level file`과만 결합하며(그 외 usage 64) 값 빠짐·중복 플래그·
+1 미만·비정수는 usage(64)다. 두 옵션은 모든 `--format`에 적용된다.
 
 `graph --format html`은 외부 CDN·스크립트·폰트 참조가 없는 단일 자기완결 파일이다.
 네트워크가 막힌 사내망이나 CI 아티팩트에서도 열리고, 그래프 사실은

@@ -72,6 +72,14 @@ expect_status 0 "graph dot" graph --format dot fixtures/phase5_contract
 expect_status 0 "graph json" graph --format json fixtures/phase5_contract
 expect_status 0 "graph mermaid" graph --format mermaid fixtures/phase5_contract
 expect_status 0 "graph html" graph --format html fixtures/phase5_contract
+  expect_status 0 "graph level file" graph --format json --level file fixtures/phase5_contract
+  expect_status 0 "graph level type" graph --format dot --level type fixtures/phase5_contract
+  expect_status 0 "graph level html" graph --format html --level file fixtures/phase5_contract
+  expect_status 0 "graph collapse" graph --format json --level file --collapse 1 fixtures/phase5_contract
+  expect_status 64 "graph unknown level" graph --format json --level module fixtures/phase5_contract
+  expect_status 64 "graph collapse without file level" graph --format json --collapse 1 fixtures/phase5_contract
+  expect_status 64 "graph collapse below one" graph --format json --level file --collapse 0 fixtures/phase5_contract
+  expect_status 64 "graph duplicate level" graph --format json --level file --level type fixtures/phase5_contract
 expect_status 2 "graph failure" graph --format dot fixtures/does-not-exist
 expect_status 0 "skill" skill
 expect_status 0 "bridges" bridges --format json fixtures/phase5_contract
