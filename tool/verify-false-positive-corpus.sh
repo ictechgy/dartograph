@@ -23,8 +23,13 @@ printf '%s' "$finding_ids" | grep -q 'NotAnEntryPoint.main'
 printf '%s' "$finding_ids" | grep -q 'falselyAnnotated'
 printf '%s' "$finding_ids" | grep -q 'falsePragma'
 printf '%s' "$finding_ids" | grep -q 'unused_file.dart'
-for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel; do
-  if printf '%s' "$finding_ids" | grep -q "$preserved"; then
+# 미사용 연산자는 계속 보고돼야 한다(연산자도 양방향 검증). `*`·`~/`는
+# 정규식 메타문자라 고정 문자열로 찾는다.
+printf '%s' "$finding_ids" | grep -qF 'Vector.*'
+printf '%s' "$finding_ids" | grep -qF 'Meters.~/'
+# 보존 항목에도 연산자 ID(`+`·`unary-`·`-`)가 메타문자를 포함하므로 -F로 통일한다.
+for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel 'Vector.+' 'Vector.unary-' 'Meters.-'; do
+  if printf '%s' "$finding_ids" | grep -qF "$preserved"; then
     echo "preserved declaration reported: $preserved" >&2
     exit 1
   fi

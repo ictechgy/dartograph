@@ -206,7 +206,10 @@ final class AnalyzerGraphIndex {
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올린다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석되므로 캐시 identity는 그대로 둔다.
 const _cacheSchemaVersion = 2;
-const _cacheIdentity = 'dartograph-analysis-$toolVersion-cache-v3-entry-points';
+// 연산자 호출 usage 간선 추가로 추출 의미가 바뀌어 identity를 v4로 올린다.
+// 직렬화 형식(노드·간선 필드)은 그대로라 schemaVersion은 v2를 유지한다.
+const _cacheIdentity =
+    'dartograph-analysis-$toolVersion-cache-v4-operator-edges';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -1046,7 +1049,45 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     if (owner != null && target != null && _isGraphElement(target)) {
       _add(owner, _elementId(target, root), EdgeKind.reference);
     }
+    // 복합 대입(`a += b`)은 연산자도 호출한다. 단순 대입에서는 null이다.
+    _addOperatorCall(node.element);
     super.visitAssignmentExpression(node);
+  }
+
+  @override
+  void visitBinaryExpression(BinaryExpression node) {
+    _addOperatorCall(node.element);
+    super.visitBinaryExpression(node);
+  }
+
+  @override
+  void visitIndexExpression(IndexExpression node) {
+    _addOperatorCall(node.element);
+    super.visitIndexExpression(node);
+  }
+
+  @override
+  void visitPrefixExpression(PrefixExpression node) {
+    _addOperatorCall(node.element);
+    super.visitPrefixExpression(node);
+  }
+
+  @override
+  void visitPostfixExpression(PostfixExpression node) {
+    _addOperatorCall(node.element);
+    super.visitPostfixExpression(node);
+  }
+
+  /// 연산자 호출은 식별자가 아니라 토큰이라 [visitSimpleIdentifier] 경로를
+  /// 타지 않는다. dart:core 같은 내장 연산자는 그래프 노드가 없으므로
+  /// [_add]의 양끝 존재 검사에서 걸러진다.
+  void _addOperatorCall(MethodElement? element) {
+    final owner = _owner;
+    if (owner == null) return;
+    final target = _graphTarget(element);
+    if (target != null && _isGraphElement(target)) {
+      _add(owner, _elementId(target, root), EdgeKind.call);
+    }
   }
 
   @override
