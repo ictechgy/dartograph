@@ -175,6 +175,34 @@ void main() {
     expect(explained.cycles, isEmpty);
     expect(explained.id, 'missing');
   });
+
+  test('explain returns a self-loop cycle for the node itself', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'self'))
+      ..addNode(GraphNode(id: 'other'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'self',
+          targetId: 'self',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'self',
+          targetId: 'other',
+          kind: EdgeKind.reference,
+        ),
+      );
+
+    final explained = CycleDetector().explain(graph.snapshot(), 'self');
+    expect(explained.known, isTrue);
+    expect(explained.cycles, hasLength(1));
+    expect(explained.cycles.single.component, ['self']);
+    expect(explained.cycles.single.path, ['self', 'self']);
+    // other는 self가 참조하지만 순환에 속하지 않는다.
+    expect(CycleDetector().explain(graph.snapshot(), 'other').cycles, isEmpty);
+  });
 }
 
 List<String> _cyclicComponents(GraphSnapshot graph) {
