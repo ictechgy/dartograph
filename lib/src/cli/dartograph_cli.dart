@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
+import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/cycle_detector.dart';
@@ -60,6 +61,14 @@ Future<int> runDartograph(
   final stderrSink = error ?? stderr;
   final command = arguments.firstOrNull;
   switch (command) {
+    case 'affected':
+      return await _runAffected(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+        changedFilesSince ?? ChangedFiles.since,
+      );
     case 'compare':
       return _runCompare(
         arguments.skip(1).toList(),
@@ -141,6 +150,82 @@ Future<int> runDartograph(
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
+  }
+}
+
+Future<int> _runAffected(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+  ChangedFilesSince changedFilesSince,
+) async {
+  // 위치 인자 두 개: <git-ref> <package-root>. Git ref는 `-`로 시작하지 않으므로
+  // 옵션 모양 값은 오타다. `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
+  if (arguments.length != 2 ||
+      arguments[0].startsWith('-') ||
+      arguments[1].startsWith('-')) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  final reference = arguments[0];
+  final rootPath = arguments[1];
+  try {
+    // 인덱싱을 먼저 시도해 패키지 루트 부재를 Git 실패로 오귀인하지 않는다
+    // (dead --since와 같은 순서).
+    final indexed = await indexPackage(rootPath);
+    final changed = await changedFilesSince(reference, rootPath);
+    final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+    final snapshot = indexed.graph.snapshot();
+    // dead --since와 같은 canonical 매칭: sourceUri가 심볼릭 링크 경로일 수
+    // 있으므로 실 경로로 해석해 Git 변경 파일과 비교한다.
+    final sources = <String>{
+      for (final node in snapshot.nodes)
+        if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
+    }.toList()..sort();
+    final changedSources = <String>{};
+    final matchedChangedFiles = <String>{};
+    for (final source in sources) {
+      final canonical = await _canonicalSource(canonicalRoot, source);
+      if (canonical != null && changed.contains(canonical)) {
+        changedSources.add(source);
+        matchedChangedFiles.add(canonical);
+      }
+    }
+    // 패키지 안에 있는데 어떤 분석 라이브러리에도 속하지 않는 변경 Dart 파일은
+    // 영향 반경 계산에서 조용히 사라지므로 한계로 남긴다(삭제 파일은 Git 단계에서
+    // 이미 제외된다 — ChangedFiles 계약).
+    final unmappedDartFiles = changed
+        .where(
+          (path) =>
+              p.extension(path) == '.dart' &&
+              p.isWithin(canonicalRoot, path) &&
+              !matchedChangedFiles.contains(path),
+        )
+        .length;
+    final result = AffectedAnalysis.analyze(snapshot, changedSources);
+    final limitations = _limitations(indexed);
+    if (unmappedDartFiles > 0) {
+      limitations.add(
+        'changed-dart-files-without-library: $unmappedDartFiles changed Dart '
+        'file(s) are not part of any analyzed library',
+      );
+    }
+    output.write(AnalysisReporter.affected(result, limitations: limitations));
+    return ExitStatus.success.code;
+  } on ChangedFilesException {
+    error.writeln(
+      'Changed files could not be computed. In CI, fetch full Git history.',
+    );
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
   }
 }
 
@@ -954,6 +1039,7 @@ Usage: dartograph [--help] [--version]
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph compare <before-package-root> <after-package-root>
+       dartograph affected <git-ref> <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json <package-root>
        dartograph cycles [--strict] <package-root>
@@ -968,6 +1054,12 @@ declarations reached only from test code) at info severity, so it never fails
 the build and does not combine with --explain or --baseline. cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.
+
+affected answers for a git revision (commit, branch, tag, HEAD~1, ...): the
+libraries changed since that revision plus the libraries that transitively
+depend on them through import/export edges, each with a shortest dependency
+path as evidence. Impact is a library-level observation, not proof that
+unlisted declarations are unaffected.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

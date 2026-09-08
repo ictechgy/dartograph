@@ -1,11 +1,19 @@
 import 'dart:convert';
 
+import '../analysis/affected_analyzer.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
 
 /// Phase 5 그래프 질의 결과를 결정적인 JSON으로 직렬화한다.
 abstract final class AnalysisReporter {
+  /// 변경 라이브러리, 전이적 종속자, 분석 한계를 보존한다.
+  static String affected(
+    AffectedResult result, {
+    required Iterable<String> limitations,
+  }) =>
+      '${jsonEncode({'affected': result.affected.map((item) => item.toJson()).toList(), 'changed': result.changed, 'limitations': limitations.toSet().toList()..sort()})}\n';
+
   /// 순환과 끊을 후보, 근거, 분석 한계를 보존한다.
   static String cycles(
     Iterable<DependencyCycle> cycles, {

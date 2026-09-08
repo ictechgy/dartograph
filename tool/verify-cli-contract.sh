@@ -64,6 +64,10 @@ expect_status 64 "usage error" no-such-command
   expect_status 64 "query limit missing value" query a --limit fixtures/phase5_contract
 expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
 expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
+expect_status 0 "affected report" affected HEAD fixtures/phase5_contract
+expect_status 2 "affected index failure" affected HEAD fixtures/does-not-exist
+expect_status 64 "affected missing root" affected HEAD
+expect_status 64 "affected option-shaped ref" affected --strict fixtures/phase5_contract
 expect_status 0 "graph dot" graph --format dot fixtures/phase5_contract
 expect_status 0 "graph json" graph --format json fixtures/phase5_contract
 expect_status 0 "graph mermaid" graph --format mermaid fixtures/phase5_contract

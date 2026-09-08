@@ -22,6 +22,7 @@ dartograph baseline --write <file> <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph compare <before-package-root> <after-package-root>
+dartograph affected <git-ref> <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph bridges --format json <package-root>
 dartograph cycles [--strict] <package-root>
@@ -108,6 +109,18 @@ rules:
 멤버에 의해 보존되던 선언은 `retainedByMember` witness를 별도로 표시한다.
 이는 관측된 그래프 변화이며 단일 변경의 인과 증명이나 삭제 가능 판정은 아니다.
 이름 변경은 삭제/추가로 나타난다. 두 입력의 한계를 함께 읽어야 하며 보고 성공은 코드 0이다.
+
+`affected <git-ref>`는 Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 라이브러리와
+그에 전이적으로 의존하는 라이브러리를 JSON으로 답한다. 변경 파일이 귀속되는 라이브러리를
+씨앗으로 import·export 간선을 역방향으로 건너며, 각 피영향 라이브러리에는 가장 가까운
+변경 라이브러리까지의 최단 의존 사슬 `path`와 `depth`가 붙는다. part 파일의 변경은 호스트
+라이브러리로 귀속된다. `--since`와 같이 전체 Git 이력이 필요하다(CI에서 full fetch).
+출력 `changed`는 씨앗 라이브러리, `affected`는 그 종속자이며 둘은 겹치지 않는다.
+영향 반경은 라이브러리(파일) 수준 관측이고, 나열되지 않은 라이브러리의 개별 선언이
+영향받지 않았다는 증명은 아니다. 패키지 안에 있으면서 어떤 분석 대상 라이브러리에도
+속하지 않는 변경 Dart 파일은 `changed-dart-files-without-library` 한계로 알린다.
+삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
+보고 성공은 영향 개수와 무관하게 코드 0이다.
 
 | 코드 | 뜻 |
 |---:|---|

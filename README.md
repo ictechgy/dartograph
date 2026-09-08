@@ -50,6 +50,7 @@ dart run dartograph dead --format github-actions \
 dart run dartograph query ApiClient --baseline .dartograph-baseline.json .
 dart run dartograph query --batch requests.json .
 dart run dartograph compare ../before-checkout ../after-checkout
+dart run dartograph affected origin/main .
 dart run dartograph skill
 dart run dartograph bridges --format json .
 dart run dartograph cycles --strict .
