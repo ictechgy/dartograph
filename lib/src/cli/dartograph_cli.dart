@@ -1068,7 +1068,7 @@ depend on them through import/export edges, each with a shortest dependency
 path as evidence. Impact is a library-level observation, not proof that
 unlisted declarations are unaffected.
 
-graph --format html writes a single self-contained file with no CDN
+graph --format html emits a single self-contained document with no CDN
 references. Graphs above 400 nodes keep the most connected nodes and say so
 on the page; use --format dot for the full graph.
 

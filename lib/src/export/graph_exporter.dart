@@ -369,7 +369,10 @@ abstract final class GraphExporter {
   /// `</`만 막으면 부족하다: `<!--<script`가 들어오면 HTML 토크나이저가 script
   /// 이중 이스케이프 상태에서 문서의 실제 `</script>`를 삼켜 페이지 전체가
   /// 스크립트 안으로 빨려 들어간다. `\u003c`는 적법한 JSON 문자열 이스케이프라
-  /// 파싱 결과는 그대로고 토크나이저가 볼 꺾쇠는 남지 않는다.
+  /// 파싱 결과는 그대로고 토크나이저가 볼 꺾쇠는 남지 않는다. `>`는 raw로 둬도
+  /// script 데이터 상태의 토크나이저·`JSON.parse` 양쪽에 무해하다(`]]>`는 XML
+  /// 도구 체인에서만 문제지만 이 출력의 계약은 브라우저 HTML이다). U+2028/2029도
+  /// 페이로드가 JS 소스가 아니라 JSON.parse 입력이므로 재이스케이프하지 않는다.
   static String _escapeForScriptTag(String json) =>
       json.replaceAll('<', r'\u003c');
 

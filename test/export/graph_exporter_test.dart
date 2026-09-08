@@ -204,6 +204,49 @@ void main() {
     ]);
   });
 
+  test('HTML payload defuses script-tag tokenizer traps in node ids', () {
+    final hostile = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a</script>'),
+        GraphNode(id: 'b<!--<script'),
+      ],
+      edges: const [
+        GraphEdge(
+          sourceId: 'b<!--<script',
+          targetId: 'a</script>',
+          kind: EdgeKind.call,
+        ),
+      ],
+    );
+
+    final html = GraphExporter.html(hostile);
+    // 페이로드에 여는 꺾쇠가 raw로 남지 않으므로 문서의 실제 `</script>`는
+    // 페이로드 닫는 태그와 인라인 JS 끝 두 곳뿐이다.
+    expect(payloadOf(html), isNot(contains('<')));
+    expect('</script>'.allMatches(html).length, 2);
+    // 라운드 트립: 이스케이프는 JSON 파싱 결과를 바꾸지 않는다.
+    final payload = decodePayload(html);
+    expect(
+      (payload['nodes'] as List).map((node) => (node as Map)['id']).toList(),
+      ['a</script>', 'b<!--<script'],
+    );
+    expect(payload['edges'], [
+      {'kind': 'call', 'source': 'b<!--<script', 'target': 'a</script>'},
+    ]);
+  });
+
+  test('HTML output is byte-identical across runs', () {
+    final first = GraphExporter.html(
+      snapshot,
+      limitations: const ['single configuration'],
+    );
+    final second = GraphExporter.html(
+      snapshot,
+      limitations: const ['single configuration'],
+    );
+    expect(first, second);
+  });
+
   test('Mermaid escapes angle brackets and ampersands in its own node ids', () {
     final special = GraphSnapshot(
       nodes: [
