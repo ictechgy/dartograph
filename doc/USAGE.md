@@ -95,9 +95,11 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 모아 `edges`에 싣고, 같은 이웃이 여러 경로로 닿으면 최단 깊이 한 번만 보고한다.
 `--limit <n>`은 방향별로 보고할 이웃 수를 제한하며, 제한으로 생략하면 해당 방향의
 `truncated`가 `true`가 되고 생략된 이웃은 더 확장하지 않는다. 포함 관계(`members`·
-`declaredIn`)는 사용 관계가 아니므로 `--depth`와 무관하게 항상 한 단계다. 두 값 모두 1
-미만·비정수·값 빠짐은 usage(64)다. `--depth`·`--limit`은 `--batch`·`--baseline`과 함께
-쓸 수 있다.
+`declaredIn`)는 사용 관계가 아니므로 `--depth`와 무관하게 항상 한 단계다. 재귀처럼 자기
+자신으로 향하는 사용 간선은 자기 자신의 이웃에서 **모든 depth(기본값 포함)에서 제외**된다
+— 옛 1-hop 순회는 포함했으므로 기본 출력의 좁은 동작 변경이다(cartograph와 같은 의미).
+두 값 모두 1 미만·비정수·값 빠짐·중복 플래그는 usage(64)다. `--depth`·`--limit`은
+`--batch`·`--baseline`과 함께 쓸 수 있다.
 
 `rules --config`의 layers.yaml 스키마는 엄격하다. `layers`는 `name`과 `match`(정점 ID와
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
@@ -198,7 +200,7 @@ entry_points:
   - lib/main_production.dart
 ```
 
-`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 identity를 v3로 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
+`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.
