@@ -42,6 +42,95 @@ void main() {
     ]);
   });
 
+  test(
+    'a reachable enum preserves constants consumed only through .values',
+    () {
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'app::root'))
+        ..addNode(GraphNode(id: 'package:app/enums.dart::Status'))
+        ..addNode(
+          GraphNode(
+            id: 'package:app/enums.dart::Status.active',
+            isEnumConstant: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'package:app/enums.dart::Status.inactive',
+            isEnumConstant: true,
+          ),
+        )
+        // `.values`는 enum만 참조하고 개별 상수로는 usage 간선을 만들지 않는다.
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'app::root',
+            targetId: 'package:app/enums.dart::Status',
+            kind: EdgeKind.reference,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'package:app/enums.dart::Status',
+            targetId: 'package:app/enums.dart::Status.active',
+            kind: EdgeKind.member,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'package:app/enums.dart::Status',
+            targetId: 'package:app/enums.dart::Status.inactive',
+            kind: EdgeKind.member,
+          ),
+        );
+
+      final result = ReachabilityAnalyzer().analyze(
+        graph.snapshot(),
+        roots: const {'app::root': RetentionReason.mainEntryPoint},
+      );
+
+      // enum이 도달 가능하면 상수는 미도달로 보고되지 않는다(오탐 회귀).
+      expect(result.deadDeclarations, isEmpty);
+      // explain도 dead와 같은 근거로 보존을 설명한다.
+      final explanation = result.explain(
+        'package:app/enums.dart::Status.active',
+      );
+      expect(explanation.reachable, isTrue);
+      expect(explanation.reason, 'retained by its reachable enum');
+      expect(explanation.witness, 'package:app/enums.dart::Status');
+      expect(explanation.path, ['app::root', 'package:app/enums.dart::Status']);
+    },
+  );
+
+  test('an unreachable enum still reports its constants as dead', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::root'))
+      ..addNode(GraphNode(id: 'package:app/enums.dart::Orphan'))
+      ..addNode(
+        GraphNode(
+          id: 'package:app/enums.dart::Orphan.only',
+          isEnumConstant: true,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/enums.dart::Orphan',
+          targetId: 'package:app/enums.dart::Orphan.only',
+          kind: EdgeKind.member,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {'app::root': RetentionReason.mainEntryPoint},
+    );
+
+    // enum 자체가 도달하지 못하면 보존이 과해지지 않고 상수도 보고를 유지한다.
+    expect(result.deadDeclarations.map((finding) => finding.id), [
+      'package:app/enums.dart::Orphan',
+      'package:app/enums.dart::Orphan.only',
+    ]);
+  });
+
   test('a reachable member keeps its container but not dead siblings', () {
     final graph = CodeGraph()
       ..addNode(GraphNode(id: 'app::root'))

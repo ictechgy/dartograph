@@ -154,12 +154,14 @@ final class ReachabilityResult {
     required Map<String, _PathStep> libraryPaths,
     required Map<String, String> libraryWitnesses,
     required Set<String> nodeIds,
+    required Set<String> reachableEnumConstants,
     required Map<String, RetentionReason> roots,
     required this.limitations,
   }) : _paths = paths,
        _libraryPaths = libraryPaths,
        _libraryWitnesses = libraryWitnesses,
        _nodeIds = nodeIds,
+       _reachableEnumConstants = reachableEnumConstants,
        _roots = roots;
 
   /// 정렬된 도달 선언 ID다.
@@ -175,6 +177,7 @@ final class ReachabilityResult {
   final Map<String, _PathStep> _libraryPaths;
   final Map<String, String> _libraryWitnesses;
   final Set<String> _nodeIds;
+  final Set<String> _reachableEnumConstants;
   final Map<String, RetentionReason> _roots;
 
   /// 전체 결과에 적용되는 분석 한계다.
@@ -255,6 +258,24 @@ final class ReachabilityResult {
           witness: memberWitness,
         );
       }
+      // enum 상수는 도달 가능한 enum 컨테이너로 보존된다. deadDeclarations도 같은
+      // 근거로 제외하므로, 여기서 미도달로 답하면 한 실행에서 상반된 결론이 된다.
+      // path·evidence는 enum 컨테이너까지의 실제 체인이라 컨테이너에서 끝난다.
+      if (_reachableEnumConstants.contains(id)) {
+        final container = id.substring(0, id.lastIndexOf('.'));
+        final containerExplanation = explain(container);
+        return ReachabilityExplanation(
+          id: id,
+          reachable: true,
+          reason: 'retained by its reachable enum',
+          rootsChecked: const [],
+          path: containerExplanation.path,
+          evidence: containerExplanation.evidence,
+          retentionReason: null,
+          limitations: limitations,
+          witness: container,
+        );
+      }
       return ReachabilityExplanation(
         id: id,
         reachable: false,
@@ -329,10 +350,25 @@ final class ReachabilityAnalyzer {
         memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
       }
     }
+    // enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화는 상수를
+    // 직접 참조하지 않아 usage 간선이 없으므로, 보존하지 않으면 enum 상수가
+    // 미도달로 잘못 보고된다(컨테이너 구제는 멤버→컨테이너 단방향이라 상수를 못 살린다).
+    final reachableEnumConstants = <String>{};
+    for (final node in graph.nodes) {
+      if (!node.isEnumConstant) continue;
+      final separator = node.id.lastIndexOf('.');
+      if (separator < 0) continue;
+      final container = node.id.substring(0, separator);
+      if (paths.containsKey(container) ||
+          reachableContainers.contains(container)) {
+        reachableEnumConstants.add(node.id);
+      }
+    }
     final declarations = graph.nodes
         .where((node) => node.id.contains('::'))
         .where((node) => !paths.containsKey(node.id))
         .where((node) => !reachableContainers.contains(node.id))
+        .where((node) => !reachableEnumConstants.contains(node.id))
         .map(
           (node) => DeadFinding(
             id: node.id,
@@ -409,6 +445,7 @@ final class ReachabilityAnalyzer {
       libraryPaths: libraryPaths,
       libraryWitnesses: libraryWitnesses,
       nodeIds: nodeIds,
+      reachableEnumConstants: reachableEnumConstants,
       roots: sortedRoots,
       limitations: List.unmodifiable(limitations),
     );

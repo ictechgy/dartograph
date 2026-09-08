@@ -23,7 +23,7 @@ printf '%s' "$finding_ids" | grep -q 'NotAnEntryPoint.main'
 printf '%s' "$finding_ids" | grep -q 'falselyAnnotated'
 printf '%s' "$finding_ids" | grep -q 'falsePragma'
 printf '%s' "$finding_ids" | grep -q 'unused_file.dart'
-for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser; do
+for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel; do
   if printf '%s' "$finding_ids" | grep -q "$preserved"; then
     echo "preserved declaration reported: $preserved" >&2
     exit 1

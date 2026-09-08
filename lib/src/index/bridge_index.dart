@@ -28,6 +28,7 @@ BridgeIndexResult indexBridges(String rootPath) {
   var dynamicMethodNames = 0;
   var unresolvedReceiverInvocations = 0;
   var invalidMethodInvocations = 0;
+  var emptyBridgeNames = 0;
   var patternVariableScopes = 0;
   var unscannedEventChannels = 0;
   var unscannedBasicMessageChannels = 0;
@@ -81,6 +82,7 @@ BridgeIndexResult indexBridges(String rootPath) {
     dynamicMethodNames += visitor.dynamicMethodNames;
     unresolvedReceiverInvocations += visitor.unresolvedReceiverInvocations;
     invalidMethodInvocations += visitor.invalidMethodInvocations;
+    emptyBridgeNames += visitor.emptyBridgeNames;
     patternVariableScopes += visitor.patternVariableScopes;
     unscannedEventChannels += visitor.unscannedEventChannels;
     unscannedBasicMessageChannels += visitor.unscannedBasicMessageChannels;
@@ -107,6 +109,10 @@ BridgeIndexResult indexBridges(String rootPath) {
       'invalid-method-invocations: $invalidMethodInvocations '
           '${invalidMethodInvocations == 1 ? 'invocation has' : 'invocations have'} '
           'no method name',
+    if (emptyBridgeNames > 0)
+      'empty-bridge-names: $emptyBridgeNames bridge fact'
+          '${emptyBridgeNames == 1 ? '' : 's'} '
+          '${emptyBridgeNames == 1 ? 'was' : 'were'} skipped because a channel or method name was empty',
     if (patternVariableScopes > 0)
       'pattern-variable-scopes: $patternVariableScopes '
           '${patternVariableScopes == 1 ? 'pattern binding was' : 'pattern bindings were'} '
@@ -218,46 +224,91 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   var dynamicMethodNames = 0;
   var unresolvedReceiverInvocations = 0;
   var invalidMethodInvocations = 0;
+  var emptyBridgeNames = 0;
   var patternVariableScopes = 0;
   var unscannedEventChannels = 0;
   var unscannedBasicMessageChannels = 0;
 
   @override
   void visitClassDeclaration(ClassDeclaration node) {
+    _visitDeclarationScope(
+      () => super.visitClassDeclaration(node),
+      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+    );
+  }
+
+  @override
+  void visitMixinDeclaration(MixinDeclaration node) {
+    _visitDeclarationScope(
+      () => super.visitMixinDeclaration(node),
+      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+    );
+  }
+
+  @override
+  void visitEnumDeclaration(EnumDeclaration node) {
+    _visitDeclarationScope(
+      () => super.visitEnumDeclaration(node),
+      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+    );
+  }
+
+  @override
+  void visitExtensionDeclaration(ExtensionDeclaration node) {
+    _visitDeclarationScope(
+      () => super.visitExtensionDeclaration(node),
+      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+    );
+  }
+
+  @override
+  void visitExtensionTypeDeclaration(ExtensionTypeDeclaration node) {
+    _visitDeclarationScope(
+      () => super.visitExtensionTypeDeclaration(node),
+      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+    );
+  }
+
+  void _visitDeclarationScope(
+    void Function() visitChildren,
+    void Function() prescan,
+  ) {
     _pushScope();
     try {
-      super.visitClassDeclaration(node);
+      // 본문을 방문하기 전에 멤버 필드의 채널·문자열 상수를 먼저 등록한다.
+      // analyzer는 선언을 소스 순서로 방문하므로 `static final _c = MethodChannel(...)`이
+      // 사용처보다 뒤에 선언되면 사용처에서 _c를 해결하지 못해 method-invoke fact가
+      // 통째로 누락되고 unresolved-receiver-invocations로 강등된다. 최상위 스코프는
+      // 이미 선-스캔하므로 선언 본문도 같은 방식으로 맞춘다.
+      prescan();
+      visitChildren();
     } finally {
       _popScope();
     }
   }
 
-  @override
-  void visitMixinDeclaration(MixinDeclaration node) {
-    _visitDeclarationScope(() => super.visitMixinDeclaration(node));
-  }
-
-  @override
-  void visitEnumDeclaration(EnumDeclaration node) {
-    _visitDeclarationScope(() => super.visitEnumDeclaration(node));
-  }
-
-  @override
-  void visitExtensionDeclaration(ExtensionDeclaration node) {
-    _visitDeclarationScope(() => super.visitExtensionDeclaration(node));
-  }
-
-  @override
-  void visitExtensionTypeDeclaration(ExtensionTypeDeclaration node) {
-    _visitDeclarationScope(() => super.visitExtensionTypeDeclaration(node));
-  }
-
-  void _visitDeclarationScope(void Function() visitChildren) {
-    _pushScope();
-    try {
-      visitChildren();
-    } finally {
-      _popScope();
+  /// 선언 본문의 필드를 두 패스로 훑어 현재 스코프에 등록한다.
+  ///
+  /// 1패스에서 이름과 문자열 상수를 먼저 등록하고 2패스에서 채널을 해석한다.
+  /// 그래서 클래스 필드 사이에서도 `static final _c = MethodChannel(_name)`이
+  /// `static const _name = 'chan'`보다 앞에 있어도 채널명을 정적으로 해석한다
+  /// (최상위 스코프의 2패스와 대칭). 본문 방문 중 [visitVariableDeclaration]가
+  /// 같은 변수를 다시 방문하지만 등록은 멱등이라 결과가 달라지지 않는다.
+  /// 초기화 표현식은 조회만 하므로 부작용이 없다.
+  void _prescanFields(Iterable<FieldDeclaration> fields) {
+    final variables = <VariableDeclaration>[];
+    for (final field in fields) {
+      for (final variable in field.fields.variables) {
+        _declare(variable.name.lexeme);
+        _recordStringConstant(variable);
+        variables.add(variable);
+      }
+    }
+    for (final variable in variables) {
+      final channel = _channelCreatedBy(variable.initializer);
+      if (channel != null) {
+        _channelScopes.last[variable.name.lexeme] = channel;
+      }
     }
   }
 
@@ -416,15 +467,14 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
     if (type != 'MethodChannel' || arguments.arguments.isEmpty) return;
     final channel = _bridgeName(arguments.arguments.first);
-    facts.add(
-      _fact(
-        node,
-        node.offset,
-        'channel-create',
-        channel.value,
-        dynamic: channel.dynamic,
-      ),
+    final fact = _fact(
+      node,
+      node.offset,
+      'channel-create',
+      channel.value,
+      dynamic: channel.dynamic,
     );
+    if (fact != null) facts.add(fact);
   }
 
   void _recordMethodInvocation(MethodInvocation node) {
@@ -447,16 +497,15 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
     final method = _bridgeName(arguments.first);
     if (method.dynamic) dynamicMethodNames++;
-    facts.add(
-      _fact(
-        node,
-        node.methodName.offset,
-        'method-invoke',
-        channel.value,
-        method: method.value,
-        dynamic: channel.dynamic || method.dynamic,
-      ),
+    final fact = _fact(
+      node,
+      node.methodName.offset,
+      'method-invoke',
+      channel.value,
+      method: method.value,
+      dynamic: channel.dynamic || method.dynamic,
     );
+    if (fact != null) facts.add(fact);
   }
 
   _BridgeName? _channelCreatedBy(AstNode? expression) {
@@ -507,7 +556,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     return (value: node.toSource(), dynamic: true);
   }
 
-  Map<String, Object?> _fact(
+  Map<String, Object?>? _fact(
     AstNode node,
     int offset,
     String kind,
@@ -516,6 +565,13 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     required bool dynamic,
   }) {
     _rejectControlCharacters(path);
+    // 빈 채널·메서드 이름은 그 fact만 건너뛰고 empty-bridge-names로 집계한다.
+    // 한 줄의 빈 이름이 전체 bridges 출력을 실패시키지 않게 한다.
+    // 제어 문자는 아래에서 계속 전면 거부한다.
+    if (channel.trim().isEmpty || (method != null && method.trim().isEmpty)) {
+      emptyBridgeNames++;
+      return null;
+    }
     _rejectControlCharacters(channel);
     if (method != null) _rejectControlCharacters(method);
     final location = lineInfo.getLocation(offset);

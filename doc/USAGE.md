@@ -87,6 +87,9 @@ GRAPH-EXCHANGE v1 JSON으로 낸다. `rules`의 YAML은 `allow` 또는 `deny` �
 - 조건부 import/export는 공개 analyzer가 고른 단일 구성만 분석한다.
 - 동적 디스패치, 문자열 route, 네이티브 진입점은 정적 그래프가 완전히 증명하지 못한다.
 - 생성 파일은 보수적으로 보존하며 오래된 산출물을 한계로 보고한다.
+- enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화처럼 개별 상수를 직접
+  참조하지 않는 소비가 있으므로 enum→상수 `member` 간선만으로 미도달이라고 단정하지 않는다.
+  `dead --explain`은 `retained by its reachable enum` 근거와 enum까지의 경로를 낸다.
 - `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다.
 
 ```yaml
@@ -105,6 +108,9 @@ entry_points:
 - `bridges`는 Flutter services의 직접 import만 채널 provenance로 사용한다. re-export
   barrel을 거친 사용은 추측해 연결하지 않고 `flutter-services-reexports` limitation으로
   보고한다.
+- `bridges`는 `MethodChannel('')`처럼 빈 채널·메서드 이름을 그 사실만 건너뛰고
+  `empty-bridge-names` limitation으로 집계한다. 한 줄의 빈 이름이 나머지 사실을 가리지
+  않는다. 제어 문자가 든 이름은 계속 분석 실패(종료 코드 2)로 전면 거부한다.
 
 분석 캐시는 대상 저장소 밖의 OS 사용자 캐시 아래 `dartograph/<project-root-hash>`에
 저장된다. 삭제해도 안전하며 다음 실행에서 다시 만들어진다. 캐시를 읽거나 쓸 수 없으면

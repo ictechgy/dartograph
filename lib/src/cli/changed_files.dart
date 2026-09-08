@@ -73,7 +73,10 @@ abstract final class ChangedFiles {
   }) async {
     final process = await Process.run(
       'git',
-      ['-C', workingDirectory, ...arguments],
+      // diff.relative=true면 `git diff`가 cwd 상대 경로를 출력한다. 패키지 루트가
+      // 저장소 루트와 다르면 아래에서 저장소 루트와 join할 때 경로가 어긋나
+      // 변경 파일 집합이 잘못 계산된다. 경로는 항상 저장소 루트 기준으로 고정한다.
+      ['-c', 'diff.relative=false', '-C', workingDirectory, ...arguments],
       stdoutEncoding: null,
       stderrEncoding: utf8,
     );

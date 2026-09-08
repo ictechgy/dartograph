@@ -1,32 +1,58 @@
 # Handoff
 
-_Last updated: 2026-09-06 (PR #17 merge 기준)_
+_Last updated: 2026-09-07 (감사 backlog 상위 4건 수정, 브랜치 `docs/handoff-audit-fixes` 미커밋)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- 이번 세션은 HANDOFF을 출발점으로 도구 전체를 9개 축으로 감사해 개선점을 도출하고,
-  그중 사용자에게 조용한 오답을 주던 결함부터 순서대로 PR + GLM 리뷰 + 머지로 반영했다.
-  제품 재배포나 새 대형 기능 요청은 없었다.
+- 이번 세션은 이전 9축 감사가 남긴 backlog의 상위 4건(사용자에게 조용한 오답이나 전면
+  실패를 주던 결함)을 재현→수정→회귀 테스트로 반영했다. 제품 재배포나 새 대형 기능
+  요청은 없었다.
 
 ## Current Status
 
 - 릴리스 기준: `v0.2.0` → `08fb197` (PR #5 merge). pub.dev·GitHub Release 공개 완료.
-- main 기준: `86ee109` (PR #17 merge). **0.2.0 이후 미릴리스 변경이 누적됐다** —
-  `entry_points`(#9), analyzer 호환 계약 테스트(#10), lakos 리서치·비교표(#11),
-  그리고 이번 세션의 결함 수정 4건(#13·#14·#15·#16). 다음 릴리스(예: 0.3.0) 후보다.
+- main 기준: `86ee109` (PR #17 merge)에 HANDOFF 커밋 `d40646e`가 얹혀 있다.
+  **0.2.0 이후 미릴리스 변경이 누적됐다** — `entry_points`(#9), analyzer 호환 계약
+  테스트(#10), lakos 리서치·비교표(#11), 결함 수정 4건(#13·#14·#15·#16), 그리고 이번
+  세션의 backlog 상위 4건. 다음 릴리스(예: 0.3.0) 후보다.
 - 지침 기준: `c4d121d` (PR #7 merge).
-- 이번 세션에서 PR #13(심볼릭 링크 캐시)·#14(explain 멤버 보존)·#15(빈 dartograph.yaml)·
-  #16(옵션 모양 경로)·#17(산출물 제거)을 머지했다. #17을 뺀 전부가 GLM 리뷰와
-  Dart 3.11.0/3.13.3 CI green 후 머지됐다(#17은 사용자가 리뷰 생략을 지시).
-  열린 제품 PR은 없다.
+- 이번 세션은 감사 backlog 상위 4건을 브랜치 `docs/handoff-audit-fixes`에 **미커밋**으로
+  작업했다: bridge 채널 선언 순서(#1), `.values` enum 상수 오탐(#2), 빈 채널명 전면
+  실패(#3), `dead --since`의 `diff.relative` 경로 어긋남(#4). 커밋·PR·GLM 리뷰는 사용자
+  지시를 기다린다. 열린 제품 PR은 없다.
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
 - 제품 배포 blocker는 없다. HANDOFF 내용이 Git 상태보다 우선하지 않으므로 재개 시 실제 상태를 확인한다.
 
 ## Completed
 
-### 이번 세션 (전부 미릴리스)
+### 이번 세션 (감사 backlog 상위 4건, 전부 미릴리스·미커밋)
+
+- **bridge 채널 선언 순서(#1)**: 클래스 등 선언 본문에서 `static final _c = MethodChannel(...)`이
+  사용처보다 뒤에 선언되면 analyzer가 소스 순서로 방문하므로 사용처에서 `_c`를 해결하지
+  못해 method-invoke fact가 통째로 누락되고 `unresolved-receiver-invocations`로 강등됐다.
+  `_visitDeclarationScope`에 본문 선-스캔 콜백(`_prescanFields`)을 추가해 class/mixin/enum/
+  extension/extensionType의 멤버 필드를 먼저 등록한다. 선-스캔은 2패스(상수 등록→채널 해석)라
+  클래스 필드 사이에서도 `MethodChannel(_name)`이 `const _name`보다 앞에 와도 정적으로 해석한다.
+  **analyzer 14.3.0은 멤버가 `node.body.members`(ClassBody/EnumBody)로 옮겨갔다**(`node.members`
+  아님). 동명 최상위 채널 shadowing도 순서와 무관하게 유지된다.
+- **`.values` enum 상수 오탐(#2)**: enum 상수는 `FieldElement`(isEnumConstant)라 노드로 만들어지고
+  enum→상수 간선은 `member`(impliesUsage=false)뿐이다. 컨테이너 구제는 멤버→컨테이너 단방향이라
+  `Status.values`로만 소비되는 도달 가능 enum의 상수까지 `dead`로 잘못 보고됐다(실행 재현: 상수 3건).
+  GraphNode에 `isEnumConstant`를 추가하고 도달성이 "enum이 도달 가능하면 상수도 보존"으로 구제한다.
+  `explain`은 `retained by its reachable enum` 근거와 enum까지의 경로를 낸다(symbol_query는
+  `explanation.reachable`로 자동 반영, graph_comparison는 `deadDeclarations`로 자동 반영).
+  enum 자체가 미도달이면 상수도 계속 보고한다(과보존 방지 회귀 포함).
+- **빈 채널명 전면 실패(#3)**: `_rejectControlCharacters`가 빈 값에도 던져 `MethodChannel('')`
+  한 줄이 `bridges` 출력 전체를 실패시켰다. 이제 `_fact`가 빈 채널·메서드 이름이면 그 fact만
+  건너뛰고 `empty-bridge-names: N` limitation으로 집계한다. 제어 문자는 계속 전면 거부한다
+  (기존 `bridges rejects Unicode line controls` 테스트 유지).
+- **`dead --since`의 `diff.relative`(#4)**: `git diff`가 cwd 상대 경로를 출력하는데 저장소 루트와
+  join해, 패키지 루트≠저장소 루트 + `diff.relative=true`에서 변경 파일 집합이 어긋나 발견이
+  전부 사라졌다(종료 0). `_run`이 git을 `-c diff.relative=false`로 실행해 경로를 고정한다.
+
+### 이전 세션 (#13~#17, 미릴리스)
 
 - **심볼릭 링크 캐시 오염(PR #13, blocker)**: `listSync(followLinks: false)` 목록에서 링크는
   `Link` 인스턴스라 `File`·`Directory` 분기에 걸리지 않아 캐시 키 입력에서 빠졌다. analyzer는
@@ -66,29 +92,53 @@ _Last updated: 2026-09-06 (PR #17 merge 기준)_
 
 ## Key Files & State
 
+- `lib/src/core/graph_node.dart`: `isEnumConstant` 플래그가 enum 상수 노드를 표시한다
+  (`isTypeDeclaration`과 상호배제 검증). 도달성 보존의 근거다.
 - `lib/src/analysis/reachability_analyzer.dart`: dead/explain, known·witness, 소스별 한계.
-  `_reachableMemberOf`가 멤버 보존 witness를 고른다(`reachableIds` 정렬에 의존).
+  `_reachableMemberOf`가 멤버 보존 witness를 고른다. `reachableEnumConstants`가 도달 가능
+  enum의 상수를 보존하고 explain은 `retained by its reachable enum`을 낸다.
 - `lib/src/analysis/symbol_query.dart`, `lib/src/analysis/graph_comparison.dart`:
-  판별자가 `reachableIds.contains`(직접 도달)다. `explanation.reachable`로 되돌리면 회귀한다.
+  판별자가 `reachableIds.contains`(직접 도달)다. enum 상수 보존은 `explanation.reachable`·
+  `deadDeclarations`로 자동 반영된다. 직접 도달 판별자를 `explanation.reachable`로 되돌리면 회귀한다.
 - `lib/src/index/analyzer_graph_index.dart`: analyzer 어댑터·소스 진단·중첩 의존성 캐시.
-  `_projectFilesIn`이 심볼릭 링크를 순환 가드와 함께 따라간다. `_readEntryPoints`가 설정을 읽는다.
+  `visitDeclaration`가 `isEnumConstant: element is FieldElement && element.isEnumConstant`를
+  설정해 캐시 직렬화에 포함한다. `_cacheSchemaVersion = 2`(옛 캐시는 decode 거부·재분석).
+  **analyzer 14.3.0은 클래스 멤버가 `node.body.members`(ClassBody/EnumBody)다**(`node.members` 아님).
 - `lib/src/index/bridge_index.dart`: Flutter provenance·scope·Dart 선언 이름·bridge facts.
-  `_dartFilesIn`이 같은 링크 처리를 한다.
+  `_visitDeclarationScope`가 `_prescanFields(node.body.members...)`로 선언 본문 필드를 선-스캔한다.
+  `_fact`는 빈 채널·메서드 이름이면 null을 돌려주고 `emptyBridgeNames`로 집계한다(제어 문자는 계속 거부).
+- `lib/src/cli/changed_files.dart`: `_run`이 git을 `-c diff.relative=false`로 실행해 경로를 고정한다.
 - `lib/src/cli/dartograph_cli.dart`: 입력 검증·batch/compare·0/1/2/64 계약.
   모든 위치 경로와 파일 값이 `startsWith('-')`로 걸러진다(`--explain` 값은 의도적 제외).
+- `fixtures/false_positive_corpus/lib/enums.dart`·`main.dart`: `.values`로만 소비되는
+  `TelemetryLevel`로 enum 상수 보존을 검증한다. `tool/verify-false-positive-corpus.sh`의
+  preserved 목록에 `TelemetryLevel`이 있다.
+- `test/analysis/reachability_analyzer_test.dart`: enum 상수 보존(`.values`)과 과보존 방지
+  (미도달 enum은 상수도 보고) 회귀.
+- `test/index/bridge_symbol_test.dart`: 채널 선언 순서·shadowing·빈 채널명 회귀.
+- `test/cli/changed_files_test.dart`: `diff.relative=true` + nested 패키지 회귀.
 - `test/index/fact_cache_test.dart`: 파일 링크·디렉터리 링크 캐시 무효화와 순환 가드 회귀.
 - `test/cli/dartograph_cli_test.dart`: 옵션 모양 값 거부 회귀. baseline 목적지 케이스는
   cwd 통제 테스트에만 둔다(상대 경로가 저장소 루트에 쓰이는 것을 막기 위해).
 - `test/index/analyzer_graph_index_test.dart`: entry_points 축소·한계·거부·빈 문서·BOM 회귀.
 - `test/analysis/evidence_workflow_test.dart`: query `retainedByMember`·compare witness 회귀.
 - `.github/workflows/ci.yml`: Dart 3.11.0/3.13.3 matrix.
-- `doc/USAGE.md`: 실제 명령과 알려진 한계. `CHANGELOG.md`: 0.2.0 내역과 `Unreleased` 4건.
+- `doc/USAGE.md`: 실제 명령·한계·enum 보존. `CHANGELOG.md`: 0.2.0 내역과 `Unreleased` 6건.
 
 ## Important Context / Decisions
 
 - Facts:
   - cache identity는 `dartograph-analysis-$toolVersion-cache-v3-entry-points`다.
     추출 의미 변경 시 revision을 갱신한다. `dartograph.yaml`도 캐시 키에 포함한다.
+    enum 상수 보존(#2)은 노드 직렬화에 `isEnumConstant`를 추가해 `_cacheSchemaVersion`을 2로
+    올렸다(옛 캐시는 decode에서 schemaVersion 불일치로 거부·재분석). identity는 그대로다
+    (도달성은 캐시 밖이고 노드 집합도 변하지 않았다).
+  - enum 상수는 `FieldElement`(isEnumConstant)라 노드로 만들어지고 enum→상수는 `member` 간선뿐이다.
+    `.values`·switch·직렬화는 개별 상수를 직접 참조하지 않으므로, enum이 도달 가능하면 상수도
+    보존한다(과보존 방지: enum 자체가 미도달이면 상수도 보고). extension type은 이번 세션에서
+    재현하지 않아 같은 공백이 있는지 미확인이다.
+  - analyzer 14.3.0은 클래스/믹스인/enum/extension/extensionType 멤버가 `node.body.members`
+    (ClassBody·EnumBody의 `NodeList<ClassMember>`)다. 구버전의 `node.members`가 아니다.
   - 심볼릭 링크 수정은 revision을 올리지 않았다. 추출 의미가 그대로이고, 링크 없는 프로젝트는
     동일한 입력 목록을 해싱해 기존 캐시가 유효하며, 링크 있는 프로젝트는 애초에 잘못된 사실을
     캐싱했고 새 키가 그것을 자연히 비껴간다.
@@ -110,6 +160,26 @@ _Last updated: 2026-09-06 (PR #17 merge 기준)_
 
 ## Verification
 
+- 이번 세션 로컬 검증(브랜치 `docs/handoff-audit-fixes`, 미커밋): SDK는 homebrew `dart 3.13.3`,
+  의존성은 `dart pub get`(**온라인**)으로 격리 PUB_CACHE에 받아 `package_config.json`이 격리 경로를
+  가리킨다(`--offline`은 빈 캐시에서 exit 69). `dart format`·`dart analyze` clean(각각 exit 0),
+  **전체 139개 테스트 통과**(exit 0), 오탐 코퍼스·CLI 계약 스크립트 exit 0.
+  `dart pub publish --dry-run`은 미커밋 파일 경고뿐(커밋 시 해소, 패키지 69 KB·내용 정상).
+- GLM 리뷰는 agent-guard `packet-review`(샌드박스 내 유일한 GLM 경로, `--files` 단독)로 받았다.
+  본 리뷰·delta 리뷰 모두 **차단 이슈 없음(승인)**. 본 리뷰의 최우선 지적(rescued enum 상수가
+  `reachableIds`에 없어 query/compare가 갈릴 수 있다)은 실측으로 기각했다: `query`는 상수를
+  `state: reachable`(path=enum까지)로 답하고, `compare`는 `deadDeclarations` 기반이라 rescue가
+  자동 반영된다. 권고 #2(`_prescanFields` 2패스)·#3(비클래스 본문 prescan 커버리지)와 delta의
+  non-blocking 2건(shadow-const, 비클래스 2패스)을 반영해 bridge_symbol_test가 7건으로 늘었다.
+- **라인 커버리지는 이번 세션 미실행**: sandbox가 `dart test --coverage`의 VM service(로컬 포트)를
+  차단해 가벼운 테스트 한 개로도 hang한다(커버리지 없는 `dart test`는 ~28초 통과). 재개 시 사용자
+  터미널에서 `tool/check-coverage.sh`로 확인한다. 새 테스트 6건이 새 코드 경로를 커버하므로 ≥90
+  게이트 유지를 기대하나 **미확정**이다.
+- 각 수정은 **수정 전 실패를 재현한 뒤** 통과시켰다. 이번 세션 재현 근거: bridge 채널 순서·
+  shadowing·빈 채널명 3건과 `diff.relative` nested 1건은 제품 코드만 `git stash`했을 때 실패,
+  enum 오탐은 `Status.values`만 소비하는 패키지에서 `dead --format json`이 상수 3건을 보고
+  (수정 후 `findings: []`), reachability 보존 테스트는 `reachability_analyzer.dart`만 stash했을 때 실패.
+- 아래는 이전 세션(#13~#17) 시점의 기록이다.
 - 현재 main(`86ee109`) 로컬 검증: `dart format`·`dart analyze` clean(각각 exit 0),
   **전체 129개 테스트 통과**, 라인 커버리지 **93.12%**(2193/2355, ≥90 게이트).
   오탐 코퍼스·CLI 계약 스크립트 exit 0. `dart pub publish --dry-run` exit 0, 경고 0.
@@ -118,7 +188,6 @@ _Last updated: 2026-09-06 (PR #17 merge 기준)_
 - 각 수정은 **수정 전 실패를 재현한 뒤** 통과시켰다. CLI 레벨 재현 근거:
   캐시 on/off 결과 불일치(0건 vs 1건, 2건 vs 3건), `explain` 종료 코드 1→0,
   `touch dartograph.yaml` 후 exit 2→0, `baseline --write --force .` exit 0+파일 생성 → 64+미생성.
-- 아래는 이전 세션 시점의 기록이다.
 - 0.2.0 기능 검증: format·analyze 통과, 전체 116개 테스트, 라인 커버리지 92.47%.
 - 0.2.0 dry-run: 58 KB, 경고 0. 공개 pub.dev 패키지의 새 격리 설치와 전체 CLI 계약 통과.
 - `dart run tool/benchmark_query.dart`: 합성 2,000노드/100질의, 약 227ms → 8ms.
@@ -132,30 +201,10 @@ _Last updated: 2026-09-06 (PR #17 merge 기준)_
 - 아래 세 목록은 다르다. **감사 backlog**는 근거가 확인된 미처리 항목,
   **닫은 항목**은 다시 도출하지 말 것, **보류 항목**은 요구·측정·외부 조율이 생기면 재검토한다.
 
-### 감사 backlog (이번 세션 9축 감사에서 이중 검증 통과, 미처리)
+### 감사 backlog (이전 9축 감사에서 이중 검증 통과, 미처리)
 
-우선순위 상위 4건은 사용자에게 조용한 오답이나 전면 실패를 준다.
-
-- `lib/src/index/bridge_index.dart`의 `visitClassDeclaration`(:226) — 클래스 본문을 선-스캔하지 않아, `static final _channel =
-  MethodChannel(...)`이 사용처보다 **뒤에** 선언되면 method-invoke fact가 통째로 누락되고 위치도
-  심볼도 없는 `unresolved-receiver-invocations` 카운트로 강등된다. 최상위 스코프는
-  `_topLevelDeclaredNames`(:677)·`_topLevelStringConstants`(:704) 등으로 이미 선-스캔한다.
-  `_visitDeclarationScope`(:255)에 본문 선-스캔 콜백을 추가하면 class/mixin/enum/extension/extensionType을 한 번에 덮는다.
-  회귀는 (a) 순서만 다른 두 클래스가 같은 fact를 내는지, (b) 동명 최상위 채널 shadowing이
-  깨지지 않는지. *(감사 에이전트가 실행 재현. 이 세션에서 직접 재현하지는 않았다.)*
-- `fixtures/false_positive_corpus/lib/` — enum이 **0건**이라 `.values`로만 소비되는 enum 상수의
-  오탐이 전혀 검증되지 않는다. enum→상수 간선은 `EdgeKind.member`뿐이고
-  `impliesUsage => this != EdgeKind.member`라 도달성에서 빠지며, `reachableContainers`의 구제는
-  멤버→컨테이너 단방향이라 상수를 구제하지 못한다. **먼저 fixture를 추가해 오탐이 실제로 나는지
-  확인**하고, 나면 `.values` 접근을 보존 근거로 인정하거나 limitation으로 고정한다. extension
-  type도 같은 공백. *(코드 경로 근거이며 실행 재현은 미확인.)*
-- `lib/src/index/bridge_index.dart`의 `_rejectControlCharacters`(:777) — 빈 값에도 던져
-  `MethodChannel('')` 한 줄이 `bridges` 출력 전체를 0건으로 만든다. 오류에 파일·줄이 없어
-  추적이 불가능하다. 경로의 전면 거부(:41)는 유지하되 fact 값(:520 주변)의 빈 문자열은 그 fact만 건너뛰고
-  `empty-bridge-names: N` 한계로 집계한다.
-- `lib/src/cli/changed_files.dart:41,46` — 두 `git diff` 호출에 경로 기준이 고정돼 있지 않아
-  `diff.relative=true` + 패키지 루트 ≠ 저장소 루트일 때 변경 파일 집합이 어긋나고 `dead --since`
-  발견이 전부 사라진다(종료 0). `_run`의 인자를 `['-c','diff.relative=false','-C', ...]`로.
+우선순위 상위 4건(bridge 채널 선언 순서, `.values` enum 상수 오탐, 빈 채널명, `dead --since`의
+`diff.relative`)은 이번 세션에서 처리해 Completed로 옮겼다. 아래는 남은 항목이다.
 
 다음 릴리스(0.3.0) 전에 정리할 것:
 
@@ -266,23 +315,33 @@ _Last updated: 2026-09-06 (PR #17 merge 기준)_
 - pub.dev 업로드 성공 직후 설치 목록 전파가 지연될 수 있다. 동일 버전을 재게시하지 않는다.
 - GLM `--effort high`가 코드·문서 리뷰에 안정적이었다. `--effort medium`은 한 번 garbled 출력을 냈다.
 - 리뷰 패킷은 `--diff <base>` 범위가 초점이 맞았다. 후속 리뷰는 직전 커밋을 base로 delta만 보냈다.
+- **analyzer API는 설치된 소스(격리 캐시)에서 확인한다.** 14.3.0은 클래스 멤버가 `node.members`에서
+  `node.body.members`(ClassBody·EnumBody)로 옮겨갔다. 추측으로 쓰면 `dart analyze`가 undefined_getter로 잡는다.
+- **sandbox에서 `dart pub get`은 온라인으로 격리 PUB_CACHE에 받는다**(`--offline`은 빈 캐시에서 exit 69,
+  호스트 `~/.pub-cache`는 의도적으로 차단). `package_config.json`이 격리 경로로 다시 써진다.
+  `dart test --coverage`는 VM service(로컬 포트)가 차단되어 가벼운 테스트 한 개로도 hang한다.
 
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로의 AGENTS.md를 읽는다.
-2. 감사 backlog의 상위 4건(bridge 채널 선언 순서, enum 오탐 fixture, 빈 채널명, `dead --since`)이
-   다음 후보다. enum 항목은 **먼저 fixture로 오탐이 실재하는지 확인**한 뒤 방향을 정한다.
-3. 릴리스가 요청되면 0.3.0 minor bump를 검토한다(`entry_points`가 사용자 표면 변화이고,
-   #16의 좁은 파괴적 변경도 포함된다). 릴리스 전 처리 목록의 SKILL.md 문구와 SECURITY.md를
-   함께 정리하고 `CHANGELOG.md`의 `Unreleased`를 옮긴다.
-4. 새 사용자 요청이 없다면 완료된 구현·배포를 반복하지 않는다. 닫은·보류 항목은 위 근거를 먼저 읽는다.
+2. **이번 세션 4건은 미커밋이다**(`docs/handoff-audit-fixes`). 사용자 터미널에서
+   `tool/check-coverage.sh`로 커버리지 게이트(≥90)를 확인한 뒤(sandbox는 VM service 차단으로
+   불가), 커밋·PR·GLM 리뷰를 진행한다. Conventional Commits, main 직접 커밋 금지.
+3. 릴리스가 요청되면 0.3.0 minor bump를 검토한다(`entry_points`·#16 파괴적 변경·enum 보존·
+   캐시 schemaVersion v2가 사용자 표면 변화). 릴리스 전 처리 목록의 SKILL.md 문구와 SECURITY.md를
+   함께 정리하고 `CHANGELOG.md`의 `Unreleased` 6건을 옮긴다.
+4. 감사 backlog의 남은 항목(릴리스 전 처리 목록·선택 과제)이 다음 후보다. enum과 같은 계열인
+   **extension type의 `.values` 공백**은 이번 세션에서 재현하지 않았으니 확인 후보로 남는다.
+5. 새 사용자 요청이 없다면 완료된 구현·배포를 반복하지 않는다. 닫은·보류 항목은 위 근거를 먼저 읽는다.
 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
 `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.2.0 is released; main
-(86ee109) has unreleased entry_points, analyzer-contract test, lakos docs, and four defect fixes
-merged this session (PRs #13-#17). An evidence-based audit backlog with file:line is recorded under
-"Blockers & Open Questions" — work its top four items rather than re-deriving findings. The closed
-and deferred lists were assessed deliberately; read the rationale before re-flagging. Follow the
-next explicit user task.`
+(86ee109 + d40646e) has unreleased entry_points, analyzer-contract test, lakos docs, defect fixes
+#13-#17, and this session's four backlog fixes (bridge channel declaration order, .values
+enum-constant false positive, empty channel name, dead --since diff.relative) UNCOMMITTED on branch
+docs/handoff-audit-fixes. Line coverage was NOT run this session (sandbox blocks the coverage VM
+service); run tool/check-coverage.sh in a host terminal before committing, then do Conventional
+Commits + PR + GLM review. The remaining audit backlog and the closed/deferred lists were assessed
+deliberately; read the rationale before re-flagging. Follow the next explicit user task.`

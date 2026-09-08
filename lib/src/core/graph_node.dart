@@ -12,6 +12,7 @@ final class GraphNode {
     bool synthesized = false,
     bool isTypeDeclaration = false,
     bool isAbstract = false,
+    bool isEnumConstant = false,
   }) {
     if (id.isEmpty) {
       throw ArgumentError.value(id, 'id', 'must not be empty');
@@ -29,6 +30,13 @@ final class GraphNode {
         'requires a type declaration',
       );
     }
+    if (isEnumConstant && isTypeDeclaration) {
+      throw ArgumentError.value(
+        isEnumConstant,
+        'isEnumConstant',
+        'is mutually exclusive with a type declaration',
+      );
+    }
     return GraphNode._(
       id: id,
       sourceUri: sourceUri,
@@ -37,6 +45,7 @@ final class GraphNode {
       synthesized: synthesized,
       isTypeDeclaration: isTypeDeclaration,
       isAbstract: isAbstract,
+      isEnumConstant: isEnumConstant,
     );
   }
 
@@ -48,6 +57,7 @@ final class GraphNode {
     required this.synthesized,
     required this.isTypeDeclaration,
     required this.isAbstract,
+    required this.isEnumConstant,
   });
 
   /// 라이브러리 정체성과 선언 경로에서 만든 안정적인 그래프 ID다.
@@ -71,6 +81,10 @@ final class GraphNode {
   /// 타입 선언이 추상 클래스나 추상 인터페이스인지 나타낸다.
   final bool isAbstract;
 
+  /// enum 상수 선언인지 나타낸다. enum이 도달 가능하면 `.values`·switch·직렬화처럼
+  /// 상수를 직접 참조하지 않는 소비도 있으므로, 도달성이 이 표시로 상수를 보존한다.
+  final bool isEnumConstant;
+
   @override
   bool operator ==(Object other) =>
       other is GraphNode &&
@@ -80,7 +94,8 @@ final class GraphNode {
       column == other.column &&
       synthesized == other.synthesized &&
       isTypeDeclaration == other.isTypeDeclaration &&
-      isAbstract == other.isAbstract;
+      isAbstract == other.isAbstract &&
+      isEnumConstant == other.isEnumConstant;
 
   @override
   int get hashCode => Object.hash(
@@ -91,5 +106,6 @@ final class GraphNode {
     synthesized,
     isTypeDeclaration,
     isAbstract,
+    isEnumConstant,
   );
 }
