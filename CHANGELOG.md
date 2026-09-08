@@ -35,12 +35,16 @@
     create it with dartograph baseline --write"를 낸다
   - `rules --config` 파일이 없거나 잘못되면 "Analysis failed: unable to read the rules
     configuration."을 낸다(인덱싱 실패와 구분, `Analysis failed:` 접두는 유지)
+  - `baseline --write`의 쓰기 실패(목적지 생성·권한)는 "unable to index the package" 대신
+    "Baseline write failed: unable to write the baseline file."을 낸다(인덱싱은 이미 성공)
 - 퍼센트 인코딩된 파일명의 dead file finding이 파일 수준 한계를 유지
   - `Uri.path`가 유지하는 `%20` 등을 디코딩해 analyzer가 실제 경로로 만든 source 한계와
     매치되게 한다. 이전에 그 파일의 한계가 finding에서 조용히 사라졌다
-- Mermaid 출력이 자체 노드 ID의 `<`·`>`·`&`를 HTML 엔티티로 escape
+- Mermaid 출력이 자체 노드 ID의 `<`·`>`·`&`·`"`·`\`·`#`를 HTML 엔티티 코드로 escape
   - DOT용 백슬래시 escape를 재사용해 `<no-library>`·`<unnamed-extension@...>`를 Mermaid가
     HTML 태그로 오해하던 문제를 고친다
+  - 따옴표는 인용 문자열을 중간에 끊어 라벨 구조를 깨므로 Mermaid가 문서화한 엔티티 코드
+    (`#quot;`·역슬래시 `#92;`·`#` 자체 `#35;`)로 바꾼다
 - `--help`가 `--explain`이 `--format json`을 요구하고 `--baseline`·`--since`와 결합하지
   않음을 안내한다
 

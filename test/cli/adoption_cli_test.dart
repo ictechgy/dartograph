@@ -302,6 +302,37 @@ void main() {
     },
   );
 
+  test('baseline write failure is not reported as an index failure', () async {
+    // 인덱싱은 성공하고 쓰기만 실패하는 경로: 목적지의 부모가 파일이면
+    // BaselineStore.write의 parent.create가 FileSystemException으로 실패한다.
+    final blocker = File(p.join(directory.path, 'blocker'));
+    await blocker.writeAsString('not a directory');
+    final errors = StringBuffer();
+    final output = StringBuffer();
+    expect(
+      await runDartograph(
+        [
+          'baseline',
+          '--write',
+          p.join(blocker.path, 'baseline.json'),
+          directory.path,
+        ],
+        output: output,
+        error: errors,
+        indexPackage: (_) async => indexed,
+      ),
+      ExitStatus.failure.code,
+    );
+    // 쓰기 실패를 "unable to index the package"로 답하면 원인을 반대로
+    // 가리킨다. 인덱싱은 이미 성공했다.
+    expect(
+      errors.toString(),
+      'Baseline write failed: unable to write the baseline file.\n',
+    );
+    expect(errors.toString(), isNot(contains('unable to index')));
+    expect(output.toString(), isEmpty);
+  });
+
   test(
     'a missing baseline file is reported as invalid, not an index failure',
     () async {

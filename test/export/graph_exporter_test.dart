@@ -40,6 +40,27 @@ void main() {
     );
   });
 
+  test('Mermaid escapes quotes, backslashes, and hashes with entity codes', () {
+    final special = GraphSnapshot(
+      // 두 번째 ID는 escape 결과(`#quot;`·`#92;`)와 겹치는 적대적 원문이다.
+      // `#`을 먼저 바꾸므로 코드로 오디코딩되지 않고 원문 그대로 렌더링된다.
+      nodes: [
+        GraphNode(id: r'q"#\'),
+        GraphNode(id: '#quot;#92;'),
+      ],
+      edges: const [],
+    );
+    // 따옴표는 인용 문자열을 중간에 끊어 라벨 구조를 깬다. Mermaid 문서는
+    // `#quot;`·10진 코드(`#92;`)를 escape로 정의하고, `#` 자체도 코드로
+    // 디코딩되므로 먼저 `#35;`로 바꿔야 인코딩이 손실 없다.
+    expect(
+      GraphExporter.mermaid(special),
+      'flowchart LR\n'
+      '  n0["#35;quot;#35;92;"]\n'
+      '  n1["q#quot;#35;#92;"]\n',
+    );
+  });
+
   test('Mermaid escapes angle brackets and ampersands in its own node ids', () {
     final special = GraphSnapshot(
       nodes: [
