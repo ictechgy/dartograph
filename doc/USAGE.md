@@ -14,7 +14,7 @@ dartograph --version
 ## 명령
 
 ```text
-dartograph graph --format <dot|json|mermaid> <package-root>
+dartograph graph --format <dot|json|mermaid|html> <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
@@ -31,6 +31,13 @@ dartograph rules --config <yaml-file> [--strict] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
 dartograph metrics [--strict] <package-root>
 ```
+
+`graph --format html`은 외부 CDN·스크립트·폰트 참조가 없는 단일 자기완결 파일이다.
+네트워크가 막힌 사내망이나 CI 아티팩트에서도 열리고, 그래프 사실은
+`<script type="application/json">` 페이로드에 실려 캔버스 힘 기반 배치·검색·팬·줌으로
+렌더링된다. 400정점을 넘으면 연결이 많은 정점부터 남기고 잘라 냈다는 사실을 페이지와
+페이로드(`truncatedFrom`)에 적는다 — 전체 그래프는 `--format dot`을 쓴다. limitations는
+헤더의 접히는 목록과 페이로드 양쪽에 실린다.
 
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,

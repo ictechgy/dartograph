@@ -211,6 +211,23 @@ environment:
     expect(error.toString(), isEmpty);
   });
 
+  test('graph emits the self-contained html format', () async {
+    final output = StringBuffer();
+
+    final status = await runDartograph(
+      const ['graph', '--format', 'html', 'test/index/fixture'],
+      output: output,
+      error: StringBuffer(),
+    );
+
+    expect(status, ExitStatus.success.code);
+    final html = output.toString();
+    expect(html, startsWith('<!DOCTYPE html>'));
+    expect(html, contains('<script id="graph-data" type="application/json">'));
+    expect(html, isNot(contains('<script src')));
+    expect(html, isNot(contains('https://')));
+  });
+
   test('graph rejects invalid arguments as usage errors', () async {
     final error = StringBuffer();
 

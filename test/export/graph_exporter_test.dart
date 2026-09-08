@@ -1,8 +1,23 @@
+import 'dart:convert';
+
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:test/test.dart';
 
 void main() {
+  const payloadMarker = '<script id="graph-data" type="application/json">';
+
+  String payloadOf(String html) {
+    final begin = html.indexOf(payloadMarker);
+    expect(begin, isNot(-1), reason: 'payload script tag missing');
+    final end = html.indexOf('</script>', begin);
+    expect(end, isNot(-1), reason: 'payload script tag not closed');
+    return html.substring(begin + payloadMarker.length, end);
+  }
+
+  Map<String, Object?> decodePayload(String html) =>
+      jsonDecode(payloadOf(html)) as Map<String, Object?>;
+
   final snapshot = GraphSnapshot(
     nodes: [
       GraphNode(
@@ -59,6 +74,177 @@ void main() {
       '  n0["#35;quot;#35;92;"]\n'
       '  n1["q#quot;#35;#92;"]\n',
     );
+  });
+
+  test('HTML output is self-contained with a deterministic payload', () {
+    final html = GraphExporter.html(
+      snapshot,
+      limitations: const ['single configuration'],
+    );
+
+    expect(html, startsWith('<!DOCTYPE html>\n<html lang="en">\n'));
+    // 자기완결: 외부 스크립트·스타일·URL 참조가 없다.
+    expect(html, isNot(contains('<script src')));
+    expect(html, isNot(contains('<link')));
+    expect(html, isNot(contains('http://')));
+    expect(html, isNot(contains('https://')));
+    // limitations는 헤더 목록과 페이로드 양쪽에 실린다.
+    expect(html, contains('1 limitation(s)'));
+    expect(html, contains('<li>single configuration</li>'));
+
+    final payload = payloadOf(html);
+    expect(payload, isNot(contains('<')));
+    expect(decodePayload(html), {
+      'edges': [
+        {'kind': 'call', 'source': 'b', 'target': 'a'},
+      ],
+      'limitations': ['single configuration'],
+      'nodes': [
+        {'id': 'a', 'kind': 'library', 'name': 'a', 'synthesized': false},
+        {'id': 'b', 'kind': 'library', 'name': 'b', 'synthesized': true},
+      ],
+    });
+  });
+
+  test('HTML node kinds and display names derive from the id shape', () {
+    final typed = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'package:app/lib/foo.dart'),
+        GraphNode(id: 'package:app/lib/foo.dart::Bar', isTypeDeclaration: true),
+        GraphNode(id: 'package:app/lib/foo.dart::Bar.baz'),
+        GraphNode(id: '<no-library>'),
+      ],
+      edges: const [],
+    );
+
+    final nodes = (decodePayload(GraphExporter.html(typed))['nodes'] as List)
+        .cast<Map<String, Object?>>();
+    expect(nodes, [
+      {
+        'id': '<no-library>',
+        'kind': 'library',
+        'name': '<no-library>',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/foo.dart',
+        'kind': 'library',
+        'name': 'foo.dart',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/foo.dart::Bar',
+        'kind': 'type',
+        'name': 'Bar',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/foo.dart::Bar.baz',
+        'kind': 'member',
+        'name': 'Bar.baz',
+        'synthesized': false,
+      },
+    ]);
+  });
+
+  test('HTML truncation keeps the most connected and says so', () {
+    final hub = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a'),
+        GraphNode(id: 'b'),
+        GraphNode(id: 'c'),
+        GraphNode(id: 'd'),
+        GraphNode(id: 'e'),
+        GraphNode(id: 'hub'),
+      ],
+      edges: const [
+        GraphEdge(sourceId: 'hub', targetId: 'a', kind: EdgeKind.import),
+        GraphEdge(sourceId: 'hub', targetId: 'b', kind: EdgeKind.import),
+        GraphEdge(sourceId: 'hub', targetId: 'c', kind: EdgeKind.import),
+        GraphEdge(sourceId: 'hub', targetId: 'd', kind: EdgeKind.import),
+      ],
+    );
+
+    final html = GraphExporter.html(hub, nodeLimit: 3);
+    expect(html, contains('truncated from 6 nodes'));
+
+    final payload = decodePayload(html);
+    // degree 내림차순(hub 4) 후 동률 id 오름차순(a·b) — c·d·e는 잘린다.
+    expect(payload['truncatedFrom'], 6);
+    expect(
+      (payload['nodes'] as List).map((node) => (node as Map)['id']).toList(),
+      ['a', 'b', 'hub'],
+    );
+    // 잘린 정점의 간선은 페이로드에 남지 않는다.
+    expect(payload['edges'], [
+      {'kind': 'import', 'source': 'hub', 'target': 'a'},
+      {'kind': 'import', 'source': 'hub', 'target': 'b'},
+    ]);
+  });
+
+  test('HTML escapes angle brackets inside the JSON payload', () {
+    final special = GraphSnapshot(
+      nodes: [GraphNode(id: '<no-library>')],
+      edges: const [],
+    );
+
+    final html = GraphExporter.html(special);
+    // `<!--<script`류 토크나이저 함정: 페이로드에 여는 꺾쇠가 raw로 남지 않는다.
+    // `>`는 script 데이터 상태에서 토크나이저 위험이 없어 raw로 둔다(cartograph 동일).
+    expect(payloadOf(html), isNot(contains('<')));
+    expect(payloadOf(html), contains(r'\u003cno-library>'));
+    // JSON 파싱 결과는 이스케이프 전과 같다.
+    expect(decodePayload(html)['nodes'], [
+      {
+        'id': '<no-library>',
+        'kind': 'library',
+        'name': '<no-library>',
+        'synthesized': false,
+      },
+    ]);
+  });
+
+  test('HTML payload defuses script-tag tokenizer traps in node ids', () {
+    final hostile = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a</script>'),
+        GraphNode(id: 'b<!--<script'),
+      ],
+      edges: const [
+        GraphEdge(
+          sourceId: 'b<!--<script',
+          targetId: 'a</script>',
+          kind: EdgeKind.call,
+        ),
+      ],
+    );
+
+    final html = GraphExporter.html(hostile);
+    // 페이로드에 여는 꺾쇠가 raw로 남지 않으므로 문서의 실제 `</script>`는
+    // 페이로드 닫는 태그와 인라인 JS 끝 두 곳뿐이다.
+    expect(payloadOf(html), isNot(contains('<')));
+    expect('</script>'.allMatches(html).length, 2);
+    // 라운드 트립: 이스케이프는 JSON 파싱 결과를 바꾸지 않는다.
+    final payload = decodePayload(html);
+    expect(
+      (payload['nodes'] as List).map((node) => (node as Map)['id']).toList(),
+      ['a</script>', 'b<!--<script'],
+    );
+    expect(payload['edges'], [
+      {'kind': 'call', 'source': 'b<!--<script', 'target': 'a</script>'},
+    ]);
+  });
+
+  test('HTML output is byte-identical across runs', () {
+    final first = GraphExporter.html(
+      snapshot,
+      limitations: const ['single configuration'],
+    );
+    final second = GraphExporter.html(
+      snapshot,
+      limitations: const ['single configuration'],
+    );
+    expect(first, second);
   });
 
   test('Mermaid escapes angle brackets and ampersands in its own node ids', () {

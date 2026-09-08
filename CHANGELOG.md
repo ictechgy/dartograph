@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `graph --format`에 `html` 추가 (cartograph `graph --format html` 흡수)
+  - 외부 CDN·스크립트·폰트 참조가 전혀 없는 단일 자기완결 HTML이다. 네트워크가
+    막힌 사내망·CI 아티팩트에서도 열리고, 그래프 사실은
+    `<script type="application/json">` 페이로드에 실려 인라인 캔버스 힘 기반
+    배치·검색·팬·줌으로 렌더링된다
+  - 400정점을 넘으면 연결이 많은 정점부터 남기고 잘라 낸 사실을 페이지와
+    페이로드(`truncatedFrom`)에 적는다. 전체 그래프는 `--format dot`을 쓴다
+  - 페이로드의 `<`는 `\u003c`(적법한 JSON 이스케이프)로 바꿔 `<no-library>` 같은
+    자체 노드 ID가 script 태그 토큰화를 깨지 않게 한다. limitations는 헤더의
+    접히는 목록과 페이로드 양쪽에 실린다
 - `affected <git-ref> <package-root>` 명령 추가 (dependency-cruiser `--affected` 흡수)
   - Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 파일이 귀속되는 라이브러리를
     씨앗으로 import·export 간선을 역방향으로 건너, 전이적으로 의존하는 라이브러리를

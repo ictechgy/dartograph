@@ -955,7 +955,7 @@ Future<int> _runGraph(
     return ExitStatus.usage.code;
   }
   final format = arguments[1];
-  if (!const {'dot', 'json', 'mermaid'}.contains(format)) {
+  if (!const {'dot', 'json', 'mermaid', 'html'}.contains(format)) {
     error.writeln('Unknown graph format: $format');
     return ExitStatus.usage.code;
   }
@@ -966,6 +966,7 @@ Future<int> _runGraph(
     output.write(switch (format) {
       'dot' => GraphExporter.dot(snapshot, limitations: limitations),
       'json' => GraphExporter.json(snapshot, limitations: limitations),
+      'html' => GraphExporter.html(snapshot, limitations: limitations),
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),
     });
     return ExitStatus.success.code;
@@ -1038,7 +1039,7 @@ const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
-       dartograph graph --format <dot|json|mermaid> <package-root>
+       dartograph graph --format <dot|json|mermaid|html> <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
@@ -1066,6 +1067,10 @@ libraries changed since that revision plus the libraries that transitively
 depend on them through import/export edges, each with a shortest dependency
 path as evidence. Impact is a library-level observation, not proof that
 unlisted declarations are unaffected.
+
+graph --format html emits a single self-contained document with no CDN
+references. Graphs above 400 nodes keep the most connected nodes and say so
+on the page; use --format dot for the full graph.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".
