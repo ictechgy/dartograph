@@ -66,6 +66,15 @@ class Counter {
   Counter(this.n);
   Counter operator +(int step) => Counter(n + step);
   Counter operator -() => Counter(-n);
+  Counter operator -(Counter other) => Counter(n - other.n);
+}
+
+class Score {
+  final List<int> cells = [0, 0];
+  int operator [](int index) => cells[index];
+  void operator []=(int index, int value) {
+    cells[index] = value;
+  }
 }
 
 class Matrix {
@@ -92,7 +101,13 @@ void useOperators() {
   final first = matrix[0];
   matrix[1] = 5;
   final delta = Meters(9) - Meters(3);
-  print('\$sum \$neg \$counter \$first \$delta \${matrix.cells}');
+  final difference = Counter(2) - Counter(1);
+  final score = Score();
+  score[0] += 1;
+  score[1]++;
+  Matrix? maybeMatrix = Matrix([0]);
+  final probe = maybeMatrix?[0];
+  print('\$sum \$neg \$counter \$first \$delta \$difference \$probe \${matrix.cells} \${score.cells}');
 }
 ''');
     await Directory('${fixtureDirectory.path}/bin').create();
@@ -328,9 +343,15 @@ void main() => Service();
     expect(has('Vector.+'), isTrue); // 이항
     expect(has('Counter.unary-'), isTrue); // 전위 단항(analyzer lookupName)
     expect(has('Counter.+'), isTrue); // 후위 `++`·복합 대입 `+=`
-    expect(has('Matrix.[]'), isTrue); // 인덱스 읽기
+    expect(has('Matrix.[]'), isTrue); // 인덱스 읽기(null-aware `?[0]` 포함)
     expect(has('Matrix.[]=', EdgeKind.reference), isTrue); // 기존 writeElement 경로
     expect(has('Meters.-'), isTrue); // extension type 이항
+    // 단항 `-`와 이항 `-`가 같은 클래스에 공존해도 lookupName(unary-·-)으로
+    // ID가 갈린다(analyzer가 수렴시키면 두 간선 중 하나가 사라진다).
+    expect(has('Counter.-'), isTrue); // 이항
+    // 복합 대입·증감(`score[0] += 1`·`score[1]++`)의 인덱스 읽기·쓰기.
+    expect(has('Score.[]'), isTrue);
+    expect(has('Score.[]=', EdgeKind.call), isTrue);
     // 미사용 연산자는 노드로 남아 dead가 계속 보고할 수 있다.
     expect(
       result.graph.containsNode(

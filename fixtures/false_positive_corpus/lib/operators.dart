@@ -10,6 +10,19 @@ class Vector {
   Vector operator *(Vector other) => Vector(x * other.x);
 }
 
+class WriteOnly {
+  WriteOnly();
+
+  final List<int> cells = [0, 0];
+
+  // 읽기 연산자는 어디서도 소비되지 않는다. `w[0] = 7` 쓰기가 `[]`까지
+  // 함께 살리면 안 된다(과보존 방향의 양방향 검증).
+  int operator [](int index) => cells[index];
+  void operator []=(int index, int value) {
+    cells[index] = value;
+  }
+}
+
 extension type Meters(int value) {
   Meters operator -(Meters other) => Meters(value - other.value);
 

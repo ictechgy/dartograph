@@ -18,7 +18,9 @@ void main() {
   print((-Vector(3)).x);
   var walked = Meters(9);
   walked -= Meters(3);
-  print(walked);
+  final writeOnly = WriteOnly();
+  writeOnly[0] = 7;
+  print('$walked ${writeOnly.cells}');
 }
 
 String routeFactory(String route) => route == '/settings' ? 'settings' : 'home';
