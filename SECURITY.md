@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-공개 릴리스 중 최신 `0.4.x`만 보안 수정을 받습니다.
+공개 릴리스 중 최신 `0.5.x`만 보안 수정을 받습니다.
 
 ## Reporting a vulnerability
 

@@ -2,7 +2,7 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
-## Unreleased
+## 0.5.0
 
 - `bridges`에 `--project <shared-root>`와 pub workspace 자동 감지 추가
   (isthmus 모노레포 조인 요청 #38 — GRAPH-EXCHANGE가 공유 루트 선언 방식을

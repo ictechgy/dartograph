@@ -2,7 +2,7 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
-## Unreleased
+## 0.5.0
 
 - `bridges` gained `--project <shared-root>` and pub workspace auto-detection
   (isthmus monorepo join request #38; GRAPH-EXCHANGE delegates the shared-root
