@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + **0.4.1 릴리스** 세션, PR #39~#46 merge + 이 문서를 갱신하는 #47 기준)_
+_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + **0.4.1 릴리스** + 성능 backlog 측정 수정 3건 세션, PR #39~#50 merge + 이 문서를 갱신하는 #51 기준)_
 
 ## Goal
 
@@ -10,17 +10,22 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   (2) "코드 전체적 리뷰(성능·보안·구조)" 지시로 제품 코드 6,684줄 전량 감사를
   수행하고(직접 검토 + explore 하위 에이전트 3축 + GLM 교차검증 3패킷, 중요 지적은
   전부 실측·코드 대조 재검증), (3) 감사 결함 수정 6건을 머지하고(PR #40~#45),
-  (4) 사용자 승인("감사 수정과 묶어서")에 따라 **0.4.1을 릴리스**했다(PR #46 —
-  pub.dev·태그 v0.4.1·GitHub Release·새 캐시 설치본 검증).
+  (4) 사용자 승인("감사 수정과 묶어서")에 따라 **0.4.1을 릴리스**했고(PR #46 —
+  pub.dev·태그 v0.4.1·GitHub Release·새 캐시 설치본 검증), (5) 이어서 사용자
+  지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했다
+  (PR #48~#50 — A/B 하네스 신설, 인덱싱 -28%·query 배치 -84%·rules -72%,
+  7종 산출물 해시 전후 동일).
 
 ## Current Status
 
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.4.1 릴리스 + 이 HANDOFF를 갱신하는 docs PR(#47). 이번 세션은
-  PR #39~#46을 모두 두 SDK CI green + GLM packet-review 후 머지했다. 열린 제품 PR 없음.
-- 미릴리스 누적 없음(0.4.1이 감사 수정 전부를 소진). CHANGELOG에 `Unreleased` 절 없음.
+- main 기준: 0.4.1 릴리스 + 성능 PR #48~#50 + 이 HANDOFF를 갱신하는 docs PR(#51).
+  이번 세션은 PR #39~#50을 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+  열린 제품 PR 없음.
+- 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50 — 사용자 표면 변화는 없고
+  속도·하네스만) — 다음 패치/마이너 릴리스 후보다. 0.4.1은 감사 수정을 소진했다.
 - 테스트 244개, 라인 커버리지 **95.89%**(감사 전 94.4%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
@@ -71,6 +76,28 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   무효화 노트). clean git dry-run 0 → publish → 태그 v0.4.1=`53a4e0f`(게시 커밋) +
   GitHub Release(`--target` 사용) → 전파 ~7분 후 새 캐시 설치본 검증(계약 55케이스).
 
+- **성능 backlog 측정 수정(PR #48~#50, 0.4.1 이후 — Unreleased)**: 측정 선행 규칙에
+  따라 A/B 하네스 `tool/benchmark_index.dart`를 신설했다(합성 dep-free 600파일 패키지
+  결정적 생성 — 파일당 클래스+메서드 3+필드+최상위 함수, 배럴이 1/3 export, test가
+  main 궤적 밖 파일 import로 test-only 342건; cold 인덱싱 3회 + analyze·test-only·
+  query·rules 5회 반복 최소값; graph·dead·query·retention·test-only·limitations·rules
+  **7종 산출물 sha256**으로 출력 동등성 고정 + run별 해시 대조로 비결정성 차단).
+  - **#48 인덱싱 -28%**(min 1456→1053ms): P1 `_RelationshipCollector`의 element→ID
+    메모(`_idOf` — 식별자 방문마다 projectIdForPath 재계산 제거), P2 `CodeGraph.nodes/
+    edges` 읽기 뷰 캐시+변경 시 무효화 & `_addPublicApiRoots`의 노드 ID 목록 export
+    루프 밖 hoist, P9 간선 비교자 `compareGraphEdges` 일원화(CodeGraph·GraphSnapshot·
+    usageEdgesFrom 공유), P10 pubspec 인덱싱당 1회 읽기·선언당 source 1회 계산.
+  - **#49 query 배치 -84%**(10.7→1.7ms): P3/P6 `ReachabilityResult.isReachable`(Set)·
+    `reachableMemberOf`(dot-접두 witness 색인 1회 구축 — 정렬 순 putIfAbsent가 기존
+    firstOrNull과 동치, 주석 근거) — explain·symbol_query·compare._loss의 질의별 O(R)
+    선형 주사 제거. P5 analyze reachableIds 이중 정렬 제거. compareGraphs limitations
+    dedup+sort 1회 hoist. analyze 5.7→4.7ms.
+  - **#50 rules -72%**(10.8→3.0ms): P4 `LayerRuleEvaluator` 패턴별 RegExp 캐시
+    (first-match가 미매치 노드마다 전체 패턴 재컴파일하던 것 제거, const 생성자 해제),
+    P8 `dead --since` 고유 source당 링크 해석 1회 메모(`_changedContains` 동기화 +
+    메모 누락 assert).
+  - 세 PR 전부 7종 해시 전후 동일 + 244 테스트 무수정 통과 = 출력 byte 보존의 증거.
+
 ### 이전 세션 (0.4.0 릴리스 + Tier 2 흡수, PR #13~#37)
 
 - 0.4.0(PR #36, `811bdff`): Tier 2 흡수 4건 — `affected`(#31)·`graph --format html`(#32)·
@@ -103,11 +130,17 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   entry-points limitation, `_cacheIdentity = v5-inline-ignore`(toolVersion 포함 — 릴리스마다
   자동 무효), plugin 루트 putIfAbsent.
 - `lib/src/analysis/`: `affected_analyzer`(다중 씨앗 BFS·path/depth·unattributedSources),
-  `graph_projection`(GraphLevel·전이 닫힘 `_containerOf`·collapse 세그먼트), 기존
-  reachability·symbol_query·cycle_detector·layer_rules·architecture_metrics·graph_comparison·baseline.
-- `lib/src/core/`: `code_graph`(nodes getter가 접근마다 재정렬 — P2 미처리), graph_node
-  (가드 4종+==/hashCode 테스트됨), graph_snapshot(간선 toSet dedup), fact_cache,
-  retention_reason(`inlineIgnore` 포함 8값).
+  `graph_projection`(GraphLevel·전이 닫힘 `_containerOf`·collapse 세그먼트),
+  `reachability_analyzer`(`isReachable`·`reachableMemberOf` 지연 색인 — witness는 정렬 순
+  putIfAbsent로 기존 firstOrNull 동치), `layer_rules`(평가기별 `_globCache`),
+  `graph_comparison`(loss당 색인 사용·limitations hoist), symbol_query·cycle_detector·
+  architecture_metrics·baseline.
+- `tool/benchmark_index.dart`: 파이프라인 A/B 하네스(7종 산출물 sha256·run별 해시 대조·
+  반복 최소값·usage 가드). 성능 변경의 출력 동등성 정본.
+- `lib/src/core/`: `code_graph`(nodes/edges 뷰 캐시+addNode/addEdge 무효화 — 중복 간선은
+  GraphEdge 값 동등성으로 무효화 생략, 주석), graph_node(가드 4종+==/hashCode 테스트됨),
+  graph_edge(`compareGraphEdges` 공유 비교자), graph_snapshot(간선 toSet dedup — P7 보류),
+  fact_cache, retention_reason(`inlineIgnore` 포함 8값).
 - 문서: README.md(영어 정본)·README.ko.md, CHANGELOG.md(영어)·CHANGELOG.ko.md,
   SECURITY.md(심볼릭 링크 채널), doc/USAGE.md(affected·html·level/collapse·ignore·
   entry-points limitation·결정성 예외 2종), CONTRIBUTING(영어 정본 규칙·릴리스 체크리스트),
@@ -150,6 +183,11 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 - 0.4.1 릴리스: publish 성공 → 태그=게시 커밋(`53a4e0f`) → 전파 ~7분(재시도, 재게시 없음)
   → 새 격리 캐시 설치본으로 버전·report 필드·Mermaid 엔티티·계약 55케이스 검증 →
   pub.dev API latest 0.4.1 확인.
+- 성능 PR #48~#50(0.4.1 이후): 하네스 A/B — 인덱싱 min 1456→1053ms(-28%), query 배치
+  10.7→1.7ms(-84%), rules 10.8→3.0ms(-72%), analyze 5.7→4.7ms. 7종 산출물 해시 전후
+  동일 × 3 PR. 244 테스트 무수정·커버리지 95.89%·corpus·contract·dry-run 0. GLM 3회
+  리뷰 전부 차단 없음(비차단: 하네스 run별 해시·반복 최소값 보강, addEdge 무효화 근거
+  주석, 메모 누락 assert — 반영).
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
   로컬 rg 부재로 CI 위임.
 
@@ -165,16 +203,13 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
 
-- **성능(전부 측정 선행 필수**, 저장소 규칙 "측정 없는 최적화 금지"; GLM 판정 기준:
-  출력 동일성 증명 가능한 순수 감소만 측정 면제): P1 `_elementId` 무캐시 재계산
-  (식별자 방문마다 projectIdForPath normalize — cold 인덱싱 지배 추정, memoize 후보),
-  P2 `CodeGraph.nodes` getter 접근마다 재정렬 × `_addPublicApiRoots` export 루프(기존
-  backlog '선택 과제'의 메커니즘 입증), P3 `_reachableMemberOf`·`compare._loss` 선형
-  주사 O(F×R), P4 layer_rules 노드마다 glob→RegExp 재컴파일, P5 reachableIds 이중 정렬,
-  P6 symbol_query 질의마다 List contains, P7 snapshot toSet 재해싱, P8 since finding별
-  resolveSymbolicLinks, P9 정렬 로직 중복(_sortedEdges vs _compareEdges), P10 잡다 중복 계산
-  (pubspec 2회 read, _sourcePathId 2회 호출). GLM 실행 순서: P1 측정→P2 캐시→(P6+P3)
-  일괄→P4·P8→위생.
+- **성능: P1~P6·P8~P10은 #48~#50으로 완료(측정·해시 동일성 포함)**. 남은 것은
+  **P7(GraphSnapshot factory의 이미-Set인 간선 toSet 재해싱)뿐 — GLM "측정 결과가
+  근거 없으면 보류 명시" 판정대로 보류**(공개 factory의 방어적 중복 제거를 빼는
+  변경이라 이득 측정 없이 손대지 않는다). 재착수 시 하네스로 측정부터.
+  향후 심화 후보(기록): 세션 범위 _idMemo 공유(이득 미미 판정), allNodeIds prefix
+  이진 탐색(측정상 불필요 확인 시까지 보류), 의존성 추적 캐시(루트 밖 상대 import
+  커버 — 설계 변경).
 - **죽은 공개 API 처분(정책 결정 먼저)**: `querySymbol`(dartograph.dart export, 제품·
   테스트 호출 0 — tool/benchmark만), `usageEdgesFrom`(테스트만), `ReachabilityResult`
   미export(기존 backlog). 스모크 테스트로 검증된 지원 API로 유지하거나 export에서 제거한다.
@@ -201,6 +236,10 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 
 ## What Worked / Avoid
 
+- **성능 수정은 A/B 하네스 + 산출물 해시로 "출력 동일"을 증명한다**: 벤치는 상대
+  비교만 의미 있고(SLA 아님), 첫 run은 JIT 워밍업이라 최소/중앙값을, 1회 측정은
+  노이즈라 반복 최소값을 쓴다. 해시 동등성 + 기존 골든 무수정 통과가 최적화의
+  안전망이다(측정 없는 최적화 금지 규칙의 운영 형태).
 - **감사는 다중 소스 + 전수 재검증**: 하위 에이전트·GLM 지적을 그대로 믿지 않고 실측
   (개행 파일명 주입, SARIF Uri 손상, stale hit, symlink retarget)·코드 대조로 확인했다.
   GLM이 찾은 차단 4건(#33 B1·#34 B1~B3)도 재현 후 수정 — 리뷰 출력은 근거일 뿐이다.
@@ -230,12 +269,14 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #39~#46을 머지했고 **0.4.1 릴리스까지 완료**했다(이 HANDOFF 갱신 자체가 docs PR #47이다).
-   완료된 구현·감사·릴리스를 반복하지 않는다.
+2. 이번 세션은 PR #39~#50을 머지했고 **0.4.1 릴리스 + 성능 backlog(P1~P6·P8~P10)까지
+   완료**했다(이 HANDOFF 갱신 자체가 docs PR #51이다). 완료된 구현·감사·측정·릴리스를
+   반복하지 않는다. CHANGELOG `Unreleased`의 성능 3건만 미릴리스다.
 3. **issue #38(isthmus bridges 공유 루트 합의)은 사용자/자매 저장소 조율 사안** —
    합의 없이 구현하지 않는다. 합의 시 위 Blockers의 설계 노트 참조.
-4. 남은 감사 backlog(성능 P1~P10·죽은 API 처분·낮음 항목)는 **측정/정책 결정 선행**
-   규칙과 함께 위에 있다. 새 흡수 범위는 RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
+4. 남은 감사 backlog는 P7 보류(측정부터)·죽은 API 처분(정책 결정)·bridge 스코프 방문자
+   테스트·낮음 항목들이다 — 위 목록의 근거와 선행 조건을 먼저 읽는다. 새 흡수 범위는
+   RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
 5. 다음 릴리스도 지시 시에만: 버전 정합 6곳 + **두 언어 CHANGELOG** + (Korean) 표기
    규약, clean git dry-run 후 publish → `--target`으로 같은 커밋 태그+Release → 전파
    대기(분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
@@ -259,9 +300,18 @@ reproduced via tool/ helper rename; whole-root enumeration with hidden-directory
 SARIF region invention removed, staleness mtime declared as determinism exception), #44 symlink
 bidirectional matching for --since/affected + entry-points narrowing limitation + SECURITY symlink
 channel, #45 test-gap regressions (coverage 94.4→95.9%). Then 0.4.1 was released bundling all of it
-(user-approved). REMAINING: performance items P1-P10 REQUIRE measurement first (repo rule); dead
-public API disposition (querySymbol/usageEdgesFrom/ReachabilityResult) needs a support-policy
-decision; issue #38 (isthmus bridges --project / pub-workspace shared root) is a CROSS-REPO
-CONTRACT negotiation — do NOT implement unilaterally; external-retentions stays contract-blocked
-(PR #27); Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and
-vacuous findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
+(user-approved). AFTER the release, the measured performance backlog was completed too (user order
+"1번 ㄱㄱ"): new A/B harness tool/benchmark_index.dart (synthetic dep-free 600-file package, 7
+artifact sha256 pins output equality, per-run hash cross-check), then #48 indexing -28% (P1
+element→ID memo, P2 CodeGraph cached read views + export-loop hoist, P9 shared edge comparator,
+P10 single pubspec read/source computation), #49 query batch -84% (P3/P6 ReachabilityResult
+isReachable/reachableMemberOf indexes, P5 double-sort removal, compare limitations hoist), #50
+rules -72% (P4 per-pattern glob RegExp cache, P8 unique-source symlink resolution memo for
+--since). All three: hashes identical, 244 tests unmodified. These perf entries are the ONLY
+Unreleased items (0.4.2 candidate). REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
+— measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
+ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
+issue #38 (isthmus bridges --project / pub-workspace shared root) is a CROSS-REPO CONTRACT
+negotiation — do NOT implement unilaterally; external-retentions stays contract-blocked (PR #27);
+Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
+findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
