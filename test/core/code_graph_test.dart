@@ -267,8 +267,20 @@ void main() {
     expect(first, second);
     expect({first, second}, hasLength(1));
     expect({first: 1}[second], 1);
-    // 필드 하나라도 다르면 동등하지 않다(evidence 포함 값 비교).
-    expect(first, isNot(GraphNode(id: 'a', line: 1)));
+    // 필드 하나(line)만 달라도 동등하지 않다(evidence 포함 값 비교).
+    expect(
+      first,
+      isNot(
+        GraphNode(
+          id: 'a',
+          sourceUri: 'project:lib/a.dart',
+          line: 9,
+          column: 2,
+          synthesized: true,
+          isTypeDeclaration: true,
+        ),
+      ),
+    );
   });
 
   test('equal GraphEdges deduplicate in a set', () {

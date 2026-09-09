@@ -106,7 +106,9 @@ rules:
     'cycles, metrics, and affected dispatch through the default indexer',
     () async {
       // 프로덕션(bin)은 항상 기본 AnalyzerGraphIndex 배선을 탄다 — 주입 없이
-      // 실제 fixture로 스모크한다.
+      // 실제 fixture로 스모크한다. 전제: cwd=저장소 루트(상대 경로), .git 존재,
+      // fixture가 커밋 상태. affected는 exit 0만 단정하므로 저장소의 변경
+      // 내용(fixture 밖)에는 영향받지 않는다.
       expect(
         await runDartograph(
           const ['cycles', 'fixtures/phase5_contract'],
