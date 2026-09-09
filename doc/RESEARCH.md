@@ -88,7 +88,7 @@ Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `af
 
 **흡수 후보와 결과 (2026-09-08 리서치 → 이후 구현):**
 
-구현·머지됨 (CHANGELOG Unreleased, 다음 0.3.x/0.4.0 후보):
+구현·머지됨 (전부 **0.4.0 릴리스에 포함**):
 
 - `query --depth/--limit` (PR #24) — cartograph SymbolQueryDocument parity.
 - `cycles --explain`·`rules --explain` (PR #25) — cartograph 근거 parity.

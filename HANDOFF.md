@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속 + operator 결함 + affected·html·level/collapse·인라인 ignore, PR #29~#34 merge 기준)_
+_Last updated: 2026-09-08 (Tier 2 흡수 완료 + **0.4.0 릴리스** 세션 — 감사 backlog 후속 + operator 결함 + affected·html·level/collapse·인라인 ignore + 배포, PR #29~#36 merge 기준)_
 
 ## Goal
 
@@ -11,18 +11,21 @@ _Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속
   (PR #30), (3) RESEARCH Tier 2 흡수 후보 4건을 전부 구현·머지했다: `affected <git-ref>`
   (PR #31, dependency-cruiser), `graph --format html`(PR #32, cartograph 1차 출처 이식),
   `graph --level`+`--collapse`(PR #33, cartograph·dependency-cruiser), `// dartograph:ignore`
-  (PR #34, Periphery). 릴리스는 없었다(전부 CHANGELOG `Unreleased`).
+  (PR #34, Periphery). 이어서 사용자 "배포" 지시로 미릴리스 누적 전체(이전 세션 parity
+  3기능 + backlog + 이번 세션 6건)를 **0.4.0으로 릴리스**했다(PR #36 — semver minor:
+  신규 사용자 표면 7건 + 결함 수정).
 
 ## Current Status
 
-- 릴리스 기준: `v0.3.0` → `92826d0` (PR #19 merge). pub.dev(latest 0.3.0)·GitHub Release
-  공개 완료.
-- main 기준: PR #34(인라인 ignore) merge + 이 HANDOFF를 갱신하는 docs PR(#35).
-  이번 세션은 PR #29~#34를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+- 릴리스 기준: **`v0.4.0` → `811bdff`** (PR #36 merge). pub.dev(latest 0.4.0)·GitHub Release
+  공개 완료. 새 격리 캐시 설치(`dart pub global activate dartograph 0.4.0`)로 설치본
+  `--version`·`affected`·`graph --format html`·CLI 계약 55케이스를 확인했다.
+- main 기준: 0.4.0 릴리스(PR #36) + 이 릴리스 기록을 갱신하는 docs PR(#37).
+  이번 세션은 PR #29~#36을 모두 두 SDK CI green + GLM packet-review 후 머지했다.
   열린 제품 PR은 없다.
-- 미릴리스 누적(다음 0.3.x/0.4.0 후보, 전부 CHANGELOG `Unreleased`): 이전 세션 3기능
-  (`query --depth/--limit`, `cycles·rules --explain`, `dead --report-test-only`) + backlog
-  7건(PR #21) + 이번 세션 6건(PR #29~#34).
+- 미릴리스 누적은 **0.4.0 릴리스로 소진**됐다(CHANGELOG에 `Unreleased` 절 없음 — 다음
+  변경이 새 절을 만든다). 캐시 identity v5는 toolVersion을 포함하므로 0.3.0 사용자
+  캐시는 0.4.0에서 자동 무효화된다.
 - 지침 기준: `c4d121d` (PR #7 merge).
 - 정본은 루트 AGENTS.md이며 CLAUDE.md는 이를 참조한다. 하위 규칙은 lib, lib/src/index,
   test, fixtures, tool, doc에 있다. 적용 범위는 링크가 아니라 디렉터리 위치로 결정된다.
@@ -90,6 +93,14 @@ _Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속
   선언만 억제(멤버·파일 비전파). identity v4→v5.
 - **docs(PR #35)**: RESEARCH "흡수 후보와 결과"에 Tier 2 4건 이동(module 제외 근거 포함),
   HANDOFF 전면 갱신.
+- **0.4.0 릴리스(PR #36)**: 버전 정합 6곳(pubspec·toolVersion·CLI 버전 golden 테스트·
+  USAGE 본문/CI 예제·SECURITY 지원 버전) + CHANGELOG `Unreleased`를 0.4.0으로 마감 +
+  skill 출력 갱신 항목 보완. GLM 릴리스 리뷰의 조건부 게이트(PR↔CHANGELOG 대응)는
+  대응표로 해소하고 비차단 3건 반영(self-loop 좁은 파괴적 변경 강조+USAGE 절, query
+  중복 플래그 조건 정렬, entry_points identity 버전 수치 제거). clean git dry-run 경고 0
+  후 merge 커밋 `811bdff`에서 `dart pub publish` — pub.dev latest 0.4.0, **같은 커밋**에
+  태그 v0.4.0·GitHub Release 연결, 새 격리 캐시 설치본으로 CLI 계약 55케이스 재검증.
+  전파 지연(~4분)은 재시도로 확인했고 동일 버전 재게시는 없었다.
 
 ### extension type `.values` 공백 — 확인 완료(이전 backlog 항목 닫음)
 
@@ -230,6 +241,9 @@ _Last updated: 2026-09-08 (Tier 2 흡수 완료 세션 — 감사 backlog 후속
 - 각 기능은 **기존 출력 보존을 회귀로 잠갔다**: #29 기존 golden 불변, #30 미사용 연산자
   보고 유지(양방향), #32 html 신규(기존 형식 불변), #33 symbol 기본값=직렬화기 직행
   byte 동일, #34 마커 없는 코퍼스·fixture 출력 불변.
+- 0.4.0 릴리스(PR #36): 224 테스트·94.44%·corpus·contract·clean git dry-run 경고 0,
+  두 SDK CI green 후 머지. 게시 후 설치본 계약 재검증(55케이스)·pub.dev latest API·
+  태그=게시 커밋 일치 확인.
 - 아래는 이전 세션 기록이다.
 - 0.3.0 릴리스(PR #18·#19): 전체 139개 테스트, dry-run 경고 0(70 KB), pub.dev 게시·태그·
   GitHub Release·새 캐시 설치 확인. 게시는 자격 증명을
@@ -323,22 +337,26 @@ PRD/PLAN에서 한다.
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로의 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #29~#34(+docs #35)를 머지했고 **전부 미릴리스**(CHANGELOG `Unreleased`)다.
-   완료된 구현·기록을 반복하지 않는다.
+2. 이번 세션은 PR #29~#36을 머지했고 **0.4.0 릴리스까지 완료**했다(pub.dev latest 0.4.0,
+   태그 v0.4.0 = `811bdff`, GitHub Release, 새 캐시 설치 확인). 완료된 구현·기록·릴리스를
+   반복하지 않는다. CHANGELOG에 `Unreleased` 절이 없다.
 3. 남은 흡수 후보는 `doc/RESEARCH.md`의 **Tier 3/4만**이다(Tier 2 완료). **external-retentions는
    isthmus 선행 작업 없이 구현 불가(계약 확정, 재조사 금지).** 새 사용자 요청이 없다면 범위
    결정은 PRD/PLAN에서 한다.
 4. 선택 과제 backlog는 위 근거(수치 없음)를 먼저 읽고 다시 도출하지 않는다. 닫은·보류 항목 동일.
-5. 릴리스는 지시 시에만: pubspec·toolVersion·CHANGELOG·설치 예제·SECURITY 버전을 맞추고 clean git
-   dry-run 후 게시(CONTRIBUTING 정본). 미릴리스 누적 = 이전 3기능 + backlog 7건 + 이번 세션
-   6건이 다음 0.3.x/0.4.0 후보다. **릴리스 시 캐시 identity v5는 0.3.0(v3) 사용자 캐시를
-   자동으로 무효화한다**(toolVersion도 키에 포함 — 이중 안전).
+5. 다음 릴리스도 지시 시에만: pubspec·toolVersion·CHANGELOG·설치 예제(USAGE CI 예제 포함)·
+   SECURITY 지원 버전을 맞추고 clean git dry-run 후 게시 → **같은 커밋**에 태그+GitHub
+   Release → 새 격리 캐시 설치 확인(CONTRIBUTING 정본). 주의: `gh release create <tag> <sha>`는
+   sha를 **에셋 glob**으로 해석해 실패한다 — `--target <sha>`로 커밋을 지정한다. 전파 지연
+   (~분 단위) 중 activate 실패는 재시도하고 동일 버전을 재게시하지 않는다.
 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
-`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.3.0 is released
-(pub.dev latest 0.3.0, tag v0.3.0). This session cleared the audit-backlog GLM follow-ups
+`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.4.0 is released
+(pub.dev latest 0.4.0, tag v0.4.0 at 811bdff = the publish commit, GitHub Release, fresh-cache
+install verified against the 55-case CLI contract; the release consumed ALL accumulated
+Unreleased work — CHANGELOG has no Unreleased section). This session cleared the audit-backlog GLM follow-ups
 (baseline write attribution + Mermaid quote/backslash/hash entity escaping, PR #29), fixed a real
 false-positive family found while closing the extension-type .values backlog item — operator
 invocations (a+b, a[i], -a, a++, m[i]+=v) produced no usage edges for classes or extension types
@@ -354,8 +372,9 @@ closure documented vs baseline, cache identity v5). The extension-type .values g
 forbids ==/hashCode on extension types; interface dispatch already retained via overrideContract; do
 NOT re-investigate). All six PRs merged with two-SDK CI green and GLM packet-review (blocking issues
 in #33/#34 were reproduced, fixed, and pinned; reviewer approved without re-review). This handoff
-itself is the docs PR following them. Everything is UNRELEASED (CHANGELOG Unreleased) with prior
-backlog. Remaining absorption candidates are Tier 3/4
+itself is the docs PR following them. Then the user ordered deployment: 0.4.0 was released (PR #36,
+semver minor — 7 new user surfaces + operator fix; GLM release review conditional gate resolved
+with a PR↔CHANGELOG mapping table). Remaining absorption candidates are Tier 3/4
 only; external-retentions stays contract-blocked (PR #27). Local coverage runs via the dedicated port
 ($AGENT_GUARD_LOOPBACK_PORT, format_coverage uses -i); packet-review must use --files (not --diff) and
 is rate-limited to 6/hour; ripgrep is absent locally (check-analyzer-boundary delegated to CI); clear
