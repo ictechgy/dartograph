@@ -19,6 +19,15 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
     macos_arm64, min of 3 cold runs): index 1456 ms -> 1053 ms (-28%). Machine-
     specific; relative comparison only, not an SLA
 
+- Two more measured hot-path fixes with byte-identical output (audit P4/P8;
+  harness now also times `rules` evaluation and hashes its violations):
+  - `LayerRuleEvaluator` caches compiled glob RegExps per pattern instead of
+    recompiling for every node × layer × pattern (first-match assignment scans
+    all patterns for unmatched nodes). Benchmark: rules evaluation on 4,923
+    nodes 10.8 ms -> 3.0 ms (-72%), violations hash identical
+  - `dead --since` resolves each unique finding source's symlink once instead
+    of once per finding (findings of one file shared the syscall before)
+
 - Reachability/query hot loops got indexed with byte-identical output (audit
   P3/P5/P6; same A/B harness, all six artifact hashes identical):
   - `ReachabilityResult` gains `isReachable` (set lookup) and `reachableMemberOf`

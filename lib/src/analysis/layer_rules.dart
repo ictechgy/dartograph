@@ -203,10 +203,15 @@ final class LayerViolation {
 /// 정점을 레이어에 배치하고 사용 간선의 규칙 위반을 찾는다.
 final class LayerRuleEvaluator {
   /// 파싱과 검증이 끝난 [ruleSet]의 평가기를 만든다.
-  const LayerRuleEvaluator(this.ruleSet);
+  LayerRuleEvaluator(this.ruleSet);
 
   /// 평가할 파싱 완료 규칙이다.
   final LayerRuleSet ruleSet;
+
+  // 패턴→RegExp 캐시: first-match 배치는 매치되지 않는 노드마다 전체 패턴을
+  // 훑는데 매번 RegExp를 재컴파일했다(감사 P4 — 노드 × 레이어 × 패턴 회).
+  // 컴파일 결과는 패턴 문자열이 결정하므로 캐시가 매치를 바꾸지 않는다.
+  final Map<String, RegExp> _globCache = {};
 
   /// 각 위반에 직접 경로와 소스 위치를 붙여 결정적으로 반환한다.
   List<LayerViolation> evaluate(GraphSnapshot graph) {
@@ -291,7 +296,7 @@ final class LayerRuleEvaluator {
     ];
     for (final layer in ruleSet.layers) {
       for (final pattern in layer.patterns) {
-        final regex = _glob(pattern);
+        final regex = _globCache.putIfAbsent(pattern, () => _glob(pattern));
         for (final candidate in candidates) {
           if (regex.hasMatch(candidate)) {
             return (layer: layer.name, pattern: pattern, candidate: candidate);

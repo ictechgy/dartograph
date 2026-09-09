@@ -887,9 +887,23 @@ Future<int> _runDead(
     if (since != null) {
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+      // 같은 파일의 finding마다 링크 해석 syscall을 반복하지 않도록 고유
+      // source당 1회만 해석한다(감사 P8).
+      final canonicalBySource = <String, String?>{};
+      for (final source in reported.map((finding) => finding.source).toSet()) {
+        canonicalBySource[source] = await _canonicalSource(
+          canonicalRoot,
+          source,
+        );
+      }
       final scoped = <DeadFinding>[];
       for (final finding in reported) {
-        if (await _changedContains(changed, canonicalRoot, finding.source)) {
+        if (_changedContains(
+          changed,
+          canonicalRoot,
+          finding.source,
+          canonicalBySource,
+        )) {
           scoped.add(finding);
         }
       }
@@ -991,18 +1005,26 @@ Future<String?> _canonicalSource(String rootPath, String source) async {
 /// 미해석 절대 경로(소스가 심볼릭 링크면 링크 경로 자체 — 링크 파일이 바뀐
 /// 경우)와 심볼릭 링크를 해석한 실 경로(링크 대상이 바뀐 경우)를 모두 본다.
 /// 한 방향만 보면 링크 retarget·대상 수정 중 하나가 스코프에서 조용히 빠진다
-/// (감사 S4 실측). `project:`가 아닌 소스와 해석 실패는 기존 규약대로 보존
-/// 쪽(참)으로 편향한다.
-Future<bool> _changedContains(
+/// (감사 S4 실측). `project:`가 아닌 소스와 해석 실패(null)는 기존 규약대로
+/// 보존 쪽(참)으로 편향한다. [canonicalBySource]는 호출자가 고유 source마다
+/// 1회씩 미리 해석해 넣는 메모다(finding 수만큼 syscall을 반복하지 않는다).
+bool _changedContains(
   Set<String> changed,
   String canonicalRoot,
   String source,
-) async {
+  Map<String, String?> canonicalBySource,
+) {
   if (!source.startsWith('project:')) return true;
   final relative = source.substring('project:'.length);
   final absolute = p.normalize(p.join(canonicalRoot, relative));
   if (changed.contains(absolute)) return true;
-  final canonical = await _canonicalSource(canonicalRoot, source);
+  // 메모 누락은 해석 실패(null)와 구별되지 않아 보존 쪽으로 조용히 넓어진다 —
+  // 미래 호출부의 사전 계산 누락을 크게 잡는다(릴리스 빌드에서는 제거).
+  assert(
+    canonicalBySource.containsKey(source),
+    'canonical memo must cover every project: source',
+  );
+  final canonical = canonicalBySource[source];
   return canonical == null || changed.contains(canonical);
 }
 
