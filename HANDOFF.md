@@ -15,8 +15,10 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했고
   (PR #48~#50 — A/B 하네스 신설, 인덱싱 -28%·query 배치 -84%·rules -72%,
   7종 산출물 해시 전후 동일), (6) 이어서 "이슈 38 처리해줘" 지시로 isthmus
-  모노레포 조인 요청의 dartograph 측 구현을 완료했다(PR #52 — bridges
-  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측).
+  모노레포 조인 요청의 dartograph 측 구현을 완료했고(PR #52 — bridges
+  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측), (7) "릴리즈해줘"
+  지시로 성능 3건 + bridges를 **0.5.0으로 릴리스**했다(PR #54 — pub.dev·태그
+  v0.5.0·GitHub Release·설치본 검증, issue #38 코멘트도 권한 부여 후 게시).
 
 ## Current Status
 
@@ -86,7 +88,7 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   설치본 검증(workspace 감지 project=모노레포 루트·재기준 경로, override 0,
   containment 위반 64, 계약 59케이스).
 
-- **성능 backlog 측정 수정(PR #48~#50, 0.4.1 이후 — Unreleased)**: 측정 선행 규칙에
+- **성능 backlog 측정 수정(PR #48~#50, 0.5.0에 포함)**: 측정 선행 규칙에
   따라 A/B 하네스 `tool/benchmark_index.dart`를 신설했다(합성 dep-free 600파일 패키지
   결정적 생성 — 파일당 클래스+메서드 3+필드+최상위 함수, 배럴이 1/3 export, test가
   main 궤적 밖 파일 import로 test-only 342건; cold 인덱싱 3회 + analyze·test-only·
@@ -127,8 +129,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
     무수정). **isthmus 설치본 왕복 실측**: workspace 감지 문서와 --project 문서의
     project 문자열 일치, 합성 swift 문서 포함 3문서 `isthmus check` 성공(evidence에
     재기준 경로 보존), 불일치 문서는 거부 — 문제 실재와 해소를 양방향 실증.
-  - **isthmus 측 전달 의미론(계약 문구 갱신용 — issue 코멘트는 토큰 권한으로
-    게시 실패, 아래 Blockers 참조)**: project는 생산자 선언값이며 (a) 명시
+  - **isthmus 측 전달 의미론(계약 문구 갱신용 — issue 코멘트 게시 완료:
+    issuecomment-5599285065)**: project는 생산자 선언값이며 (a) 명시
     --project, (b) resolution: workspace 시 workspace: 키를 가진 최근접 조상
     pubspec 디렉터리, (c) 없으면 스캔 루트의 POSIX realpath. 모든 location.path는
     project가 가리키는 디렉터리 기준 POSIX 상대 경로. 스캔 범위는 영향 없음.
@@ -304,8 +306,9 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   package: 해석 실패).
 - **push는 ls-remote로 확인**: `git push ... | tail -1`이 실패를 삼킨 경우가 여러 번
   (config 쓰기 경고·빈 출력). PR head sha와 로컬 HEAD를 대조한다.
-- **샌드박스 GH 토큰은 issues 쓰기가 안 된다**(403 — PR 생성·머지는 가능). issue
-  코멘트가 필요하면 내용을 저장소 안(HANDOFF·PR 본문)에 보존하고 사용자에게 보고한다.
+- **샌드박스 GH 토큰의 기본 스코프는 issues 쓰기가 없다**(403 — PR 생성·머지는
+  가능). 소유자가 권한을 부여하면 게시된다(0.5.0 세션에서 실증). 막혀 있는 동안은
+  내용을 저장소 안(HANDOFF·PR 본문)에 보존하고 사용자에게 보고한다.
 - **기능 브랜치를 만들기 전에 커밋하지 않는다**: bridges 작업을 local main에 커밋했다가
   `git branch -f main origin/main` + upstream 재설정으로 복구했고, `git push -u origin
   main:refs/heads/...`가 main의 upstream을 오염시킬 수 있음을 확인했다(-u 남용 금지).
@@ -333,9 +336,9 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
    성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측(코멘트 전달 포함)**까지
    완료했다. 완료된 구현·감사·측정·릴리스를 반복하지 않는다. 미릴리스 누적 없음
    (CHANGELOG `Unreleased` 절 없음).
-3. **issue #38의 dartograph 측은 완료(PR #52)** — isthmus 측 계약 문구 갱신과 issue
-   코멘트 게시(샌드박스 토큰 403으로 실패)만 남았다. 전달 의미론은 Completed·
-   Blockers에 보존했다. isthmus 저장소는 계속 임의 수정 금지.
+3. **issue #38의 dartograph 측은 완료(PR #52, 0.5.0 릴리스 + issue 코멘트 게시)** —
+   isthmus 측 GRAPH-EXCHANGE 문구 갱신만 남았다(의미론은 코멘트·Completed에 보존).
+   isthmus 저장소는 계속 임의 수정 금지.
 4. 남은 감사 backlog는 P7 보류(측정부터)·죽은 API 처분(정책 결정)·bridge 스코프 방문자
    테스트·낮음 항목들이다 — 위 목록의 근거와 선행 조건을 먼저 읽는다. 새 흡수 범위는
    RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
@@ -382,9 +385,9 @@ REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
 — measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
 ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — the dartograph side is DONE
-(PR #52: bridges --project <shared-root> + pub workspace auto-detection with fallback limitations,
-isthmus-installed round-trip verified both directions; the contract wording for isthmus and the
-issue comment — blocked by sandbox token 403 on issues — are preserved in HANDOFF Completed/
-Blockers); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
+and RELEASED in 0.5.0 (PR #52: bridges --project <shared-root> + pub workspace auto-detection with
+fallback limitations, isthmus-installed round-trip verified both directions; the contract semantics
+were posted to the issue as issuecomment-5599285065 after the owner granted issues write scope —
+only the isthmus-side GRAPH-EXCHANGE wording update remains); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
