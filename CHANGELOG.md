@@ -19,6 +19,17 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
     macos_arm64, min of 3 cold runs): index 1456 ms -> 1053 ms (-28%). Machine-
     specific; relative comparison only, not an SLA
 
+- Reachability/query hot loops got indexed with byte-identical output (audit
+  P3/P5/P6; same A/B harness, all six artifact hashes identical):
+  - `ReachabilityResult` gains `isReachable` (set lookup) and `reachableMemberOf`
+    (dot-prefix witness index built once, deterministic first-in-sorted-order
+    semantics preserved) — `query` batches and `compare` losses no longer run a
+    linear scan per query/loss. Synthetic benchmark: 100-query batch on 4,923
+    nodes 10.7 ms -> 1.7 ms (-84%)
+  - The double sort of reachable ids per `analyze` is gone (5.7 ms -> 4.7 ms on
+    the benchmark), and `compareGraphs` hoists its limitation dedup+sort out of
+    the per-loss loop
+
 ## 0.4.1
 
 - `--since`/`affected` Git change matching is now bidirectional for symlinked

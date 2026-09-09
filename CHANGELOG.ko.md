@@ -18,6 +18,15 @@
     cold 3회 중 최소): 인덱싱 1456ms → 1053ms (-28%). 머신 의존 수치며 상대
     비교용이고 SLA가 아니다
 
+- 도달성·질의 핫 루프가 출력 byte 동일하게 색인화됐다 (감사 P3/P5/P6,
+  동일 A/B 하네스·6종 산출물 해시 동일):
+  - `ReachabilityResult`에 `isReachable`(Set 조회)·`reachableMemberOf`(dot-접두
+    witness 색인 1회 구축, 정렬 순 첫 후보 의미 보존) 추가 — `query` 배치와
+    `compare` loss가 질의/loss마다 선형 주사하지 않는다. 합성 벤치마크:
+    4,923노드 100질의 배치 10.7ms → 1.7ms (-84%)
+  - `analyze`당 reachable ids 이중 정렬 제거(벤치마크 5.7ms → 4.7ms),
+    `compareGraphs`의 limitation dedup+sort를 loss 루프 밖으로 hoist
+
 ## 0.4.1
 
 - `--since`·`affected`의 Git 변경 매칭이 심볼릭 링크 소스에 대해 양방향이 됐다:

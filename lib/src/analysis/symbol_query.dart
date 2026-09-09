@@ -99,16 +99,14 @@ final class SymbolQuerySession {
     }
     final node = matches.single;
     final explanation = analysis.explain(node.id);
-    final reachableMember = analysis.reachableIds
-        .where((id) => id.startsWith('${node.id}.'))
-        .firstOrNull;
+    final reachableMember = analysis.reachableMemberOf(node.id);
     // 직접 도달을 먼저 가른다. explain은 멤버로 보존된 컨테이너도 reachable로
     // 답하므로, reachable만 보면 witness가 있는 보존을 직접 도달과 섞게 된다.
     // 라이브러리는 선언이 `::`로 붙어 reachableMember가 null이므로 마지막
     // explanation.reachable 분기로 떨어져 기존 판정을 유지한다.
     final state = roots.containsKey(node.id)
         ? 'retained'
-        : analysis.reachableIds.contains(node.id)
+        : analysis.isReachable(node.id)
         ? 'reachable'
         : reachableMember != null
         ? 'retainedByMember'
