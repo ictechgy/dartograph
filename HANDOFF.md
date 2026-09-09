@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + **0.4.1 릴리스** + 성능 backlog 측정 수정 3건 세션, PR #39~#50 merge + 이 문서를 갱신하는 #51 기준)_
+_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** 세션, PR #39~#54 merge + 이 문서를 갱신하는 #55 기준)_
 
 ## Goal
 
@@ -15,21 +15,21 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했고
   (PR #48~#50 — A/B 하네스 신설, 인덱싱 -28%·query 배치 -84%·rules -72%,
   7종 산출물 해시 전후 동일), (6) 이어서 "이슈 38 처리해줘" 지시로 isthmus
-  모노레포 조인 요청의 dartograph 측 구현을 완료했다(PR #52 — bridges
-  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측).
+  모노레포 조인 요청의 dartograph 측 구현을 완료했고(PR #52 — bridges
+  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측), (7) "릴리즈해줘"
+  지시로 성능 3건 + bridges를 **0.5.0으로 릴리스**했다(PR #54 — pub.dev·태그
+  v0.5.0·GitHub Release·설치본 검증, issue #38 코멘트도 권한 부여 후 게시).
 
 ## Current Status
 
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.4.1 릴리스 + 감사 기록 docs PR(#47) + 성능 PR #48~#50 + HANDOFF(#51)
-  + bridges 공유 루트(PR #52) + 이 HANDOFF를 갱신하는 docs PR(#53).
-  이번 세션은 PR #39~#52를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+- main 기준: 0.5.0 릴리스(PR #54) + 이 HANDOFF를 갱신하는 docs PR(#55).
+  이번 세션은 PR #39~#54를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
   열린 제품 PR 없음.
-- 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50) + **bridges `--project`·
-  pub workspace 감지(#52 — 사용자 표면 추가)** — 다음 릴리스는 minor(0.5.0)가
-  자연스럽다(새 옵션). 0.4.1은 감사 수정을 소진했다.
+- 미릴리스 누적 없음 — **0.5.0이 성능 3건(#48~#50) + bridges 공유 루트(#52)를
+  소진**(새 옵션이라 semver minor). CHANGELOG에 `Unreleased` 절 없음.
 - 테스트 253개, 라인 커버리지 **95.89%**(감사 전 94.4%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
@@ -79,8 +79,16 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   비차단 3건 반영(entry-points limitation 문서화, --level 기본값 문구 한정, 캐시 자동
   무효화 노트). clean git dry-run 0 → publish → 태그 v0.4.1=`53a4e0f`(게시 커밋) +
   GitHub Release(`--target` 사용) → 전파 ~7분 후 새 캐시 설치본 검증(계약 55케이스).
+- **0.5.0 릴리스(PR #54)**: bridges 공유 루트(#52, 새 사용자 옵션 → semver minor) +
+  성능 3건(#48~#50) 마감. 버전 정합 6곳 + SECURITY `0.5.x` + 두 언어 CHANGELOG.
+  GLM 릴리스 리뷰 비차단 2건 반영(제어문자 **메시지** 정정이 동작 불변임을 명시 —
+  경로 검증은 0.3.0부터 존재, USAGE에 경로 거부·진단 귀속 보강; KO 헤드라인 어순).
+  clean git dry-run 0 → publish → 태그 v0.5.0=`16b18fd`(게시 커밋, `--target`) +
+  GitHub Release(0.4.1 대비 바이트 변경 지점 요약 포함) → 전파 ~4분 후 새 캐시
+  설치본 검증(workspace 감지 project=모노레포 루트·재기준 경로, override 0,
+  containment 위반 64, 계약 59케이스).
 
-- **성능 backlog 측정 수정(PR #48~#50, 0.4.1 이후 — Unreleased)**: 측정 선행 규칙에
+- **성능 backlog 측정 수정(PR #48~#50, 0.5.0에 포함)**: 측정 선행 규칙에
   따라 A/B 하네스 `tool/benchmark_index.dart`를 신설했다(합성 dep-free 600파일 패키지
   결정적 생성 — 파일당 클래스+메서드 3+필드+최상위 함수, 배럴이 1/3 export, test가
   main 궤적 밖 파일 import로 test-only 342건; cold 인덱싱 3회 + analyze·test-only·
@@ -121,8 +129,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
     무수정). **isthmus 설치본 왕복 실측**: workspace 감지 문서와 --project 문서의
     project 문자열 일치, 합성 swift 문서 포함 3문서 `isthmus check` 성공(evidence에
     재기준 경로 보존), 불일치 문서는 거부 — 문제 실재와 해소를 양방향 실증.
-  - **isthmus 측 전달 의미론(계약 문구 갱신용 — issue 코멘트는 토큰 권한으로
-    게시 실패, 아래 Blockers 참조)**: project는 생산자 선언값이며 (a) 명시
+  - **isthmus 측 전달 의미론(계약 문구 갱신용 — issue 코멘트 게시 완료:
+    issuecomment-5599285065)**: project는 생산자 선언값이며 (a) 명시
     --project, (b) resolution: workspace 시 workspace: 키를 가진 최근접 조상
     pubspec 디렉터리, (c) 없으면 스캔 루트의 POSIX realpath. 모든 location.path는
     project가 가리키는 디렉터리 기준 POSIX 상대 경로. 스캔 범위는 영향 없음.
@@ -217,6 +225,11 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 - 0.4.1 릴리스: publish 성공 → 태그=게시 커밋(`53a4e0f`) → 전파 ~7분(재시도, 재게시 없음)
   → 새 격리 캐시 설치본으로 버전·report 필드·Mermaid 엔티티·계약 55케이스 검증 →
   pub.dev API latest 0.4.1 확인.
+- 0.5.0 릴리스(PR #54): 253 테스트·contract 59·corpus·dry-run 0, 두 SDK CI green 후
+  머지. publish 성공 → 태그 v0.5.0=게시 커밋(`16b18fd`, `--target`) → GitHub Release
+  (바이트 변경 지점 요약 포함) → 전파 ~4분 후 새 격리 캐시 설치본으로 버전·workspace
+  감지(project=모노레포 루트·`packages/pkg/lib/c.dart` 재기준)·override 0·containment
+  위반 64·계약 59케이스 검증 → pub.dev API latest 0.5.0 확인.
 - 성능 PR #48~#50(0.4.1 이후): 하네스 A/B — 인덱싱 min 1456→1053ms(-28%), query 배치
   10.7→1.7ms(-84%), rules 10.8→3.0ms(-72%), analyze 5.7→4.7ms. 7종 산출물 해시 전후
   동일 × 3 PR. 244 테스트 무수정·커버리지 95.89%·corpus·contract·dry-run 0. GLM 3회
@@ -234,15 +247,14 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Blockers & Open Questions
 
 - 필수 제품 작업 없음. 열린 제품 PR 없음.
-- **issue #38 — dartograph 측 완료(PR #52), isthmus 측 잔여**: 사용자 지시로 (a)+(b)
-  구현·왕복 검증까지 끝났다(위 Completed). 남은 것: (1) **issue 코멘트 게시가
-  샌드박스 토큰 권한(issues 쓰기 403)으로 실패** — 전달할 의미론은 위 Completed와
-  PR #52 본문에 보존했다. 소유자가 issue로 옮기거나 isthmus 작업 시 참조.
-  (2) isthmus 측 GRAPH-EXCHANGE 문구 갱신("생산자 옵션으로 정해지는 대로 추가" →
-  위 의미론 반영)과 cartograph `--project`(분석 루트 자체라 의미가 다름)와의 문안
-  정합 — **자매 저장소 임의 수정 금지 유지**. (3) dartograph 후속(비차단 기록):
-  workspace 멤버십 검증(현재는 workspace: 키 존재만 — 조인 fail-closed라 즉각
-  위험 없음), `unscanned-*` limitation 문구 복수형(기존 출력 문자열 변경이라 별도 판단).
+- **issue #38 — dartograph 측 완료(PR #52, 0.5.0 릴리스), isthmus 측 잔여**: (a)+(b)
+  구현·왕복 검증·**issue 코멘트 게시 완료**(소유자가 issues 쓰기 권한 부여 후
+  의미론 전문을 코멘트로 전달 — issuecomment-5599285065). 남은 것: (1) isthmus 측
+  GRAPH-EXCHANGE 문구 갱신("생산자 옵션으로 정해지는 대로 추가" → 코멘트의 의미론
+  반영)과 cartograph `--project`(분석 루트 자체라 의미가 다름)와의 문안 정합 —
+  **자매 저장소 임의 수정 금지 유지**. (2) dartograph 후속(비차단 기록): workspace
+  멤버십 검증(현재는 workspace: 키 존재만 — 조인 fail-closed라 즉각 위험 없음),
+  `unscanned-*` limitation 문구 복수형(기존 출력 문자열 변경이라 별도 판단).
 - external-retentions 구현 금지(GRAPH-EXCHANGE 계약, PR #27) 유지.
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
@@ -294,8 +306,9 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   package: 해석 실패).
 - **push는 ls-remote로 확인**: `git push ... | tail -1`이 실패를 삼킨 경우가 여러 번
   (config 쓰기 경고·빈 출력). PR head sha와 로컬 HEAD를 대조한다.
-- **샌드박스 GH 토큰은 issues 쓰기가 안 된다**(403 — PR 생성·머지는 가능). issue
-  코멘트가 필요하면 내용을 저장소 안(HANDOFF·PR 본문)에 보존하고 사용자에게 보고한다.
+- **샌드박스 GH 토큰의 기본 스코프는 issues 쓰기가 없다**(403 — PR 생성·머지는
+  가능). 소유자가 권한을 부여하면 게시된다(0.5.0 세션에서 실증). 막혀 있는 동안은
+  내용을 저장소 안(HANDOFF·PR 본문)에 보존하고 사용자에게 보고한다.
 - **기능 브랜치를 만들기 전에 커밋하지 않는다**: bridges 작업을 local main에 커밋했다가
   `git branch -f main origin/main` + upstream 재설정으로 복구했고, `git push -u origin
   main:refs/heads/...`가 main의 upstream을 오염시킬 수 있음을 확인했다(-u 남용 금지).
@@ -319,13 +332,13 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #39~#52(+docs #47·#51·#53)를 머지했고 **0.4.1 릴리스 + 성능
-   backlog(P1~P6·P8~P10) + issue #38 dartograph 측**까지 완료했다. 완료된 구현·감사·
-   측정·릴리스를 반복하지 않는다. CHANGELOG `Unreleased` = 성능 3건 + bridges
-   `--project`(다음 릴리스는 새 옵션이라 minor 0.5.0이 자연스럽다).
-3. **issue #38의 dartograph 측은 완료(PR #52)** — isthmus 측 계약 문구 갱신과 issue
-   코멘트 게시(샌드박스 토큰 403으로 실패)만 남았다. 전달 의미론은 Completed·
-   Blockers에 보존했다. isthmus 저장소는 계속 임의 수정 금지.
+2. 이번 세션은 PR #39~#54(+docs #47·#51·#53·#55)를 머지했고 **0.4.1·0.5.0 릴리스 +
+   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측(코멘트 전달 포함)**까지
+   완료했다. 완료된 구현·감사·측정·릴리스를 반복하지 않는다. 미릴리스 누적 없음
+   (CHANGELOG `Unreleased` 절 없음).
+3. **issue #38의 dartograph 측은 완료(PR #52, 0.5.0 릴리스 + issue 코멘트 게시)** —
+   isthmus 측 GRAPH-EXCHANGE 문구 갱신만 남았다(의미론은 코멘트·Completed에 보존).
+   isthmus 저장소는 계속 임의 수정 금지.
 4. 남은 감사 backlog는 P7 보류(측정부터)·죽은 API 처분(정책 결정)·bridge 스코프 방문자
    테스트·낮음 항목들이다 — 위 목록의 근거와 선행 조건을 먼저 읽는다. 새 흡수 범위는
    RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
@@ -336,9 +349,10 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
-`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.4.1 is released
-(pub.dev latest 0.4.1 with ENGLISH README/Changelog, tag v0.4.1 at 53a4e0f = publish commit,
-GitHub Release, fresh-cache install verified against the 55-case CLI contract). This session
+`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.5.0 is released
+(pub.dev latest 0.5.0 with ENGLISH README/Changelog, tag v0.5.0 at 16b18fd = publish commit,
+GitHub Release, fresh-cache install verified incl. bridges workspace detection and the 59-case
+CLI contract; 0.4.1 was the audit-fix release before it). This session
 converted README/CHANGELOG to English originals with Korean twins (README.ko.md/CHANGELOG.ko.md,
 .pubignore-excluded; CONTRIBUTING owns the twin-sync rule), ran a FULL codebase audit (structure/
 performance/security/correctness/test-gaps; method: direct review + 3 explore agents + 3 GLM
@@ -361,16 +375,19 @@ isReachable/reachableMemberOf indexes, P5 double-sort removal, compare limitatio
 rules -72% (P4 per-pattern glob RegExp cache, P8 unique-source symlink resolution memo for
 --since). All three: hashes identical, 244 tests unmodified. THEN issue #38 was handled (PR #52):
 bridges --project <shared-root> + pub workspace auto-detection (see Completed/Blockers for the
-isthmus contract semantics; round-trip verified against installed isthmus 0.2.0; the issue comment
-could not be posted — sandbox token lacks issues write scope). Unreleased now holds the three perf
-entries + bridges --project (next release is naturally minor, 0.5.0, for the new option).
+isthmus contract semantics; round-trip verified against installed isthmus 0.2.0 BOTH directions).
+The issue comment with the contract semantics WAS posted after the owner granted issues write
+scope (issuecomment-5599285065). Then **0.5.0 was released** (PR #54, semver minor for the new
+bridges option; pub.dev latest 0.5.0, tag v0.5.0 at 16b18fd = publish commit, GitHub Release,
+fresh-cache install verified incl. workspace detection and the 59-case contract). NOTHING is
+unreleased now — CHANGELOG has no Unreleased section.
 REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
 — measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
 ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — the dartograph side is DONE
-(PR #52: bridges --project <shared-root> + pub workspace auto-detection with fallback limitations,
-isthmus-installed round-trip verified both directions; the contract wording for isthmus and the
-issue comment — blocked by sandbox token 403 on issues — are preserved in HANDOFF Completed/
-Blockers); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
+and RELEASED in 0.5.0 (PR #52: bridges --project <shared-root> + pub workspace auto-detection with
+fallback limitations, isthmus-installed round-trip verified both directions; the contract semantics
+were posted to the issue as issuecomment-5599285065 after the owner granted issues write scope —
+only the isthmus-side GRAPH-EXCHANGE wording update remains); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
