@@ -191,7 +191,7 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
   반복 최소값·usage 가드). 성능 변경의 출력 동등성 정본.
 - `lib/src/core/`: `code_graph`(nodes/edges 뷰 캐시+addNode/addEdge 무효화 — 중복 간선은
   GraphEdge 값 동등성으로 무효화 생략, 주석), graph_node(가드 4종+==/hashCode 테스트됨),
-  graph_edge(`compareGraphEdges` 공유 비교자), graph_snapshot(간선 toSet dedup — P7 보류),
+  graph_edge(`compareGraphEdges` 공유 비교자), graph_snapshot(간선 toSet dedup — P7 측정-보류),
   fact_cache, retention_reason(`inlineIgnore` 포함 8값).
 - 문서: README.md(영어 정본)·README.ko.md, CHANGELOG.md(영어)·CHANGELOG.ko.md,
   SECURITY.md(심볼릭 링크 채널), doc/USAGE.md(affected·html·level/collapse·ignore·
@@ -281,10 +281,16 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
 
-- **성능: P1~P6·P8~P10은 #48~#50으로 완료(측정·해시 동일성 포함)**. 남은 것은
-  **P7(GraphSnapshot factory의 이미-Set인 간선 toSet 재해싱)뿐 — GLM "측정 결과가
-  근거 없으면 보류 명시" 판정대로 보류**(공개 factory의 방어적 중복 제거를 빼는
-  변경이라 이득 측정 없이 손대지 않는다). 재착수 시 하네스로 측정부터.
+- **성능: P1~P6·P8~P10은 #48~#50으로 완료(측정·해시 동일성 포함)**. P7은
+  **측정으로 보류 확정(2026-09-09 — 재도출·재측정 금지)**: GraphSnapshot factory의
+  이미-Set인 간선 toSet 재해싱. 고립 측정(합성 Set<GraphEdge>·30회 최소) 결과 현실
+  규모(600파일 하네스 = 14726 간선)에서 toSet 재해싱은 **24µs** — 인덱싱 min ~1070ms의
+  **0.002%**, snapshot 간선 작업의 0.5%에 불과하고 지배 비용은 불변 부분
+  `toList()..sort()`(O(E log E)·4506µs, P7이 안 건드림)다. 100k/500k 간선에서도 toSet은
+  449/1701µs(≤1%)로 규모 전 구간 negligible. 최적화 후보(`edges is Set ? edges :
+  edges.toSet()`)는 동작 동일(Set은 이미 dedup)하지만 24µs(탐지 불가) 이득을 위해 공개
+  factory의 방어적 dedup을 뺄 이유가 없다 → **보류**. 전체 A/B+해시는 불필요(프로브가
+  P7 비용을 직접 고립 측정했고 동작 동일하므로 7종 해시는 자명하게 같음).
   향후 심화 후보(기록): 세션 범위 _idMemo 공유(이득 미미 판정), allNodeIds prefix
   이진 탐색(측정상 불필요 확인 시까지 보류), 의존성 추적 캐시(루트 밖 상대 import
   커버 — 설계 변경).
@@ -373,14 +379,14 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
    closed인지 API로 확인.
 4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
    있다, 재도출 금지)**:
-   a. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
-   b. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
-   c. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
+   a. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
+   b. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
       fallback, bridges toSource 개행 정책=GRAPH-EXCHANGE 조율 사안, workspace 멤버십
       검증, `unscanned-*` 복수형 문구).
-   d. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
+   c. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
+   (P7은 측정으로 보류 확정되어 이월분에서 소진 — 위 backlog 참조, 재측정 금지.)
 5. 다음 릴리스도 지시 시에만: **미릴리스 누적 PR #58(죽은 공개 API 처분 — CLI 무변경·
    라이브러리 API 표면 변경)을 두 언어 CHANGELOG에 기록하고 semver를 판단한 뒤**, 버전
    정합 6곳 + (Korean) 표기 규약, clean git dry-run 후 publish → `--target`으로 같은 커밋
@@ -432,8 +438,11 @@ ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes
 MERGED but UNRELEASED** — lib/ API surface changed, CLI did not; record it at the next release
 (CHANGELOG has no Unreleased section by convention). PR #57 was HANDOFF-only (.pubignore-excluded),
 so PR #58 is the ONLY unreleased accumulation.
-REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
-— measure first if revisiting; bridge scope-visitor test coverage (39 lines);
+REMAINING: P7 (snapshot toSet rehash) is MEASURED & CONFIRMED DEFERRED (2026-09-09 — do NOT
+re-derive/re-measure): an isolated probe put the toSet rehash at 24µs for the realistic 14726-edge
+graph (0.002% of the ~1070ms indexing min, 0.5% of the snapshot edge work; the invariant
+toList()..sort() dominates and P7 does not touch it; ≤1% even at 500k edges) — negligible, so the
+public factory's defensive dedup stays; bridge scope-visitor test coverage (39 lines);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
 (2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
 <shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
@@ -446,6 +455,6 @@ comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was u
 owner/coordination path); external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
-the next session is enumerated in Next Steps item 4 (P7 measurement-first, bridge scope-visitor
-tests, audit low items, Tier 3/4).
+the next session is enumerated in Next Steps item 4 (bridge scope-visitor tests, audit low items,
+Tier 3/4).
 Follow the next explicit user task.`
