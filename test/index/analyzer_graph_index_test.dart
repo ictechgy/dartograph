@@ -363,6 +363,11 @@ void main() => Service();
         'generated-code-staleness: 1 generated file(s) are older than their source',
       ]),
     );
+    // dartograph.yaml이 없으면 entry-points 좁힘 limitation도 없다(음성 고정).
+    expect(
+      result.limitationDetails,
+      isNot(anyElement(startsWith('entry-points:'))),
+    );
   });
 
   test('operator invocations become usage edges', () async {
@@ -654,7 +659,9 @@ entry_points:
     // 설정 추가만으로 죽은 코드가 조용히 사라지면 클린 저장소와 구별되지 않는다.
     expect(
       result.limitationDetails,
-      anyElement(startsWith('entry-points: retention roots narrowed to 1')),
+      anyElement(
+        startsWith('entry-points: main retention roots narrowed to 1'),
+      ),
     );
   });
 

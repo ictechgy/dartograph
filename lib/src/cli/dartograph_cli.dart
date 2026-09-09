@@ -220,6 +220,9 @@ Future<int> _runAffected(
       final relative = source.substring('project:'.length);
       final absolute = p.normalize(p.join(canonicalRoot, relative));
       final canonical = await _canonicalSource(canonicalRoot, source);
+      // dead --since의 _changedContains와 달리 canonical == null(깨진 링크·
+      // 소멸 파일)은 매치 실패다: git은 삭제 파일을 변경 집합에 넣지 않으므로
+      // 사라진 파일의 라이브러리를 '변경됨' 씨앗으로 보고하면 오보다.
       final matched =
           changed.contains(absolute) ||
           (canonical != null && changed.contains(canonical));

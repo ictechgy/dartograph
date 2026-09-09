@@ -8,8 +8,8 @@
   링크 경로 자체(링크 파일 변경·retarget)와 해석된 실 경로(대상 변경)를 모두
   변경 집합과 비교한다 — 이전에는 해석 경로만 비교해 링크 파일 변경이 조용히
   스코프에서 빠졌다(실측)
-- `entry_points`를 선언한 `dartograph.yaml`은 `entry-points: retention roots
-  narrowed to N declared build target(s)` limitation을 보고한다 — PR로 추가된
+- `entry_points`를 선언한 `dartograph.yaml`은 `entry-points: main retention
+  roots narrowed to N declared build target(s)` limitation을 보고한다 — PR로 추가된
   설정이 죽은 코드를 클린 저장소와 구별 없이 숨길 수 없다
 - SECURITY.md에 심볼릭 링크 유입 채널을 문서화했다: dartograph는 analyzer와
   같이 분석 트리 안의 링크를 따라가므로, 저장소가 링크를 심으면 같은 사용자의

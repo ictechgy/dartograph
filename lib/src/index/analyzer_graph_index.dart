@@ -182,7 +182,7 @@ final class AnalyzerGraphIndex {
         // 추가된 dartograph.yaml이 죽은 코드를 조용히 숨겨도 클린 저장소와
         // 출력상 구별되지 않는다(감사 S5).
         limitationDetails.add(
-          'entry-points: retention roots narrowed to ${entryPoints.length} '
+          'entry-points: main retention roots narrowed to ${entryPoints.length} '
           'declared build target(s)',
         );
         final missing = entryPoints.difference(mainEntrySources).toList()

@@ -10,7 +10,7 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   changed set — previously only the resolved path was compared, so a changed
   link file silently fell out of scope (measured)
 - A `dartograph.yaml` declaring `entry_points` now reports an
-  `entry-points: retention roots narrowed to N declared build target(s)`
+  `entry-points: main retention roots narrowed to N declared build target(s)`
   limitation — a configuration added by a pull request can no longer hide dead
   code indistinguishably from a clean repository
 - SECURITY.md documents the symlink ingestion channel: dartograph follows links
