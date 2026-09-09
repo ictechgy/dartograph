@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.4.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.4.1은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -34,7 +34,9 @@ dartograph metrics [--strict] <package-root>
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
-그린다(기본값 출력은 수준 도입 전과 byte-for-byte 동일). 접힌 라이브러리·컨테이너
+그린다(기본값에서 사영은 항등이라 수준 처리 자체는 출력을 바꾸지 않는다 — 단,
+0.4.1에서 `graph --format json`에 추가된 조건부 `isEnumConstant` 필드는 해상도와
+무관한 별도 변경이다). 접힌 라이브러리·컨테이너
 내부 관계는 자기 순환이 되어 사라지고, 남는 간선은 양끝이 대표로 바뀌고 종류별로
 중복 제거된다. 조상 정점이 없는 선언은 그대로 남는다. dartograph는 패키지 하나를
 분석하므로 cartograph의 module 해상도에 대응하는 것은 없다(패키지로 접으면 단일
@@ -182,7 +184,7 @@ rules:
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.4.0
+- run: dart pub global activate dartograph 0.4.1
 - run: dartograph dead --format github-actions --since origin/main .
 ```
 
@@ -206,7 +208,7 @@ entry_points:
   - lib/main_production.dart
 ```
 
-`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
+`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.
