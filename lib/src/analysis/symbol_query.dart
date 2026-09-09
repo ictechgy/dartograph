@@ -53,11 +53,13 @@ final class SymbolQuerySession {
   final Map<String, List<GraphEdge>> _outgoing = {};
   final Map<String, List<GraphEdge>> _incoming = {};
 
-  /// 일괄 baseline 처리가 재사용하는 미도달 선언 발견이다.
+  /// 공유된 도달성 분석이 산출한 미도달 선언 발견의 불변 목록이다.
   ///
   /// 도달성 결과 모델(ReachabilityResult)은 내부 타입으로 남고 이 getter가
   /// 공개 표면을 DeadFinding 목록으로 좁힌다(배럴은 DeadFinding만 export한다).
-  List<DeadFinding> get deadDeclarations => _analysis.deadDeclarations;
+  /// roots·limitations와 같이 불변으로 감싸 소비자가 결과를 바꾸지 못하게 한다.
+  List<DeadFinding> get deadDeclarations =>
+      List.unmodifiable(_analysis.deadDeclarations);
 
   /// 기존 단일 질의와 같은 문서 계약으로 한 요청을 처리한다.
   ///

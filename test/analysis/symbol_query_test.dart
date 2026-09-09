@@ -250,6 +250,8 @@ void main() {
         // getter가 내부 ReachabilityResult를 발견 목록으로 좁히는 공개 표면을 고정한다.
         final List<DeadFinding> dead = session.deadDeclarations;
         expect(dead.map((finding) => finding.id), ['app::member']);
+        // 공개 목록은 불변이다(roots·limitations와 같은 계약).
+        expect(() => dead.clear(), throwsUnsupportedError);
       },
     );
   });
