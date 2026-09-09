@@ -232,7 +232,7 @@ entry_points:
   보고한다.
 - `bridges`는 `MethodChannel('')`처럼 빈 채널·메서드 이름을 그 사실만 건너뛰고
   `empty-bridge-names` limitation으로 집계한다. 한 줄의 빈 이름이 나머지 사실을 가리지
-  않는다. 제어 문자가 든 이름은 계속 분석 실패(종료 코드 2)로 전면 거부한다.
+  않는다. 제어 문자가 든 이름·소스 경로는 계속 분석 실패(종료 코드 2)로 전면 거부한다(0.3.0부터의 동작 — 실패 원인은 "Bridges extraction failed" 진단으로 귀속된다).
 
 분석 캐시는 대상 저장소 밖의 OS 사용자 캐시 아래 `dartograph/<project-root-hash>`에
 저장된다. 삭제해도 안전하며 다음 실행에서 다시 만들어진다. 캐시를 읽거나 쓸 수 없으면

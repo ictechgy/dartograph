@@ -24,10 +24,11 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   - Without a workspace declaration or `--project` the output is byte-identical
     to before (project = realpath of the scan root, paths relative to it) —
     existing bridge goldens pass unmodified
-  - The bridges control-character rejection message now reads "a fact value or
-    source path contains control characters" — empty names are skipped into the
-    `empty-bridge-names` limitation rather than throwing, and source paths are
-    validated too, so the old "is empty" attribution was unreachable/wrong
+  - The bridges control-character rejection **message** now reads "a fact value
+    or source path contains control characters" — message-only, no behavior
+    change: source paths have been validated since 0.3.0, and empty names are
+    skipped into the `empty-bridge-names` limitation rather than throwing, so
+    the old "is empty" attribution was unreachable/wrong
 
 - Indexing got measurably faster with byte-identical output (audit P1/P2/P9/P10;
   measured with the new `tool/benchmark_index.dart` A/B harness — sha256 of graph,

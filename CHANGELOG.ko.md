@@ -22,13 +22,13 @@
     조용하지 않다
   - workspace 선언·`--project` 없이는 기존 출력과 byte-for-byte 동일
     (project = 스캔 루트 realpath, 경로 기준 동일) — 기존 bridge 골든 무수정
-  - bridges 제어문자 거부 메시지를 "a fact value or source path contains
-    control characters"로 정정 — 빈 이름은 throw가 아니라 `empty-bridge-names`
-    limitation으로 건너뛰고 소스 경로도 검증하므로 기존 "is empty" 귀속은
-    도달 불가/오귀인이었다
+  - bridges 제어문자 거부 **메시지**를 "a fact value or source path contains
+    control characters"로 정정 — 메시지 전용이고 동작은 불변이다: 소스 경로
+    검증은 0.3.0부터 있었고, 빈 이름은 throw가 아니라 `empty-bridge-names`
+    limitation으로 건너뛰므로 기존 "is empty" 귀속이 도달 불가/오귀인이었다
 
-- 인덱싱이 출력 byte 동일하게 측정 가능하게 빨라졌다 (감사 P1/P2/P9/P10,
-  신규 `tool/benchmark_index.dart` A/B 하네스로 측정 — graph·dead·query·
+- 인덱싱을 개선했다 — 출력 byte 동일, 실측 -28% (감사 P1/P2/P9/P10, 신규
+  `tool/benchmark_index.dart` A/B 하네스로 측정 — graph·dead·query·
   retention·test-only 산출물 sha256 전후 동일):
   - element→ID 해석을 관계 수집 패스 단위로 메모화 — 이전엔 식별자 방문마다
     경로 정규화·이름 체인을 재계산했다
