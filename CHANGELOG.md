@@ -4,6 +4,19 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- `--since`/`affected` Git change matching is now bidirectional for symlinked
+  sources: both the link path itself (the link file changed or was retargeted)
+  and the resolved physical target (the target changed) are matched against the
+  changed set — previously only the resolved path was compared, so a changed
+  link file silently fell out of scope (measured)
+- A `dartograph.yaml` declaring `entry_points` now reports an
+  `entry-points: retention roots narrowed to N declared build target(s)`
+  limitation — a configuration added by a pull request can no longer hide dead
+  code indistinguishably from a clean repository
+- SECURITY.md documents the symlink ingestion channel: dartograph follows links
+  inside the analysis tree like the analyzer does, so a repository that plants
+  links can pull same-user files from outside itself into its graph output and
+  CI artifacts
 - Output fidelity fixes from the audit (all additive or misinformation-only changes)
   - `dead --format json` gains a `report` field (`dead`/`test-only`) so a stored
     artifact is machine-classifiable without the exit code — the four report

@@ -650,6 +650,12 @@ entry_points:
 
     expect(mainRoots, hasLength(1));
     expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+    // entry_points가 보존 루트를 좁혔다는 사실 자체가 출력에 남아야 한다 —
+    // 설정 추가만으로 죽은 코드가 조용히 사라지면 클린 저장소와 구별되지 않는다.
+    expect(
+      result.limitationDetails,
+      anyElement(startsWith('entry-points: retention roots narrowed to 1')),
+    );
   });
 
   test('entry_points accepts non-lib build targets under bin/', () async {

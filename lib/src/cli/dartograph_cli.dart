@@ -205,8 +205,8 @@ Future<int> _runAffected(
     final changed = await changedFilesSince(reference, rootPath);
     final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
     final snapshot = indexed.graph.snapshot();
-    // dead --since와 같은 canonical 매칭: sourceUri가 심볼릭 링크 경로일 수
-    // 있으므로 실 경로로 해석해 Git 변경 파일과 비교한다. `project:` 스킴은
+    // dead --since와 같은 양방향 매칭(_changedContains): 링크 경로 자체와
+    // 링크 대상 실 경로 양쪽을 변경 집합과 비교한다. `project:` 스킴은
     // 루트 패키지 안 파일 전용이다(projectIdForPath가 루트 밖 경로에는
     // file:// URI를 돌려준다) — 의존 패키지 소스가 같은 스킴으로 오매칭될
     // 여지가 없다.
@@ -217,10 +217,17 @@ Future<int> _runAffected(
     final changedSources = <String>{};
     final matchedChangedFiles = <String>{};
     for (final source in sources) {
+      final relative = source.substring('project:'.length);
+      final absolute = p.normalize(p.join(canonicalRoot, relative));
       final canonical = await _canonicalSource(canonicalRoot, source);
-      if (canonical != null && changed.contains(canonical)) {
+      final matched =
+          changed.contains(absolute) ||
+          (canonical != null && changed.contains(canonical));
+      if (matched) {
         changedSources.add(source);
-        matchedChangedFiles.add(canonical);
+        matchedChangedFiles
+          ..add(absolute)
+          ..add(canonical ?? absolute);
       }
     }
     // 패키지 안에 있는데 어떤 분석 라이브러리에도 속하지 않는 변경 Dart 파일은
@@ -879,8 +886,9 @@ Future<int> _runDead(
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
       final scoped = <DeadFinding>[];
       for (final finding in reported) {
-        final source = await _canonicalSource(canonicalRoot, finding.source);
-        if (source == null || changed.contains(source)) scoped.add(finding);
+        if (await _changedContains(changed, canonicalRoot, finding.source)) {
+          scoped.add(finding);
+        }
       }
       reported = scoped;
     }
@@ -973,6 +981,26 @@ Future<String?> _canonicalSource(String rootPath, String source) async {
   } on FileSystemException {
     return null;
   }
+}
+
+/// `project:` 소스가 Git 변경 파일 집합에 속하는지 **양방향**으로 판정한다.
+///
+/// 미해석 절대 경로(소스가 심볼릭 링크면 링크 경로 자체 — 링크 파일이 바뀐
+/// 경우)와 심볼릭 링크를 해석한 실 경로(링크 대상이 바뀐 경우)를 모두 본다.
+/// 한 방향만 보면 링크 retarget·대상 수정 중 하나가 스코프에서 조용히 빠진다
+/// (감사 S4 실측). `project:`가 아닌 소스와 해석 실패는 기존 규약대로 보존
+/// 쪽(참)으로 편향한다.
+Future<bool> _changedContains(
+  Set<String> changed,
+  String canonicalRoot,
+  String source,
+) async {
+  if (!source.startsWith('project:')) return true;
+  final relative = source.substring('project:'.length);
+  final absolute = p.normalize(p.join(canonicalRoot, relative));
+  if (changed.contains(absolute)) return true;
+  final canonical = await _canonicalSource(canonicalRoot, source);
+  return canonical == null || changed.contains(canonical);
 }
 
 Future<int> _runGraph(

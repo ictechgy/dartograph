@@ -362,4 +362,50 @@ void main() {
       }
     },
   );
+  test('since scoping matches symlinked sources in both directions', () async {
+    // lib/link.dart -> real.dart 심볼릭 링크. Git은 링크 파일 자체의 변경은
+    // 링크 경로로, 대상 변경은 실 경로로 보고한다 — 둘 다 스코프에 들어야 한다.
+    final canonicalRoot = await directory.resolveSymbolicLinks();
+    final lib = Directory(p.join(directory.path, 'lib'));
+    final real = File(p.join(lib.path, 'real.dart'));
+    await real.writeAsString('void linkedTarget() {}\n');
+    await Link(p.join(lib.path, 'link.dart')).create('real.dart');
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'package:app/main.dart::main'))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/link.dart::linkedTarget',
+          sourceUri: 'project:lib/link.dart',
+          line: 1,
+          column: 1,
+        ),
+      );
+    final linked = AnalyzerGraphResult(
+      graph: graph,
+      limitations: const [],
+      retentionRoots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+    );
+    final linkPath = p.normalize(p.join(canonicalRoot, 'lib/link.dart'));
+    final targetPath = await real.resolveSymbolicLinks();
+
+    Future<int> runWith(Set<String> changed) => runDartograph(
+      ['dead', '--format', 'json', '--since', 'HEAD', directory.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+      indexPackage: (_) async => linked,
+      changedFilesSince: (_, _) async => changed,
+    );
+
+    // 링크 파일 자체가 변경 — 미해석 링크 경로로 매치(수정 전 조용히 빠졌다).
+    expect(await runWith({linkPath}), ExitStatus.findings.code);
+    // 링크 대상이 변경 — 해석된 실 경로로 매치(기존 동작 보존).
+    expect(await runWith({targetPath}), ExitStatus.findings.code);
+    // 둘 다 아니면 스코프 밖.
+    expect(
+      await runWith({p.join(canonicalRoot, 'lib/unrelated.dart')}),
+      ExitStatus.success.code,
+    );
+  });
 }
