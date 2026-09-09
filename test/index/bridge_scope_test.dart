@@ -133,6 +133,10 @@ void unassign() {
         expect(created(result), ['firstChan', 'secondChan', 'dChan']);
         // m1은 재대입 전 바인딩, m2는 재대입 후 바인딩을 쓴다. m3은 `d = null`로
         // 바인딩이 해제되어 method-invoke 사실을 내지 않고 미해결로 강등된다.
+        // 방문자는 단일 패스(AST 소스 순서)라 재대입 바인딩은 그 지점 이후 호출에만
+        // 반영된다(조건부 분기 재대입은 추적하지 않는 의도적 선택 — 이 테스트로 고정).
+        // `d = null`은 실제 MethodChannel 타입엔 부적합하지만 스캐너는 parse만 보므로
+        // (throwIfDiagnostics: false) unbind 분기를 행사하는 의도적 fixture다.
         expect(invokes(result), ['m1@firstChan', 'm2@secondChan']);
         expect(
           result.limitations.any(
@@ -142,6 +146,88 @@ void unassign() {
         );
       },
     );
+  });
+
+  group('scope declarations shadow outer channels', () {
+    test(
+      'a catch parameter shadows an outer channel of the same name',
+      () async {
+        final root = await writeFixture('bridge-catch-shadow.', '''
+import 'package:flutter/services.dart';
+final outer = MethodChannel('outerChan');
+void go() {
+  try {
+    outer.invokeMethod('inTry');
+  } on Object catch (outer, st) {
+    outer.invokeMethod('shadowedByCatch');
+  }
+}
+''');
+
+        final result = indexBridges(root.path);
+
+        // catch 예외 파라미터 `outer`가 catch 스코프에 선언되어 동명 최상위 채널을
+        // 가린다. try 본문의 호출은 채널로 해결되고 catch 본부는 미해결로 강등된다.
+        expect(created(result), ['outerChan']);
+        expect(invokes(result), ['inTry@outerChan']);
+        expect(
+          result.limitations.any(
+            (s) => s.startsWith('unresolved-receiver-invocations:'),
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('a for-each loop variable shadows an outer channel', () async {
+      final root = await writeFixture('bridge-for-shadow.', '''
+import 'package:flutter/services.dart';
+final outer = MethodChannel('loopChan');
+void go() {
+  outer.invokeMethod('beforeLoop');
+  final items = [1];
+  for (final outer in items) {
+    outer.invokeMethod('shadowedByLoop');
+  }
+}
+''');
+
+      final result = indexBridges(root.path);
+
+      // for-each 루프 변수 `outer`가 루프 스코프에 선언되어 최상위 채널을 가린다.
+      expect(created(result), ['loopChan']);
+      expect(invokes(result), ['beforeLoop@loopChan']);
+      expect(
+        result.limitations.any(
+          (s) => s.startsWith('unresolved-receiver-invocations:'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a closure parameter shadows an outer channel', () async {
+      final root = await writeFixture('bridge-closure-shadow.', '''
+import 'package:flutter/services.dart';
+void go() {
+  final c = MethodChannel('closureChan');
+  c.invokeMethod('beforeClosure');
+  final invoke = (c) => c.invokeMethod('shadowedByParam');
+  invoke('x');
+}
+''');
+
+      final result = indexBridges(root.path);
+
+      // 클로저 파라미터 `c`가 파라미터 스코프에 선언되어 포획된 동명 채널을 가린다.
+      expect(created(result), ['closureChan']);
+      expect(invokes(result), ['beforeClosure@closureChan']);
+      expect(
+        result.limitations.any(
+          (s) => s.startsWith('unresolved-receiver-invocations:'),
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('bridge channel resolution and determinism', () {
