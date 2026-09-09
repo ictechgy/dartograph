@@ -84,6 +84,10 @@ expect_status 2 "graph failure" graph --format dot fixtures/does-not-exist
 expect_status 0 "skill" skill
 expect_status 0 "bridges" bridges --format json fixtures/phase5_contract
 expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
+  expect_status 0 "bridges project override" bridges --format json --project fixtures fixtures/phase5_contract
+  expect_status 64 "bridges project not containing root" bridges --format json --project fixtures/phase5_contract/lib fixtures/phase5_contract
+  expect_status 64 "bridges duplicate project" bridges --format json --project fixtures --project fixtures fixtures/phase5_contract
+  expect_status 64 "bridges project missing value" bridges --format json --project
   expect_status 0 "baseline write" baseline --write "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
   expect_status 0 "dead with written baseline" dead --format json --baseline "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
   expect_status 1 "dead test-only corpus has a dead declaration" dead --format json fixtures/test_only_corpus

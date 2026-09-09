@@ -15,15 +15,34 @@ final class BridgeIndexResult {
   /// GRAPH-EXCHANGE fact 객체다.
   final List<Map<String, Object?>> facts;
 
-  /// 추출 중 조인할 수 없었던 사실의 계수다.
+  /// 추출 중 조인 그만으로는 부족했던 사실의 계수와 유형이다.
   final List<String> limitations;
 }
 
 /// [rootPath]의 Dart 파일에서 Flutter MethodChannel 사실을 추출한다.
-BridgeIndexResult indexBridges(String rootPath) {
+///
+/// [projectRootPath]는 `location.path`의 기준이 되는 공유 프로젝트(모노레포)
+/// 루트다(GRAPH-EXCHANGE: location.path는 project 루트 기준 상대 경로). null이면
+/// 해석된 [rootPath]를 기준으로 삼아 기존 출력을 보존한다. 스캔 범위는 계속
+/// [rootPath] 트리다 — [projectRootPath]가 [rootPath]의 조상임을 확인하는 것은
+/// 호출자(CLI) 책임이다.
+BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
   final root = Directory(
     Directory(rootPath).absolute.resolveSymbolicLinksSync(),
   );
+  final pathBase = projectRootPath == null
+      ? root.path
+      : Directory(projectRootPath).absolute.resolveSymbolicLinksSync();
+  if (!p.equals(pathBase, root.path) && !p.isWithin(pathBase, root.path)) {
+    // location.path가 `../`로 프로젝트를 탈출하면 증거가 다른 트리를 가리킨다
+    // (GRAPH-EXCHANGE). CLI는 usage(64)로 먼저 막고,여기는 라이브러리 호출자의
+    // 계약 위반을 크게 실패시킨다.
+    throw ArgumentError.value(
+      projectRootPath,
+      'projectRootPath',
+      'must contain the package root',
+    );
+  }
   final facts = <Map<String, Object?>>[];
   var dynamicMethodNames = 0;
   var unresolvedReceiverInvocations = 0;
@@ -37,7 +56,7 @@ BridgeIndexResult indexBridges(String rootPath) {
   var parseErrorFiles = 0;
   for (final entity in _dartFiles(root)) {
     final relative = p.posix.joinAll(
-      p.relative(entity.path, from: root.path).split(p.separator),
+      p.relative(entity.path, from: pathBase).split(p.separator),
     );
     _rejectControlCharacters(relative);
     final source = entity.readAsStringSync();

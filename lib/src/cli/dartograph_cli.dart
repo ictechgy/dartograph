@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
@@ -698,34 +699,91 @@ Future<int> _runSkill(
   }
 }
 
+const _invalidBridgesProjectMessage =
+    'Invalid --project: it must be an existing directory containing the '
+    'package root.';
+
 Future<int> _runBridges(
   List<String> arguments,
   StringSink output,
   StringSink error,
   DateTime Function() now,
 ) async {
-  final rootIndex = arguments.length == 4 && arguments[2] == '--' ? 3 : 2;
+  // `--project <shared-root>`는 위치 인자 사이에 어디든 올 수 있다(query의
+  // `--depth`와 같은 규칙). 중복·값 빠짐·옵션 모양 값은 usage(64)다.
+  String? projectOption;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument != '--project') {
+      positional.add(argument);
+      continue;
+    }
+    if (projectOption != null || index + 1 >= arguments.length) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    final value = arguments[++index];
+    // 빈 값은 Directory('').absolute가 cwd로 조용히 해석돼 공유 루트가
+    // 실행 위치에 따라 달라진다 — 옵션 모양 값과 같이 거부한다.
+    if (value.isEmpty || value.startsWith('-')) {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+    projectOption = value;
+  }
+  final rootIndex = positional.length == 4 && positional[2] == '--' ? 3 : 2;
   // 이스케이프 없이 온 옵션 모양의 값은 경로로 받지 않는다. 길이 검사가 먼저라
   // 짧은 호출에서 인덱스를 벗어나지 않는다. `-`로 시작하는 실제 경로는 이미
   // 있는 `--` 이스케이프로 전달한다.
-  if (arguments.length != rootIndex + 1 ||
-      arguments[0] != '--format' ||
-      arguments[1] != 'json' ||
-      (rootIndex == 2 && arguments[2].startsWith('-'))) {
+  if (positional.length != rootIndex + 1 ||
+      positional[0] != '--format' ||
+      positional[1] != 'json' ||
+      (rootIndex == 2 && positional[2].startsWith('-'))) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
     final root = Directory(
-      arguments[rootIndex],
+      positional[rootIndex],
     ).absolute.resolveSymbolicLinksSync();
-    final indexed = indexBridges(root);
+    // 프로젝트 루트 우선순위: 명시적 --project > pub workspace 감지 > 스캔
+    // 루트. 모노레포 조인은 두 producer 문서가 정확히 같은 project 문자열을
+    // 가져야 성립한다(GRAPH-EXCHANGE 정확 문자열 일치 fail-closed) —
+    // 공유 루트를 문서 손으로 고쳐 쓰면 provenance가 깨진다(dartograph#38).
+    var project = root;
+    final projectLimitations = <String>[];
+    if (projectOption != null) {
+      String resolved;
+      try {
+        resolved = Directory(projectOption).absolute.resolveSymbolicLinksSync();
+      } on FileSystemException {
+        error.writeln(_invalidBridgesProjectMessage);
+        return ExitStatus.usage.code;
+      }
+      if (!p.equals(resolved, root) && !p.isWithin(resolved, root)) {
+        error.writeln(_invalidBridgesProjectMessage);
+        return ExitStatus.usage.code;
+      }
+      project = resolved;
+    } else {
+      final detected = _detectPubWorkspace(root);
+      if (detected.root != null) {
+        project = detected.root!;
+      } else if (detected.limitation != null) {
+        projectLimitations.add(detected.limitation!);
+      }
+    }
+    final indexed = indexBridges(
+      root,
+      projectRootPath: project == root ? null : project,
+    );
     output.write(
       exportBridgeFacts(
-        project: root,
+        project: project,
         generatedAt: now(),
         facts: indexed.facts,
-        limitations: indexed.limitations,
+        limitations: [...indexed.limitations, ...projectLimitations],
       ),
     );
     return ExitStatus.success.code;
@@ -733,7 +791,7 @@ Future<int> _runBridges(
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
     error.writeln(
-      'Bridges extraction failed: a fact value is empty or contains control characters.',
+      'Bridges extraction failed: a fact value or source path contains control characters.',
     );
     return ExitStatus.failure.code;
   } on ArgumentError {
@@ -743,6 +801,66 @@ Future<int> _runBridges(
   } on Exception {
     return _reportAnalysisFailure(error);
   }
+}
+
+/// pub workspace 감지 결과 — 공유 프로젝트 루트와 감시 실패 한계다.
+final class _WorkspaceDetection {
+  const _WorkspaceDetection(this.root, this.limitation);
+
+  final String? root;
+  final String? limitation;
+}
+
+/// [rootPath]의 pubspec이 `resolution: workspace`를 선언하면 `workspace:` 키를
+/// 가진 가장 가까운 조상 pubspec의 디렉터리를 프로젝트 루트로 돌려준다(Dart
+/// Pub Workspaces — Melos의 "workspace: 키를 가진 루트" 정의와 같다).
+///
+/// 선언이 없으면 (null, null)로 기존 행동(project = 스캔 루트)을 보존한다.
+/// 선언했는데 루트를 찾지 못하거나 pubspec을 파싱할 수 없으면 null 루트와
+/// limitation을 돌려준다 — 조인 기준이 조용히 어긋나면 isthmus의 정확 문자열
+/// 일치 fail-closed만 관측되므로 원인을 출력에 남긴다.
+_WorkspaceDetection _detectPubWorkspace(String rootPath) {
+  Object? document;
+  try {
+    final pubspec = File(p.join(rootPath, 'pubspec.yaml'));
+    if (!pubspec.existsSync()) return const _WorkspaceDetection(null, null);
+    document = loadYaml(pubspec.readAsStringSync());
+  } on Exception {
+    return const _WorkspaceDetection(
+      null,
+      'pub-workspace-pubspec-unparsed: pubspec.yaml could not be parsed for '
+      'workspace detection; project fell back to the package root',
+    );
+  }
+  if (document is! YamlMap || document['resolution'] != 'workspace') {
+    return const _WorkspaceDetection(null, null);
+  }
+  var directory = Directory(rootPath).parent;
+  while (true) {
+    final candidate = File(p.join(directory.path, 'pubspec.yaml'));
+    if (candidate.existsSync()) {
+      try {
+        final parsed = loadYaml(candidate.readAsStringSync());
+        if (parsed is YamlMap && parsed['workspace'] != null) {
+          return _WorkspaceDetection(
+            directory.resolveSymbolicLinksSync(),
+            null,
+          );
+        }
+      } on Exception {
+        // 파싱할 수 없는 조상 pubspec은 workspace 루트가 아니다 — 계속 올라간다.
+      }
+    }
+    final parent = directory.parent;
+    if (parent.path == directory.path) break;
+    directory = parent;
+  }
+  return const _WorkspaceDetection(
+    null,
+    'pub-workspace-root-not-found: pubspec.yaml declares resolution workspace '
+    'but no ancestor pubspec declares workspace; project fell back to the '
+    'package root',
+  );
 }
 
 List<String> _limitations(AnalyzerGraphResult result) {
@@ -1191,7 +1309,7 @@ Usage: dartograph [--help] [--version]
        dartograph compare <before-package-root> <after-package-root>
        dartograph affected <git-ref> <package-root>
        dartograph skill [--install <skills-directory> [--force]]
-       dartograph bridges --format json <package-root>
+       dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] <package-root>
        dartograph cycles --explain <symbol-id> <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
@@ -1221,6 +1339,14 @@ comments may sit between, code may not. A trailing comment at the end of a
 line does not suppress the next declaration. Retention keeps what the
 declaration references reachable too — use a baseline to suppress a single
 finding, including file findings.
+
+bridges --project declares the shared join root for a monorepo: the scan stays
+on <package-root> while the document's project field and location.path become
+relative to <shared-root> (which must contain, or be, the package root). A package
+whose pubspec declares "resolution: workspace" picks up its pub workspace root
+automatically (fallbacks are reported as limitations). Both sides of an isthmus
+join must carry the exact same project string; rewriting it by hand afterwards
+breaks provenance.
 
 graph --level projects the graph to a resolution: file folds declarations
 into their libraries, type folds members into top-level declarations, symbol
