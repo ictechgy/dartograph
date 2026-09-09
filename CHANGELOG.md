@@ -4,6 +4,17 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Hardened the CLI error boundary: `Error`s (TypeError, RangeError, …) escaping
+  from analyzer/yaml internals are contained at the command boundary as an
+  analysis failure (exit 2) — no more stack traces echoing internal paths or an
+  undocumented exit 255. This also closes per-command catch asymmetries (e.g.
+  `_runBaseline` had no `on ArgumentError`; compare/query leaked ArgumentErrors)
+- The bridges control-character policy rejection now reports "Bridges extraction
+  failed: …" instead of "unable to index the package" (correct attribution — the
+  rejection is an extraction policy, not an indexing failure)
+- Non-UTF8 `git` output (possible filenames on Linux) folds into the
+  ChangedFilesException diagnosis ("Changed files could not be computed…")
+  instead of surfacing as a misattributed indexing failure
 - Unified the control-character and injection policy across every human and CI
   output surface (audit follow-up: newline-bearing filenames could cut a Mermaid
   label into two statements, forge text diagnostic lines, and pass ESC/bidi

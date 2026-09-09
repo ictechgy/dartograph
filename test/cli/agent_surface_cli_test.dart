@@ -856,7 +856,13 @@ void call() { /* 한글 */ channel.invokeMethod('ping'); }
 
     expect(status, ExitStatus.failure.code);
     expect(output, isEmpty);
-    expect(errors.toString(), contains('Analysis failed:'));
+    // 제어문자 거부는 bridges 추출 정책 — 인덱싱 실패로 오귀인하지 않는다.
+    expect(
+      errors.toString(),
+      'Bridges extraction failed: a fact value is empty or contains control '
+      'characters.\n',
+    );
+    expect(errors.toString(), isNot(contains('unable to index')));
   });
 
   test('bridges accepts -- before a positional root', () async {

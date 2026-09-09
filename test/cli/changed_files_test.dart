@@ -6,6 +6,31 @@ import 'package:test/test.dart';
 
 void main() {
   test(
+    'git output decoding folds non-UTF8 bytes into ChangedFilesException',
+    () {
+      // 비-UTF8 파일명은 Linux에서 가능하다(macOS APFS는 거부해 재현 불가) —
+      // 순수 함수로 플랫폼 무관하게 고정한다.
+      expect(
+        () => decodeChangedFilesOutput(const [0x61, 0xff, 0x00]),
+        throwsA(isA<ChangedFilesException>()),
+      );
+      expect(decodeChangedFilesOutput(const [0x61, 0x00, 0x62, 0x00]), [
+        'a',
+        'b',
+      ]);
+      expect(
+        decodeChangedFilesOutput(const [
+          0x61,
+          0x0a,
+          0x62,
+          0x0a,
+        ], nulSeparated: false),
+        ['a', 'b'],
+      );
+    },
+  );
+
+  test(
     'since combines committed, worktree, staged, and NUL-safe untracked paths',
     () async {
       final repository = await Directory.systemTemp.createTemp(

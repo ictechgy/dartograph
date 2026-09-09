@@ -19,7 +19,6 @@ abstract final class ChangedFiles {
     final resolvedReference = await _run(
       ['rev-parse', '--verify', '--end-of-options', '$reference^{commit}'],
       workingDirectory,
-      reference,
       nulSeparated: false,
     );
     if (resolvedReference.length != 1) {
@@ -29,7 +28,6 @@ abstract final class ChangedFiles {
     final rootValues = await _run(
       const ['rev-parse', '--show-toplevel'],
       workingDirectory,
-      reference,
       nulSeparated: false,
     );
     if (rootValues.isEmpty) {
@@ -37,27 +35,27 @@ abstract final class ChangedFiles {
     }
     final root = rootValues.single;
     final groups = await Future.wait([
-      _run(
-        ['diff', '--name-only', '--diff-filter=d', '-z', '$baseCommit...HEAD'],
-        workingDirectory,
-        reference,
-      ),
-      _run(
-        const ['diff', '--name-only', '--diff-filter=d', '-z', 'HEAD'],
-        workingDirectory,
-        reference,
-      ),
-      _run(
-        const [
-          'ls-files',
-          '--others',
-          '--exclude-standard',
-          '--full-name',
-          '-z',
-        ],
-        workingDirectory,
-        reference,
-      ),
+      _run([
+        'diff',
+        '--name-only',
+        '--diff-filter=d',
+        '-z',
+        '$baseCommit...HEAD',
+      ], workingDirectory),
+      _run(const [
+        'diff',
+        '--name-only',
+        '--diff-filter=d',
+        '-z',
+        'HEAD',
+      ], workingDirectory),
+      _run(const [
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+        '--full-name',
+        '-z',
+      ], workingDirectory),
     ]);
     return {
       for (final relative in groups.expand((paths) => paths))
@@ -67,8 +65,7 @@ abstract final class ChangedFiles {
 
   static Future<List<String>> _run(
     List<String> arguments,
-    String workingDirectory,
-    String reference, {
+    String workingDirectory, {
     bool nulSeparated = true,
   }) async {
     final process = await Process.run(
@@ -78,15 +75,38 @@ abstract final class ChangedFiles {
       // 변경 파일 집합이 잘못 계산된다. 경로는 항상 저장소 루트 기준으로 고정한다.
       ['-c', 'diff.relative=false', '-C', workingDirectory, ...arguments],
       stdoutEncoding: null,
-      stderrEncoding: utf8,
+      // stderr는 어디에도 쓰지 않는다. utf8 디코딩으로 두면 비-UTF8 stderr가
+      // Process.run 안에서 FormatException을 내 _run의 계약(ChangedFilesException)
+      // 을 빠져나간다.
+      stderrEncoding: null,
     );
     if (process.exitCode != 0) {
       throw const ChangedFilesException();
     }
-    final decoded = utf8.decode(process.stdout as List<int>);
-    return decoded
-        .split(nulSeparated ? '\u0000' : '\n')
-        .where((value) => value.isNotEmpty)
-        .toList();
+    return decodeChangedFilesOutput(
+      process.stdout as List<int>,
+      nulSeparated: nulSeparated,
+    );
   }
+}
+
+/// git의 원시 바이트 출력을 경로 목록으로 나눈다.
+///
+/// `-z` 원시 바이트의 파일명이 비-UTF8일 수 있다(Linux에서 가능, macOS APFS는
+/// 거부). 디코드 실패는 FormatException을 흘려 인덱싱 실패로 오귀인하지 않고
+/// [ChangedFilesException]으로 모은다. 플랫폼 없이 테스트 가능한 순수 함수다.
+List<String> decodeChangedFilesOutput(
+  List<int> stdoutBytes, {
+  bool nulSeparated = true,
+}) {
+  final String decoded;
+  try {
+    decoded = utf8.decode(stdoutBytes);
+  } on FormatException {
+    throw const ChangedFilesException();
+  }
+  return decoded
+      .split(nulSeparated ? '\u0000' : '\n')
+      .where((value) => value.isNotEmpty)
+      .toList();
 }
