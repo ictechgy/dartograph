@@ -20,10 +20,19 @@ final class BridgeIndexResult {
 }
 
 /// [rootPath]의 Dart 파일에서 Flutter MethodChannel 사실을 추출한다.
-BridgeIndexResult indexBridges(String rootPath) {
+///
+/// [projectRootPath]는 `location.path`의 기준이 되는 공유 프로젝트(모노레포)
+/// 루트다(GRAPH-EXCHANGE: location.path는 project 루트 기준 상대 경로). null이면
+/// 해석된 [rootPath]를 기준으로 삼아 기존 출력을 보존한다. 스캔 범위는 계속
+/// [rootPath] 트리다 — [projectRootPath]가 [rootPath]의 조상임을 확인하는 것은
+/// 호출자(CLI) 책임이다.
+BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
   final root = Directory(
     Directory(rootPath).absolute.resolveSymbolicLinksSync(),
   );
+  final pathBase = projectRootPath == null
+      ? root.path
+      : Directory(projectRootPath).absolute.resolveSymbolicLinksSync();
   final facts = <Map<String, Object?>>[];
   var dynamicMethodNames = 0;
   var unresolvedReceiverInvocations = 0;
@@ -37,7 +46,7 @@ BridgeIndexResult indexBridges(String rootPath) {
   var parseErrorFiles = 0;
   for (final entity in _dartFiles(root)) {
     final relative = p.posix.joinAll(
-      p.relative(entity.path, from: root.path).split(p.separator),
+      p.relative(entity.path, from: pathBase).split(p.separator),
     );
     _rejectControlCharacters(relative);
     final source = entity.readAsStringSync();

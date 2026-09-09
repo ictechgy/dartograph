@@ -24,7 +24,7 @@ dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--li
 dartograph compare <before-package-root> <after-package-root>
 dartograph affected <git-ref> <package-root>
 dartograph skill [--install <skills-directory> [--force]]
-dartograph bridges --format json <package-root>
+dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
 dartograph cycles --explain <symbol-id> <package-root>
 dartograph rules --config <yaml-file> [--strict] <package-root>
@@ -77,6 +77,19 @@ dead finding을 억제하는 `--baseline`과는 결합하지 않으며 `--since`
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
 GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
+
+`bridges --project <shared-root>`은 모노레포 조인용 공유 루트를 선언한다. 스캔 범위는
+위치 인자(`<package-root>`) 그대로이고, 문서의 `project` 필드와 `location.path`가
+`<shared-root>` 기준이 된다(`package-root`를 포함하는 기존 디렉터리여야 하며 realpath로
+정규화된다 — 아니면 usage 64). pubspec에 `resolution: workspace`를 선언한 패키지는
+`--project` 없이도 `workspace:` 키를 가진 가장 가까운 조상 pubspec 디렉터리(pub
+workspace 루트)를 프로젝트로 자동 사용한다. 감지에 실패하면(조상 루트 부재·pubspec
+파싱 불가) 스캔 루트로 폴백하고 `pub-workspace-root-not-found`·
+`pub-workspace-pubspec-unparsed` limitation으로 알린다 — isthmus는 한 번의 조인에 들어오는
+문서들의 `project` 문자열 정확 일치를 요구하므로(fail-closed), 기준이 조용히 어긋나는
+것보다 원인을 남기는 쪽이 안전하다. 문서 생산 후 `project`를 손으로 고쳐 쓰는 것은
+provenance를 깨므로 금지(GRAPH-EXCHANGE). 우선순위는 `--project` > workspace 감지 >
+스캔 루트다.
 
 `// dartograph:ignore` 줄 주석은 그 아래 선언의 dead 보고를 억제한다. 마커가 주석 본문
 **시작**에 와야 지시문이다: 산문이 마커를 언급해도 오해석되지 않고, doc comment(`///`)와

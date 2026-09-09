@@ -72,6 +72,26 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
     `generated-code-staleness` limitation is an mtime observation (git does not
     preserve mtimes, so its presence can differ across fresh clones; findings,
     nodes, and edges are unaffected) — documented in USAGE and lib/AGENTS.md
+- `bridges` gained `--project <shared-root>` and pub workspace auto-detection
+  (isthmus monorepo join request #38; GRAPH-EXCHANGE delegates the shared-root
+  declaration to producer options)
+  - `--project` keeps the scan on the positional package root while the
+    document's `project` field and `location.path` become relative to the shared
+    root (POSIX realpath; it must be an existing directory containing the
+    package root, else usage 64). Sibling packages of a pub monorepo (e.g. a
+    `*_platform_interface` holding the MethodChannel and the plugin package
+    holding the native side) can now emit the exact same `project` string the
+    isthmus strict-equality join requires — no hand-rewriting documents, which
+    breaks provenance
+  - A package whose pubspec declares `resolution: workspace` picks up its pub
+    workspace root (nearest ancestor pubspec with a `workspace:` key — the
+    Melos definition) without `--project`. Precedence: `--project` > workspace
+    detection > scan root. Detection failures fall back to the scan root and
+    report `pub-workspace-root-not-found`/`pub-workspace-pubspec-unparsed`
+    limitations so a skewed join basis is never silent
+  - Without a workspace declaration or `--project` the output is byte-identical
+    to before (project = realpath of the scan root, paths relative to it) —
+    existing bridge goldens pass unmodified
 - The analysis cache key now hashes every `.dart` file under the package root
   (excluding `.dart_tool`/`.git`/`build`), not only the five standard source
   directories — the analyzer also reads outside the standard directories
