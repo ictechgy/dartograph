@@ -60,6 +60,32 @@ Future<int> runDartograph(
 }) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
+  try {
+    return await _dispatch(
+      arguments,
+      stdoutSink,
+      stderrSink,
+      indexPackage,
+      changedFilesSince,
+      now,
+    );
+  } on Object {
+    // 명령별 catch를 빠져나오는 Error(TypeError·RangeError 등)는 기본 핸들러가
+    // 스택트레이스(내부·저장소 경로 반향)와 함께 종료 코드 255로 끝나게 한다 —
+    // CLI 계약(0/1/2/64)과 경로 미반향 규약 위반이다. 경계에서 마지막으로
+    // 분석 실패(2)로 모은다. 상세 분류는 명령별 catch가 먼저 담당한다.
+    return _reportAnalysisFailure(stderrSink);
+  }
+}
+
+Future<int> _dispatch(
+  List<String> arguments,
+  StringSink stdoutSink,
+  StringSink stderrSink,
+  IndexPackage? indexPackage,
+  ChangedFilesSince? changedFilesSince,
+  DateTime Function()? now,
+) async {
   final command = arguments.firstOrNull;
   switch (command) {
     case 'affected':
@@ -692,6 +718,13 @@ Future<int> _runBridges(
       ),
     );
     return ExitStatus.success.code;
+  } on FormatException {
+    // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
+    // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
+    error.writeln(
+      'Bridges extraction failed: a fact value is empty or contains control characters.',
+    );
+    return ExitStatus.failure.code;
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {

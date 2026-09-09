@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- CLI 오류 경계를 보강했다 — analyzer·yaml 내부에서 새는 `Error`(TypeError·
+  RangeError 등)를 명령 경계에서 분석 실패(종료 2)로 모은다. 내부 경로를 반향하는
+  스택트레이스와 미문서화 종료 코드 255가 사라진다
+- bridges의 제어문자 정책 거부가 "unable to index the package" 대신 "Bridges
+  extraction failed: ..."로 답한다(정확한 귀인 — 이 거부는 인덱싱 실패가
+  아니라 추출 정책이다)
+- 비-UTF8 `git` 출력(Linux에서 가능한 파일명)을 ChangedFilesException 진단
+  ("Changed files could not be computed...")으로 모아 인덱싱 실패로 오귀인하지
+  않는다
 - 사람·CI 출력 표면 전체의 제어문자·주입 정책을 통일했다 (감사 후속: 개행 포함
   파일명이 Mermaid 라벨을 두 문장으로 절단하고, text 진단줄을 위조하고,
   ESC·bidi 문자가 GitHub Actions 로그로 통과하던 문제)

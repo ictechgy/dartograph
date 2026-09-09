@@ -50,6 +50,22 @@ void main() {
     },
   );
 
+  test('Errors escaping a command are contained at the CLI boundary', () async {
+    final error = StringBuffer();
+
+    // Error 계열은 명령별 on Exception을 빠져나간다. 경계의 최후 방어가
+    // 스택트레이스(경로 반향)와 종료 255 대신 계약된 실패(2)로 모은다.
+    final status = await runDartograph(
+      const ['graph', '--format', 'json', '.'],
+      output: StringBuffer(),
+      error: error,
+      indexPackage: (_) async => throw Error(),
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(error.toString(), 'Analysis failed: unable to index the package.\n');
+  });
+
   test('internal contract probes are not public commands', () async {
     expect(
       await runDartograph(const ['_findings'], error: StringBuffer()),

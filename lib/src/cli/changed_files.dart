@@ -83,7 +83,15 @@ abstract final class ChangedFiles {
     if (process.exitCode != 0) {
       throw const ChangedFilesException();
     }
-    final decoded = utf8.decode(process.stdout as List<int>);
+    final String decoded;
+    try {
+      decoded = utf8.decode(process.stdout as List<int>);
+    } on FormatException {
+      // `-z` 원시 바이트의 파일명이 비-UTF8일 수 있다(Linux에서 가능, macOS
+      // APFS는 거부). 디코드 실패를 인덱싱 실패로 오귀인하지 않고 Git 변경
+      // 집합 계산 실패로 모은다.
+      throw const ChangedFilesException();
+    }
     return decoded
         .split(nulSeparated ? '\u0000' : '\n')
         .where((value) => value.isNotEmpty)
