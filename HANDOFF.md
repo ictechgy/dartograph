@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRAPH-EXCHANGE 계약 문구 갱신(isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge) 확인 후 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션 기록: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52), PR #39~#56 merge)_
+_Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) + **죽은 공개 API 처분(PR #58 — 정책 A 최소화·hygiene)** → 미릴리스 누적 PR #58 생김; isthmus GRAPH-EXCHANGE 문구 갱신(isthmus PR #36 realpath + #37 조인 루트) 확인 후 issue #38 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52), PR #39~#58 merge)_
 
 ## Goal
 
@@ -25,13 +25,19 @@ _Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRA
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55) + 이 마감 기록(#56).
-  이번 세션은 PR #39~#55를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55·#56) + issue #38 close(#57) +
+  죽은 공개 API 처분(#58). 이번 세션은 PR #39~#55를 모두 두 SDK CI green + GLM
+  packet-review 후 머지했다(#57·#58도 동일 — #58은 GLM 리뷰 차단 없음).
   열린 제품 PR 없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션
   이월분이다(Next Steps 4의 목록).**
-- 미릴리스 누적 없음 — **0.5.0이 성능 3건(#48~#50) + bridges 공유 루트(#52)를
-  소진**(새 옵션이라 semver minor). CHANGELOG에 `Unreleased` 절 없음.
-- 테스트 253개, 라인 커버리지 **95.89%**(감사 전 94.4%).
+- **미릴리스 누적: PR #58(죽은 공개 API 처분 리팩터)** — lib/ 변경(querySymbol·
+  usageEdgesFrom 제거, SymbolQuerySession.analysis→deadDeclarations getter, DeadFinding
+  export)이 미릴리스. **CLI 출력·종료코드 무변경**(getter는 위임만)이고 라이브러리
+  API 표면 변경(문서화·외부 소비자 없음). CHANGELOG는 관례상 `Unreleased` 절이
+  없으므로 **다음 릴리스 때 semver+CHANGELOG로 기록한다**(Current Status·Next Steps 5).
+  PR #57(issue #38 close)은 HANDOFF-only(.pubignore로 패키지 제외)라 누적이 아니다.
+- 테스트 253개, 라인 커버리지 **95.98%**(감사 전 94.4%; PR #58이 미커버 querySymbol
+  제거 + getter 스모크 추가로 소폭 상승).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -246,6 +252,14 @@ _Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRA
   green. GLM 리뷰: 차단 B1(CHANGELOG 항목이 0.4.1 절에 삽입) 수정, 비차단(빈 값 거부·
   limitation 목록 핀·메시지 귀속·containment ArgumentError·help 문구·테스트 갭 3) 반영.
   isthmus 설치본 왕복: project 일치 조인 성공(evidence 재기준 경로 보존) + 불일치 거부.
+- 후속(0.5.0 이후): PR #57(issue #38 close — docs 전용)은 isthmus GRAPH-EXCHANGE 문구
+  갱신(isthmus PR #36/#37)을 API로 확인 후 마감 코멘트(issuecomment-5602011319)+
+  close(reason: completed), 두 SDK CI green. PR #58(죽은 공개 API 처분) format·analyze
+  clean, 253 테스트(usageEdgesFrom 테스트 −1·deadDeclarations 스모크 +1 = 순증 0),
+  커버리지 **95.98%**, 자기 패키지 `dead .` 0 findings, corpus·cli-contract·clean git
+  dry-run 0 경고, benchmark_query identicalResults 참, 두 SDK CI green. GLM packet-review
+  차단 없음(비차단 4건 중 getter 불변화·doc 일반화 반영, DeadFinding primitive·패킷 밖
+  잔존 없음은 코드/grep으로 검증됨).
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
   로컬 rg 부재로 CI 위임.
 
@@ -274,9 +288,16 @@ _Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRA
   향후 심화 후보(기록): 세션 범위 _idMemo 공유(이득 미미 판정), allNodeIds prefix
   이진 탐색(측정상 불필요 확인 시까지 보류), 의존성 추적 캐시(루트 밖 상대 import
   커버 — 설계 변경).
-- **죽은 공개 API 처분(정책 결정 먼저)**: `querySymbol`(dartograph.dart export, 제품·
-  테스트 호출 0 — tool/benchmark만), `usageEdgesFrom`(테스트만), `ReachabilityResult`
-  미export(기존 backlog). 스모크 테스트로 검증된 지원 API로 유지하거나 export에서 제거한다.
+- **죽은 공개 API 처분 — 완료(PR #58, 정책 A 최소화·hygiene)**: `querySymbol` 제거
+  (unexport만 하면 자기 패키지 `dead` 검사에서 "보존 루트 도달 불가"로 잡힘을 실측 →
+  함수 삭제 + benchmark_query에 동치 인라인, identicalResults 참 유지), `usageEdgesFrom`
+  제거(CodeGraph 공개 메서드·제품 호출 0·test만), `ReachabilityResult` 누출 해소
+  (공개 필드 `analysis`를 private `_analysis`로 좁히고 `List<DeadFinding> get
+  deadDeclarations`(불변)만 공개, 배럴은 `DeadFinding`만 export; ReachabilityResult·
+  ReachabilityExplanation은 내부 유지). CLI 출력·종료코드 무변경, 스모크 테스트로
+  공개 표면 고정(배럴 import로 DeadFinding 이름 사용=export 증명 + 위임 내용 + 불변),
+  커버리지 95.98%, GLM packet-review 차단 없음(비차단 getter 불변화·doc 일반화 반영,
+  DeadFinding primitive·잔존 없음은 코드/grep 검증). **미릴리스 — 다음 릴리스 때 기록.**
 - **낮음/기록**: html `_htmlKind`의 `::` 포함 파일명 오분류, `_path`의 `project:` 센티널
   충돌(합법 파일명 `project:x.dart`), SARIF rules 배열의 testOnly×file 잠재 불일치
   (현재 vacuous·주석 고정), SARIF Windows 절대경로 fallback의 `file:///` 표준화 후보,
@@ -340,10 +361,11 @@ _Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRA
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #39~#54(+docs #47·#51·#53·#55)를 머지했고 **0.4.1·0.5.0 릴리스 +
-   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측(코멘트 전달 포함)**까지
-   완료했다. 완료된 구현·감사·측정·릴리스를 반복하지 않는다. 미릴리스 누적 없음
-   (CHANGELOG `Unreleased` 절 없음).
+2. 지금까지 완료: PR #39~#54(+docs #47·#51·#53·#55·#56) — **0.4.1·0.5.0 릴리스 +
+   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측**, 이어서 PR #57(issue #38
+   양측 종결·close) + PR #58(죽은 공개 API 처분). 완료된 구현·감사·측정·릴리스·처분을
+   반복하지 않는다. **미릴리스 누적은 PR #58 하나**(CHANGELOG `Unreleased` 절 없음 —
+   릴리스 때 기록; Current Status 참조).
 3. **issue #38 완전 종결·close 완료(2026-09-09)** — dartograph 측(PR #52, 0.5.0
    릴리스 + 코멘트 issuecomment-5599285065)과 isthmus 측 GRAPH-EXCHANGE 문구 갱신
    (isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge)이 모두 끝났다. isthmus
@@ -351,19 +373,18 @@ _Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRA
    closed인지 API로 확인.
 4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
    있다, 재도출 금지)**:
-   a. 죽은 공개 API 처분 — `querySymbol`·`usageEdgesFrom`·`ReachabilityResult` 미export:
-      지원 API 정책 결정이 먼저(스모크 테스트로 유지 vs unexport).
-   b. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
-   c. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
-   d. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
+   a. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
+   b. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
+   c. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
       fallback, bridges toSource 개행 정책=GRAPH-EXCHANGE 조율 사안, workspace 멤버십
       검증, `unscanned-*` 복수형 문구).
-   e. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
+   d. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
-5. 다음 릴리스도 지시 시에만: 버전 정합 6곳 + **두 언어 CHANGELOG** + (Korean) 표기
-   규약, clean git dry-run 후 publish → `--target`으로 같은 커밋 태그+Release → 전파
-   대기(분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
+5. 다음 릴리스도 지시 시에만: **미릴리스 누적 PR #58(죽은 공개 API 처분 — CLI 무변경·
+   라이브러리 API 표면 변경)을 두 언어 CHANGELOG에 기록하고 semver를 판단한 뒤**, 버전
+   정합 6곳 + (Korean) 표기 규약, clean git dry-run 후 publish → `--target`으로 같은 커밋
+   태그+Release → 전파 대기(분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
 
 ## Resume Prompt
 
@@ -398,11 +419,21 @@ isthmus contract semantics; round-trip verified against installed isthmus 0.2.0 
 The issue comment with the contract semantics WAS posted after the owner granted issues write
 scope (issuecomment-5599285065). Then **0.5.0 was released** (PR #54, semver minor for the new
 bridges option; pub.dev latest 0.5.0, tag v0.5.0 at 16b18fd = publish commit, GitHub Release,
-fresh-cache install verified incl. workspace detection and the 59-case contract). NOTHING is
-unreleased now — CHANGELOG has no Unreleased section.
+fresh-cache install verified incl. workspace detection and the 59-case contract). AFTER 0.5.0 two
+follow-ups merged: PR #57 (docs: issue #38 closed on both sides) and **PR #58 (dead public API
+disposition, policy A minimize+hygiene)** — querySymbol removed (unexport ALONE trips the self-`dead`
+gate as "unreachable from all retention roots", so the function was DELETED and benchmark_query
+inlines the equivalent `SymbolQuerySession(...).query(name)`, identicalResults stays true),
+usageEdgesFrom removed (CodeGraph method, product-unused/test-only), and the ReachabilityResult leak
+fixed (SymbolQuerySession.analysis made private `_analysis`; the only public surface is
+`List<DeadFinding> get deadDeclarations` (unmodifiable); the barrel now exports just DeadFinding;
+ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes UNCHANGED, coverage
+95.98%, GLM packet-review no blocking (2 non-blocking applied: getter unmodifiable + doc). **PR #58 is
+MERGED but UNRELEASED** — lib/ API surface changed, CLI did not; record it at the next release
+(CHANGELOG has no Unreleased section by convention). PR #57 was HANDOFF-only (.pubignore-excluded),
+so PR #58 is the ONLY unreleased accumulation.
 REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
-— measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
-ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
+— measure first if revisiting; bridge scope-visitor test coverage (39 lines);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
 (2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
 <shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
@@ -415,6 +446,6 @@ comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was u
 owner/coordination path); external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
-the next session is enumerated in Next Steps item 4 (dead public API disposition, P7
-measurement-first, bridge scope-visitor tests, audit low items, Tier 3/4).
+the next session is enumerated in Next Steps item 4 (P7 measurement-first, bridge scope-visitor
+tests, audit low items, Tier 3/4).
 Follow the next explicit user task.`
