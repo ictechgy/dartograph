@@ -7,7 +7,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 - Hardened the CLI error boundary: `Error`s (TypeError, RangeError, …) escaping
   from analyzer/yaml internals are contained at the command boundary as an
   analysis failure (exit 2) — no more stack traces echoing internal paths or an
-  undocumented exit 255
+  undocumented exit 255. This also closes per-command catch asymmetries (e.g.
+  `_runBaseline` had no `on ArgumentError`; compare/query leaked ArgumentErrors)
 - The bridges control-character policy rejection now reports "Bridges extraction
   failed: …" instead of "unable to index the package" (correct attribution — the
   rejection is an extraction policy, not an indexing failure)

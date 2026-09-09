@@ -6,7 +6,9 @@
 
 - CLI 오류 경계를 보강했다 — analyzer·yaml 내부에서 새는 `Error`(TypeError·
   RangeError 등)를 명령 경계에서 분석 실패(종료 2)로 모은다. 내부 경로를 반향하는
-  스택트레이스와 미문서화 종료 코드 255가 사라진다
+  스택트레이스와 미문서화 종료 코드 255가 사라진다. 명령별 catch 비대칭
+  (`_runBaseline`의 `on ArgumentError` 부재, compare/query의 ArgumentError 누수)도
+  함께 닫힌다
 - bridges의 제어문자 정책 거부가 "unable to index the package" 대신 "Bridges
   extraction failed: ..."로 답한다(정확한 귀인 — 이 거부는 인덱싱 실패가
   아니라 추출 정책이다)

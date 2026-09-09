@@ -70,7 +70,8 @@ Future<int> runDartograph(
       now,
     );
   } on Object {
-    // 명령별 catch를 빠져나오는 Error(TypeError·RangeError 등)는 기본 핸들러가
+    // 명령별 catch를 빠져나오는 Error 계열(TypeError·RangeError·
+    // StackOverflowError, 그리고 누락된 ArgumentError 분기들)은 기본 핸들러가
     // 스택트레이스(내부·저장소 경로 반향)와 함께 종료 코드 255로 끝나게 한다 —
     // CLI 계약(0/1/2/64)과 경로 미반향 규약 위반이다. 경계에서 마지막으로
     // 분석 실패(2)로 모은다. 상세 분류는 명령별 catch가 먼저 담당한다.
