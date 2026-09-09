@@ -2,6 +2,28 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- 사람·CI 출력 표면 전체의 제어문자·주입 정책을 통일했다 (감사 후속: 개행 포함
+  파일명이 Mermaid 라벨을 두 문장으로 절단하고, text 진단줄을 위조하고,
+  ESC·bidi 문자가 GitHub Actions 로그로 통과하던 문제)
+  - Mermaid: CR·LF를 문서화된 엔티티 코드(`#13;`·`#10;`)로 바꿔 라벨이 항상 한
+    물리행에 남는다. 원문의 리터럴 `#10;`은 `#`→`#35;` 선행 치환 덕분에
+    라운드트립한다
+  - DOT: raw CR도 LF와 같이 이스케이프한다(표시 수준 개행, 문장 구조 보존)
+  - text 보고: 경로·ID·근거·한계의 C0·DEL 문자가 가시 이스케이프(`\n`·`\r`·
+    `\t`·`\xNN`)로 바뀌어 두 번째 `path:line:col:` 진단줄 위조와 터미널 ANSI
+    주입이 차단된다
+  - GitHub Actions: 스펙 최소집합(`%`, CR, LF, property의 `:`·`,`)을 넘는
+    C0·DEL·C1·U+2028/2029·bidi 제어(U+202A–202E·U+2066–2069)까지 퍼센트
+    인코딩을 확장한다 — 기존 `%0D`·`%0A` 관례와 같고 정상 입력은 불변이다
+  - SARIF: artifact `uri`를 `Uri(path:)` 대신 경로 세그먼트별 인코딩으로
+    만든다. 기존 조립은 `back\slash.dart`를 `back/slash.dart`로 조용히
+    손상시키고 리터럴 `%41.dart`를 `A.dart`로 오귀속했다
+  - 정책 표는 export 모듈(`lib/src/export/graph_exporter.dart`) 문서로
+    정본화했다. 병적 입력에서만 바이트가 바뀌고 정상 경로·ID는 byte-for-byte
+    동일하다
+
 ## 0.4.0
 
 - `// dartograph:ignore` 인라인 주석 추가 (Periphery comment command 흡수)

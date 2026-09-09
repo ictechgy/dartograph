@@ -247,6 +247,36 @@ void main() {
     expect(first, second);
   });
 
+  test('Mermaid keeps newline-bearing ids on one physical line', () {
+    final split = GraphSnapshot(
+      nodes: [GraphNode(id: 'project:lib/a\nb.dart')],
+      edges: const [],
+    );
+    final mermaid = GraphExporter.mermaid(split);
+    // raw 개행은 라벨을 두 문장으로 절단한다(실측 주입 경로). 엔티티 코드로
+    // 한 물리행을 유지하고, 원문 `#10;`은 `#35;` 선행 치환으로 구분된다.
+    expect(mermaid, 'flowchart LR\n  n0["project:lib/a#10;b.dart"]\n');
+    final literal = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a#10;b'),
+        GraphNode(id: 'c\rd'),
+      ],
+      edges: const [],
+    );
+    expect(
+      GraphExporter.mermaid(literal),
+      'flowchart LR\n  n0["a#35;10;b"]\n  n1["c#13;d"]\n',
+    );
+  });
+
+  test('DOT escapes carriage returns like newlines', () {
+    final split = GraphSnapshot(
+      nodes: [GraphNode(id: 'a\rb')],
+      edges: const [],
+    );
+    expect(GraphExporter.dot(split), 'digraph dartograph {\n  "a\\rb";\n}\n');
+  });
+
   test('Mermaid escapes angle brackets and ampersands in its own node ids', () {
     final special = GraphSnapshot(
       nodes: [

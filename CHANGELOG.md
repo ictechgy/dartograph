@@ -2,6 +2,32 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Unified the control-character and injection policy across every human and CI
+  output surface (audit follow-up: newline-bearing filenames could cut a Mermaid
+  label into two statements, forge text diagnostic lines, and pass ESC/bidi
+  characters through to GitHub Actions logs)
+  - Mermaid: CR·LF become the documented entity codes (`#13;`·`#10;`) so labels
+    always stay on one physical line; a literal `#10;` in the source round-trips
+    thanks to the leading `#`→`#35;` substitution
+  - DOT: raw CR is now escaped like LF (a display-level line break; statement
+    structure is preserved)
+  - text reports: C0·DEL characters in paths, ids, evidence, and limitations
+    become visible escapes (`\n`·`\r`·`\t`·`\xNN`) — a second `path:line:col:`
+    diagnostic line can no longer be forged and terminal ANSI injection is
+    neutralized
+  - GitHub Actions: percent encoding extends beyond the spec minimum (`%`, CR,
+    LF, `:`·`,` in properties) to C0·DEL·C1, U+2028/2029, and the bidi controls
+    (U+202A–202E·U+2066–2069) — same `%0D`/`%0A` convention, normal inputs
+    unchanged
+  - SARIF: the artifact `uri` is built from per-path-segment encoding instead of
+    `Uri(path:)`, which silently corrupted `back\slash.dart` into
+    `back/slash.dart` and misattributed a literal `%41.dart` as `A.dart`
+  - The policy table is documented on the export module
+    (`lib/src/export/graph_exporter.dart`). Only pathological inputs change
+    bytes; normal paths and ids are byte-identical
+
 ## 0.4.0
 
 - Added `// dartograph:ignore` inline comments (absorbing Periphery's comment command)

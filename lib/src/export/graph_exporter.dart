@@ -4,6 +4,27 @@ import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
 
 /// 그래프 사실을 결정론적인 교환 형식으로 직렬화한다.
+///
+/// ## 출력 표면의 제어문자·escape 정책 (정본)
+///
+/// 동적 값(노드 ID·경로·limitation 문자열)은 신뢰하지 않는 입력이다. 각 표면은
+/// 자기 문법의 구조(문장·행·태그·명령)를 깨지 못하도록 아래 표를 구현한다.
+/// 정상 입력의 바이트는 바꾸지 않고 병적 입력에서만 발동한다.
+///
+/// | 표면 | 정책 |
+/// |---|---|
+/// | JSON 계열 전부(dead json·sarif 본문·query·compare·affected·cycles·rules·metrics·graph json/dot/mermaid/html의 limitations) | `jsonEncode` 네이티브 이스케이프 — 추가 처리 없음 |
+/// | DOT | `\`·`"`·LF·CR → DOT 문자열 이스케이프(`\\`·`\"`·`\n`·`\r`) — 문장 구조 보존, 개행은 DOT의 렌더링 개행 이스케이프로 정규화 |
+/// | Mermaid | `#`·`\`·`"`·CR·LF → 문서화 엔티티 코드(`#35;`·`#92;`·`#quot;`·`#13;`·`#10;`), `&`·`<`·`>` → HTML 엔티티 — 라벨은 항상 한 물리행. 나머지 C0(탭·ESC 등)은 행 구조를 깨지 않아 그대로 둔다 |
+/// | HTML | 페이로드: `<` → `\u003c`(적법한 JSON 이스케이프, script-tag 토크나이저 보호) / 헤더 limitation: HTML 텍스트 엔티티(raw LF는 HTML이 공백으로 흡수) |
+/// | text(dead_reporter) | 동적 값 전체(path·id·kind·reason·evidence·limitation)의 C0·DEL → 가시 이스케이프 — `path:line:col:` 행 프로토콜 위조 방지. 가시 이스케이프는 표시 전용이며 소비자가 역변환할 계약은 없다 |
+/// | GitHub Actions(dead_reporter) | `%`·C0·DEL·C1·U+2028/2029·bidi(U+202A–202E·U+2066–2069) → 퍼센트 인코딩. 원문의 리터럴 `%XX`는 `%25` 선행 인코딩으로 단일 디코드 후 원문 그대로 표시된다 |
+/// | SARIF uri(dead_reporter) | 경로 구분자 분리 + 세그먼트별 `Uri` 인코딩 — `\`·`%` 손실 없음 |
+///
+/// escape를 설계상 거치지 않는 값은 신뢰 고정 어휘다: edge `kind.name`(enum),
+/// `report.label`·`severity`·`rulePrefix`(enum), mermaid의 순번 노드 ID `n$i`,
+/// `title=dartograph …` 상수. 이 자리에 앞으로 사용자 유래 문자열을 보간하지
+/// 않는다 — 보간이 필요해지는 순간 해당 표면의 escape를 먼저 확장한다.
 abstract final class GraphExporter {
   /// 정렬된 키와 배열을 쓰는 JSON 문서를 만든다.
   static String json(
@@ -381,21 +402,29 @@ abstract final class GraphExporter {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
 
+  /// DOT 인용 문자열 이스케이프. LF와 대칭으로 CR도 DOT 개행 이스케이프로
+  /// 정규화한다(DOT에서 `\r`은 우측 정렬 개행 — raw CR이 행 구조를 흐트러뜨리지
+  /// 않게 표시 수준으로 흡수).
   static String _escape(String value) => value
       .replaceAll(r'\', r'\\')
       .replaceAll('"', r'\"')
-      .replaceAll('\n', r'\n');
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r');
 
   /// Mermaid 라벨은 HTML 엔티티로 escape한다. DOT용 [_escape](백슬래시)는
   /// `<no-library>`·`<unnamed-extension@...>`처럼 dartograph가 스스로 만든 노드 ID를
   /// Mermaid가 HTML 태그로 오해하게 만든다. 따옴표는 인용 문자열을 중간에 끊고,
-  /// `#`·역슬래시는 Mermaid가 문서화한 엔티티 코드(`#35;`·`#92;`·`#quot;`)로
-  /// 디코딩되므로, `#`을 먼저 바꿔야 이후에 도입하는 코드가 다시 깨지지 않는다.
+  /// `#`·역슬래시·개행은 Mermaid가 문서화한 엔티티 코드(`#35;`·`#92;`·`#quot;`·
+  /// `#13;`·`#10;`)로 디코딩되므로, `#`을 먼저 바꿔야 이후에 도입하는 코드가 다시
+  /// 깨지지 않는다. raw 개행은 라벨을 두 물리행으로 갈라 `b.dart"]` 같은 조각이
+  /// 독립 문장이 되게 하므로(구문 절단·주입) 엔티티 코드로 한 행에 유지한다.
   static String _escapeMermaid(String value) => value
       .replaceAll('#', '#35;')
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
       .replaceAll(r'\', '#92;')
-      .replaceAll('"', '#quot;');
+      .replaceAll('"', '#quot;')
+      .replaceAll('\r', '#13;')
+      .replaceAll('\n', '#10;');
 }
