@@ -223,6 +223,66 @@ void main() {
     expect(() => GraphNode(id: 'a', column: 0), throwsArgumentError);
   });
 
+  test('GraphNode rejects contradictory declaration flags', () {
+    expect(
+      () => GraphNode(id: 'a', isAbstract: true),
+      throwsArgumentError,
+      reason: 'isAbstract requires a type declaration',
+    );
+    expect(
+      () => GraphNode(id: 'a', isEnumConstant: true, isTypeDeclaration: true),
+      throwsArgumentError,
+      reason: 'an enum constant is never a type declaration',
+    );
+    // 추이 차단: isAbstract⇒isTypeDeclaration, isEnumConstant⇒¬isTypeDeclaration
+    // 이므로 isAbstract+isEnumConstant 조합도 도달할 수 없다.
+    expect(
+      () => GraphNode(
+        id: 'a',
+        isAbstract: true,
+        isTypeDeclaration: true,
+        isEnumConstant: true,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('equal GraphNodes are interchangeable in sets and maps', () {
+    final first = GraphNode(
+      id: 'a',
+      sourceUri: 'project:lib/a.dart',
+      line: 1,
+      column: 2,
+      synthesized: true,
+      isTypeDeclaration: true,
+    );
+    final second = GraphNode(
+      id: 'a',
+      sourceUri: 'project:lib/a.dart',
+      line: 1,
+      column: 2,
+      synthesized: true,
+      isTypeDeclaration: true,
+    );
+    expect(first, second);
+    expect({first, second}, hasLength(1));
+    expect({first: 1}[second], 1);
+    // 필드 하나(line)만 달라도 동등하지 않다(evidence 포함 값 비교).
+    expect(
+      first,
+      isNot(
+        GraphNode(
+          id: 'a',
+          sourceUri: 'project:lib/a.dart',
+          line: 9,
+          column: 2,
+          synthesized: true,
+          isTypeDeclaration: true,
+        ),
+      ),
+    );
+  });
+
   test('equal GraphEdges deduplicate in a set', () {
     const first = GraphEdge(sourceId: 'a', targetId: 'b', kind: EdgeKind.call);
     final second = GraphEdge(sourceId: 'a', targetId: 'b', kind: EdgeKind.call);

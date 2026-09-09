@@ -248,4 +248,67 @@ rules:
     expect(explained.layer, isNull);
     expect(explained.rules, isEmpty);
   });
+
+  test('configuration errors fail closed with precise per-key messages', () {
+    void expectParseFailure(String yaml, String message) {
+      expect(
+        () => LayerRuleSet.parse(yaml),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains(message),
+          ),
+        ),
+        reason: yaml,
+      );
+    }
+
+    expectParseFailure(
+      'layers:\n'
+          '  - name: dup\n'
+          '    match: [a]\n'
+          '  - name: dup\n'
+          '    match: [b]\n'
+          'rules: []\n',
+      'duplicate layer name',
+    );
+    expectParseFailure(
+      'layers:\n  - name: ""\n    match: [a]\nrules: []\n',
+      'must be a non-empty string',
+    );
+    expectParseFailure(
+      'layers:\n  - name: a\n    match: nope\nrules: []\n',
+      'must be a list of strings',
+    );
+    expectParseFailure(
+      'layers:\n  - name: a\n    match: [x]\n    typo: 1\nrules: []\n',
+      'unknown layer key',
+    );
+    expectParseFailure(
+      'layers:\n  - name: a\n    match: [x]\n'
+          'rules:\n  - from: a\n    deny: [a]\n    typo: 1\n',
+      'unknown rule key',
+    );
+  });
+
+  test('question-mark glob matches exactly one non-separator character', () {
+    final rules = LayerRuleSet.parse(
+      'layers:\n  - name: ui\n    match: ["project:lib/u?/**"]\nrules: []\n',
+    );
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'in', sourceUri: 'project:lib/ui/screen.dart'))
+      ..addNode(GraphNode(id: 'out', sourceUri: 'project:lib/uxi/screen.dart'))
+      ..addNode(GraphNode(id: 'deep', sourceUri: 'project:lib/u/i/x.dart'));
+    final evaluator = LayerRuleEvaluator(rules);
+
+    expect(
+      evaluator.explainNode(graph.snapshot(), 'in').matchedPattern,
+      'project:lib/u?/**',
+    );
+    // `?`는 정확히 한 문자(구분자 제외) — uxi는 두 문자라 매치하지 않고,
+    // u/i는 `/`를 건널 수 없다.
+    expect(evaluator.explainNode(graph.snapshot(), 'out').layer, isNull);
+    expect(evaluator.explainNode(graph.snapshot(), 'deep').layer, isNull);
+  });
 }
