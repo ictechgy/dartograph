@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** 세션, PR #39~#54 merge + 이 문서를 갱신하는 #55 기준)_
+_Last updated: 2026-09-09 (세션 마감 — 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 코멘트 전달, PR #39~#55 merge + 이 마감 기록 #56 기준)_
 
 ## Goal
 
@@ -25,9 +25,10 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.5.0 릴리스(PR #54) + 이 HANDOFF를 갱신하는 docs PR(#55).
-  이번 세션은 PR #39~#54를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
-  열린 제품 PR 없음.
+- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55) + 이 마감 기록(#56).
+  이번 세션은 PR #39~#55를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+  열린 제품 PR 없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션
+  이월분이다(Next Steps 4의 목록).**
 - 미릴리스 누적 없음 — **0.5.0이 성능 3건(#48~#50) + bridges 공유 루트(#52)를
   소진**(새 옵션이라 semver minor). CHANGELOG에 `Unreleased` 절 없음.
 - 테스트 253개, 라인 커버리지 **95.89%**(감사 전 94.4%).
@@ -339,9 +340,20 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 3. **issue #38의 dartograph 측은 완료(PR #52, 0.5.0 릴리스 + issue 코멘트 게시)** —
    isthmus 측 GRAPH-EXCHANGE 문구 갱신만 남았다(의미론은 코멘트·Completed에 보존).
    isthmus 저장소는 계속 임의 수정 금지.
-4. 남은 감사 backlog는 P7 보류(측정부터)·죽은 API 처분(정책 결정)·bridge 스코프 방문자
-   테스트·낮음 항목들이다 — 위 목록의 근거와 선행 조건을 먼저 읽는다. 새 흡수 범위는
-   RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
+4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
+   있다, 재도출 금지)**:
+   a. issue #38의 isthmus 측 GRAPH-EXCHANGE 문구 갱신(자매 저장소 — 소유자/조율 경유,
+      의미론은 issue 코멘트 issuecomment-5599285065에 전달 완료).
+   b. 죽은 공개 API 처분 — `querySymbol`·`usageEdgesFrom`·`ReachabilityResult` 미export:
+      지원 API 정책 결정이 먼저(스모크 테스트로 유지 vs unexport).
+   c. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
+   d. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
+   e. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
+      fallback, bridges toSource 개행 정책=GRAPH-EXCHANGE 조율 사안, workspace 멤버십
+      검증, `unscanned-*` 복수형 문구).
+   f. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
+      issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
+      범위 결정.
 5. 다음 릴리스도 지시 시에만: 버전 정합 6곳 + **두 언어 CHANGELOG** + (Korean) 표기
    규약, clean git dry-run 후 publish → `--target`으로 같은 커밋 태그+Release → 전파
    대기(분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
@@ -390,4 +402,7 @@ fallback limitations, isthmus-installed round-trip verified both directions; the
 were posted to the issue as issuecomment-5599285065 after the owner granted issues write scope —
 only the isthmus-side GRAPH-EXCHANGE wording update remains); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
-findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
+findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
+the next session is enumerated in Next Steps item 4 (isthmus contract wording via issue #38, dead
+public API disposition, P7 measurement-first, bridge scope-visitor tests, audit low items, Tier 3/4).
+Follow the next explicit user task.`
