@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/analysis/layer_rules.dart';
 import 'package:dartograph/src/analysis/reachability_analyzer.dart';
 import 'package:dartograph/src/export/dead_reporter.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
@@ -101,6 +102,29 @@ Future<void> main(List<String> arguments) async {
       queryMicros.add(watch.elapsedMicroseconds);
     }
 
+    // rules 평가: 매치되지 않는 노드(f06~f09·test)가 전체 패턴을 first-match로
+    // 훑으므로 glob 컴파일 비용이 노드 × 패턴만큼 반복되는 경로를 재는다.
+    final ruleSet = LayerRuleSet.parse(
+      'layers:\n'
+      '  - name: a\n'
+      '    match: ["project:lib/f00**", "project:lib/f01**", '
+      '"project:lib/f02**"]\n'
+      '  - name: b\n'
+      '    match: ["project:lib/f03**", "project:lib/f04**", '
+      '"project:lib/f05**"]\n'
+      'rules:\n'
+      '  - name: a-not-b\n'
+      '    from: a\n'
+      '    deny: [b]\n',
+    );
+    final rulesMicros = <int>[];
+    late List<LayerViolation> violations;
+    for (var rep = 0; rep < reps; rep++) {
+      final watch = Stopwatch()..start();
+      violations = LayerRuleEvaluator(ruleSet).evaluate(snapshot);
+      rulesMicros.add(watch.elapsedMicroseconds);
+    }
+
     print(
       const JsonEncoder.withIndent('  ').convert({
         'analyzeMinMicros': minOf(analyzeMicros),
@@ -129,6 +153,13 @@ Future<void> main(List<String> arguments) async {
                 .toList(),
           ),
         ),
+        'rulesMinMicros': minOf(rulesMicros),
+        'rulesSha256': _sha(
+          jsonEncode(
+            violations.map((violation) => violation.toJson()).toList(),
+          ),
+        ),
+        'rulesViolations': violations.length,
         'runs': runs,
         'sdk': Platform.version,
         'testOnlyCount': testOnly.length,

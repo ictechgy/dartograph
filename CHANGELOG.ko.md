@@ -18,6 +18,14 @@
     cold 3회 중 최소): 인덱싱 1456ms → 1053ms (-28%). 머신 의존 수치며 상대
     비교용이고 SLA가 아니다
 
+- 측정된 핫패스 2건 추가 수정(출력 byte 동일, 감사 P4/P8 — 하네스에 rules
+  평가 시간·위반 해시 추가):
+  - `LayerRuleEvaluator`가 glob RegExp를 패턴별로 캐시 — 노드 × 레이어 × 패턴
+    재컴파일 제거(first-match 배치는 매치되지 않는 노드에서 전체 패턴을
+    훑는다). 벤치마크: 4,923노드 rules 평가 10.8ms → 3.0ms(-72%), 위반 해시 동일
+  - `dead --since`가 finding별이 아니라 고유 source당 1회만 심볼릭 링크를
+    해석한다(같은 파일의 finding들이 syscall을 반복했다)
+
 - 도달성·질의 핫 루프가 출력 byte 동일하게 색인화됐다 (감사 P3/P5/P6,
   동일 A/B 하네스·6종 산출물 해시 동일):
   - `ReachabilityResult`에 `isReachable`(Set 조회)·`reachableMemberOf`(dot-접두
