@@ -363,6 +363,11 @@ void main() => Service();
         'generated-code-staleness: 1 generated file(s) are older than their source',
       ]),
     );
+    // dartograph.yaml이 없으면 entry-points 좁힘 limitation도 없다(음성 고정).
+    expect(
+      result.limitationDetails,
+      isNot(anyElement(startsWith('entry-points:'))),
+    );
   });
 
   test('operator invocations become usage edges', () async {
@@ -650,6 +655,14 @@ entry_points:
 
     expect(mainRoots, hasLength(1));
     expect(mainRoots.single, endsWith('bin/cli.dart::main'));
+    // entry_points가 보존 루트를 좁혔다는 사실 자체가 출력에 남아야 한다 —
+    // 설정 추가만으로 죽은 코드가 조용히 사라지면 클린 저장소와 구별되지 않는다.
+    expect(
+      result.limitationDetails,
+      anyElement(
+        startsWith('entry-points: main retention roots narrowed to 1'),
+      ),
+    );
   });
 
   test('entry_points accepts non-lib build targets under bin/', () async {

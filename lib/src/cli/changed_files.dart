@@ -12,6 +12,12 @@ final class ChangedFilesException implements Exception {
 /// Git 기준점과 현재 작업 상태 사이에서 바뀐 파일을 완전하게 모은다.
 abstract final class ChangedFiles {
   /// merge-base 이후 커밋, HEAD 대비 작업 트리, untracked 파일을 합친다.
+  ///
+  /// 출력 계약: 반환 경로는 `git rev-parse --show-toplevel`(물리 경로) 기준
+  /// `p.normalize(p.join(root, relative))` 절대 경로다. 소비자는 이 형태와
+  /// canonical(심볼릭 링크 해석) 경로 **양쪽**으로 매칭한다(_changedContains) —
+  /// 링크 파일 자체의 변경은 toplevel 기준 경로로, 대상의 변경은 해석 경로로
+  /// 오기 때문이다. 삭제 파일은 `--diff-filter=d`로 제외된다.
   static Future<Set<String>> since(
     String reference,
     String workingDirectory,

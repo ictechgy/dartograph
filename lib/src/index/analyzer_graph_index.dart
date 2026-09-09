@@ -178,6 +178,13 @@ final class AnalyzerGraphIndex {
       }
       final limitationDetails = _agentLimitations(root, units);
       if (entryPoints != null) {
+        // 설정이 보존 루트를 좁혔다는 사실 자체를 출력에 남긴다. 없으면 PR로
+        // 추가된 dartograph.yaml이 죽은 코드를 조용히 숨겨도 클린 저장소와
+        // 출력상 구별되지 않는다(감사 S5).
+        limitationDetails.add(
+          'entry-points: main retention roots narrowed to ${entryPoints.length} '
+          'declared build target(s)',
+        );
         final missing = entryPoints.difference(mainEntrySources).toList()
           ..sort();
         for (final source in missing) {

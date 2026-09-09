@@ -229,4 +229,49 @@ void main() {
       'Analysis failed: unable to index the package.\n',
     );
   });
+  test(
+    'affected maps a changed symlink path to its library bidirectionally',
+    () async {
+      final lib = Directory(p.join(directory.path, 'lib'));
+      final real = File(p.join(lib.path, 'real.dart'));
+      await real.writeAsString('void linkedTarget() {}\n');
+      await Link(p.join(lib.path, 'link.dart')).create('real.dart');
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/link.dart',
+            sourceUri: 'project:lib/link.dart',
+          ),
+        );
+      final linked = AnalyzerGraphResult(graph: graph, limitations: const []);
+      final linkPath = p.normalize(p.join(canonicalRoot, 'lib/link.dart'));
+      final targetPath = await real.resolveSymbolicLinks();
+
+      Future<String> runWith(Set<String> changed) async {
+        final output = StringBuffer();
+        expect(
+          await runDartograph(
+            ['affected', 'HEAD', directory.path],
+            output: output,
+            error: StringBuffer(),
+            indexPackage: (_) async => linked,
+            changedFilesSince: (_, _) async => changed,
+          ),
+          ExitStatus.success.code,
+        );
+        return output.toString();
+      }
+
+      // 링크 파일 자체의 변경(링크 경로)과 대상 변경(실 경로) 모두 씨앗이 된다.
+      expect(
+        await runWith({linkPath}),
+        contains('"changed":["project:lib/link.dart"]'),
+      );
+      expect(
+        await runWith({targetPath}),
+        contains('"changed":["project:lib/link.dart"]'),
+      );
+      expect(await runWith(const {}), contains('"changed":[]'));
+    },
+  );
 }
