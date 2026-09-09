@@ -4,6 +4,13 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- The analysis cache key now hashes every `.dart` file under the package root
+  (excluding `.dart_tool`/`.git`/`build`), not only the five standard source
+  directories — the analyzer also reads outside the standard directories
+  through the import closure (e.g. `tool/`), and a key that missed them reused
+  a stale analysis after such a file changed (reproduced: resolution
+  limitations vanished). Relative imports that leave the root remain a
+  documented coverage boundary
 - Hardened the CLI error boundary: `Error`s (TypeError, RangeError, …) escaping
   from analyzer/yaml internals are contained at the command boundary as an
   analysis failure (exit 2) — no more stack traces echoing internal paths or an

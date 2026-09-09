@@ -294,12 +294,20 @@ Future<List<File>> _analysisInputFiles(String root) async {
   }
 
   final nestedPackages = <String, Directory>{};
+  // analyzer는 import 클로저로 표준 5디렉터리(_sourceDirectories) 밖의 루트 안
+  // .dart(tool/·루트 스크립트 등)도 읽는다. 해석 오류·미해석 호출 limitation은
+  // 표준 디렉터리 파일에 붙지만 그 원인이 밖의 파일일 수 있으므로, 키가 표준
+  // 디렉터리만 열거하면 그 파일 변경 후 낡은 해석 결과가 재사용된다(stale hit
+  // 실측 확인). 루트 전체를 열거해 해석 클로저를 보수적으로 커버한다
+  // (.dart_tool·.git·build는 _projectFiles가 제외). 루트 밖 상대 경로 import
+  // (모노레포 공유 디렉터리)는 열거할 값싸고 안전한 방법이 없어 커버하지
+  // 않는다 — 루트 경계가 이 보수의 한계다.
+  addDirectory(Directory(root));
   for (final name in _sourceDirectories) {
     final directory = Directory(p.join(root, name));
     final resolved = directory.existsSync()
         ? await _resolved(directory)
         : directory;
-    addDirectory(resolved);
     if (!resolved.existsSync()) continue;
     for (final file in _projectFiles(resolved)) {
       if (p.basename(file.path) != 'pubspec.yaml') continue;
