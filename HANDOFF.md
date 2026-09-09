@@ -12,21 +12,25 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   전부 실측·코드 대조 재검증), (3) 감사 결함 수정 6건을 머지하고(PR #40~#45),
   (4) 사용자 승인("감사 수정과 묶어서")에 따라 **0.4.1을 릴리스**했고(PR #46 —
   pub.dev·태그 v0.4.1·GitHub Release·새 캐시 설치본 검증), (5) 이어서 사용자
-  지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했다
+  지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했고
   (PR #48~#50 — A/B 하네스 신설, 인덱싱 -28%·query 배치 -84%·rules -72%,
-  7종 산출물 해시 전후 동일).
+  7종 산출물 해시 전후 동일), (6) 이어서 "이슈 38 처리해줘" 지시로 isthmus
+  모노레포 조인 요청의 dartograph 측 구현을 완료했다(PR #52 — bridges
+  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측).
 
 ## Current Status
 
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.4.1 릴리스 + 감사 기록 docs PR(#47) + 성능 PR #48~#50 + 이 HANDOFF를
-  갱신하는 docs PR(#51).
-  이번 세션은 PR #39~#50을 모두 두 SDK CI green + GLM packet-review 후 머지했다.
+- main 기준: 0.4.1 릴리스 + 감사 기록 docs PR(#47) + 성능 PR #48~#50 + HANDOFF(#51)
+  + bridges 공유 루트(PR #52) + 이 HANDOFF를 갱신하는 docs PR(#53).
+  이번 세션은 PR #39~#52를 모두 두 SDK CI green + GLM packet-review 후 머지했다.
   열린 제품 PR 없음.
-- 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50 — 사용자 표면 변화는 없고
-  속도·하네스만) — 다음 패치/마이너 릴리스 후보다. 0.4.1은 감사 수정을 소진했다.
+- 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50) + **bridges `--project`·
+  pub workspace 감지(#52 — 사용자 표면 추가)** — 다음 릴리스는 minor(0.5.0)가
+  자연스럽다(새 옵션). 0.4.1은 감사 수정을 소진했다.
+- 테스트 253개, 라인 커버리지 95.9%.
 - 테스트 244개, 라인 커버리지 **95.89%**(감사 전 94.4%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
@@ -99,6 +103,34 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
     P8 `dead --since` 고유 source당 링크 해석 1회 메모(`_changedContains` 동기화 +
     메모 누락 assert).
   - 세 PR 전부 7종 해시 전후 동일 + 244 테스트 무수정 통과 = 출력 byte 보존의 증거.
+
+- **bridges 공유 루트(PR #52, issue #38 = isthmus의 모노레포 조인 합의 요청)**:
+  GRAPH-EXCHANGE(isthmus 정본)가 "공유 루트 선언 방식은 생산자 옵션(dartograph#38
+  등)으로 정해지는 대로 계약에 추가"로 위임했고, 조인은 문서 간 `project` 문자열
+  정확 일치 fail-closed다. 제안 (a)+(b) 병행 구현:
+  - **(a) `bridges --project <shared-root>`**: 스캔은 위치 인자(package-root) 유지,
+    `project` 필드·`location.path`를 공유 루트 기준(realpath)으로 재기준. 검증:
+    기존 디렉터리 + package root를 포함하거나 동일(위반·미존재·중복·값 빠짐·옵션
+    모양·**빈 값**=cwd 조용한 해석 → usage 64, 경로 미반향 메시지). `indexBridges`도
+    containment를 ArgumentError로 강제(이중 방어).
+  - **(b) pub workspace 자동 감지**: 스캔 루트 pubspec의 `resolution: workspace` →
+    `workspace:` 키를 가진 가장 가까운 조상 pubspec 디렉터리(Melos 정의 동일)을
+    realpath로 채택. 실패(조상 부재·pubspec 파싱 불가)는 스캔 루트 폴백 +
+    `pub-workspace-root-not-found`·`pub-workspace-pubspec-unparsed` limitation
+    (조인 기준 어긋남 가시화). 우선순위: --project > 감지 > 스캔 루트.
+  - 기본 출력 byte 동일(선언·옵션 없으면 project=스캔 루트 realpath — 기존 골든
+    무수정). **isthmus 설치본 왕복 실측**: workspace 감지 문서와 --project 문서의
+    project 문자열 일치, 합성 swift 문서 포함 3문서 `isthmus check` 성공(evidence에
+    재기준 경로 보존), 불일치 문서는 거부 — 문제 실재와 해소를 양방향 실증.
+  - **isthmus 측 전달 의미론(계약 문구 갱신용 — issue 코멘트는 토큰 권한으로
+    게시 실패, 아래 Blockers 참조)**: project는 생산자 선언값이며 (a) 명시
+    --project, (b) resolution: workspace 시 workspace: 키를 가진 최근접 조상
+    pubspec 디렉터리, (c) 없으면 스캔 루트의 POSIX realpath. 모든 location.path는
+    project가 가리키는 디렉터리 기준 POSIX 상대 경로. 스캔 범위는 영향 없음.
+    폴백 limitation을 실은 문서도 조인 규칙은 동일(진단 표출은 소비자 선택).
+    project는 절대 realpath이므로 조인은 한 working copy 안에서 성립(다른
+    체크아웃 간 불일치는 결함이 아닌 범위 밖 속성). bridges limitations는
+    사전순이 아닌 생산자 고정 순서(workspace 항목이 맨 뒤).
 
 ### 이전 세션 (0.4.0 릴리스 + Tier 2 흡수, PR #13~#37)
 
@@ -196,11 +228,15 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Blockers & Open Questions
 
 - 필수 제품 작업 없음. 열린 제품 PR 없음.
-- **외부 조율 대기 — issue #38**(저장소 소유자 개설): isthmus가 pub 모노레포 조인을 위해
-  bridges `--project <root>` 오버라이드(cartograph parity) + pub workspace 자동 감지
-  (`resolution: workspace`) + GRAPH-EXCHANGE project realpath 규칙 개정을 요청. 자매
-  저장소 간 계약 사안이라 **사용자/isthmus 합의 없이 단방향 구현 금지**(lib/src/index
-  AGENTS). 합의되면 설계: (a) `--project` 옵션 + location.path 재기준, (b) workspace 감지.
+- **issue #38 — dartograph 측 완료(PR #52), isthmus 측 잔여**: 사용자 지시로 (a)+(b)
+  구현·왕복 검증까지 끝났다(위 Completed). 남은 것: (1) **issue 코멘트 게시가
+  샌드박스 토큰 권한(issues 쓰기 403)으로 실패** — 전달할 의미론은 위 Completed와
+  PR #52 본문에 보존했다. 소유자가 issue로 옮기거나 isthmus 작업 시 참조.
+  (2) isthmus 측 GRAPH-EXCHANGE 문구 갱신("생산자 옵션으로 정해지는 대로 추가" →
+  위 의미론 반영)과 cartograph `--project`(분석 루트 자체라 의미가 다름)와의 문안
+  정합 — **자매 저장소 임의 수정 금지 유지**. (3) dartograph 후속(비차단 기록):
+  workspace 멤버십 검증(현재는 workspace: 키 존재만 — 조인 fail-closed라 즉각
+  위험 없음), `unscanned-*` limitation 문구 복수형(기존 출력 문자열 변경이라 별도 판단).
 - external-retentions 구현 금지(GRAPH-EXCHANGE 계약, PR #27) 유지.
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
@@ -250,8 +286,13 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   fragment null, doc comment 시 precedingComments 이동, 첫 토큰 previous=EOF 센티널
   offset -1). 프로브는 저장소 루트에 임시로 만들고 **삭제**한다(패키지 밖 스크립트는
   package: 해석 실패).
-- **push는 ls-remote로 확인**: `git push ... | tail -1`이 실패를 삼킨 경우가 3번
+- **push는 ls-remote로 확인**: `git push ... | tail -1`이 실패를 삼킨 경우가 여러 번
   (config 쓰기 경고·빈 출력). PR head sha와 로컬 HEAD를 대조한다.
+- **샌드박스 GH 토큰은 issues 쓰기가 안 된다**(403 — PR 생성·머지는 가능). issue
+  코멘트가 필요하면 내용을 저장소 안(HANDOFF·PR 본문)에 보존하고 사용자에게 보고한다.
+- **기능 브랜치를 만들기 전에 커밋하지 않는다**: bridges 작업을 local main에 커밋했다가
+  `git branch -f main origin/main` + upstream 재설정으로 복구했고, `git push -u origin
+  main:refs/heads/...`가 main의 upstream을 오염시킬 수 있음을 확인했다(-u 남용 금지).
 - **gh release create의 positional sha는 에셋 glob**으로 해석된다 — `--target <sha>` 사용.
 - **python 치환은 dart format 후에 앵커가 어긋난다** — 편집 전 현재 본문을 읽고, 포맷된
   텍스트에 대해 edit 도구를 쓴다(heredoc+python은 따옴표·백틱 충돌이 잦다).
@@ -275,8 +316,9 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 2. 이번 세션은 PR #39~#50을 머지했고 **0.4.1 릴리스 + 성능 backlog(P1~P6·P8~P10)까지
    완료**했다(이 HANDOFF 갱신 자체가 docs PR #51이다). 완료된 구현·감사·측정·릴리스를
    반복하지 않는다. CHANGELOG `Unreleased`의 성능 3건만 미릴리스다.
-3. **issue #38(isthmus bridges 공유 루트 합의)은 사용자/자매 저장소 조율 사안** —
-   합의 없이 구현하지 않는다. 합의 시 위 Blockers의 설계 노트 참조.
+3. **issue #38의 dartograph 측은 완료(PR #52)** — isthmus 측 계약 문구 갱신과 issue
+   코멘트 게시(샌드박스 토큰 403으로 실패)만 남았다. 전달 의미론은 Completed·
+   Blockers에 보존했다. isthmus 저장소는 계속 임의 수정 금지.
 4. 남은 감사 backlog는 P7 보류(측정부터)·죽은 API 처분(정책 결정)·bridge 스코프 방문자
    테스트·낮음 항목들이다 — 위 목록의 근거와 선행 조건을 먼저 읽는다. 새 흡수 범위는
    RESEARCH Tier 3/4 + PRD/PLAN에서 결정한다.
@@ -310,11 +352,18 @@ element→ID memo, P2 CodeGraph cached read views + export-loop hoist, P9 shared
 P10 single pubspec read/source computation), #49 query batch -84% (P3/P6 ReachabilityResult
 isReachable/reachableMemberOf indexes, P5 double-sort removal, compare limitations hoist), #50
 rules -72% (P4 per-pattern glob RegExp cache, P8 unique-source symlink resolution memo for
---since). All three: hashes identical, 244 tests unmodified. These perf entries are the ONLY
-Unreleased items (0.4.2 candidate). REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
+--since). All three: hashes identical, 244 tests unmodified. THEN issue #38 was handled (PR #52):
+bridges --project <shared-root> + pub workspace auto-detection (see Completed/Blockers for the
+isthmus contract semantics; round-trip verified against installed isthmus 0.2.0; the issue comment
+could not be posted — sandbox token lacks issues write scope). Unreleased now holds the three perf
+entries + bridges --project (next release is naturally minor, 0.5.0, for the new option).
+REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
 — measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
 ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
-issue #38 (isthmus bridges --project / pub-workspace shared root) is a CROSS-REPO CONTRACT
-negotiation — do NOT implement unilaterally; external-retentions stays contract-blocked (PR #27);
+issue #38 (isthmus bridges --project / pub-workspace shared root) — the dartograph side is DONE
+(PR #52: bridges --project <shared-root> + pub workspace auto-detection with fallback limitations,
+isthmus-installed round-trip verified both directions; the contract wording for isthmus and the
+issue comment — blocked by sandbox token 403 on issues — are preserved in HANDOFF Completed/
+Blockers); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. Follow the next explicit user task.`
