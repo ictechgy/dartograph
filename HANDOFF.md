@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + **0.4.1 릴리스** 세션, PR #39~#47 merge 기준)_
+_Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + **0.4.1 릴리스** 세션, PR #39~#46 merge + 이 문서를 갱신하는 #47 기준)_
 
 ## Goal
 
@@ -145,8 +145,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 
 - 이번 세션(PR #39~#46): 각 PR마다 format·analyze clean, 전체 테스트(228→244), 커버리지
   최종 **95.89%**(≥90), corpus 양방향·cli-contract 55케이스·clean git dry-run 0.
-  8개 PR 모두 두 SDK CI green 후 머지. GLM packet-review 9회(차단: #33 B1, #34 B1~B3,
-  감사 후속은 전부 실측 재현 후 수정·핀 추가).
+  8개 PR 모두 두 SDK CI green 후 머지. GLM packet-review 이번 세션 9회 — 전부 차단 없음
+  (이전 세션 #33 B1·#34 B1~B3 차단은 재현·수정·핀 추가 후 머지됐고 0.4.0에 포함됐다).
 - 0.4.1 릴리스: publish 성공 → 태그=게시 커밋(`53a4e0f`) → 전파 ~7분(재시도, 재게시 없음)
   → 새 격리 캐시 설치본으로 버전·report 필드·Mermaid 엔티티·계약 55케이스 검증 →
   pub.dev API latest 0.4.1 확인.
@@ -172,12 +172,12 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   backlog '선택 과제'의 메커니즘 입증), P3 `_reachableMemberOf`·`compare._loss` 선형
   주사 O(F×R), P4 layer_rules 노드마다 glob→RegExp 재컴파일, P5 reachableIds 이중 정렬,
   P6 symbol_query 질의마다 List contains, P7 snapshot toSet 재해싱, P8 since finding별
-  resolveSymbolicLinks, P9 정렬 로직 중복(_sortedEdges vs _compareEdges), 잡다 중복 계산
+  resolveSymbolicLinks, P9 정렬 로직 중복(_sortedEdges vs _compareEdges), P10 잡다 중복 계산
   (pubspec 2회 read, _sourcePathId 2회 호출). GLM 실행 순서: P1 측정→P2 캐시→(P6+P3)
   일괄→P4·P8→위생.
 - **죽은 공개 API 처분(정책 결정 먼저)**: `querySymbol`(dartograph.dart export, 제품·
   테스트 호출 0 — tool/benchmark만), `usageEdgesFrom`(테스트만), `ReachabilityResult`
-  미export(기존 backlog). 스모크 테스트로 (b)전환하거나 unexport.
+  미export(기존 backlog). 스모크 테스트로 검증된 지원 API로 유지하거나 export에서 제거한다.
 - **낮음/기록**: html `_htmlKind`의 `::` 포함 파일명 오분류, `_path`의 `project:` 센티널
   충돌(합법 파일명 `project:x.dart`), SARIF rules 배열의 testOnly×file 잠재 불일치
   (현재 vacuous·주석 고정), SARIF Windows 절대경로 fallback의 `file:///` 표준화 후보,
@@ -230,7 +230,7 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #39~#46(+docs #47)을 머지했고 **0.4.1 릴리스까지 완료**했다.
+2. 이번 세션은 PR #39~#46을 머지했고 **0.4.1 릴리스까지 완료**했다(이 HANDOFF 갱신 자체가 docs PR #47이다).
    완료된 구현·감사·릴리스를 반복하지 않는다.
 3. **issue #38(isthmus bridges 공유 루트 합의)은 사용자/자매 저장소 조율 사안** —
    합의 없이 구현하지 않는다. 합의 시 위 Blockers의 설계 노트 참조.
