@@ -1018,6 +1018,12 @@ bool _changedContains(
   final relative = source.substring('project:'.length);
   final absolute = p.normalize(p.join(canonicalRoot, relative));
   if (changed.contains(absolute)) return true;
+  // 메모 누락은 해석 실패(null)와 구별되지 않아 보존 쪽으로 조용히 넓어진다 —
+  // 미래 호출부의 사전 계산 누락을 크게 잡는다(릴리스 빌드에서는 제거).
+  assert(
+    canonicalBySource.containsKey(source),
+    'canonical memo must cover every project: source',
+  );
   final canonical = canonicalBySource[source];
   return canonical == null || changed.contains(canonical);
 }
