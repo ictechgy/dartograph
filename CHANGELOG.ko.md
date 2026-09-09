@@ -4,6 +4,29 @@
 
 ## Unreleased
 
+- `bridges`에 `--project <shared-root>`와 pub workspace 자동 감지 추가
+  (isthmus 모노레포 조인 요청 #38 — GRAPH-EXCHANGE가 공유 루트 선언 방식을
+  생산자 옵션에 위임)
+  - `--project`는 스캔 범위를 위치 인자 package-root로 유지하면서 문서의
+    `project` 필드와 `location.path`를 공유 루트 기준(POSIX realpath, package
+    root를 포함하는 기존 디렉터리여야 하며 아니면 usage 64)으로 낸다. pub
+    모노레포의 형제 패키지(MethodChannel이 있는 `*_platform_interface`와
+    네이티브 쪽 plugin 패키지)가 isthmus의 정확 문자열 일치 조인이 요구하는
+    동일한 `project` 문자열을 낼 수 있다 — 문서 손 rewriting은 provenance를
+    깨므로 금지
+  - pubspec에 `resolution: workspace`를 선언한 패키지는 `--project` 없이 pub
+    workspace 루트(`workspace:` 키를 가진 가장 가까운 조상 pubspec — Melos
+    정의)를 자동 사용한다. 우선순위: `--project` > workspace 감지 > 스캔
+    루트. 감지 실패는 스캔 루트로 폴백하고 `pub-workspace-root-not-found`·
+    `pub-workspace-pubspec-unparsed` limitation으로 알려 조인 기준 어긋남이
+    조용하지 않다
+  - workspace 선언·`--project` 없이는 기존 출력과 byte-for-byte 동일
+    (project = 스캔 루트 realpath, 경로 기준 동일) — 기존 bridge 골든 무수정
+  - bridges 제어문자 거부 메시지를 "a fact value or source path contains
+    control characters"로 정정 — 빈 이름은 throw가 아니라 `empty-bridge-names`
+    limitation으로 건너뛰고 소스 경로도 검증하므로 기존 "is empty" 귀속은
+    도달 불가/오귀인이었다
+
 - 인덱싱이 출력 byte 동일하게 측정 가능하게 빨라졌다 (감사 P1/P2/P9/P10,
   신규 `tool/benchmark_index.dart` A/B 하네스로 측정 — graph·dead·query·
   retention·test-only 산출물 sha256 전후 동일):
@@ -62,24 +85,6 @@
     limitation은 mtime 관측이다(git이 mtime을 보존하지 않으므로 fresh clone
     사이에서 presence가 달라질 수 있고, findings·노드·간선은 영향 없음) —
     USAGE·lib/AGENTS.md에 문서화
-- `bridges`에 `--project <shared-root>`와 pub workspace 자동 감지 추가
-  (isthmus 모노레포 조인 요청 #38 — GRAPH-EXCHANGE가 공유 루트 선언 방식을
-  생산자 옵션에 위임)
-  - `--project`는 스캔 범위를 위치 인자 package-root로 유지하면서 문서의
-    `project` 필드와 `location.path`를 공유 루트 기준(POSIX realpath, package
-    root를 포함하는 기존 디렉터리여야 하며 아니면 usage 64)으로 낸다. pub
-    모노레포의 형제 패키지(MethodChannel이 있는 `*_platform_interface`와
-    네이티브 쪽 plugin 패키지)가 isthmus의 정확 문자열 일치 조인이 요구하는
-    동일한 `project` 문자열을 낼 수 있다 — 문서 손 rewriting은 provenance를
-    깨므로 금지
-  - pubspec에 `resolution: workspace`를 선언한 패키지는 `--project` 없이 pub
-    workspace 루트(`workspace:` 키를 가진 가장 가까운 조상 pubspec — Melos
-    정의)를 자동 사용한다. 우선순위: `--project` > workspace 감지 > 스캔
-    루트. 감지 실패는 스캔 루트로 폴백하고 `pub-workspace-root-not-found`·
-    `pub-workspace-pubspec-unparsed` limitation으로 알려 조인 기준 어긋남이
-    조용하지 않다
-  - workspace 선언·`--project` 없이는 기존 출력과 byte-for-byte 동일
-    (project = 스캔 루트 realpath, 경로 기준 동일) — 기존 bridge 골든 무수정
 - 분석 캐시 키가 표준 5 소스 디렉터리뿐 아니라 패키지 루트 아래 모든 `.dart`
   (`.dart_tool`·`.git`·`build` 제외)를 해싱한다 — analyzer는 import 클로저로
   표준 디렉터리 밖 파일(예: `tool/`)도 읽으므로, 키가 이들을 놓치면 그 파일

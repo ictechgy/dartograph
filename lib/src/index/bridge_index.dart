@@ -15,7 +15,7 @@ final class BridgeIndexResult {
   /// GRAPH-EXCHANGE fact 객체다.
   final List<Map<String, Object?>> facts;
 
-  /// 추출 중 조인할 수 없었던 사실의 계수다.
+  /// 추출 중 조인 그만으로는 부족했던 사실의 계수와 유형이다.
   final List<String> limitations;
 }
 
@@ -33,6 +33,16 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
   final pathBase = projectRootPath == null
       ? root.path
       : Directory(projectRootPath).absolute.resolveSymbolicLinksSync();
+  if (!p.equals(pathBase, root.path) && !p.isWithin(pathBase, root.path)) {
+    // location.path가 `../`로 프로젝트를 탈출하면 증거가 다른 트리를 가리킨다
+    // (GRAPH-EXCHANGE). CLI는 usage(64)로 먼저 막고,여기는 라이브러리 호출자의
+    // 계약 위반을 크게 실패시킨다.
+    throw ArgumentError.value(
+      projectRootPath,
+      'projectRootPath',
+      'must contain the package root',
+    );
+  }
   final facts = <Map<String, Object?>>[];
   var dynamicMethodNames = 0;
   var unresolvedReceiverInvocations = 0;

@@ -724,7 +724,9 @@ Future<int> _runBridges(
       return ExitStatus.usage.code;
     }
     final value = arguments[++index];
-    if (value.startsWith('-')) {
+    // 빈 값은 Directory('').absolute가 cwd로 조용히 해석돼 공유 루트가
+    // 실행 위치에 따라 달라진다 — 옵션 모양 값과 같이 거부한다.
+    if (value.isEmpty || value.startsWith('-')) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
@@ -789,7 +791,7 @@ Future<int> _runBridges(
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
     error.writeln(
-      'Bridges extraction failed: a fact value is empty or contains control characters.',
+      'Bridges extraction failed: a fact value or source path contains control characters.',
     );
     return ExitStatus.failure.code;
   } on ArgumentError {
@@ -1340,7 +1342,7 @@ finding, including file findings.
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become
-relative to <shared-root> (which must contain the package root). A package
+relative to <shared-root> (which must contain, or be, the package root). A package
 whose pubspec declares "resolution: workspace" picks up its pub workspace root
 automatically (fallbacks are reported as limitations). Both sides of an isthmus
 join must carry the exact same project string; rewriting it by hand afterwards

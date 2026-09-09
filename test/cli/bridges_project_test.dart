@@ -174,10 +174,11 @@ final channel = MethodChannel('dev.example/orphan');
       final document = await bridges([orphan.path]);
 
       expect(document['project'], await orphan.resolveSymbolicLinks());
-      expect(
-        document['limitations'],
-        contains(startsWith('pub-workspace-root-not-found:')),
-      );
+      // limitation 목록은 생산자 고정 순서(사전순 아님) — 감지 항목이 정확히
+      // 하나만 붙는 것을 전체 목록으로 고정한다.
+      expect(document['limitations'], [
+        startsWith('pub-workspace-root-not-found:'),
+      ]);
     },
   );
 
@@ -197,10 +198,51 @@ final channel = MethodChannel('dev.example/broken');
     final document = await bridges([broken.path]);
 
     expect(document['project'], await broken.resolveSymbolicLinks());
-    expect(
-      document['limitations'],
-      contains(startsWith('pub-workspace-pubspec-unparsed:')),
-    );
+    expect(document['limitations'], [
+      startsWith('pub-workspace-pubspec-unparsed:'),
+    ]);
+  });
+
+  test(
+    '--project equal to the scan root keeps paths and adds nothing',
+    () async {
+      final pkg = '${mono.path}/packages/plugin_pkg';
+      final document = await bridges(['--project', pkg, pkg]);
+
+      expect(document['project'], p.join(monoRoot, 'packages/plugin_pkg'));
+      expect(document['limitations'], isEmpty);
+      expect(
+        ((document['facts']! as List)
+                .where((item) => (item as Map)['kind'] == 'channel-create')
+                .single
+            as Map)['location'],
+        containsPair('path', 'lib/channel.dart'),
+      );
+    },
+  );
+
+  test('explicit --project wins over workspace detection', () async {
+    // 감지는 monoRoot를 찾겠지만, 명시 옵션은 그 조상(임시 루트)을 이긴다.
+    final outer = p.dirname(monoRoot);
+    final document = await bridges([
+      '--project',
+      outer,
+      '${mono.path}/packages/interface_pkg',
+    ]);
+
+    expect(document['project'], outer);
+    expect(document['project'], isNot(monoRoot));
+    expect(document['limitations'], isEmpty);
+  });
+
+  test('--project is accepted after the positional root', () async {
+    final document = await bridges([
+      '${mono.path}/packages/interface_pkg',
+      '--project',
+      mono.path,
+    ]);
+
+    expect(document['project'], monoRoot);
   });
 
   test('--project misuse is a usage error', () async {
@@ -210,10 +252,11 @@ final channel = MethodChannel('dev.example/broken');
       ['--project', '${mono.path}/packages/interface_pkg', mono.path],
       // 없는 디렉터리.
       ['--project', '${mono.path}/absent', mono.path],
-      // 중복·값 빠짐·옵션 모양 값.
+      // 중복·값 빠짐·옵션 모양 값·빈 값(cwd 조용한 해석 방지).
       ['--project', mono.path, '--project', mono.path, mono.path],
       ['--project'],
       ['--project', '--strict', mono.path],
+      ['--project', '', mono.path],
     ]) {
       expect(
         await runDartograph(
