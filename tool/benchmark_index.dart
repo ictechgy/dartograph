@@ -25,6 +25,10 @@ import 'package:path/path.dart' as p;
 Future<void> main(List<String> arguments) async {
   final fileCount = arguments.isNotEmpty ? int.parse(arguments[0]) : 600;
   final runs = arguments.length > 1 ? int.parse(arguments[1]) : 3;
+  if (fileCount < 1 || runs < 1) {
+    stderr.writeln('usage: benchmark_index.dart [fileCount>=1] [runs>=1]');
+    exit(64);
+  }
 
   final libraryUri = await Isolate.resolvePackageUri(
     Uri.parse('package:dartograph/dartograph.dart'),
@@ -40,43 +44,66 @@ Future<void> main(List<String> arguments) async {
     final index = AnalyzerGraphIndex(cache: _ColdCache());
 
     final runMicros = <int>[];
+    final runHashes = <String>{};
     late AnalyzerGraphResult result;
     for (var run = 0; run < runs; run++) {
       final watch = Stopwatch()..start();
       result = await index.index(root);
       runMicros.add(watch.elapsedMicroseconds);
+      // run 간 비결정성이 있으면 마지막 run 우연 일치로 가려지므로 매 run의
+      // 그래프 해시를 대조한다.
+      runHashes.add(_sha(GraphExporter.json(result.graph.snapshot())));
+    }
+    if (runHashes.length != 1) {
+      throw StateError('index output differs between runs: $runHashes');
     }
     final snapshot = result.graph.snapshot();
 
-    final analyzeWatch = Stopwatch()..start();
-    final analysis = ReachabilityAnalyzer().analyze(
-      snapshot,
-      roots: result.retentionRoots,
-      limitations: const [],
-    );
-    final analyzeMicros = analyzeWatch.elapsedMicroseconds;
+    // 후속 측정은 1회 노이즈가 크므로 5회 반복의 최소값을 보고한다.
+    const reps = 5;
+    int minOf(List<int> values) => values.reduce((a, b) => a < b ? a : b);
 
-    final testOnlyWatch = Stopwatch()..start();
-    final testOnly = ReachabilityAnalyzer().testOnlyDeclarations(
-      snapshot,
-      roots: result.retentionRoots,
-      limitations: const [],
-    );
-    final testOnlyMicros = testOnlyWatch.elapsedMicroseconds;
+    final analyzeMicros = <int>[];
+    late ReachabilityResult analysis;
+    for (var rep = 0; rep < reps; rep++) {
+      final watch = Stopwatch()..start();
+      analysis = ReachabilityAnalyzer().analyze(
+        snapshot,
+        roots: result.retentionRoots,
+        limitations: const [],
+      );
+      analyzeMicros.add(watch.elapsedMicroseconds);
+    }
+
+    final testOnlyMicros = <int>[];
+    late List<DeadFinding> testOnly;
+    for (var rep = 0; rep < reps; rep++) {
+      final watch = Stopwatch()..start();
+      testOnly = ReachabilityAnalyzer().testOnlyDeclarations(
+        snapshot,
+        roots: result.retentionRoots,
+        limitations: const [],
+      );
+      testOnlyMicros.add(watch.elapsedMicroseconds);
+    }
 
     final requests = _queryRequests(snapshot);
-    final session = SymbolQuerySession(
-      graph: snapshot,
-      roots: result.retentionRoots,
-      limitations: const [],
-    );
-    final queryWatch = Stopwatch()..start();
-    final queries = [for (final request in requests) session.query(request)];
-    final queryMicros = queryWatch.elapsedMicroseconds;
+    final queryMicros = <int>[];
+    late List<Map<String, Object?>> queries;
+    for (var rep = 0; rep < reps; rep++) {
+      final session = SymbolQuerySession(
+        graph: snapshot,
+        roots: result.retentionRoots,
+        limitations: const [],
+      );
+      final watch = Stopwatch()..start();
+      queries = [for (final request in requests) session.query(request)];
+      queryMicros.add(watch.elapsedMicroseconds);
+    }
 
     print(
       const JsonEncoder.withIndent('  ').convert({
-        'analyzeMicros': analyzeMicros,
+        'analyzeMinMicros': minOf(analyzeMicros),
         'deadFindings':
             analysis.deadDeclarations.length + analysis.deadFiles.length,
         'deadJsonSha256': _sha(
@@ -89,8 +116,9 @@ Future<void> main(List<String> arguments) async {
         'fileCount': fileCount,
         'graphJsonSha256': _sha(GraphExporter.json(snapshot)),
         'indexRunMicros': runMicros,
+        'limitationsSha256': _sha(jsonEncode(result.limitationDetails)),
         'nodes': snapshot.nodes.length,
-        'queryBatchMicros': queryMicros,
+        'queryBatchMinMicros': minOf(queryMicros),
         'queryBatchSha256': _sha(jsonEncode(queries)),
         'retentionRoots': result.retentionRoots.length,
         'retentionSha256': _sha(
@@ -104,7 +132,7 @@ Future<void> main(List<String> arguments) async {
         'runs': runs,
         'sdk': Platform.version,
         'testOnlyCount': testOnly.length,
-        'testOnlyMicros': testOnlyMicros,
+        'testOnlyMinMicros': minOf(testOnlyMicros),
         'testOnlySha256': _sha(
           jsonEncode(testOnly.map((finding) => finding.toJson()).toList()),
         ),

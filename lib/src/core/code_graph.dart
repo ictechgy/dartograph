@@ -64,6 +64,8 @@ final class CodeGraph {
         'unknown graph node',
       );
     }
+    // 중복 간선(Set.add가 false)은 뷰 내용을 바꾸지 않으므로 무효화하지
+    // 않는다 — 안전성은 GraphEdge의 값 동등성(==/hashCode)에 의존한다.
     if (_edges.add(edge)) _edgesView = null;
   }
 

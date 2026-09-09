@@ -16,7 +16,7 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
     (single determinism implementation), pubspec.yaml is read once per index, and
     declaration source paths are computed once per declaration
   - Synthetic benchmark (600 files, 4,923 nodes / 14,726 edges, Dart 3.13.3,
-    macos_arm64, min of 3 cold runs): index 1456 ms -> 1053 ms (-26%). Machine-
+    macos_arm64, min of 3 cold runs): index 1456 ms -> 1053 ms (-28%). Machine-
     specific; relative comparison only, not an SLA
 
 ## 0.4.1
