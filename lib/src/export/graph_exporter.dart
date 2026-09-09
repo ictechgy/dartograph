@@ -47,6 +47,10 @@ abstract final class GraphExporter {
             if (node.column != null) 'column': node.column!,
             'id': node.id,
             'isAbstract': node.isAbstract,
+            // line·column과 같은 조건부 필드 규약: 참일 때만 실어 정상 그래프의
+            // 바이트를 보존하고, json 소비자도 캐시 문서처럼 enum 상수 보존
+            // 판정(isEnumConstant)을 재현할 수 있다.
+            if (node.isEnumConstant) 'isEnumConstant': true,
             'isTypeDeclaration': node.isTypeDeclaration,
             if (node.line != null) 'line': node.line!,
             if (node.sourceUri != null) 'sourceUri': node.sourceUri!,

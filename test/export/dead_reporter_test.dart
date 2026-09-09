@@ -229,4 +229,77 @@ void main() {
     expect(sarif, contains(r'lib/back%5Cslash.dart'));
     expect(sarif, contains('lib/%2541.dart'));
   });
+
+  test('json carries the report classification and GH reports suppression', () {
+    final dead =
+        jsonDecode(
+              DeadReporter.render(ReportFormat.json, [
+                finding,
+              ], suppressedCount: 2),
+            )
+            as Map<String, Object?>;
+    expect(dead.keys.toList(), [
+      'findings',
+      'limitations',
+      'report',
+      'suppressedCount',
+    ]);
+    expect(dead['report'], 'dead');
+    final testOnly =
+        jsonDecode(
+              DeadReporter.render(ReportFormat.json, [
+                finding,
+              ], report: DeadReport.testOnly),
+            )
+            as Map<String, Object?>;
+    expect(testOnly['report'], 'test-only');
+
+    final actions = DeadReporter.render(ReportFormat.githubActions, [
+      finding,
+    ], suppressedCount: 2);
+    expect(
+      actions,
+      contains(
+        '::notice title=dartograph dead::2 finding(s) suppressed by baseline',
+      ),
+    );
+    // 억제 0건은 기존 출력과 동일하게 notice를 추가하지 않는다.
+    expect(
+      DeadReporter.render(ReportFormat.githubActions, [finding]),
+      isNot(contains('suppressed by baseline')),
+    );
+  });
+
+  test('sarif does not invent a region for file findings', () {
+    final fileFinding = DeadFinding(
+      id: 'project:lib/orphan.dart',
+      kind: 'file',
+      source: 'project:lib/orphan.dart',
+      reason: 'not imported or part-ed by any analyzed library',
+      retentionRootsChecked: const [],
+    );
+    final sarif =
+        jsonDecode(
+              DeadReporter.render(ReportFormat.sarif, [fileFinding, finding]),
+            )
+            as Map<String, Object?>;
+    final results = (((sarif['runs'] as List).single as Map)['results'] as List)
+        .cast<Map<String, Object?>>();
+    final byKind = {
+      for (final result in results)
+        (result['properties'] as Map)['kind']: result,
+    };
+    final fileLocation = (byKind['file']!['locations'] as List).single as Map;
+    // region은 선택 요소 — 위치가 없으면 발명하지 않는다.
+    expect(
+      (fileLocation['physicalLocation'] as Map).containsKey('region'),
+      isFalse,
+    );
+    final declarationLocation =
+        (byKind['declaration']!['locations'] as List).single as Map;
+    expect((declarationLocation['physicalLocation'] as Map)['region'], {
+      'startColumn': 3,
+      'startLine': 7,
+    });
+  });
 }

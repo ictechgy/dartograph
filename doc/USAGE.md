@@ -130,7 +130,10 @@ rules:
 종료 코드 0이다(이 명령들은 기본적으로 보고만 하므로 explain은 finding 게이트가 아니다).
 
 모든 JSON 목록과 키는 결정적 순서로 출력된다. 같은 입력은 byte-for-byte 같은 결과를
-내야 한다. 단, `bridges`의 `generatedAt`은 실행 시각이다.
+내야 한다. 선언된 예외는 둘이다: `bridges`의 `generatedAt`은 실행 시각이고,
+`generated-code-staleness` limitation은 mtime 관측이다 — git은 mtime을 보존하지
+않으므로 fresh clone 사이에서는 이 문자열의 presence가 달라질 수 있다(내용이 아니라
+환경의 관측이며, findings·간선·노드는 영향받지 않는다).
 
 ## 종료 코드
 
