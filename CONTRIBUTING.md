@@ -3,6 +3,11 @@
 제품 범위는 [PRD](doc/PRD.md), 공통 작업 원칙은 [AGENTS.md](AGENTS.md)가 정본입니다.
 Dart 최소 버전은 pubspec.yaml, 검증 SDK는 .github/workflows/ci.yml을 확인합니다.
 
+pub.dev 노출 문서는 영어가 정본입니다: README.md(영어)·README.ko.md(한국어),
+CHANGELOG.md(영어)·CHANGELOG.ko.md(한국어) 쌍은 내용을 같은 사실로 유지하고 한쪽만
+갱신하지 않습니다. 저장소 내부 문서(doc/, AGENTS.md, CONTRIBUTING.md, SECURITY.md)는 한국어를 유지합니다.
+영어 README에서 한국어 문서로 링크할 때는 `(Korean)`을 표기합니다.
+
 ## 개발
 
 의존성이 준비되지 않았으면 `dart pub get`을 실행합니다. 로컬 mise 환경에서는
@@ -51,6 +56,6 @@ dart pub publish --dry-run
 - 설치 경계만 재확인할 때: `tool/verify-global-activation.sh`.
 - 공개 프로젝트 도그푸딩 대상은 [PLAN](doc/PLAN.md)을 참고하되 현재 환경과 준비 상태를 확인합니다.
 
-승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG·설치 예제·SECURITY.md의 버전을 맞추고,
+승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG.md(영어)와 CHANGELOG.ko.md(한국어)·설치 예제(README·README.ko·USAGE)·SECURITY.md의 버전을 맞추고,
 검증한 commit의 dry-run을 확인한 뒤 게시합니다. pub.dev 성공 후 같은 commit에 태그와 GitHub Release를 연결하고
 공개 패키지를 새 캐시에 설치해 확인합니다. 전파 지연 때 동일 버전을 다시 게시하지 않습니다.
