@@ -9,7 +9,10 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   directories — the analyzer also reads outside the standard directories
   through the import closure (e.g. `tool/`), and a key that missed them reused
   a stale analysis after such a file changed (reproduced: resolution
-  limitations vanished). Relative imports that leave the root remain a
+  limitations vanished). Hidden directories (e.g. `.fvm` toolchain links) are
+  pruned from the walk so key computation cannot balloon into hashing a whole
+  Flutter SDK, and nested-package discovery widens to pubspecs outside the
+  standard directories. Relative imports that leave the root remain a
   documented coverage boundary
 - Hardened the CLI error boundary: `Error`s (TypeError, RangeError, …) escaping
   from analyzer/yaml internals are contained at the command boundary as an

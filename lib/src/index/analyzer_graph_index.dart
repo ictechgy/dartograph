@@ -298,19 +298,22 @@ Future<List<File>> _analysisInputFiles(String root) async {
   // .dart(tool/·루트 스크립트 등)도 읽는다. 해석 오류·미해석 호출 limitation은
   // 표준 디렉터리 파일에 붙지만 그 원인이 밖의 파일일 수 있으므로, 키가 표준
   // 디렉터리만 열거하면 그 파일 변경 후 낡은 해석 결과가 재사용된다(stale hit
-  // 실측 확인). 루트 전체를 열거해 해석 클로저를 보수적으로 커버한다
-  // (.dart_tool·.git·build는 _projectFiles가 제외). 루트 밖 상대 경로 import
-  // (모노레포 공유 디렉터리)는 열거할 값싸고 안전한 방법이 없어 커버하지
-  // 않는다 — 루트 경계가 이 보수의 한계다.
-  addDirectory(Directory(root));
-  for (final name in _sourceDirectories) {
-    final directory = Directory(p.join(root, name));
-    final resolved = directory.existsSync()
-        ? await _resolved(directory)
-        : directory;
-    if (!resolved.existsSync()) continue;
-    for (final file in _projectFiles(resolved)) {
-      if (p.basename(file.path) != 'pubspec.yaml') continue;
+  // 실측 확인). 루트 전체를 열거해 해석 클로저를 보수적으로 커버한다.
+  // 숨김 디렉터리는 가지치기한다: `.fvm`처럼 Flutter SDK 전체로 향하는 링크를
+  // 따라가면 키 계산마다 수천 파일을 해싱한다. analyzer의 컨텍스트 루트도
+  // 숨김 디렉터리는 분석 대상으로 열거하지 않으므로, 잔여 공백은 "숨김
+  // 디렉터리 안 파일을 보이는 파일이 import하는" 병적 배치뿐이다. 루트 밖
+  // 상대 경로 import(모노레포 공유 디렉터리)는 값싸고 안전하게 열거할 방법이
+  // 없어 커버하지 않는다 — 루트 경계가 이 보수의 한계다.
+  // 중첩 패키지 탐지도 이 순회 하나로 표준 디렉터리 밖(tool/pkg 등)까지 넓힌다.
+  for (final file in _projectFiles(
+    Directory(root),
+    skipHiddenDirectories: true,
+  )) {
+    final base = p.basename(file.path);
+    if (file.path.endsWith('.dart') || base == 'analysis_options.yaml') {
+      addFile(file);
+    } else if (base == 'pubspec.yaml') {
       final packageRoot = file.parent;
       if (!p.equals(packageRoot.path, root)) {
         nestedPackages[p.normalize(packageRoot.path)] = packageRoot;
@@ -594,8 +597,14 @@ int _staleGeneratedCount(String root) {
   return count;
 }
 
-Iterable<File> _projectFiles(Directory directory) =>
-    _projectFilesIn(directory, <String>{});
+Iterable<File> _projectFiles(
+  Directory directory, {
+  bool skipHiddenDirectories = false,
+}) => _projectFilesIn(
+  directory,
+  <String>{},
+  skipHiddenDirectories: skipHiddenDirectories,
+);
 
 /// [directory] 아래의 파일을 심볼릭 링크까지 따라가며 돌려준다.
 ///
@@ -609,14 +618,19 @@ Iterable<File> _projectFiles(Directory directory) =>
 /// analyzer가 사용하는 경로와 같은 모양을 유지한다.
 Iterable<File> _projectFilesIn(
   Directory directory,
-  Set<String> visitedLinkTargets,
-) sync* {
+  Set<String> visitedLinkTargets, {
+  bool skipHiddenDirectories = false,
+}) sync* {
   for (final entity in directory.listSync(followLinks: false)) {
     if (entity is Directory) {
-      if (_ignoredProjectDirectories.contains(p.basename(entity.path))) {
+      if (_isSkippedDirectory(entity.path, skipHiddenDirectories)) {
         continue;
       }
-      yield* _projectFilesIn(entity, visitedLinkTargets);
+      yield* _projectFilesIn(
+        entity,
+        visitedLinkTargets,
+        skipHiddenDirectories: skipHiddenDirectories,
+      );
     } else if (entity is File) {
       yield entity;
     } else if (entity is Link) {
@@ -625,14 +639,24 @@ Iterable<File> _projectFilesIn(
       if (type == FileSystemEntityType.file) {
         yield File(entity.path);
       } else if (type == FileSystemEntityType.directory &&
-          !_ignoredProjectDirectories.contains(p.basename(entity.path))) {
+          !_isSkippedDirectory(entity.path, skipHiddenDirectories)) {
         final target = _resolvedLinkTarget(entity);
         if (target != null && visitedLinkTargets.add(target)) {
-          yield* _projectFilesIn(Directory(entity.path), visitedLinkTargets);
+          yield* _projectFilesIn(
+            Directory(entity.path),
+            visitedLinkTargets,
+            skipHiddenDirectories: skipHiddenDirectories,
+          );
         }
       }
     }
   }
+}
+
+bool _isSkippedDirectory(String path, bool skipHiddenDirectories) {
+  final name = p.basename(path);
+  return _ignoredProjectDirectories.contains(name) ||
+      (skipHiddenDirectories && name.startsWith('.'));
 }
 
 /// 디렉터리 링크의 실제 경로를 돌려주고, 해석에 실패하면 null을 돌려준다.
