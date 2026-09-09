@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (세션 마감 — 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 코멘트 전달, PR #39~#55 merge + 이 마감 기록 #56 기준)_
+_Last updated: 2026-09-09 (issue #38 양측 종결·close 완료 — isthmus GRAPH-EXCHANGE 계약 문구 갱신(isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge) 확인 후 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션 기록: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52), PR #39~#56 merge)_
 
 ## Goal
 
@@ -139,6 +139,10 @@ _Last updated: 2026-09-09 (세션 마감 — 전체 감사 + 수정 6건 + 영�
     project는 절대 realpath이므로 조인은 한 working copy 안에서 성립(다른
     체크아웃 간 불일치는 결함이 아닌 범위 밖 속성). bridges limitations는
     사전순이 아닌 생산자 고정 순서(workspace 항목이 맨 뒤).
+  - **후속 종결(2026-09-09)**: isthmus가 위 의미론으로 GRAPH-EXCHANGE 정본을 갱신했다
+    (isthmus PR #36 `601dcdea0` realpath 정규화 + #37 `8d04dfd74` 모노레포 조인 루트
+    선언 — cartograph `--project`도 포섭). dartograph는 isthmus를 임의 수정하지 않았고
+    (소유자/조율 경로), issue #38는 양측 종결로 close 됐다(현재 상태는 Blockers 정본).
 
 ### 이전 세션 (0.4.0 릴리스 + Tier 2 흡수, PR #13~#37)
 
@@ -248,14 +252,17 @@ _Last updated: 2026-09-09 (세션 마감 — 전체 감사 + 수정 6건 + 영�
 ## Blockers & Open Questions
 
 - 필수 제품 작업 없음. 열린 제품 PR 없음.
-- **issue #38 — dartograph 측 완료(PR #52, 0.5.0 릴리스), isthmus 측 잔여**: (a)+(b)
-  구현·왕복 검증·**issue 코멘트 게시 완료**(소유자가 issues 쓰기 권한 부여 후
-  의미론 전문을 코멘트로 전달 — issuecomment-5599285065). 남은 것: (1) isthmus 측
-  GRAPH-EXCHANGE 문구 갱신("생산자 옵션으로 정해지는 대로 추가" → 코멘트의 의미론
-  반영)과 cartograph `--project`(분석 루트 자체라 의미가 다름)와의 문안 정합 —
-  **자매 저장소 임의 수정 금지 유지**. (2) dartograph 후속(비차단 기록): workspace
-  멤버십 검증(현재는 workspace: 키 존재만 — 조인 fail-closed라 즉각 위험 없음),
-  `unscanned-*` limitation 문구 복수형(기존 출력 문자열 변경이라 별도 판단).
+- **issue #38 — 양측 완전 종결·close 완료(2026-09-09, reason: completed)**:
+  dartograph 측 (a)+(b) 구현·왕복 검증·0.5.0 릴리스(PR #52) + 의미론 코멘트
+  (issuecomment-5599285065), isthmus 측 GRAPH-EXCHANGE 정본 갱신 완료 — isthmus
+  PR #36(`601dcdea0`, project realpath 정규화 명문화) + PR #37(`8d04dfd74`, 모노레포
+  조인 루트 선언 명문화; "생산자 선언 조인 루트" 정의로 cartograph `--project`(분석
+  루트 자체)와 dartograph 재기준화 옵션을 모두 포섭, isthmus 코드 무변경·소비자
+  fail-closed 유지). issue 본문이 요구한 두 합의(realpath 문구 + 공유 루트 선언
+  방식)가 양측 반영됐고 왕복 실측(dartograph#38·#52)으로 조인 확인 → 마감 코멘트
+  (issuecomment-5602011319) 후 close. **자매 저장소는 소유자/조율 경로로만 갱신됐고
+  dartograph가 isthmus를 임의 수정한 적 없음(금지 유지).** 남은 비차단 후속(workspace
+  멤버십 검증·`unscanned-*` 복수형 문구)은 Next Steps 4의 감사 낮음 항목으로 이관.
 - external-retentions 구현 금지(GRAPH-EXCHANGE 계약, PR #27) 유지.
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
@@ -337,21 +344,21 @@ _Last updated: 2026-09-09 (세션 마감 — 전체 감사 + 수정 6건 + 영�
    성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측(코멘트 전달 포함)**까지
    완료했다. 완료된 구현·감사·측정·릴리스를 반복하지 않는다. 미릴리스 누적 없음
    (CHANGELOG `Unreleased` 절 없음).
-3. **issue #38의 dartograph 측은 완료(PR #52, 0.5.0 릴리스 + issue 코멘트 게시)** —
-   isthmus 측 GRAPH-EXCHANGE 문구 갱신만 남았다(의미론은 코멘트·Completed에 보존).
-   isthmus 저장소는 계속 임의 수정 금지.
+3. **issue #38 완전 종결·close 완료(2026-09-09)** — dartograph 측(PR #52, 0.5.0
+   릴리스 + 코멘트 issuecomment-5599285065)과 isthmus 측 GRAPH-EXCHANGE 문구 갱신
+   (isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge)이 모두 끝났다. isthmus
+   저장소는 소유자/조율 경로로만 갱신(임의 수정 금지 유지). 재개 시 issue가
+   closed인지 API로 확인.
 4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
    있다, 재도출 금지)**:
-   a. issue #38의 isthmus 측 GRAPH-EXCHANGE 문구 갱신(자매 저장소 — 소유자/조율 경유,
-      의미론은 issue 코멘트 issuecomment-5599285065에 전달 완료).
-   b. 죽은 공개 API 처분 — `querySymbol`·`usageEdgesFrom`·`ReachabilityResult` 미export:
+   a. 죽은 공개 API 처분 — `querySymbol`·`usageEdgesFrom`·`ReachabilityResult` 미export:
       지원 API 정책 결정이 먼저(스모크 테스트로 유지 vs unexport).
-   c. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
-   d. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
-   e. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
+   b. P7(GraphSnapshot toSet 재해싱) — 재착수 시 하네스 측정부터(보류 판정 기록됨).
+   c. bridge 스코프 방문자 테스트 보강(catch/for/지역함수/클로저/채널 재대입 39줄).
+   d. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
       fallback, bridges toSource 개행 정책=GRAPH-EXCHANGE 조율 사안, workspace 멤버십
       검증, `unscanned-*` 복수형 문구).
-   f. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
+   e. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
 5. 다음 릴리스도 지시 시에만: 버전 정합 6곳 + **두 언어 CHANGELOG** + (Korean) 표기
@@ -396,13 +403,18 @@ unreleased now — CHANGELOG has no Unreleased section.
 REMAINING: P7 (snapshot toSet rehash) is DELIBERATELY DEFERRED
 — measure first if revisiting; dead public API disposition (querySymbol/usageEdgesFrom/
 ReachabilityResult) needs a support-policy decision; bridge scope-visitor test coverage (39 lines);
-issue #38 (isthmus bridges --project / pub-workspace shared root) — the dartograph side is DONE
-and RELEASED in 0.5.0 (PR #52: bridges --project <shared-root> + pub workspace auto-detection with
-fallback limitations, isthmus-installed round-trip verified both directions; the contract semantics
-were posted to the issue as issuecomment-5599285065 after the owner granted issues write scope —
-only the isthmus-side GRAPH-EXCHANGE wording update remains); do NOT touch the isthmus repo itself; external-retentions stays contract-blocked (PR #27);
+issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
+(2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
+<shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
+verified both directions; contract semantics posted as issuecomment-5599285065), AND the isthmus-side
+GRAPH-EXCHANGE wording was updated via isthmus PR #36 (project realpath normalization) + PR #37
+(monorepo join-root declaration, a producer-declared "join root" definition covering BOTH cartograph's
+--project (the analysis root itself) and dartograph's re-basing option; no isthmus code change,
+consumer exact-string fail-closed preserved), so the issue was CLOSED (reason: completed, closing
+comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was updated only via the
+owner/coordination path); external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
-the next session is enumerated in Next Steps item 4 (isthmus contract wording via issue #38, dead
-public API disposition, P7 measurement-first, bridge scope-visitor tests, audit low items, Tier 3/4).
+the next session is enumerated in Next Steps item 4 (dead public API disposition, P7
+measurement-first, bridge scope-visitor tests, audit low items, Tier 3/4).
 Follow the next explicit user task.`
