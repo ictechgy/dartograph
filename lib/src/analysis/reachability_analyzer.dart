@@ -187,17 +187,40 @@ final class ReachabilityResult {
   /// 전체 결과에 적용되는 분석 한계다.
   final List<String> limitations;
 
-  /// [id]를 보존하는 도달 가능한 멤버 중 첫 번째다.
+  Set<String>? _reachableIdSet;
+  Map<String, String>? _memberWitnesses;
+
+  /// [id]의 직접 도달 여부다(O(1)).
   ///
-  /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다. 또한 그 값은
-  /// `_paths`의 키이므로 돌려준 witness는 반드시 직접 도달 경로를 갖는다.
-  /// [explain]이 witness로 한 단계만 재귀하고 끝나는 근거다.
+  /// [reachableIds]는 출력용 정렬 목록으로 남고, 반복 질의(배치·finding별
+  /// explain)는 이 판정으로 선형 주사를 피한다(감사 P6).
+  bool isReachable(String id) =>
+      (_reachableIdSet ??= reachableIds.toSet()).contains(id);
+
+  /// [id]를 보존하는 도달 가능한 멤버 중 첫 번째다(O(1), 최초 1회 색인 구축).
+  ///
+  /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다 — dot-접두
+  /// 색인을 정렬 순서 putIfAbsent로 채워 `'$id.'` 접두의 firstOrNull 선형 주사와
+  /// 같은 결과를 돌려준다(감사 P3: test-only는 finding마다 explain을 호출한다).
+  /// 또한 그 값은 `_paths`의 키이므로 돌려준 witness는 반드시 직접 도달 경로를
+  /// 갖는다. [explain]이 witness로 한 단계만 재귀하고 끝나는 근거다.
   ///
   /// 라이브러리 ID에는 선언이 `::`로 붙으므로 `'$id.'` 접두는 걸리지 않는다.
   /// 라이브러리는 항상 null이 되어 기존 라이브러리 분기 판정을 바꾸지 않는다.
-  String? _reachableMemberOf(String id) => reachableIds
-      .where((candidate) => candidate.startsWith('$id.'))
-      .firstOrNull;
+  String? reachableMemberOf(String id) =>
+      (_memberWitnesses ??= _buildWitnesses())[id];
+
+  Map<String, String> _buildWitnesses() {
+    final witnesses = <String, String>{};
+    for (final candidate in reachableIds) {
+      var dot = candidate.indexOf('.');
+      while (dot >= 0) {
+        witnesses.putIfAbsent(candidate.substring(0, dot), () => candidate);
+        dot = candidate.indexOf('.', dot + 1);
+      }
+    }
+    return witnesses;
+  }
 
   /// [id]의 보존 경로 또는 모든 루트에서 미도달한 근거를 돌려준다.
   ReachabilityExplanation explain(String id) {
@@ -247,7 +270,7 @@ final class ReachabilityResult {
       // 근거로 제외하므로, 여기서 미도달로 답하면 한 실행에서 상반된 결론이 된다.
       // path·evidence는 witness까지의 실제 체인이라 `path.last == witness`다.
       // 존재하지 않는 멤버→컨테이너 간선을 지어내지 않기 위해 그대로 돌려준다.
-      final memberWitness = _reachableMemberOf(id);
+      final memberWitness = reachableMemberOf(id);
       if (memberWitness != null) {
         final witnessExplanation = explain(memberWitness);
         return ReachabilityExplanation(
@@ -442,7 +465,8 @@ final class ReachabilityAnalyzer {
         )
         .toList();
     return ReachabilityResult._(
-      reachableIds: (paths.keys.toList()..sort()),
+      // :418의 정렬된 로컬을 재사용한다(이중 정렬 제거 — 감사 P5).
+      reachableIds: reachableIds,
       deadDeclarations: declarations,
       deadFiles: files,
       paths: paths,

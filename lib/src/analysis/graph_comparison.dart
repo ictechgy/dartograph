@@ -37,6 +37,10 @@ Map<String, Object?> compareGraphs({
     ..sort();
   final gains = oldDead.difference(newDead).intersection(newIds);
   final directlyReachable = newAnalysis.reachableIds.toSet();
+  // limitation 정규화(dedup+sort)를 1회로 hoist한다 — loss마다 재계산하지
+  // 않는다(감사 P10 계열, 출력 동일).
+  final sortedBeforeLimitations = beforeLimitations.toSet().toList()..sort();
+  final sortedAfterLimitations = afterLimitations.toSet().toList()..sort();
   return {
     'format': 'graph-comparison',
     'version': 1,
@@ -58,15 +62,15 @@ Map<String, Object?> compareGraphs({
           oldAnalysis,
           newEdges,
           removedRoots,
-          beforeLimitations,
-          afterLimitations,
+          sortedBeforeLimitations,
+          sortedAfterLimitations,
         ),
     ],
     'newlyReachable': gains.where(directlyReachable.contains).toList()..sort(),
     'newlyRetainedByMember':
         gains.where((id) => !directlyReachable.contains(id)).toList()..sort(),
-    'beforeLimitations': beforeLimitations.toSet().toList()..sort(),
-    'afterLimitations': afterLimitations.toSet().toList()..sort(),
+    'beforeLimitations': sortedBeforeLimitations,
+    'afterLimitations': sortedAfterLimitations,
     'limitations': [
       'comparison describes observed graphs, not runtime safety or proof of a single causal change',
       'renames appear as removed and added IDs; use matching SDK, dependencies and build configuration',
@@ -90,19 +94,16 @@ Map<String, Object?> _loss(
 ) {
   final direct = old.explain(id);
   // 직접 도달을 먼저 가른다. explain은 멤버로 보존된 컨테이너도 reachable로
-  // 답하므로, reachable만 보면 witness를 남길 대상을 놓친다.
-  final witness = old.reachableIds.contains(id)
-      ? null
-      : old.reachableIds
-            .where((candidate) => candidate.startsWith('$id.'))
-            .firstOrNull;
+  // 답하므로, reachable만 보면 witness를 남길 대상을 놓친다. 선형 주사 대신
+  // 결과 색인을 쓴다(감사 P3 — loss마다 O(R)이었다).
+  final witness = old.isReachable(id) ? null : old.reachableMemberOf(id);
   final explanation = witness == null ? direct : old.explain(witness);
   return {
     'id': id,
     'retainedByMember': ?witness,
     'beforePath': explanation.path,
-    'beforeLimitations': beforeLimitations.toSet().toList()..sort(),
-    'afterLimitations': afterLimitations.toSet().toList()..sort(),
+    'beforeLimitations': beforeLimitations,
+    'afterLimitations': afterLimitations,
     'removedEdgesOnBeforePath': explanation.evidence
         .where((e) => !newEdges.contains(e))
         .map(_edge)
