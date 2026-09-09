@@ -192,6 +192,21 @@ void main() {
     expect(actions.split('\n').where((l) => l.isNotEmpty), hasLength(1));
     expect(actions, contains('%1B'));
     expect(actions, contains('%0A'));
+
+    // 원문의 리터럴 `%0A`는 `%25` 선행 인코딩으로 러너의 단일 디코드 후
+    // 개행이 아니라 원문 텍스트로 표시된다(이중 주입 불가).
+    final literal = DeadFinding(
+      id: 'package:app/a%0Ab.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/a%0Ab.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+    final literalActions = DeadReporter.render(ReportFormat.githubActions, [
+      literal,
+    ]);
+    expect(literalActions, contains('%250A'));
+    expect(literalActions.split('\n').where((l) => l.isNotEmpty), hasLength(1));
   });
 
   test('sarif uri keeps backslashes and literal percent sequences', () {

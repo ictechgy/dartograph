@@ -82,8 +82,8 @@ abstract final class DeadReporter {
           ? path
           : '$path:${finding.line}:${finding.column ?? 1}';
       output.writeln(
-        '$position: ${report.severity}: ${finding.kind} '
-        '${_escapeText(finding.id)} — ${finding.reason}',
+        '$position: ${report.severity}: ${_escapeText(finding.kind)} '
+        '${_escapeText(finding.id)} — ${_escapeText(finding.reason)}',
       );
       output.writeln(
         '    evidence: retentionRootsChecked=${_escapeText(_roots(finding))}',

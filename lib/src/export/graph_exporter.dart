@@ -13,13 +13,18 @@ import '../core/graph_snapshot.dart';
 ///
 /// | 표면 | 정책 |
 /// |---|---|
-/// | JSON(dot/mermaid/html의 limitations 포함) | `jsonEncode` 네이티브 이스케이프 — 추가 처리 없음 |
-/// | DOT | `\`·`"`·LF·CR → DOT 문자열 이스케이프(`\\`·`\"`·`\n`·`\r`) — 구조 보존, 개행은 렌더 개행으로 정규화 |
-/// | Mermaid | `#`·`\`·`"`·CR·LF → 문서화 엔티티 코드(`#35;`·`#92;`·`#quot;`·`#13;`·`#10;`), `&`·`<`·`>` → HTML 엔티티 — 라벨은 항상 한 물리행 |
-/// | HTML | 페이로드: `<` → `\u003c`(적법한 JSON 이스케이프, script-tag 토크나이저 보호) / 헤더 limitation: HTML 텍스트 엔티티 |
-/// | text(dead_reporter) | C0·DEL → 가시 이스케이프 — `path:line:col:` 행 프로토콜 위조 방지 |
-/// | GitHub Actions(dead_reporter) | `%`·C0·DEL·C1·U+2028/2029·bidi(U+202A–202E·U+2066–2069) → 퍼센트 인코딩 |
+/// | JSON 계열 전부(dead json·sarif 본문·query·compare·affected·cycles·rules·metrics·graph json/dot/mermaid/html의 limitations) | `jsonEncode` 네이티브 이스케이프 — 추가 처리 없음 |
+/// | DOT | `\`·`"`·LF·CR → DOT 문자열 이스케이프(`\\`·`\"`·`\n`·`\r`) — 문장 구조 보존, 개행은 DOT의 렌더링 개행 이스케이프로 정규화 |
+/// | Mermaid | `#`·`\`·`"`·CR·LF → 문서화 엔티티 코드(`#35;`·`#92;`·`#quot;`·`#13;`·`#10;`), `&`·`<`·`>` → HTML 엔티티 — 라벨은 항상 한 물리행. 나머지 C0(탭·ESC 등)은 행 구조를 깨지 않아 그대로 둔다 |
+/// | HTML | 페이로드: `<` → `\u003c`(적법한 JSON 이스케이프, script-tag 토크나이저 보호) / 헤더 limitation: HTML 텍스트 엔티티(raw LF는 HTML이 공백으로 흡수) |
+/// | text(dead_reporter) | 동적 값 전체(path·id·kind·reason·evidence·limitation)의 C0·DEL → 가시 이스케이프 — `path:line:col:` 행 프로토콜 위조 방지. 가시 이스케이프는 표시 전용이며 소비자가 역변환할 계약은 없다 |
+/// | GitHub Actions(dead_reporter) | `%`·C0·DEL·C1·U+2028/2029·bidi(U+202A–202E·U+2066–2069) → 퍼센트 인코딩. 원문의 리터럴 `%XX`는 `%25` 선행 인코딩으로 단일 디코드 후 원문 그대로 표시된다 |
 /// | SARIF uri(dead_reporter) | 경로 구분자 분리 + 세그먼트별 `Uri` 인코딩 — `\`·`%` 손실 없음 |
+///
+/// escape를 설계상 거치지 않는 값은 신뢰 고정 어휘다: edge `kind.name`(enum),
+/// `report.label`·`severity`·`rulePrefix`(enum), mermaid의 순번 노드 ID `n$i`,
+/// `title=dartograph …` 상수. 이 자리에 앞으로 사용자 유래 문자열을 보간하지
+/// 않는다 — 보간이 필요해지는 순간 해당 표면의 escape를 먼저 확장한다.
 abstract final class GraphExporter {
   /// 정렬된 키와 배열을 쓰는 JSON 문서를 만든다.
   static String json(
