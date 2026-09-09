@@ -52,6 +52,7 @@ dart pub publish --dry-run
 ## 선택 검증과 릴리스
 
 - 반복 질의 성능: `dart run tool/benchmark_query.dart` — 합성 입력 결과 동등성과 시간; 실제 성능 보장은 아닙니다.
+- 인덱싱·파이프라인 성능: `dart run tool/benchmark_index.dart [파일수=600] [runs=3]` — 합성 패키지 cold 인덱싱과 도달성·질의 시간, 산출물 sha256(최적화 전후 출력 동등성 고정); 실제 성능 보장은 아닙니다.
 - bridge 계약: `dart run tool/verify_bridge_query.dart <isthmus-main.js>` — 합성 Swift fact 왕복; 실제 compiler 검증을 대체하지 않습니다.
 - 설치 경계만 재확인할 때: `tool/verify-global-activation.sh`.
 - 공개 프로젝트 도그푸딩 대상은 [PLAN](doc/PLAN.md)을 참고하되 현재 환경과 준비 상태를 확인합니다.

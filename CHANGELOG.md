@@ -2,6 +2,23 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Indexing got measurably faster with byte-identical output (audit P1/P2/P9/P10;
+  measured with the new `tool/benchmark_index.dart` A/B harness — sha256 of graph,
+  dead, query, retention, and test-only outputs identical before/after):
+  - Element-to-ID resolution is memoized per relationship-collector pass; it used
+    to recompute path normalization and name chains for every identifier visit
+  - `CodeGraph.nodes`/`edges` read views are cached and invalidated on mutation
+    instead of re-sorting on every access; `_addPublicApiRoots` hoists its node-id
+    list out of the per-export loop
+  - The edge comparator is shared between `CodeGraph` and `GraphSnapshot`
+    (single determinism implementation), pubspec.yaml is read once per index, and
+    declaration source paths are computed once per declaration
+  - Synthetic benchmark (600 files, 4,923 nodes / 14,726 edges, Dart 3.13.3,
+    macos_arm64, min of 3 cold runs): index 1456 ms -> 1053 ms (-26%). Machine-
+    specific; relative comparison only, not an SLA
+
 ## 0.4.1
 
 - `--since`/`affected` Git change matching is now bidirectional for symlinked

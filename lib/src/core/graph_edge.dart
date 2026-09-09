@@ -31,6 +31,18 @@ enum EdgeKind {
   bool get impliesUsage => this != EdgeKind.member;
 }
 
+/// 출발점, 도착점, 관계 이름 순의 총순서다.
+///
+/// CodeGraph의 읽기 뷰와 GraphSnapshot 정규화가 공유하는 유일한 비교자다 —
+/// 결정성 계약이 두 구현으로 갈라지지 않는다.
+int compareGraphEdges(GraphEdge a, GraphEdge b) {
+  final sourceOrder = a.sourceId.compareTo(b.sourceId);
+  if (sourceOrder != 0) return sourceOrder;
+  final targetOrder = a.targetId.compareTo(b.targetId);
+  if (targetOrder != 0) return targetOrder;
+  return a.kind.name.compareTo(b.kind.name);
+}
+
 /// 두 그래프 정점 사이의 방향과 종류가 있는 관계다.
 final class GraphEdge {
   /// [sourceId]에서 [targetId]로 향하는 간선을 만든다.

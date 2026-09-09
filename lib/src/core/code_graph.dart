@@ -9,15 +9,23 @@ final class CodeGraph {
   final Map<String, GraphNode> _nodes = {};
   final Set<GraphEdge> _edges = {};
 
-  /// 안정적인 ID 순서로 매번 만드는 읽기 전용 snapshot이다.
-  Map<String, GraphNode> get nodes => UnmodifiableMapView(
+  // 읽기 뷰는 캐시되고 변경 시 무효화된다. 매 접근마다 전체 재정렬하면
+  // export 루프처럼 뷰를 반복적으로 읽는 호출자가 O(접근수 × V log V)를
+  // 낸다(감사 P2). 무효화는 addNode/addEdge에서만 일어나므로 뷰 내용은
+  // "마지막 변경 시점의 결정적 정렬"로 동일하다.
+  Map<String, GraphNode>? _nodesView;
+  List<GraphEdge>? _edgesView;
+
+  /// 안정적인 ID 순서의 읽기 전용 snapshot이다. 다음 변경까지 재사용된다.
+  Map<String, GraphNode> get nodes => _nodesView ??= UnmodifiableMapView(
     Map.fromEntries(
       _nodes.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
     ),
   );
 
-  /// 출발점, 도착점, 관계 이름 순으로 정렬한 간선이다.
-  List<GraphEdge> get edges => List.unmodifiable(_sortedEdges(_edges));
+  /// 출발점, 도착점, 관계 이름 순으로 정렬한 간선이다. 다음 변경까지 재사용된다.
+  List<GraphEdge> get edges =>
+      _edgesView ??= List.unmodifiable(_sortedEdges(_edges));
 
   /// 정점 존재 여부를 정렬 snapshot 생성 없이 확인한다.
   bool containsNode(String id) => _nodes.containsKey(id);
@@ -34,6 +42,7 @@ final class CodeGraph {
     if (_nodes.containsKey(node.id)) {
       throw ArgumentError.value(node.id, 'node.id', 'duplicate graph node');
     }
+    _nodesView = null;
     _nodes[node.id] = node;
   }
 
@@ -55,7 +64,7 @@ final class CodeGraph {
         'unknown graph node',
       );
     }
-    _edges.add(edge);
+    if (_edges.add(edge)) _edgesView = null;
   }
 
   /// 사용을 성립시키는 바깥 방향 간선을 결정론적인 순서로 돌려준다.
@@ -68,11 +77,5 @@ final class CodeGraph {
   );
 
   static List<GraphEdge> _sortedEdges(Iterable<GraphEdge> edges) =>
-      edges.toList()..sort((a, b) {
-        final sourceOrder = a.sourceId.compareTo(b.sourceId);
-        if (sourceOrder != 0) return sourceOrder;
-        final targetOrder = a.targetId.compareTo(b.targetId);
-        if (targetOrder != 0) return targetOrder;
-        return a.kind.name.compareTo(b.kind.name);
-      });
+      edges.toList()..sort(compareGraphEdges);
 }

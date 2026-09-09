@@ -16,7 +16,7 @@ final class GraphSnapshot {
       }
     }
 
-    final sortedEdges = edges.toSet().toList()..sort(_compareEdges);
+    final sortedEdges = edges.toSet().toList()..sort(compareGraphEdges);
     for (final edge in sortedEdges) {
       if (!nodeIds.contains(edge.sourceId) ||
           !nodeIds.contains(edge.targetId)) {
@@ -37,12 +37,4 @@ final class GraphSnapshot {
 
   /// 출발점, 도착점, 관계 이름 순서의 불변 간선 목록이다.
   final List<GraphEdge> edges;
-
-  static int _compareEdges(GraphEdge a, GraphEdge b) {
-    final sourceOrder = a.sourceId.compareTo(b.sourceId);
-    if (sourceOrder != 0) return sourceOrder;
-    final targetOrder = a.targetId.compareTo(b.targetId);
-    if (targetOrder != 0) return targetOrder;
-    return a.kind.name.compareTo(b.kind.name);
-  }
 }
