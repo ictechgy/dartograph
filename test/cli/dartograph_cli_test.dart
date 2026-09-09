@@ -34,7 +34,7 @@ void main() {
     final status = await runDartograph(const ['--version'], output: output);
 
     expect(status, ExitStatus.success.code);
-    expect(output.toString(), 'dartograph 0.4.1\n');
+    expect(output.toString(), 'dartograph 0.5.0\n');
   });
 
   test(
