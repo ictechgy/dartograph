@@ -625,7 +625,7 @@ Future<int> _runQuery(
     final suppressedIds = <String>{};
     if (baselinePath != null) {
       final baseline = await _readBaseline(File(baselinePath));
-      final findings = session.analysis.deadDeclarations;
+      final findings = session.deadDeclarations;
       final remaining = baseline
           .filter(findings)
           .findings

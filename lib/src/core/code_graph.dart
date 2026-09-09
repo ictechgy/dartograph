@@ -69,15 +69,6 @@ final class CodeGraph {
     if (_edges.add(edge)) _edgesView = null;
   }
 
-  /// 사용을 성립시키는 바깥 방향 간선을 결정론적인 순서로 돌려준다.
-  ///
-  /// [nodeId]가 그래프에 없으면 빈 목록을 돌려준다.
-  List<GraphEdge> usageEdgesFrom(String nodeId) => List.unmodifiable(
-    _sortedEdges(
-      _edges.where((edge) => edge.sourceId == nodeId && edge.kind.impliesUsage),
-    ),
-  );
-
   static List<GraphEdge> _sortedEdges(Iterable<GraphEdge> edges) =>
       edges.toList()..sort(compareGraphEdges);
 }

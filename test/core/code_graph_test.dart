@@ -35,52 +35,6 @@ void main() {
       );
     });
 
-    test('returns usage edges from a node in deterministic order', () {
-      final graph = CodeGraph()
-        ..addNode(GraphNode(id: 'package:app/z.dart::Z'))
-        ..addNode(GraphNode(id: 'package:app/a.dart::A'))
-        ..addNode(GraphNode(id: 'package:app/m.dart::M'))
-        ..addEdge(
-          const GraphEdge(
-            sourceId: 'package:app/z.dart::Z',
-            targetId: 'package:app/m.dart::M',
-            kind: EdgeKind.reference,
-          ),
-        )
-        ..addEdge(
-          const GraphEdge(
-            sourceId: 'package:app/z.dart::Z',
-            targetId: 'package:app/a.dart::A',
-            kind: EdgeKind.call,
-          ),
-        )
-        ..addEdge(
-          const GraphEdge(
-            sourceId: 'package:app/z.dart::Z',
-            targetId: 'package:app/a.dart::A',
-            kind: EdgeKind.override,
-          ),
-        );
-
-      expect(graph.usageEdgesFrom('package:app/z.dart::Z'), const [
-        GraphEdge(
-          sourceId: 'package:app/z.dart::Z',
-          targetId: 'package:app/a.dart::A',
-          kind: EdgeKind.call,
-        ),
-        GraphEdge(
-          sourceId: 'package:app/z.dart::Z',
-          targetId: 'package:app/a.dart::A',
-          kind: EdgeKind.override,
-        ),
-        GraphEdge(
-          sourceId: 'package:app/z.dart::Z',
-          targetId: 'package:app/m.dart::M',
-          kind: EdgeKind.reference,
-        ),
-      ]);
-    });
-
     test('rejects duplicate node identifiers', () {
       final graph = CodeGraph()
         ..addNode(GraphNode(id: 'package:app/a.dart::A'));
