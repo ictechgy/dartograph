@@ -165,4 +165,53 @@ void main() {
     expect(evidence['retentionRootsChecked'], hasLength(20));
     expect(evidence['retentionRootsTruncated'], isTrue);
   });
+
+  test('control characters cannot forge text lines or GH commands', () {
+    final hostile = DeadFinding(
+      id: 'package:app/evil.dart::Foo\nlib/innocent.dart:1:1: warning: fake',
+      kind: 'declaration',
+      source: 'project:lib/ev\x1bil.dart',
+      line: 3,
+      column: 1,
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+      limitations: const [],
+    );
+
+    final text = DeadReporter.render(ReportFormat.text, [hostile]);
+    // 진단줄은 정확히 1개 + evidence + 요약뿐 — 개행이 가시 escape로 남아
+    // 두 번째 `lib/innocent.dart:1:1: warning:` 줄을 위조하지 못한다.
+    final lines = text.split('\n').where((l) => l.isNotEmpty).toList();
+    expect(lines, hasLength(3));
+    expect(lines[0], contains(r'::Foo\nlib/innocent.dart'));
+    expect(lines[0], contains(r'lib/ev\x1bil.dart:3:1'));
+    expect(text, isNot(contains('\x1b')));
+
+    final actions = DeadReporter.render(ReportFormat.githubActions, [hostile]);
+    // 한 물리 명령줄만 남고 ESC·개행은 퍼센트 인코딩된다.
+    expect(actions.split('\n').where((l) => l.isNotEmpty), hasLength(1));
+    expect(actions, contains('%1B'));
+    expect(actions, contains('%0A'));
+  });
+
+  test('sarif uri keeps backslashes and literal percent sequences', () {
+    final backslash = DeadFinding(
+      id: r'package:app/back\slash.dart::x',
+      kind: 'declaration',
+      source: r'project:lib/back\slash.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+    final percent = DeadFinding(
+      id: 'package:app/%41.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/%41.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+    final sarif = DeadReporter.render(ReportFormat.sarif, [backslash, percent]);
+    // Uri(path:)였으면 back\slash → back/slash 손상, %41 → A 오귀속이었다.
+    expect(sarif, contains(r'lib/back%5Cslash.dart'));
+    expect(sarif, contains('lib/%2541.dart'));
+  });
 }
