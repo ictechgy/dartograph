@@ -30,8 +30,7 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 - 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50) + **bridges `--project`·
   pub workspace 감지(#52 — 사용자 표면 추가)** — 다음 릴리스는 minor(0.5.0)가
   자연스럽다(새 옵션). 0.4.1은 감사 수정을 소진했다.
-- 테스트 253개, 라인 커버리지 95.9%.
-- 테스트 244개, 라인 커버리지 **95.89%**(감사 전 94.4%).
+- 테스트 253개, 라인 커버리지 **95.89%**(감사 전 94.4%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -179,7 +178,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   SECURITY.md(심볼릭 링크 채널), doc/USAGE.md(affected·html·level/collapse·ignore·
   entry-points limitation·결정성 예외 2종), CONTRIBUTING(영어 정본 규칙·릴리스 체크리스트),
   lib/AGENTS.md(결정성 예외), doc/RESEARCH.md(Tier 2 마감·미채택 처분).
-- 테스트: 244개. 신규 계열 — test/export 제어문자 골든, test/cli/audit_gap_cli_test,
+- 테스트: 253개. 신규 계열 — test/export 제어문자 골든, test/cli/audit_gap_cli_test,
+  test/cli/bridges_project_test(공유 루트 9케이스),
   affected_cli_test·graph_level_cli_test, fact_cache_test의 비표준 디렉터리 stale 회귀,
   changed_files decode 회귀, symlink 양방향 회귀(adoption·affected).
 
@@ -222,6 +222,12 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   동일 × 3 PR. 244 테스트 무수정·커버리지 95.89%·corpus·contract·dry-run 0. GLM 3회
   리뷰 전부 차단 없음(비차단: 하네스 run별 해시·반복 최소값 보강, addEdge 무효화 근거
   주석, 메모 누락 assert — 반영).
+- bridges 공유 루트(PR #52): 신규 CLI 테스트 9종(workspace 감지·재기준·동일 project
+  문자열·폴백 limitation 2종·동일 루트·우선순위·위치 자유·misuse 6+빈 값), 전체 253
+  테스트·커버리지 95.89%·corpus·contract(bridges 4케이스 신규)·dry-run 0, 두 SDK CI
+  green. GLM 리뷰: 차단 B1(CHANGELOG 항목이 0.4.1 절에 삽입) 수정, 비차단(빈 값 거부·
+  limitation 목록 핀·메시지 귀속·containment ArgumentError·help 문구·테스트 갭 3) 반영.
+  isthmus 설치본 왕복: project 일치 조인 성공(evidence 재기준 경로 보존) + 불일치 거부.
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
   로컬 rg 부재로 CI 위임.
 
@@ -313,9 +319,10 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 이번 세션은 PR #39~#50을 머지했고 **0.4.1 릴리스 + 성능 backlog(P1~P6·P8~P10)까지
-   완료**했다(이 HANDOFF 갱신 자체가 docs PR #51이다). 완료된 구현·감사·측정·릴리스를
-   반복하지 않는다. CHANGELOG `Unreleased`의 성능 3건만 미릴리스다.
+2. 이번 세션은 PR #39~#52(+docs #47·#51·#53)를 머지했고 **0.4.1 릴리스 + 성능
+   backlog(P1~P6·P8~P10) + issue #38 dartograph 측**까지 완료했다. 완료된 구현·감사·
+   측정·릴리스를 반복하지 않는다. CHANGELOG `Unreleased` = 성능 3건 + bridges
+   `--project`(다음 릴리스는 새 옵션이라 minor 0.5.0이 자연스럽다).
 3. **issue #38의 dartograph 측은 완료(PR #52)** — isthmus 측 계약 문구 갱신과 issue
    코멘트 게시(샌드박스 토큰 403으로 실패)만 남았다. 전달 의미론은 Completed·
    Blockers에 보존했다. isthmus 저장소는 계속 임의 수정 금지.
