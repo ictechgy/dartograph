@@ -21,7 +21,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.4.1 릴리스 + 성능 PR #48~#50 + 이 HANDOFF를 갱신하는 docs PR(#51).
+- main 기준: 0.4.1 릴리스 + 감사 기록 docs PR(#47) + 성능 PR #48~#50 + 이 HANDOFF를
+  갱신하는 docs PR(#51).
   이번 세션은 PR #39~#50을 모두 두 SDK CI green + GLM packet-review 후 머지했다.
   열린 제품 PR 없음.
 - 미릴리스: CHANGELOG `Unreleased`에 성능 3건(#48~#50 — 사용자 표면 변화는 없고
@@ -86,7 +87,8 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
     메모(`_idOf` — 식별자 방문마다 projectIdForPath 재계산 제거), P2 `CodeGraph.nodes/
     edges` 읽기 뷰 캐시+변경 시 무효화 & `_addPublicApiRoots`의 노드 ID 목록 export
     루프 밖 hoist, P9 간선 비교자 `compareGraphEdges` 일원화(CodeGraph·GraphSnapshot·
-    usageEdgesFrom 공유), P10 pubspec 인덱싱당 1회 읽기·선언당 source 1회 계산.
+    usageEdgesFrom 공유 — 감사 T5의 정렬 로직 중복도 함께 해소), P10 pubspec 인덱싱당
+    1회 읽기·선언당 source 1회 계산.
   - **#49 query 배치 -84%**(10.7→1.7ms): P3/P6 `ReachabilityResult.isReachable`(Set)·
     `reachableMemberOf`(dot-접두 witness 색인 1회 구축 — 정렬 순 putIfAbsent가 기존
     firstOrNull과 동치, 주석 근거) — explain·symbol_query·compare._loss의 질의별 O(R)
@@ -219,8 +221,9 @@ _Last updated: 2026-09-09 (전체 감사 + 수정 6건 + 영어 문서 전환 + 
   bridges 동적 이름 toSource 개행 시 전체 문서 실패(GRAPH-EXCHANGE dynamic:true 보존
   원칙과 긴장 — isthmus 조율 사안), bridge limitations 미정렬(생산자 고정 순서라 결정성
   유지), graph_exporter limitations 미dedup(CLI가 선행 dedup), bridge_index 스코프 방문자
-  39줄 미행사(catch/for/지역함수/클로저/채널 재대입 — fixture 보강 후보), cli 잔여 57줄
-  (희귀 분기), `<no-library>` 파일 수준 합류(의도·문서화됨).
+  39줄 미행사(감사 T4 — catch/for/지역함수/클로저/채널 재대입, fixture 보강 후보),
+  cli 잔여 57줄(희귀 분기), `<no-library>` 파일 수준 합류(의도·문서화됨). 감사 T6
+  (graph_projection:43·cycle_detector 방어 분기)은 도달불가/무해 확인 — 재도출 금지.
 - **vacuous 확인(재도출 금지)**: dead findings 정렬 키 위치 무시(kind+id 동일·위치 다른
   finding은 ID 유일성으로 불가), mermaid 간선 null(snapshot endpoint 검증), N2/N4.
 
