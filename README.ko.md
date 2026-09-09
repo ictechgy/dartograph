@@ -1,0 +1,133 @@
+# dartograph
+
+Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [cartograph](https://github.com/ictechgy/cartograph)(Swift)의 자매 프로젝트다.
+
+[English README](README.md)
+
+**MIT 라이선스이며 상업적 사용을 포함해 영구 무료다.** 유료 티어·라이선스 키 ·
+좌석 수·LoC 제한·텔레메트리·계정 로그인은 영원히 없다.
+
+이름은 **Dart** + cartograph.
+
+## 무엇을 하려는가
+
+Flutter의 미사용 코드·파일 검사는 DCM(구 dart_code_metrics)이 가지고 있고, DCM은
+2023년에 유료로 전환했다. 무료 티어가 있지만 **1인·50k LoC 이하**다. 팀이거나
+그보다 큰 프로젝트면 돈을 내야 한다.
+
+dartograph는 그 자리를 **상업적 사용을 포함해 영구 무료(MIT)** 로 채운다. Periphery가
+상업화되며 남긴 자리를 cartograph가 채운 것과 같은 이유다.
+
+- `package:analyzer` — Dart 팀이 배포하는 공식 분석기 — 를 원천으로 쓴다. 텍스트 검색이 아니다
+- 미사용 코드·파일·순환 의존·레이어 규칙·지표를 한 그래프 위에서 낸다
+- 모든 판정에 근거를 붙인다. 삭제 판정은 내지 않는다
+- 에이전트가 소비할 것을 전제로 `query`와 `skill`을 처음부터 갖춘다
+
+**릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와
+[GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다.**
+모든 릴리스는 전체 테스트·라인 커버리지 게이트·패키지 dry-run·실제 공개 Flutter
+플러그인 dogfooding을 거친다. `bridges`는 isthmus GRAPH-EXCHANGE v1에 맞춰
+MethodChannel provenance·어휘 범위·UTF-8 위치, UTC 밀리초, 동적·미해석 한계를
+보수적으로 보고한다.
+
+## 설치
+
+순수 Dart CLI이며 Flutter SDK에 의존하지 않는다. Dart 3.11 이상에서 설치한다.
+
+```bash
+dart pub global activate dartograph
+dartograph --version
+```
+
+소스 체크아웃에서는 `dart run dartograph`로 같은 명령을 실행할 수 있다.
+
+## 사용
+
+분석할 Dart 패키지의 루트를 마지막 인자로 넘긴다.
+
+```bash
+dart run dartograph graph --format dot .
+dart run dartograph graph --format html .
+dart run dartograph dead --format text .
+dart run dartograph baseline --write .dartograph-baseline.json .
+dart run dartograph dead --format github-actions \
+  --baseline .dartograph-baseline.json --since origin/main .
+dart run dartograph query ApiClient --baseline .dartograph-baseline.json .
+dart run dartograph query --batch requests.json .
+dart run dartograph compare ../before-checkout ../after-checkout
+dart run dartograph affected origin/main .
+dart run dartograph skill
+dart run dartograph bridges --format json .
+dart run dartograph cycles --strict .
+dart run dartograph rules --config layers.yaml --strict .
+dart run dartograph metrics .
+```
+
+전역 설치했다면 각 줄의 `dart run dartograph`를 `dartograph`로 바꾼다. 전체 인자,
+출력 형식, 종료 코드, CI 예제는 [`doc/USAGE.md`](doc/USAGE.md)에 있다.
+
+`--since`는 전체 프로젝트 그래프를 만든 뒤 보고 위치만 좁힌다. 기준 ref 이후 커밋,
+staged·unstaged 변경, untracked 파일을 모두 포함하며 CI에서는 전체 Git 이력을 받아야
+한다. 리포트 형식은 `text`·`json`·`github-actions`·`sarif`다.
+
+`query`는 전체 그래프 대신 한 심볼의 양방향 이웃·멤버·보존 경로·한계를 cartograph와
+같은 필드 이름으로 답한다. `bridges`는 Flutter `MethodChannel` 생성과
+`invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 isthmus `GRAPH-EXCHANGE`
+버전 1로 내며, 동적 이름은 fact로, 미귀속·잘못된 호출과 부분 파싱은 limitation
+개수로 숨김없이 남긴다. EventChannel과 BasicMessageChannel은 현재 조인 범위 밖이므로
+사실로 오인하지 않고 limitation으로 센다. `cycles`·`rules`·`metrics`는 기본적으로
+보고만 하고, `--strict`일 때만 finding을 종료 코드 1로 바꾼다. 지표는 라이브러리별
+Ca·Ce·불안정도·추상도·주계열 거리를 계산한다.
+
+`// dartograph:ignore` 줄 주석은 그 주석이 위에 오는 선언의 dead 보고를 억제한다
+(`retentionReason: inlineIgnore`로 보존). 저장소 작성자의 결정이며 그래프에 기록된다.
+
+dartograph는 삭제 가능 여부를 판정하거나 코드를 자동 삭제하지 않는다. 각 finding의
+근거와 `limitations`를 사람이 함께 검토해야 한다. `dart analyze`의 라이브러리 내부
+`unused_element`를 재구현하는 도구가 아니라 프로젝트 전역 도달성을 묻는 도구다.
+
+## 분석 한계
+
+- 조건부 import/export는 analyzer가 고른 한 구성만 본다.
+- 문자열 route가 route table과 연결되지 않으면 한계로 보고하며 삭제 근거로 쓰지 않는다.
+- 생성 코드가 소스보다 오래됐으면 한계로 보고한다. 생성 선언 자체는 보수적으로 보존한다.
+- `main`은 여러 개일 수 있으며 기본적으로 `lib/`, `bin/`, `example/`의 진입점을 보존한다.
+  실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만
+  보존 루트로 좁힐 수 있다.
+- `lib/<package-name>.dart`가 export한 공개 선언과 공개 멤버는 외부 소비자 API로 보존한다.
+- 동적 호출과 네이티브 동작은 정적 그래프가 완전히 증명할 수 없다.
+- `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다.
+  Flutter services를 다시 export하는 barrel 경유 사용은 사실에서 제외하고
+  `flutter-services-reexports` limitation으로 알린다.
+
+분석 캐시는 분석 대상 밖의 OS 사용자 캐시(`~/Library/Caches`,
+`$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) 아래 `dartograph/<project-root-hash>`로
+분리한다. 프로젝트와 의존 패키지의 내용·mtime, 패키지 해석, Dart SDK 또는 분석
+revision이 바뀌면 자동으로 무효화하며, 캐시가 없거나 손상돼도 결과는 같고 분석 시간만
+늘어난다.
+
+보존 루트가 20개를 넘는 finding은 출력 폭주를 막기 위해 전체 개수와 앞 20개 sample,
+`retentionRootsTruncated: true`를 기록한다. 근거가 잘렸다는 사실은 숨기지 않는다.
+
+## 문서
+
+저장소 설계 문서는 한국어로 쓴다.
+
+| 문서 | 내용 |
+|---|---|
+| [`doc/PRD.md`](doc/PRD.md) | 무엇을·누구를 위해·어디까지·무엇을 하지 않을지 |
+| [`doc/PLAN.md`](doc/PLAN.md) | 단계별 계획 |
+| [`doc/RESEARCH.md`](doc/RESEARCH.md) | 확인된 사실·확인되지 않은 주장·출처 |
+| [`doc/DECISION-analyzer.md`](doc/DECISION-analyzer.md) | analyzer 버전·정점 ID·생성 코드·캐시 결정 |
+| [`doc/USAGE.md`](doc/USAGE.md) | 설치·명령·종료 코드·CI 사용법 |
+
+## 기여와 보안
+
+기여 절차는 [`CONTRIBUTING.md`](CONTRIBUTING.md), 취약점 제보 방법은
+[`SECURITY.md`](SECURITY.md), 릴리스 변경점은 [`CHANGELOG.md`](CHANGELOG.md)를 따른다.
+변경 이력의 한국어 원문은 [`CHANGELOG.ko.md`](CHANGELOG.ko.md)에 있다.
+
+## 라이선스
+
+MIT. **상업적 사용을 포함해 영구 무료다.** 이것은 이 프로젝트의 기능이지 각주가 아니다 —
+README 첫 화면에 적고, 라이선스를 바꾸지 않겠다는 약속을 `doc/PRD.md`에 남긴다.
