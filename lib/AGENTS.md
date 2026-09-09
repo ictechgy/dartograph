@@ -22,7 +22,8 @@
   참조·루트 변화와 이전 경로를 보여주되 단일 원인의 증명으로 표현하지 않는다. rename은 삭제/추가다.
 - 소스별 한계는 파일 수준 관측이다. 전역 영향 경고를 유지하고 다른 파일이나 특정 선언의 안전성을 추론하지 않는다.
 - baseline은 정확한 finding 지문만 억제한다. 경로·이름 유사성으로 억제 범위를 넓히지 않는다.
-- JSON 키·목록은 결정적이어야 한다. bridge 생성 시각 같은 명시된 예외만 허용한다.
+- JSON 키·목록은 결정적이어야 한다. bridge 생성 시각과 `generated-code-staleness`의
+  mtime 관측(USAGE에 선언) 같은 명시된 예외만 허용한다.
   GitHub Actions·SARIF·DOT·Mermaid의 각 출력 문법에 맞춰 escaping한다.
 - CLI 코드는 0/1/2/64다. dead finding은 1, cycles/rules/metrics는 strict에서만 1이다.
   batch에 미발견이 있으면 64지만 모든 개별 결과를 반환한다. 변경 시 도움말·사용법·CLI 계약 테스트를 함께 갱신한다.

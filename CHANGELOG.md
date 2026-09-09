@@ -4,6 +4,24 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Output fidelity fixes from the audit (all additive or misinformation-only changes)
+  - `dead --format json` gains a `report` field (`dead`/`test-only`) so a stored
+    artifact is machine-classifiable without the exit code — the four report
+    formats are now lossless-symmetric
+  - `dead --format github-actions` emits a `::notice ... suppressed by baseline`
+    line when the baseline suppressed findings (the other three formats already
+    reported the count; zero stays byte-identical)
+  - `graph --format json` nodes carry `isEnumConstant: true` for enum constants
+    (conditional-field convention like `line`/`column`; the cache document
+    already had it — the public exchange format can now reproduce the
+    enum-constant retention decision)
+  - SARIF file findings no longer invent a `region` of line 1 column 1 —
+    `region` is optional in SARIF and fabricating position evidence violates
+    the evidence contract (declaration findings keep their real region)
+  - The determinism contract now names its second declared exception: the
+    `generated-code-staleness` limitation is an mtime observation (git does not
+    preserve mtimes, so its presence can differ across fresh clones; findings,
+    nodes, and edges are unaffected) — documented in USAGE and lib/AGENTS.md
 - The analysis cache key now hashes every `.dart` file under the package root
   (excluding `.dart_tool`/`.git`/`build`), not only the five standard source
   directories — the analyzer also reads outside the standard directories

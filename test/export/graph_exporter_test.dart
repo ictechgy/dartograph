@@ -76,6 +76,34 @@ void main() {
     );
   });
 
+  test('JSON nodes carry isEnumConstant conditionally', () {
+    final enums = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'Status', isTypeDeclaration: true),
+        GraphNode(id: 'Status.active', isEnumConstant: true),
+      ],
+      edges: const [
+        GraphEdge(
+          sourceId: 'Status',
+          targetId: 'Status.active',
+          kind: EdgeKind.member,
+        ),
+      ],
+    );
+    // 조건부 필드 규약(line·column과 동일): 참일 때만 실어 기존 그래프의
+    // 바이트를 보존하고 캐시 문서와 필드 사실을 맞춘다.
+    expect(
+      GraphExporter.json(enums),
+      '{"edges":[{"kind":"member","source":"Status","target":"Status.active"}],'
+      '"limitations":[],"nodes":[{"id":"Status","isAbstract":false,'
+      '"isTypeDeclaration":true,"synthesized":false},{"id":"Status.active",'
+      '"isAbstract":false,"isEnumConstant":true,"isTypeDeclaration":false,'
+      '"synthesized":false}]}\n',
+    );
+    // enum 상수가 없는 기존 스냅샷의 골든은 무수정 — 위 테스트들이 증거다.
+    expect(GraphExporter.json(snapshot), isNot(contains('isEnumConstant')));
+  });
+
   test('HTML output is self-contained with a deterministic payload', () {
     final html = GraphExporter.html(
       snapshot,

@@ -23,8 +23,10 @@ import '../core/graph_snapshot.dart';
 ///
 /// escape를 설계상 거치지 않는 값은 신뢰 고정 어휘다: edge `kind.name`(enum),
 /// `report.label`·`severity`·`rulePrefix`(enum), mermaid의 순번 노드 ID `n$i`,
-/// `title=dartograph …` 상수. 이 자리에 앞으로 사용자 유래 문자열을 보간하지
-/// 않는다 — 보간이 필요해지는 순간 해당 표면의 escape를 먼저 확장한다.
+/// `title=dartograph …` 상수, dead_reporter의 baseline 억제 notice
+/// (`$n finding(s) suppressed by baseline` — n은 정수). 이 자리에 앞으로 사용자
+/// 유래 문자열을 보간하지 않는다 — 보간이 필요해지는 순간 해당 표면의 escape를
+/// 먼저 확장한다.
 abstract final class GraphExporter {
   /// 정렬된 키와 배열을 쓰는 JSON 문서를 만든다.
   static String json(
@@ -47,6 +49,10 @@ abstract final class GraphExporter {
             if (node.column != null) 'column': node.column!,
             'id': node.id,
             'isAbstract': node.isAbstract,
+            // line·column과 같은 조건부 필드 규약: 참일 때만 실어 정상 그래프의
+            // 바이트를 보존하고, json 소비자도 캐시 문서처럼 enum 상수 보존
+            // 판정(isEnumConstant)을 재현할 수 있다.
+            if (node.isEnumConstant) 'isEnumConstant': true,
             'isTypeDeclaration': node.isTypeDeclaration,
             if (node.line != null) 'line': node.line!,
             if (node.sourceUri != null) 'sourceUri': node.sourceUri!,

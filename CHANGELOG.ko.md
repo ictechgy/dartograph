@@ -4,6 +4,21 @@
 
 ## Unreleased
 
+- 감사 후속 출력 충실성 수정(전부 additive 또는 오정보 제거)
+  - `dead --format json`에 `report` 필드(`dead`/`test-only`) 추가 — 저장된
+    아티팩트 단독으로도 종료 코드 없이 기계 분류 가능, 4형식 무손실 대칭
+  - `dead --format github-actions`가 baseline 억제 발생 시 `::notice ...
+    suppressed by baseline` 줄을 낸다(나머지 3형식은 이미 보고 — 0이면 기존
+    출력과 byte-for-byte 동일)
+  - `graph --format json` 노드가 enum 상수에 `isEnumConstant: true`를 싣는다
+    (`line`·`column`과 같은 조건부 필드 규약 — 캐시 문서는 이미 보유했고 공개
+    교환 형식도 enum 상수 보존 판정을 재현 가능)
+  - SARIF 파일 finding의 1행 1열 `region` 발명을 제거 — SARIF에서 region은
+    선택이며 위치 증거 날조는 근거 계약 위반(선언 finding의 실제 region은 유지)
+  - 결정성 계약의 두 번째 선언된 예외를 명시: `generated-code-staleness`
+    limitation은 mtime 관측이다(git이 mtime을 보존하지 않으므로 fresh clone
+    사이에서 presence가 달라질 수 있고, findings·노드·간선은 영향 없음) —
+    USAGE·lib/AGENTS.md에 문서화
 - 분석 캐시 키가 표준 5 소스 디렉터리뿐 아니라 패키지 루트 아래 모든 `.dart`
   (`.dart_tool`·`.git`·`build` 제외)를 해싱한다 — analyzer는 import 클로저로
   표준 디렉터리 밖 파일(예: `tool/`)도 읽으므로, 키가 이들을 놓치면 그 파일

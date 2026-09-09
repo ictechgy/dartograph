@@ -62,9 +62,16 @@ abstract final class DeadReporter {
     final limits = limitations.toSet().toList()..sort();
     return switch (format) {
       ReportFormat.text => _text(findings, limits, suppressedCount, report),
+      // `report`는 저장된 JSON 아티팩트 단독으로도 dead/test-only 분류를
+      // 기계 판독하게 한다(4형식 무손실 대칭).
       ReportFormat.json =>
-        '${jsonEncode({'findings': findings.map((finding) => finding.toJson()).toList(), 'limitations': limits, 'suppressedCount': suppressedCount})}\n',
-      ReportFormat.githubActions => _githubActions(findings, limits, report),
+        '${jsonEncode({'findings': findings.map((finding) => finding.toJson()).toList(), 'limitations': limits, 'report': report.label, 'suppressedCount': suppressedCount})}\n',
+      ReportFormat.githubActions => _githubActions(
+        findings,
+        limits,
+        suppressedCount,
+        report,
+      ),
       ReportFormat.sarif => _sarif(findings, limits, suppressedCount, report),
     };
   }
@@ -132,9 +139,17 @@ abstract final class DeadReporter {
   static String _githubActions(
     List<DeadFinding> findings,
     List<String> limits,
+    int suppressed,
     DeadReport report,
   ) {
     final output = StringBuffer();
+    // baseline이 finding 전부를 억제해도 GH 로그에 흔적을 남긴다(다른 3형식과
+    // 대칭). 0이면 기존 출력과 byte-for-byte 동일하다.
+    if (suppressed > 0) {
+      output.writeln(
+        '::notice title=dartograph ${report.label}::$suppressed finding(s) suppressed by baseline',
+      );
+    }
     for (final finding in findings) {
       final properties = <String>['file=${_property(_path(finding.source))}'];
       if (finding.line != null) properties.add('line=${finding.line}');
@@ -170,10 +185,13 @@ abstract final class DeadReporter {
               {
                 'physicalLocation': {
                   'artifactLocation': {'uri': _sarifUri(_path(finding.source))},
-                  'region': {
-                    'startColumn': finding.column ?? 1,
-                    'startLine': finding.line ?? 1,
-                  },
+                  // 파일 finding(line 없음)에 1:1 region을 발명하지 않는다 —
+                  // SARIF에서 region은 선택이며 위치 증거 날조는 근거 규약 위반이다.
+                  if (finding.line != null)
+                    'region': {
+                      'startColumn': finding.column ?? 1,
+                      'startLine': finding.line,
+                    },
                 },
               },
             ],
@@ -204,6 +222,10 @@ abstract final class DeadReporter {
           'tool': {
             'driver': {
               'name': 'dartograph',
+              // testOnly는 선언 finding만 생성한다(reachability의
+              // testOnlyDeclarations — 파일은 보고하지 않음)라 'test-only-file'
+              // ruleId는 CLI에서 도달 불가. 라이브러리 호출자가 file finding을
+              // 넣는 조합만 rules 미선언이 되므로 그 불변식을 여기에 기록한다.
               'rules': [
                 {'id': '${report.rulePrefix}-declaration'},
                 if (report == DeadReport.dead) {'id': '${report.rulePrefix}-file'},
