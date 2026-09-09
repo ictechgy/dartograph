@@ -325,6 +325,58 @@ class Framework {
     expect(second.retentionRoots[callbackId], isNull);
     expect(cache.writeCount, 2);
   });
+
+  test(
+    'dart files outside the standard directories invalidate the cache',
+    () async {
+      // analyzer는 표준 5디렉터리(lib·bin·test·example·integration_test) 밖의
+      // .dart도 import 클로저로 읽는다(tool/ 등). 키가 표준 디렉터리만 세면
+      // 그 파일의 변경 후 낡은 해석이 재사용돼 limitation이 사라진다(실측
+      // stale hit 재현 사례).
+      final root = await Directory.systemTemp.createTemp(
+        'dartograph-outside-dir-cache.',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/pubspec.yaml').writeAsString('''
+name: outside_dir_cache
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory('${root.path}/lib').create();
+      await Directory('${root.path}/test').create();
+      await Directory('${root.path}/tool').create();
+      await File(
+        '${root.path}/lib/main.dart',
+      ).writeAsString('void main() {}\n');
+      await File('${root.path}/test/x_test.dart').writeAsString(
+        "import '../tool/helper.dart';\nvoid useHelper() { print(helper()); }\n",
+      );
+      final helper = File('${root.path}/tool/helper.dart');
+      await helper.writeAsString('int helper() => 1;\n');
+      final cache = _MemoryFactCache();
+      final index = AnalyzerGraphIndex(cache: cache);
+
+      final first = await index.index(root.path);
+      expect(
+        first.limitationDetails,
+        isNot(anyElement(contains('project:test/x_test.dart'))),
+      );
+      final writesAfterFirst = cache.writeCount;
+
+      // tool/ 밖의 심볼을 rename하면 x_test.dart의 해석이 미해석 호출로 바뀐다.
+      await helper.writeAsString('int helperRenamed() => 1;\n');
+      final second = await index.index(root.path);
+
+      // 키가 helper.dart를 커버하면 재분석(writeCount 증가)되고 한계가 나타난다.
+      expect(cache.writeCount, writesAfterFirst + 1);
+      expect(
+        second.limitationDetails,
+        anyElement(
+          contains('source-unresolved-invocations: project:test/x_test.dart'),
+        ),
+      );
+    },
+  );
 }
 
 final class _FailingFactCache implements FactCache {
