@@ -2,7 +2,7 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
-## Unreleased
+## 0.4.1
 
 - `--since`·`affected`의 Git 변경 매칭이 심볼릭 링크 소스에 대해 양방향이 됐다:
   링크 경로 자체(링크 파일 변경·retarget)와 해석된 실 경로(대상 변경)를 모두

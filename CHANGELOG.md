@@ -2,7 +2,7 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
-## Unreleased
+## 0.4.1
 
 - `--since`/`affected` Git change matching is now bidirectional for symlinked
   sources: both the link path itself (the link file changed or was retargeted)

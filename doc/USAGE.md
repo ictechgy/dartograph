@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.4.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.4.1은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -182,7 +182,7 @@ rules:
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.4.0
+- run: dart pub global activate dartograph 0.4.1
 - run: dartograph dead --format github-actions --since origin/main .
 ```
 
