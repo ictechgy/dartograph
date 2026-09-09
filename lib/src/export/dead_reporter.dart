@@ -222,6 +222,10 @@ abstract final class DeadReporter {
           'tool': {
             'driver': {
               'name': 'dartograph',
+              // testOnly는 선언 finding만 생성한다(reachability의
+              // testOnlyDeclarations — 파일은 보고하지 않음)라 'test-only-file'
+              // ruleId는 CLI에서 도달 불가. 라이브러리 호출자가 file finding을
+              // 넣는 조합만 rules 미선언이 되므로 그 불변식을 여기에 기록한다.
               'rules': [
                 {'id': '${report.rulePrefix}-declaration'},
                 if (report == DeadReport.dead) {'id': '${report.rulePrefix}-file'},
