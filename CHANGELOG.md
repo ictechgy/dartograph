@@ -44,7 +44,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   pruned from the walk so key computation cannot balloon into hashing a whole
   Flutter SDK, and nested-package discovery widens to pubspecs outside the
   standard directories. Relative imports that leave the root remain a
-  documented coverage boundary
+  documented coverage boundary. `toolVersion` is part of the cache identity, so
+  upgrading to 0.4.1 invalidates existing caches automatically (one reanalysis)
 - Hardened the CLI error boundary: `Error`s (TypeError, RangeError, …) escaping
   from analyzer/yaml internals are contained at the command boundary as an
   analysis failure (exit 2) — no more stack traces echoing internal paths or an
