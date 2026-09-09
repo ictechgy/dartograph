@@ -6,24 +6,6 @@ import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
 import 'reachability_analyzer.dart';
 
-/// cartograph의 SymbolQueryDocument 필드 계약으로 그래프 하나를 질의한다.
-///
-/// [depth]는 사용 관계(usedBy·dependsOn)를 몇 단계까지 따라갈지이며 기본 1이다.
-/// [limit]은 방향별로 보고할 이웃의 최대 개수며 null이면 제한하지 않는다.
-Map<String, Object?> querySymbol({
-  required GraphSnapshot graph,
-  required Map<String, RetentionReason> roots,
-  required String requested,
-  required List<String> limitations,
-  Set<String> suppressedIds = const {},
-  int depth = 1,
-  int? limit,
-}) => SymbolQuerySession(
-  graph: graph,
-  roots: roots,
-  limitations: limitations,
-).query(requested, suppressedIds: suppressedIds, depth: depth, limit: limit);
-
 /// 한 그래프의 도달성과 이름·이웃 색인을 여러 질의가 공유한다.
 final class SymbolQuerySession {
   /// 입력을 고정해 일괄 질의 중 결과가 바뀌지 않게 한다.
@@ -33,7 +15,7 @@ final class SymbolQuerySession {
     required List<String> limitations,
   }) : roots = Map.unmodifiable(roots),
        limitations = List.unmodifiable(limitations) {
-    analysis = ReachabilityAnalyzer().analyze(
+    _analysis = ReachabilityAnalyzer().analyze(
       graph,
       roots: this.roots,
       limitations: this.limitations,
@@ -63,12 +45,21 @@ final class SymbolQuerySession {
   /// 모든 응답이 함께 전달하는 분석 한계다.
   final List<String> limitations;
 
-  /// 일괄 baseline 처리에도 재사용하는 도달성 결과다.
-  late final ReachabilityResult analysis;
+  /// 질의 사이에 공유하는 도달성 결과다. 내부 타입이라 공개 필드로 노출하지
+  /// 않고 deadDeclarations로 필요한 발견만 드러내 공개 표면을 좁힌다.
+  late final ReachabilityResult _analysis;
   final Map<String, GraphNode> _nodes = {};
   final Map<String, List<GraphNode>> _names = {};
   final Map<String, List<GraphEdge>> _outgoing = {};
   final Map<String, List<GraphEdge>> _incoming = {};
+
+  /// 공유된 도달성 분석이 산출한 미도달 선언 발견의 불변 목록이다.
+  ///
+  /// 도달성 결과 모델(ReachabilityResult)은 내부 타입으로 남고 이 getter가
+  /// 공개 표면을 DeadFinding 목록으로 좁힌다(배럴은 DeadFinding만 export한다).
+  /// roots·limitations와 같이 불변으로 감싸 소비자가 결과를 바꾸지 못하게 한다.
+  List<DeadFinding> get deadDeclarations =>
+      List.unmodifiable(_analysis.deadDeclarations);
 
   /// 기존 단일 질의와 같은 문서 계약으로 한 요청을 처리한다.
   ///
@@ -98,15 +89,15 @@ final class SymbolQuerySession {
       );
     }
     final node = matches.single;
-    final explanation = analysis.explain(node.id);
-    final reachableMember = analysis.reachableMemberOf(node.id);
+    final explanation = _analysis.explain(node.id);
+    final reachableMember = _analysis.reachableMemberOf(node.id);
     // 직접 도달을 먼저 가른다. explain은 멤버로 보존된 컨테이너도 reachable로
     // 답하므로, reachable만 보면 witness가 있는 보존을 직접 도달과 섞게 된다.
     // 라이브러리는 선언이 `::`로 붙어 reachableMember가 null이므로 마지막
     // explanation.reachable 분기로 떨어져 기존 판정을 유지한다.
     final state = roots.containsKey(node.id)
         ? 'retained'
-        : analysis.isReachable(node.id)
+        : _analysis.isReachable(node.id)
         ? 'reachable'
         : reachableMember != null
         ? 'retainedByMember'
@@ -116,7 +107,7 @@ final class SymbolQuerySession {
     final path = switch (state) {
       'retained' => [node.id],
       'reachable' => explanation.path,
-      'retainedByMember' => analysis.explain(reachableMember!).path,
+      'retainedByMember' => _analysis.explain(reachableMember!).path,
       _ => null,
     };
     final usedBy = _usage(node.id, incoming: true, depth: depth, limit: limit);

@@ -22,12 +22,11 @@ void main() {
   final watch = Stopwatch()..start();
   final separate = [
     for (final name in requests)
-      querySymbol(
+      SymbolQuerySession(
         graph: snapshot,
         roots: roots,
-        requested: name,
         limitations: const [],
-      ),
+      ).query(name),
   ];
   final separateMicros = watch.elapsedMicroseconds;
   watch.reset();

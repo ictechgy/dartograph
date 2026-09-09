@@ -214,4 +214,45 @@ void main() {
       ]);
     });
   });
+
+  group('public API surface', () {
+    test(
+      'deadDeclarations exposes unreachable declarations as DeadFinding',
+      () {
+        // app::member는 member 간선만으로 루트에서 도달하지 못해 죽은 선언이다
+        // (reachability_analyzer_test의 첫 fixture와 같은 그래프).
+        final graph = GraphSnapshot(
+          nodes: [
+            GraphNode(id: 'app::root', sourceUri: 'project:lib/main.dart'),
+            GraphNode(id: 'app::called', sourceUri: 'project:lib/live.dart'),
+            GraphNode(id: 'app::member', sourceUri: 'project:lib/live.dart'),
+          ],
+          edges: const [
+            GraphEdge(
+              sourceId: 'app::root',
+              targetId: 'app::called',
+              kind: EdgeKind.call,
+            ),
+            GraphEdge(
+              sourceId: 'app::called',
+              targetId: 'app::member',
+              kind: EdgeKind.member,
+            ),
+          ],
+        );
+        final session = SymbolQuerySession(
+          graph: graph,
+          roots: const {'app::root': RetentionReason.mainEntryPoint},
+          limitations: const [],
+        );
+
+        // DeadFinding은 배럴로 export되므로 타입을 직접 이름으로 쓸 수 있고,
+        // getter가 내부 ReachabilityResult를 발견 목록으로 좁히는 공개 표면을 고정한다.
+        final List<DeadFinding> dead = session.deadDeclarations;
+        expect(dead.map((finding) => finding.id), ['app::member']);
+        // 공개 목록은 불변이다(roots·limitations와 같은 계약).
+        expect(() => dead.clear(), throwsUnsupportedError);
+      },
+    );
+  });
 }
