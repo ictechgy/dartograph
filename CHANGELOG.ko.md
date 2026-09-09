@@ -2,6 +2,22 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- 인덱싱이 출력 byte 동일하게 측정 가능하게 빨라졌다 (감사 P1/P2/P9/P10,
+  신규 `tool/benchmark_index.dart` A/B 하네스로 측정 — graph·dead·query·
+  retention·test-only 산출물 sha256 전후 동일):
+  - element→ID 해석을 관계 수집 패스 단위로 메모화 — 이전엔 식별자 방문마다
+    경로 정규화·이름 체인을 재계산했다
+  - `CodeGraph.nodes`/`edges` 읽기 뷰를 캐시하고 변경 시에만 무효화 — 매 접근
+    전체 재정렬 제거, `_addPublicApiRoots`는 노드 ID 목록을 export 루프 밖으로
+    hoist
+  - 간선 비교자를 CodeGraph·GraphSnapshot이 공유(결정성 구현 일원화), pubspec을
+    인덱싱당 1회 읽기, 선언 소스 경로를 선언당 1회 계산
+  - 합성 벤치마크(600파일, 4,923노드/14,726간선, Dart 3.13.3, macos_arm64,
+    cold 3회 중 최소): 인덱싱 1456ms → 1053ms (-28%). 머신 의존 수치며 상대
+    비교용이고 SLA가 아니다
+
 ## 0.4.1
 
 - `--since`·`affected`의 Git 변경 매칭이 심볼릭 링크 소스에 대해 양방향이 됐다:

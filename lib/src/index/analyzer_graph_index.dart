@@ -151,12 +151,22 @@ final class AnalyzerGraphIndex {
           }
         }
       }
-      _addPublicApiRoots(root, libraries, graph, retentionRoots);
+      final pubspecFile = File(p.join(root, 'pubspec.yaml'));
+      final pubspecContent = pubspecFile.existsSync()
+          ? pubspecFile.readAsStringSync()
+          : null;
+      _addPublicApiRoots(
+        root,
+        libraries,
+        graph,
+        retentionRoots,
+        pubspecContent,
+      );
       for (final unit in units) {
         unit.unit.accept(_RelationshipCollector(graph, root));
       }
       final limitations = <AnalyzerLimitation>{
-        ..._addPluginRoots(root, graph, retentionRoots),
+        ..._addPluginRoots(root, graph, retentionRoots, pubspecContent),
       };
       final hasConditionalConfiguration = units.any(
         (unit) => unit.unit.directives.any(
@@ -752,19 +762,17 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
       final unit = node.thisOrAncestorOfType<CompilationUnit>()!;
       final location = unit.lineInfo.getLocation(node.offset);
       final id = _elementId(element, root);
+      // 같은 fullName·source 계산을 선언마다 두 번 하지 않는다(감사 P10).
+      final fullName = element.firstFragment.libraryFragment!.source.fullName;
+      final source = _sourcePathId(fullName, root);
       if (!graph.containsNode(id)) {
         graph.addNode(
           GraphNode(
             id: id,
-            sourceUri: _sourcePathId(
-              element.firstFragment.libraryFragment!.source.fullName,
-              root,
-            ),
+            sourceUri: source,
             line: location.lineNumber,
             column: location.columnNumber,
-            synthesized: _isGenerated(
-              element.firstFragment.libraryFragment!.source.fullName,
-            ),
+            synthesized: _isGenerated(fullName),
             isTypeDeclaration: element is InterfaceElement,
             isAbstract:
                 (element is ClassElement && element.isAbstract) ||
@@ -773,10 +781,6 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
           ),
         );
       }
-      final source = _sourcePathId(
-        element.firstFragment.libraryFragment!.source.fullName,
-        root,
-      );
       final reason = _retentionReason(
         node,
         element,
@@ -1006,10 +1010,10 @@ void _addPublicApiRoots(
   Map<String, LibraryElement> libraries,
   CodeGraph graph,
   Map<String, RetentionReason> roots,
+  String? pubspecContent,
 ) {
-  final pubspec = File(p.join(root, 'pubspec.yaml'));
-  if (!pubspec.existsSync()) return;
-  final document = loadYaml(pubspec.readAsStringSync());
+  if (pubspecContent == null) return;
+  final document = loadYaml(pubspecContent);
   final packageName = document is YamlMap ? document['name'] : null;
   if (packageName is! String ||
       !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
@@ -1022,13 +1026,16 @@ void _addPublicApiRoots(
   if (entryLibrary == null) return;
   final exported = entryLibrary.exportNamespace.definedNames2.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));
+  // export 심볼마다 정렬 뷰를 다시 만들지 않는다 — 노드 ID 목록을 한 번만
+  // 뽑아 재사용한다(감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
+  final allNodeIds = graph.nodes.keys.toList(growable: false);
   for (final entry in exported) {
     if (entry.key.startsWith('_')) continue;
     final id = _elementId(_graphTarget(entry.value) ?? entry.value, root);
     if (!graph.containsNode(id)) continue;
     roots.putIfAbsent(id, () => RetentionReason.publicApi);
     final memberPrefix = '$id.';
-    for (final nodeId in graph.nodes.keys.where(
+    for (final nodeId in allNodeIds.where(
       (candidate) => candidate.startsWith(memberPrefix),
     )) {
       final memberName = nodeId.substring(memberPrefix.length);
@@ -1054,13 +1061,13 @@ Set<AnalyzerLimitation> _addPluginRoots(
   String root,
   CodeGraph graph,
   Map<String, RetentionReason> roots,
+  String? pubspecContent,
 ) {
-  final pubspec = File(p.join(root, 'pubspec.yaml'));
-  if (!pubspec.existsSync()) return const {};
+  if (pubspecContent == null) return const {};
   final matches = RegExp(
     r'^\s*(?:pluginClass|dartPluginClass):\s*([A-Za-z_$][\w$]*)\s*$',
     multiLine: true,
-  ).allMatches(pubspec.readAsStringSync());
+  ).allMatches(pubspecContent);
   final classNames = <String>{for (final match in matches) match.group(1)!};
   final limitations = <AnalyzerLimitation>{};
   for (final className in classNames) {
@@ -1094,31 +1101,36 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
   final String root;
   String? _owner;
 
+  // element→ID 메모. 같은 선언을 가리키는 참조는 식별자 방문마다 반복되므로
+  // (간선 시도 수 ≈ 식별자 수) _elementId의 경로 정규화·이름 체인 구성을
+  // element당 1회로 줄인다(감사 P1). 순수 함수의 결과 캐시라 출력은 불변이고,
+  // collector는 인덱싱 1회만 살아있으므로 Element 인스턴스 동일성이 안전하다.
+  final Map<Element, String> _idMemo = {};
+
+  String _idOf(Element element) =>
+      _idMemo.putIfAbsent(element, () => _elementId(element, root));
+
   @override
   void visitDeclaration(Declaration node) {
     final previous = _owner;
     final element = node.declaredFragment?.element;
     if (element != null && _isGraphElement(element)) {
-      _owner = _elementId(element, root);
+      _owner = _idOf(element);
       final enclosing = element.enclosingElement;
       if (enclosing != null && _isGraphElement(enclosing)) {
-        _add(_elementId(enclosing, root), _owner!, EdgeKind.member);
+        _add(_idOf(enclosing), _owner!, EdgeKind.member);
       }
       if (element is InterfaceElement) {
         final supertype = element.supertype;
         if (supertype != null &&
             supertype.element.library.uri.scheme != 'dart') {
-          _add(
-            _owner!,
-            _elementId(supertype.element, root),
-            EdgeKind.inheritance,
-          );
+          _add(_owner!, _idOf(supertype.element), EdgeKind.inheritance);
         }
         for (final type in element.interfaces) {
-          _add(_owner!, _elementId(type.element, root), EdgeKind.implements);
+          _add(_owner!, _idOf(type.element), EdgeKind.implements);
         }
         for (final type in element.mixins) {
-          _add(_owner!, _elementId(type.element, root), EdgeKind.mixin);
+          _add(_owner!, _idOf(type.element), EdgeKind.mixin);
         }
       }
       if (element is ExecutableElement && enclosing is InterfaceElement) {
@@ -1127,11 +1139,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
           for (final overridden in enclosing.inheritedMembers.values.where(
             (candidate) => candidate.name == name,
           )) {
-            _add(
-              _owner!,
-              _elementId(overridden.baseElement, root),
-              EdgeKind.override,
-            );
+            _add(_owner!, _idOf(overridden.baseElement), EdgeKind.override);
           }
         }
       }
@@ -1149,7 +1157,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
       if (target != null && _isGraphElement(target)) {
         _add(
           owner,
-          _elementId(target, root),
+          _idOf(target),
           _isCall(node) ? EdgeKind.call : EdgeKind.reference,
         );
       }
@@ -1162,7 +1170,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     final owner = _owner;
     final target = node.constructorName.element?.enclosingElement;
     if (owner != null && target != null && _isGraphElement(target)) {
-      _add(owner, _elementId(target, root), EdgeKind.call);
+      _add(owner, _idOf(target), EdgeKind.call);
     }
     super.visitInstanceCreationExpression(node);
   }
@@ -1172,7 +1180,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     final owner = _owner;
     final target = _graphTarget(node.writeElement);
     if (owner != null && target != null && _isGraphElement(target)) {
-      _add(owner, _elementId(target, root), EdgeKind.reference);
+      _add(owner, _idOf(target), EdgeKind.reference);
     }
     // 복합 대입(`a += b`)은 연산자도 호출한다. 단순 대입에서는 null이다.
     _addOperatorCall(node.element);
@@ -1226,7 +1234,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     if (owner == null) return;
     final target = _graphTarget(element);
     if (target != null && _isGraphElement(target)) {
-      _add(owner, _elementId(target, root), EdgeKind.call);
+      _add(owner, _idOf(target), EdgeKind.call);
     }
   }
 
@@ -1244,7 +1252,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
         element != null &&
         !isStructural &&
         _isGraphElement(element)) {
-      _add(owner, _elementId(element, root), EdgeKind.reference);
+      _add(owner, _idOf(element), EdgeKind.reference);
     }
     super.visitNamedType(node);
   }
