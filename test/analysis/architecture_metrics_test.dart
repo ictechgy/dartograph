@@ -115,4 +115,45 @@ void main() {
     expect(byId['package:app/a.dart']!.afferentCoupling, 0);
     expect(byId['package:app/b.dart']!.afferentCoupling, 1);
   });
+
+  test('zone classifies against the main sequence with tolerance', () {
+    ArchitectureMetrics at({
+      required int afferent,
+      required int efferent,
+      required double abstractness,
+    }) => ArchitectureMetrics(
+      id: 'x',
+      afferentCoupling: afferent,
+      efferentCoupling: efferent,
+      abstractness: abstractness,
+    );
+
+    // 고립 정점은 결합도 이야기가 없다(D=1의 고통 1위를 막는 별도 영역).
+    expect(
+      at(afferent: 0, efferent: 0, abstractness: 0).zone(0.3),
+      MetricsZone.isolated,
+    );
+    // 주계열 위(A=0.5, I=0.5 → D=0).
+    expect(
+      at(afferent: 1, efferent: 1, abstractness: 0.5).zone(0.3),
+      MetricsZone.mainSequence,
+    );
+    // 경계: D가 허용 오차와 정확히 같으면 정상(--strict 위반 판정과 같은 경계).
+    expect(
+      at(afferent: 3, efferent: 7, abstractness: 0).zone(0.7),
+      MetricsZone.mainSequence,
+    );
+    // 주계열 아래·멀리(A=0, I=0.2 → A+I=0.2, D=0.8): 구체·안정 = 고통.
+    expect(
+      at(afferent: 4, efferent: 1, abstractness: 0).zone(0.3),
+      MetricsZone.zoneOfPain,
+    );
+    // 주계열 위·멀리(A=1, I=0.35 → A+I=1.35, D=0.35): 추상·무의존 = 무용.
+    expect(
+      at(afferent: 13, efferent: 7, abstractness: 1).zone(0.3),
+      MetricsZone.zoneOfUselessness,
+    );
+    // 영역 값은 하이픈 표기다(JSON·표 축).
+    expect(MetricsZone.zoneOfPain.value, 'zone-of-pain');
+  });
 }

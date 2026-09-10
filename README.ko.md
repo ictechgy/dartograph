@@ -70,7 +70,7 @@ dartograph skill
 - `compare <before> <after>`는 같은 패키지의 두 체크아웃을 비교해 추가·제거된 정점·간선·보존 루트와 새로 미도달·도달이 된 것을 낸다(새로 미도달이 된 선언은 before-path·제거된 간선·제거된 루트를 근거로 싣는다). `--since`와 달리 보고 위치를 필터링하는 게 아니라 두 그래프 전체를 비교한다.
 - `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1로 낸다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이다(cartograph도 생산한다). 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel(현재 분석 범위 밖)은 사실로 읽히지 않고 한계로 집계된다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
-- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다.
+- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 실는다.
 
 `// dartograph:ignore` 줄 주석은 그 주석이 위에 오는 선언의 dead 보고를 억제한다(`retentionReason: inlineIgnore`로 보존) — 저장소 작성자의 결정이며 그래프 자체에 기록된다.
 
