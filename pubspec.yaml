@@ -1,6 +1,6 @@
 name: dartograph
 description: Evidence-backed dependency graph analysis for Dart and Flutter codebases.
-version: 0.6.0
+version: 0.7.0
 homepage: https://pub.dev/packages/dartograph
 repository: https://github.com/ictechgy/dartograph
 issue_tracker: https://github.com/ictechgy/dartograph/issues

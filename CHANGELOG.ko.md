@@ -2,6 +2,37 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.7.0
+
+- `graph` 명령에 프라이버시를 보호하는 익명화 그래프 내보내기 포맷인 `--format anon` 추가
+  (dependency-cruiser `anon` 리포터 패리티). 그래프 구조, 확장자, Dart 표준 관용 어휘
+  화이트리스트를 보존하면서 패키지 상대 경로와 파일명을 결정적·단사 식별자(`s0`, `s1`, …)로
+  치환한다. 분석 제한사항(limitations) 문구는 전체 키 교대 패턴을 1회 통과시켜 이중 치환
+  누출을 방지한다
+
+- `dead` 명령에 선언된 라이브러리 외부에서 결코 참조되지 않는 공개 선언을 감지하는
+  `--report-redundant-public` 옵션 추가 (Periphery redundant public accessibility 패리티).
+  `--report-test-only`와 동일한 info 계약(진단 항목이 있어도 종료 코드 0)을 따르며,
+  `--explain`, `--baseline`, 기계 가독 포맷과 결합된다. 보존 루트, enum 상수, override
+  구현체, 연산자, 비공개 컨테이너 멤버는 보수적으로 제외한다
+
+- `metrics --format json` 각 항목에 아키텍처 영역을 나타내는 `zone` 필드 추가
+  (cartograph `MetricsZone` 패리티). 각 컴포넌트 메트릭에 `zone` 필드(`main-sequence`,
+  `zone-of-pain`, `zone-of-uselessness`, `isolated`)를 포함한다. 영역 경계는 `--strict`
+  임계값 계산과 일치한다
+
+- `graph --format dot` 출력에서 순환 의존성에 참여하는 정점을 붉은색(`color="#d9383a"`,
+  `fontcolor="#d9383a"`)으로 강조 표시 (madge 패리티). Tarjan SCC 알고리즘으로 순환을
+  탐지하며, 순환이 없는 그래프의 DOT 출력은 바이트 단위로 동일하게 유지된다
+
+- HTML 내보내기 및 사영에서 `.dart::` 문자열 휴리스틱에 의존하던 것을 `GraphNode`의
+  명시적 `isLibrary` 불리언 플래그로 대체. 파일명에 `::`가 포함된 라이브러리가 정확하게
+  분류된다. 캐시 스키마 버전이 `v3`으로 증가하여 직렬화된 JSON·DOT·Mermaid 출력 변경 없이
+  이전 분석 캐시를 자연스럽게 재분석한다
+
+- `bridges` 3개 진단 패밀리 전반의 문법 일치 수정(N ≥ 2인 `unscanned-*` limitation의
+  복수형 명사 표기와 N = 1인 dynamic-* 단수형 동사 일치)
+
 ## 0.6.0
 
 - **파괴적 변경(라이브러리 API)**: 공개 라이브러리 표면

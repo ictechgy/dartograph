@@ -2,6 +2,43 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.7.0
+
+- Added `graph --format anon` for privacy-preserving graph export (parity with
+  dependency-cruiser's `anon` reporter). Package-relative paths and file paths
+  are anonymized using deterministic, injective identifiers (`s0`, `s1`, ...)
+  while preserving graph topology, file extensions, and standard Dart
+  conventions. Analyzer limitation strings are sanitized in a single alternation
+  pass to prevent double-replacement leaks
+
+- Added `dead --report-redundant-public` to identify public declarations that
+  are never referenced outside their defining library (parity with Periphery's
+  redundant public accessibility check). Follows the informational contract of
+  `--report-test-only` (findings emitted as `info`, command exits with code 0).
+  Compatible with `--explain`, `--baseline`, and machine-readable output formats.
+  Conservative exclusions preserve retention roots, enum constants, override
+  implementers, operators, and private container members
+
+- Added architectural zone classification to `metrics --format json` (parity
+  with cartograph's `MetricsZone`). Each component metric entry now includes a
+  `zone` field (`main-sequence`, `zone-of-pain`, `zone-of-uselessness`, or
+  `isolated`). The boundary aligns with `--strict` threshold calculations
+
+- In `graph --format dot`, vertices participating in circular dependencies are
+  now highlighted in red (`color="#d9383a"`, `fontcolor="#d9383a"`) (parity
+  with madge). Detected via Tarjan's SCC algorithm; DOT output for acyclic
+  graphs remains byte-identical
+
+- `GraphNode` now carries an explicit `isLibrary` boolean flag instead of
+  relying on `.dart::` string heuristics in HTML exports and projections.
+  Libraries whose file names contain `::` are now correctly classified. Cache
+  schema version incremented to `v3` for automatic re-analysis of prior caches
+  without changing serialized JSON, DOT, or Mermaid outputs
+
+- Fixed grammatical agreement in `bridges` limitations across all three
+  diagnostic families (`unscanned-*` plural nouns for N ≥ 2 and dynamic-*
+  singular verb agreement for N = 1)
+
 ## 0.6.0
 
 - **Breaking change (library API)**: the public library surface
