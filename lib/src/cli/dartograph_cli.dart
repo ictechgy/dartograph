@@ -842,9 +842,22 @@ _WorkspaceDetection _detectPubWorkspace(String rootPath) {
       try {
         final parsed = loadYaml(candidate.readAsStringSync());
         if (parsed is YamlMap && parsed['workspace'] != null) {
-          return _WorkspaceDetection(
-            directory.resolveSymbolicLinksSync(),
+          final workspaceRoot = directory.resolveSymbolicLinksSync();
+          if (_workspaceListsMember(
+            workspaceRoot,
+            parsed['workspace'],
+            rootPath,
+          )) {
+            return _WorkspaceDetection(workspaceRoot, null);
+          }
+          // workspace: 키는 있지만 스캔 루트가 멤버 목록에 없다 — 이 조상이 이
+          // 패키지의 workspace 루트가 아니다. 잘못된 기준으로 조용히 조인되지 않게
+          // limitation을 싣고 스캔 루트로 폴백한다(멤버십 검증 — 감사 후속).
+          return const _WorkspaceDetection(
             null,
+            'pub-workspace-member-not-listed: the nearest ancestor pubspec '
+            'declares workspace but does not list the package root as a member; '
+            'project fell back to the package root',
           );
         }
       } on Exception {
@@ -861,6 +874,32 @@ _WorkspaceDetection _detectPubWorkspace(String rootPath) {
     'but no ancestor pubspec declares workspace; project fell back to the '
     'package root',
   );
+}
+
+/// 스캔 루트의 workspace 루트 기준 상대 경로가 `workspace:` 멤버 목록에 있는지.
+///
+/// 명시 경로는 URL 정규화 후 동일 비교하고, 글롭 문자(`*`·`?`)를 가진 항목은
+/// 정적 해결이 불가하므로 보수적으로 멤버로 인정(sawGlob)한다. 목록이 아닌 형태도
+/// 거부하지 않는다 — 조인은 fail-closed 정확 문자열 일치라 여기서 과하게 거부하면
+/// 오히려 조인 어긋남이 커진다(방어적 허용).
+bool _workspaceListsMember(
+  String workspaceRoot,
+  Object? workspaceValue,
+  String scanRoot,
+) {
+  if (workspaceValue is! YamlList) return true;
+  final scanResolved = Directory(scanRoot).resolveSymbolicLinksSync();
+  final relative = p.url.joinAll(
+    p.split(p.relative(scanResolved, from: workspaceRoot)),
+  );
+  var sawGlob = false;
+  for (final entry in workspaceValue) {
+    if (entry is! String) continue;
+    final normalized = p.url.normalize(entry);
+    if (normalized == relative) return true;
+    if (normalized.contains('*') || normalized.contains('?')) sawGlob = true;
+  }
+  return sawGlob;
 }
 
 List<String> _limitations(AnalyzerGraphResult result) {

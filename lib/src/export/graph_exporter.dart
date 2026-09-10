@@ -19,7 +19,7 @@ import '../core/graph_snapshot.dart';
 /// | HTML | 페이로드: `<` → `\u003c`(적법한 JSON 이스케이프, script-tag 토크나이저 보호) / 헤더 limitation: HTML 텍스트 엔티티(raw LF는 HTML이 공백으로 흡수) |
 /// | text(dead_reporter) | 동적 값 전체(path·id·kind·reason·evidence·limitation)의 C0·DEL → 가시 이스케이프 — `path:line:col:` 행 프로토콜 위조 방지. 가시 이스케이프는 표시 전용이며 소비자가 역변환할 계약은 없다 |
 /// | GitHub Actions(dead_reporter) | `%`·C0·DEL·C1·U+2028/2029·bidi(U+202A–202E·U+2066–2069) → 퍼센트 인코딩. 원문의 리터럴 `%XX`는 `%25` 선행 인코딩으로 단일 디코드 후 원문 그대로 표시된다 |
-/// | SARIF uri(dead_reporter) | 경로 구분자 분리 + 세그먼트별 `Uri` 인코딩 — `\`·`%` 손실 없음 |
+/// | SARIF uri(dead_reporter) | project 상대 경로는 구분자 분리 + 세그먼트별 `Uri` 인코딩(`\`·`%` 손실 없음), `file:`·`package:` 소스는 이미 절대 URI라 그대로 통과 |
 ///
 /// escape를 설계상 거치지 않는 값은 신뢰 고정 어휘다: edge `kind.name`(enum),
 /// `report.label`·`severity`·`rulePrefix`(enum), mermaid의 순번 노드 ID `n$i`,
@@ -379,14 +379,28 @@ abstract final class GraphExporter {
 ''';
   }
 
+  /// id가 선언(`.dart` 라이브러리 경로 바로 뒤 `::`)인지 가른다.
+  ///
+  /// 옛 `contains('::')` 판별은 파일명에 `::`가 있으면(macOS 등에서 합법) 라이브러리도
+  /// 선언으로 오분류한다 — 예: `package:app/weird::name.dart`는 라이브러리다. 선언 ID는
+  /// 항상 `<…dart>::<이름>` 모양이라 `.dart::`로 구분하면 파일명 `::`에 오분류하지 않는다
+  /// (감사 "낮음": html `::` 파일명 오분류).
+  ///
+  /// 잔여 엣지: 파일명 자체가 `.dart::`를 포함하면(`weird.dart::name.dart`) 여전히 선언으로
+  /// 오판한다. 근본 해법은 GraphNode에 명시 kind를 실어 id 파싱을 버리는 것이지만, cosmetic
+  /// 출력의 극단 엣지라 휴리스틱으로 두고 후속 후보로 기록한다(코어 변경 회피).
+  static bool _isDeclarationId(String id) => id.contains('.dart::');
+
   static String _htmlKind(GraphNode node) {
-    if (!node.id.contains('::')) return 'library';
+    if (!_isDeclarationId(node.id)) return 'library';
     return node.isTypeDeclaration ? 'type' : 'member';
   }
 
   static String _htmlName(String id) {
-    final symbolSeparator = id.indexOf('::');
-    if (symbolSeparator >= 0) return id.substring(symbolSeparator + 2);
+    if (_isDeclarationId(id)) {
+      // 선언 이름은 마지막 `::` 뒤에 온다(파일명에 `::`가 있어도 구분자는 마지막 것).
+      return id.substring(id.lastIndexOf('::') + 2);
+    }
     final slash = id.lastIndexOf('/');
     return slash >= 0 ? id.substring(slash + 1) : id;
   }
