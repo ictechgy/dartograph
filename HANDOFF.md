@@ -1,17 +1,18 @@
 # Handoff
 
-_Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 처분(bridges 제어문자 **현행 유지 종결** #69/#70) + **GraphNode 명시 isLibrary**(#71, 캐시 스키마 v3) + **Tier 4 흡수 4종**(metrics zone #72·순환 색칠 #73·anon #74·redundant public #75, RESEARCH 원장 이행). **미릴리스 누적 6건**(#69·#71·#72·#73·#74·#75) — 다음 릴리스 때 CHANGELOG 기록. 릴리스 기준은 0.6.0(`85c345a`) 그대로. 후속: issue #38 종결(#57) + 죽은 API(#58) + 감사 subset(#63) + README(#65) + 0.6.0(#66) + 마감(#68); 선행: 전체 감사 + 수정 6건 + 0.4.1 + 성능 + bridges + 0.5.0(#52), PR #39~#68 merge)_
+_Last updated: 2026-09-10 (**세션 마감** — 0.6.0 후속 세션 PR #69~#76: 감사 낮음 이월 2건 처분(bridges 제어문자 **현행 유지 종결** #69/#70) + **GraphNode 명시 isLibrary**(#71, 캐시 스키마 v3) + **Tier 4 흡수 4종**(metrics zone #72·순환 색칠 #73·anon #74·redundant public #75, RESEARCH 원장 이행 #76). **미릴리스 누적 6건**(#69·#71·#72·#73·#74·#75) — 다음 릴리스 때 CHANGELOG 기록(semver minor 권장). **다음 세션 이월분 = Tier 3 범위 결정 + 다음 릴리스뿐**(Next Steps 4). 릴리스 기준은 0.6.0(`85c345a`) 그대로. 후속: issue #38 종결(#57) + 죽은 API(#58) + 감사 subset(#63) + README(#65) + 0.6.0(#66) + 마감(#68); 선행: 전체 감사 + 수정 6건 + 0.4.1 + 성능 + bridges + 0.5.0(#52), PR #39~#68 merge)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#75)**: ① bridges 동적 이름
-  toSource 개행 시 전체 문서 실패는 **현행 유지로 종결**(완화는 isthmus 조율 없이 금지,
+- **이번 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76 — 마감)**: ① bridges 동적
+  이름 toSource 개행 시 전체 문서 실패는 **현행 유지로 종결**(완화는 isthmus 조율 없이 금지,
   재론 금지), ② `unscanned-*` 복수형 문구는 **3개 family 일괄 수정**(#69). 이어 사용자
   지시("남은것도 ㄱㄱ")로 ③ **GraphNode 명시 isLibrary 실어 html id 파싱 폐지**(#71)와
   ④ **Tier 4(cosmetic) 4종 흡수**(#72~#75 — 사용자 범위 선택 "Tier 4 먼저": metrics zone
-  라벨·순환 노드 색칠·anon export·redundant public)을 완료. 남은 이월분은 Tier 3와 다음
-  릴리스뿐(Next Steps 4).
+  라벨·순환 노드 색칠·anon export·redundant public)을 완료하고 기록까지 마쳤다(#70·#76).
+  **이 세션은 여기서 마감 — 나머지는 전부 다음 세션 이월분이다(Tier 3 범위 결정·다음
+  릴리스, Next Steps 4).**
 - 이전 세션(PR #57~#68, 마감): issue #38 양측 종결 확인·close(#57), 죽은 공개 API 처분(#58),
   P7 측정-보류 확정(#60), bridge 스코프 방문자 테스트 보강(#61), 감사 "낮음" 실행가능
   subset(#63), README 퇴고(#65), **0.6.0 릴리스**(#66, semver minor), 세션 마감 기록(#68).
@@ -25,13 +26,15 @@ _Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 
   (Readme·Changelog 탭 **영어**)·GitHub Release(target=85c345a) 공개. 새 격리 캐시 설치본으로
   `--version` 0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→limitation+스캔루트 폴백,
   목록→workspace 루트) 검증. (이전 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **PR #69~#75(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종)** +
-  0.6.0 릴리스(#66) + 0.5.0(#54) + HANDOFF 기록(#55·#56·#59·#60·#62·#64·#68·#70) + issue #38
-  close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 테스트 보강(#61) + 감사 낮음
-  subset(#63) + README 퇴고(#65). PR #39~#75 모두 두 SDK CI green + GLM packet-review(필요 시)
+- main 기준: **PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 + 세션
+  기록)** + 0.6.0 릴리스(#66) + 0.5.0(#54) + HANDOFF 기록(#55·#56·#59·#60·#62·#64·#68·#70·#76) +
+  issue #38 close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 테스트 보강(#61) + 감사 낮음
+  subset(#63) + README 퇴고(#65). PR #39~#76 모두 두 SDK CI green + GLM packet-review(필요 시)
   후 머지했다(#71~#75 전부 차단 없음 — #72의 "차단"은 패킷 밖 CLI 코드 실측으로 해소, #75의
   차단 3건 중 1건 수정·2건 프로브 실측 기각; 비차단은 실측·규칙 근거로 처분 기록. docs 전용
-  전사는 리뷰 생략, 사유 기록). 열린 제품 PR 없음.
+  전사는 리뷰 생략, 사유 기록. #76의 3.11.0 1회 fail은 재실행 통과 — 플레이크). 열린 제품 PR
+  없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션 이월분이다(Tier 3 범위
+  결정·다음 릴리스, Next Steps 4).**
 - **미릴리스 누적 6건 — #69(bridges limitation 복수형 문법 3종), #71(GraphNode isLibrary —
   캐시 schemaVersion v3로 옛 분석 캐시 자연 재분석, json·dot·mermaid 무변경), #72(metrics
   zone 라벨 — metrics JSON 각 항목 `zone` 추가), #73(dot 순환 색칠 — 순환 없는 그래프 바이트
@@ -96,7 +99,8 @@ _Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 
     B2(의존 스코핑)는 프로브 실측으로 기각(외부 멤버 호출의 멤버 정점 정확 귀속·의존
     무정점). 머지 `2e489e2`.
   - RESEARCH.md 원장에 Tier 4 → 구현 이행 기록(Tier 3만 잔여).
-- 이 세션의 ①·② 처분은 docs PR #70으로, 본 갱신은 후속 docs PR으로 전사.
+- 이 세션의 ①·② 처분은 docs PR #70으로, #71~#75 완료는 #76으로 전사했고 이어 세션 마감
+  기록(Verification 보강·이월분 명확화)으로 닫는다.
 
 ### 이전 세션 (후속: issue #38 close + 이월 항목 + README 퇴고 + 0.6.0 릴리스, PR #57~#68)
 
@@ -391,6 +395,24 @@ _Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 
   GLM packet-review 차단 없음(비차단 — diff 범위는 git diff로 실측 확인; 신규 분기 핀 추가는
   CONTRIBUTING "문구 복제 금지"로 기각; 패킷 밖 소비자는 grep으로 없음 확인; 버전 bump는
   limitations가 검증 제외 자유 문장임으로 기각). 두 SDK CI green 후 머지(`15c4b21`).
+- GraphNode isLibrary(PR #71): format·analyze clean, 269 테스트, 커버리지 97.05%, corpus·
+  cli-contract·dry-run 0. 실측 대조 — `::` 파일명 + `.dart::` 파일명 + unnamed extension 패키지를
+  main(`git archive` 사본) 대비 실행해 실제 그래프 차이가 `.dart::` 파일명 케이스 하나뿐임을
+  확인(수정 전 member 오분류·이름 절단 → 수정 후 library). GLM 차단 없음(비차단 — 캐시 히트
+  정점 동등성[json 미노출 isLibrary 포함]·생산 플래그·사영 폴백 kind 핀, identity 주석 정리,
+  synthesized×isLibrary 문서화, 사영 첫-`::` 접힘 한계 구분 반영; json 재수화 경로 없음·
+  unnamed-extension 실그래프 무변경은 실측으로 반박).
+- Tier 4 흡수(#72~#75): 각 PR format·analyze clean·전체 테스트·corpus·cli-contract·dry-run 0·
+  두 SDK CI green. #72 zone 분류 단위 테스트(고립/주계열/경계==tolerance/pain/uselessness) — GLM
+  "차단"(고립 strict 모순)은 패킷 밖 CLI 코드(`!item.isolated && distance > tolerance`)로 해소.
+  #73 exporter 직렬화+CLI 종단 테스트, 비순환 무색칠 단언. #74 익명화 단위 테스트(결정성·단사·
+  구조 보존·텍스트 치환 범위·삽입 순서 무관) + 실제 analyzer limitation 경로의 CLI 통합 테스트 +
+  자기 저장소 도그푸딩(685정점 식별자 누출 0). #75 분류 단위 2종 + CLI 5종(json 정확성·text info·
+  SARIF note·조합 usage 64·중복 플래그) + test_only_corpus 확장(기존 소비 무변경 확인). GLM 차단
+  3건 — B3(비공개 컨테이너) 수정, B1(멤버 귀속)·B2(의존 스코핑)은 프로브 실측 기각(외부 멤버
+  호출의 멤버 정점 정확 귀속·의존 패키지 무정점). 최종 288 테스트·커버리지 97.08%.
+- docs(#76): RESEARCH Tier 4 이행 + HANDOFF 세션 전사. 3.11.0 잡이 1회 fail(로그 도메인
+  차단으로 원인 미확인) — 재실행으로 통과(같은 코드가 #75에서 양 SDK green이라 플레이크 판정).
 
 ## Blockers & Open Questions
 
@@ -486,6 +508,9 @@ _Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 
 - **기능 브랜치를 만들기 전에 커밋하지 않는다**: bridges 작업을 local main에 커밋했다가
   `git branch -f main origin/main` + upstream 재설정으로 복구했고, `git push -u origin
   main:refs/heads/...`가 main의 upstream을 오염시킬 수 있음을 확인했다(-u 남용 금지).
+  이번 세션(#74)에도 anon 작업을 main에 커밋했다 — 원격 main 보호가 직접 push를 거부해줘
+  사고가 새어나가지 않았고 같은 절차로 복구했다. 원격 거부는 마지막 안전망이지 허가가
+  아니다: 커밋 전 `git branch --show-current`를 습관화한다.
 - **gh release create의 positional sha는 에셋 glob**으로 해석된다 — `--target <sha>` 사용.
 - **python 치환은 dart format 후에 앵커가 어긋난다** — 편집 전 현재 본문을 읽고, 포맷된
   텍스트에 대해 edit 도구를 쓴다(heredoc+python은 따옴표·백틱 충돌이 잦다).
@@ -495,7 +520,17 @@ _Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 
   2번 반복했다. 새 작업 시작 전 `git branch --show-current`.
 - **dry-run은 clean git에서만 경고 0** — 미커밋 변경 자체가 경고다.
 - packet-review는 시간당 6회 — 다중 PR 세션은 페이싱하고, 리뷰어 권장의 기계적 구현
-  delta는 재전송을 생략할 수 있다(사유 기록).
+  delta는 재전송을 생략할 수 있다(사유 기록). 이 세션 운영 노트: 래퍼는 --files가 사실상
+  필수(빼면 unbound variable로 실패)고 --diff와 병용 불가 — 변경 파일을 --files로 주고
+  질문에 브랜치 범위를 서술하는 방식이 동작한다. 응답이 길면 tail 절단으로 서두(차단
+  항목 본문)가 사라질 수 있으니 결론 문단이 잘리면 처음부터 다시 읽는다.
+- `gh pr create` 본문을 `"$(cat <<'EOF' …)"` 치환으로 넘길 때 내용에 백틱·괄호 조합에 따라
+  bad substitution이 난다(이번 세션 1회) — 본문을 `$TMPDIR` 파일로 쓰고 `--body-file`로
+  넘기면 재현 없이 해결된다.
+- CI 잡 로그는 results-receiver 도메인(차단)이라 `gh run view --log`·API zip 모두 막힌다 —
+  잡의 실패 스텝은 `gh api .../jobs/<id> --jq '.steps[]'`로 확인하고, docs 전용 PR의 단일
+  SDK fail은 같은 코드가 직전 제품 PR에서 green이면 `gh run rerun --failed`로 플레이크를
+  가른다(#76에서 실증).
 - 샌드박스: rg 없음(bash grep, boundary 게이트는 CI), Write 도구는 워크스페이스 밖 거부
   (PR 본문은 bash heredoc), 커버리지는 전용 포트, macOS는 비-UTF8 파일명·`::` 파일명
   생성 가능(개행 파일명도 가능 — 주입 테스트에 활용).
@@ -639,6 +674,9 @@ UNRELEASED: PRs #69, #71, #72, #73, #74, #75 (six) — record in both CHANGELOGs
 release (semver minor recommended: two new CLI surfaces [graph --format anon,
 dead --report-redundant-public], additive metrics `zone` field, DOT coloring only for cyclic
 graphs, schema bump). Audit no-issue confirmations and vacuous findings are listed in HANDOFF —
-do not re-derive. This session's deferred work is COMPLETE: only Tier 3 absorption (scope on
-request) and the next release (on order) remain — see Next Steps items 4-5.
+do not re-derive. **The session is CLOSED (PRs #69~#76, records included): everything deferred
+to the next session is enumerated in Next Steps items 4-5 — Tier 3 absorption scope (decide on
+request: yaml extensions, init, markdown/codeowners reporters, issue-type filter, MCP server)
+and the next release (on order: bundle the six unreleased PRs, CHANGELOG twins, semver minor,
+version sync 6 spots, clean-git dry-run, publish, --target tag+Release, fresh-cache verify).**
 Follow the next explicit user task.`
