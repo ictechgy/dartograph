@@ -64,17 +64,30 @@ abstract final class GraphExporter {
   }
 
   /// Graphviz가 읽는 DOT 문서를 만든다.
+  ///
+  /// [cycleNodeIds]에 있는 정점은 순환 참여로 색칠한다(madge 순환 노드 색칠
+  /// 패리티 — 붉은 테두리·글자). 순환 판정은 분석 영역이므로 호출자가
+  /// `CycleDetector`로 계산해 전달하고, 비어 있으면 출력은 색칠 없이
+  /// 기존 바이트와 동일하다.
   static String dot(
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
+    Set<String> cycleNodeIds = const {},
   }) {
     final out = StringBuffer('digraph dartograph {\n');
     for (final limitation in limitations.toList()..sort()) {
       out.writeln('  // limitation: ${_escape(limitation)}');
     }
     for (final node in graph.nodes) {
+      final attributes = [
+        if (node.synthesized) 'style=dashed',
+        if (cycleNodeIds.contains(node.id)) ...const [
+          'color=red',
+          'fontcolor=red',
+        ],
+      ].join(' ');
       out.writeln(
-        '  "${_escape(node.id)}"${node.synthesized ? ' [style=dashed]' : ''};',
+        '  "${_escape(node.id)}"${attributes.isEmpty ? '' : ' [$attributes]'};',
       );
     }
     for (final edge in graph.edges) {
