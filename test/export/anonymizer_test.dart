@@ -100,4 +100,60 @@ void main() {
     );
     expect(anonymizer.anonymizeText('unknown/path.dart'), 'unknown/path.dart');
   });
+
+  test('output depends on the sorted graph, not insertion order', () {
+    // 같은 정점 집합을 역순으로 넣어도 스냅샷이 정렬해 같은 치환표를 낸다.
+    final graph = CodeGraph();
+    for (final node in sample().nodes.reversed) {
+      graph.addNode(
+        GraphNode(
+          id: node.id,
+          sourceUri: node.sourceUri,
+          line: node.line,
+          column: node.column,
+          synthesized: node.synthesized,
+          isLibrary: node.isLibrary,
+          isTypeDeclaration: node.isTypeDeclaration,
+          isAbstract: node.isAbstract,
+          isEnumConstant: node.isEnumConstant,
+        ),
+      );
+    }
+
+    final first = GraphAnonymizer.forGraph(sample());
+    final second = GraphAnonymizer.forGraph(graph.snapshot());
+    for (final id in [
+      'project:lib/src/repo.dart',
+      'project:lib/src/repo.dart::TaxCalculator.net',
+      'package:secret_app/lib/api.dart::Client.connect',
+    ]) {
+      expect(first.anonymizeId(id), second.anonymizeId(id));
+    }
+  });
+
+  test('setter suffixes, :: filenames, and unknown schemes', () {
+    final anonymizer = GraphAnonymizer.forGraph(sample());
+
+    // setter 접미 `=`는 확장자와 대칭으로 보존된다(식별자만 치환).
+    expect(
+      anonymizer.anonymizeId('project:lib/src/repo.dart::TaxCalculator.value='),
+      matches(r'^project:lib/src/s\d+\.dart::s\d+\.s\d+=$'),
+    );
+
+    // 파일명에 `::`가 있으면 첫 `::`를 구분으로 본다(사영 접힘 `_libraryOf`와
+    // 같은 관례) — 라이브러리 부분이 파일명의 `::` 앞에서 끊기지만 치환은
+    // 여전히 결정적·단사다. 근본 해소는 html 분류처럼 명시 종류가 필요하다.
+    final weird = anonymizer.anonymizeId(
+      'package:secret_app/lib/weird::name.dart::Decl',
+    );
+    expect(weird, matches(r'^package:s\d+/lib/s\d+::s\d+\.s\d+$'));
+    expect(weird, contains('::'));
+    expect(weird, isNot(contains('weird')));
+
+    // dartograph가 쓰지 않는 스킴 모양 접두는 식별 문자열로 치환된다.
+    expect(
+      anonymizer.anonymizeUri('myapp:something/else.dart'),
+      isNot(startsWith('myapp:')),
+    );
+  });
 }

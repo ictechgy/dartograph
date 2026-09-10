@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -83,6 +85,51 @@ void main() {
     // 구조 보존: 선언 정점의 `::` 구분은 그대로다.
     expect(ids.where((id) => id.contains('::')), isNotEmpty);
   });
+
+  test(
+    'graph --format anon anonymizes paths in real analyzer limitations',
+    () async {
+      // 실제 분석기가 내는 경로 실은 limitation(configured-entry-point-
+      // without-main)까지 치환되는지 통합으로 증명한다 — 이 형식의 존재
+      // 이유가 누출 방지다.
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-anon.',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      await File(p.join(temporary.path, 'pubspec.yaml')).writeAsString('''
+name: anon_pkg
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory(p.join(temporary.path, 'lib')).create();
+      await File(
+        p.join(temporary.path, 'lib', 'helper_secret_name.dart'),
+      ).writeAsString('int helper() => 1;\n');
+      // main 없는 진입점 선언 → configured-entry-point-without-main 한계가
+      // 프로젝트 상대 경로를 문구에 박는다.
+      await File(p.join(temporary.path, 'dartograph.yaml')).writeAsString('''
+entry_points:
+  - lib/helper_secret_name.dart
+''');
+
+      final output = StringBuffer();
+      expect(
+        await runDartograph([
+          'graph',
+          '--format',
+          'anon',
+          temporary.path,
+        ], output: output),
+        ExitStatus.success.code,
+      );
+      final text = output.toString();
+      expect(text, contains('configured-entry-point-without-main:'));
+      expect(text, isNot(contains('helper_secret_name')));
+      expect(text, isNot(contains('lib/helper_secret_name.dart')));
+      // 경로 문구는 치환되어도 한계 접두사는 그대로다(공용 어휘).
+      expect(text, contains('configured-entry-point-without-main: lib/'));
+    },
+  );
 
   test('graph --format dot colors nodes that participate in cycles', () async {
     // a→b→a 순환: 참여 정점 둘만 붉게 색칠되고 순환 밖 c는 그대로다.
