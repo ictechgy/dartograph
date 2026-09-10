@@ -13,6 +13,7 @@ import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../analysis/graph_comparison.dart';
+import '../core/atomic_write.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
@@ -687,11 +688,15 @@ Future<int> _runSkill(
     final directory = Directory(p.join(arguments[1], 'dartograph'));
     await directory.create(recursive: true);
     final skill = File(p.join(directory.path, 'SKILL.md'));
-    if (await skill.exists() && !force) {
+    // init의 충돌 가드와 같이 링크 자체도 검사한다. File.exists는 링크를
+    // 따라가므로 매달린 링크는 이 검사만으로는 보이지 않는다.
+    if (!force && (await skill.exists() || await Link(skill.path).exists())) {
       error.writeln('Skill already exists. Pass --force to overwrite it.');
       return ExitStatus.usage.code;
     }
-    await skill.writeAsString(agentSkillMarkdown);
+    // init과 같은 원자적 교체로 쓴다. 대상 자리의 심볼릭 링크를 따라가지 않고
+    // 링크 자체를 교체해 신뢰할 수 없는 디렉터리의 링크 대상 파일 오염을 막는다.
+    AtomicWrite.stringSync(skill, agentSkillMarkdown);
     output.writeln('Installed dartograph skill.');
     return ExitStatus.success.code;
   } on FileSystemException {
@@ -739,22 +744,13 @@ Future<int> _runInit(
     );
     return ExitStatus.usage.code;
   }
-  final tempFile = File(p.join(root, '.dartograph.yaml.tmp.$pid'));
   try {
-    tempFile.writeAsStringSync(configurationTemplate, flush: true);
     // --force 시 대상이 심볼릭 링크라면 링크 대상을 덮어쓰지 않고 링크 자체를
     // 원자적으로 정규 설정 파일로 교체해 외부 파일 오염을 방지한다.
-    tempFile.renameSync(configFile.path);
+    AtomicWrite.stringSync(configFile, configurationTemplate);
     output.writeln('Wrote ${configFile.path}');
     return ExitStatus.success.code;
   } on IOException {
-    try {
-      if (tempFile.existsSync()) {
-        tempFile.deleteSync();
-      }
-    } on IOException {
-      // Best-effort cleanup of temporary file.
-    }
     return _reportInitWriteFailure(error, configFile.path);
   }
 }
