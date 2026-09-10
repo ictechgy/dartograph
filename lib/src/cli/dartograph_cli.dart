@@ -1247,7 +1247,7 @@ Future<int> _runGraph(
     return ExitStatus.usage.code;
   }
   final format = positional[1];
-  if (!const {'dot', 'json', 'mermaid', 'html'}.contains(format)) {
+  if (!const {'dot', 'json', 'mermaid', 'html', 'anon'}.contains(format)) {
     error.writeln('Unknown graph format: $format');
     return ExitStatus.usage.code;
   }
@@ -1277,6 +1277,8 @@ Future<int> _runGraph(
       ),
       'json' => GraphExporter.json(snapshot, limitations: limitations),
       'html' => GraphExporter.html(snapshot, limitations: limitations),
+      // anon은 json 문서에서 식별 문자열만 결정적으로 치환한다(공유용).
+      'anon' => GraphExporter.anon(snapshot, limitations: limitations),
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),
     });
     return ExitStatus.success.code;
@@ -1349,7 +1351,7 @@ const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
-       dartograph graph --format <dot|json|mermaid|html> [--level <file|type|symbol>] [--collapse <n>] <package-root>
+       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>

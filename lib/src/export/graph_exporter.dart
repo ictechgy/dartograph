@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
+import 'anonymizer.dart';
 
 /// 그래프 사실을 결정론적인 교환 형식으로 직렬화한다.
 ///
@@ -32,36 +34,54 @@ abstract final class GraphExporter {
   static String json(
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
+  }) =>
+      '${jsonEncode({
+        'edges': [for (final edge in graph.edges) _edgeJson(edge, null)],
+        'limitations': limitations.toList()..sort(),
+        'nodes': [for (final node in graph.nodes) _nodeJson(node, null)],
+      })}\n';
+
+  /// 식별 문자열만 치환한 JSON 문서를 만든다(anon 형식).
+  ///
+  /// 필드 구성은 [json]과 같다 — 정점 ID·소스 URI·간선 양끝·limitation 문구의
+  /// 경로만 [GraphAnonymizer]로 바꾼다(dependency-cruiser `anon` 리포터 패리티).
+  /// 치환은 결정적이라 같은 그래프는 항상 같은 문서를 낸다.
+  static String anon(
+    GraphSnapshot graph, {
+    Iterable<String> limitations = const [],
   }) {
-    final value = <String, Object>{
-      'edges': [
-        for (final edge in graph.edges)
-          <String, Object>{
-            'kind': edge.kind.name,
-            'source': edge.sourceId,
-            'target': edge.targetId,
-          },
-      ],
-      'limitations': limitations.toList()..sort(),
-      'nodes': [
-        for (final node in graph.nodes)
-          <String, Object>{
-            if (node.column != null) 'column': node.column!,
-            'id': node.id,
-            'isAbstract': node.isAbstract,
-            // line·column과 같은 조건부 필드 규약: 참일 때만 실어 정상 그래프의
-            // 바이트를 보존하고, json 소비자도 캐시 문서처럼 enum 상수 보존
-            // 판정(isEnumConstant)을 재현할 수 있다.
-            if (node.isEnumConstant) 'isEnumConstant': true,
-            'isTypeDeclaration': node.isTypeDeclaration,
-            if (node.line != null) 'line': node.line!,
-            if (node.sourceUri != null) 'sourceUri': node.sourceUri!,
-            'synthesized': node.synthesized,
-          },
-      ],
-    };
-    return '${jsonEncode(value)}\n';
+    final anonymizer = GraphAnonymizer.forGraph(graph);
+    return '${jsonEncode({
+      'edges': [for (final edge in graph.edges) _edgeJson(edge, anonymizer)],
+      'limitations': [for (final limitation in limitations) anonymizer.anonymizeText(limitation)]..sort(),
+      'nodes': [for (final node in graph.nodes) _nodeJson(node, anonymizer)],
+    })}\n';
   }
+
+  static Map<String, Object> _edgeJson(GraphEdge edge, GraphAnonymizer? map) =>
+      {
+        'kind': edge.kind.name,
+        'source': map == null ? edge.sourceId : map.anonymizeId(edge.sourceId),
+        'target': map == null ? edge.targetId : map.anonymizeId(edge.targetId),
+      };
+
+  static Map<String, Object> _nodeJson(GraphNode node, GraphAnonymizer? map) =>
+      {
+        if (node.column != null) 'column': node.column!,
+        'id': map == null ? node.id : map.anonymizeId(node.id),
+        'isAbstract': node.isAbstract,
+        // line·column과 같은 조건부 필드 규약: 참일 때만 실어 정상 그래프의
+        // 바이트를 보존하고, json 소비자도 캐시 문서처럼 enum 상수 보존
+        // 판정(isEnumConstant)을 재현할 수 있다.
+        if (node.isEnumConstant) 'isEnumConstant': true,
+        'isTypeDeclaration': node.isTypeDeclaration,
+        if (node.line != null) 'line': node.line!,
+        if (node.sourceUri != null)
+          'sourceUri': map == null
+              ? node.sourceUri!
+              : map.anonymizeUri(node.sourceUri!),
+        'synthesized': node.synthesized,
+      };
 
   /// Graphviz가 읽는 DOT 문서를 만든다.
   ///

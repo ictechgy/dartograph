@@ -61,6 +61,29 @@ void main() {
     return AnalyzerGraphResult(graph: graph, limitations: const []);
   }
 
+  test('graph --format anon anonymizes the json document', () async {
+    final output = StringBuffer();
+    expect(
+      await runDartograph(
+        ['graph', '--format', 'anon', '.'],
+        output: output,
+        indexPackage: (_) async => indexed(),
+      ),
+      ExitStatus.success.code,
+    );
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    // 문서 모양은 json과 같다(식별 문자열만 치환).
+    expect(document.keys, ['edges', 'limitations', 'nodes']);
+    final nodes = (document['nodes'] as List).cast<Map<String, Object?>>();
+    // 관용 어휘(project·lib)는 남고 식별 파일명(a.dart·b.dart)은 사라진다.
+    final ids = nodes.map((node) => node['id'] as String).toList();
+    expect(ids, everyElement(contains('project:lib/')));
+    expect(ids, everyElement(isNot(contains('a.dart'))));
+    expect(ids, everyElement(isNot(contains('b.dart'))));
+    // 구조 보존: 선언 정점의 `::` 구분은 그대로다.
+    expect(ids.where((id) => id.contains('::')), isNotEmpty);
+  });
+
   test('graph --format dot colors nodes that participate in cycles', () async {
     // a→b→a 순환: 참여 정점 둘만 붉게 색칠되고 순환 밖 c는 그대로다.
     final graph = CodeGraph()

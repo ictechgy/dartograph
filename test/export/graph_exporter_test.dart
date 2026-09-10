@@ -112,6 +112,69 @@ void main() {
     );
   });
 
+  test('anon keeps the json document shape with identity strings mapped', () {
+    final document =
+        jsonDecode(
+              GraphExporter.anon(
+                GraphSnapshot(
+                  nodes: [
+                    GraphNode(
+                      id: 'project:lib/billing.dart',
+                      sourceUri: 'project:lib/billing.dart',
+                      isLibrary: true,
+                    ),
+                    GraphNode(
+                      id: 'project:lib/billing.dart::Invoice.total',
+                      sourceUri: 'project:lib/billing.dart',
+                      line: 4,
+                      column: 3,
+                    ),
+                  ],
+                  edges: const [
+                    GraphEdge(
+                      sourceId: 'project:lib/billing.dart::Invoice.total',
+                      targetId: 'project:lib/billing.dart',
+                      kind: EdgeKind.member,
+                    ),
+                  ],
+                ),
+                limitations: const [
+                  'configured-entry-point-without-main: lib/billing.dart',
+                ],
+              ),
+            )
+            as Map<String, Object?>;
+
+    // 문서·정점·간선의 키 모양은 json과 같다(식별 문자열만 바뀐다).
+    expect(document.keys, ['edges', 'limitations', 'nodes']);
+    final nodes = (document['nodes'] as List).cast<Map<String, Object?>>();
+    expect(nodes, hasLength(2));
+    expect(nodes.first.keys, [
+      'id',
+      'isAbstract',
+      'isTypeDeclaration',
+      'sourceUri',
+      'synthesized',
+    ]);
+    expect(nodes.last.keys, [
+      'column',
+      'id',
+      'isAbstract',
+      'isTypeDeclaration',
+      'line',
+      'sourceUri',
+      'synthesized',
+    ]);
+    // 라이브러리·멤버 점 구조는 유지되고 식별자는 치환된다.
+    expect(nodes.first['id'], matches(r'^project:lib/s\d+\.dart$'));
+    expect(nodes.last['id'], matches(r'^project:lib/s\d+\.dart::s\d+\.s\d+$'));
+    expect(nodes.first['sourceUri'], nodes.first['id']);
+    // 경로가 박힌 limitation 문구도 같은 치환을 받는다.
+    expect(document['limitations'], [
+      matches(r'^configured-entry-point-without-main: lib/s\d+\.dart$'),
+    ]);
+  });
+
   test('JSON nodes carry isEnumConstant conditionally', () {
     final enums = GraphSnapshot(
       nodes: [

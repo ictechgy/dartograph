@@ -71,6 +71,7 @@ expect_status 64 "affected option-shaped ref" affected --strict fixtures/phase5_
 expect_status 0 "graph dot" graph --format dot fixtures/phase5_contract
 expect_status 0 "graph json" graph --format json fixtures/phase5_contract
 expect_status 0 "graph mermaid" graph --format mermaid fixtures/phase5_contract
+expect_status 0 "graph anon" graph --format anon fixtures/phase5_contract
 expect_status 0 "graph html" graph --format html fixtures/phase5_contract
   expect_status 0 "graph level file" graph --format json --level file fixtures/phase5_contract
   expect_status 0 "graph level type" graph --format dot --level type fixtures/phase5_contract

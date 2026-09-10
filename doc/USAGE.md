@@ -14,7 +14,7 @@ dartograph --version
 ## 명령
 
 ```text
-dartograph graph --format <dot|json|mermaid|html> [--level <file|type|symbol>] [--collapse <n>] <package-root>
+dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
@@ -56,6 +56,13 @@ dartograph metrics [--strict] <package-root>
 렌더링된다. 400정점을 넘으면 연결이 많은 정점부터 남기고 잘라 냈다는 사실을 페이지와
 페이로드(`truncatedFrom`)에 적는다 — 전체 그래프는 `--format dot`을 쓴다. limitations는
 헤더의 접히는 목록과 페이로드 양쪽에 실린다.
+
+`graph --format anon`은 버그 리포트 공유용 JSON이다. 문서 모양은 `--format json`과
+같고 정점 ID·소스 URI·간선 양끝·limitation 문구의 경로만 결정적으로 치환한다
+(식별 문자열 → `s0`, `s1`, … 토큰; 스킴·디렉터리 계층·`::`·멤버 점 구분·확장자는
+보존, `lib`·`src` 같은 관용 디렉터리는 그대로). 같은 그래프는 항상 같은 문서를 내므로
+출력끼리 직접 비교할 수 있다. 치환은 그래프에 실린 경로만 대상이라 limitation 문구가
+그래프에 없는 경로를 담으면 그 문자열은 그대로 남는다.
 
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
