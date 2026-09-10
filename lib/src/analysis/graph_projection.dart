@@ -83,6 +83,11 @@ abstract final class GraphProjection {
 
   /// 선언 ID의 소속 라이브러리 ID를 답한다. 라이브러리 노드가 없으면
   /// (합성 입력) 자기 자신을 대표로 둔다.
+  ///
+  /// 접힘은 여전히 id의 첫 `::` 파싱에 의존한다 — 파일명에 `::`가 있으면 접힘
+  /// 대상 라이브러리 id가 어긋나 실재 노드 미발견으로 정점이 접히지 않은 채
+  /// 남는다(보수적 폴백). html의 종류·이름 판정은 GraphNode의 명시 isLibrary로
+  /// 이미 id 파싱과 무관하다(이 접힘 한계와 구분된다).
   static String _libraryOf(String id, Set<String> nodeIds) {
     final separator = id.indexOf('::');
     if (separator < 0) return id;

@@ -76,6 +76,14 @@ environment:
         GraphExporter.json(second.graph.snapshot()),
         GraphExporter.json(first.graph.snapshot()),
       );
+      // 캐시 히트(=decode 왕복)도 정점 의미를 그대로 보존한다 — json 출력에
+      // 실리지 않는 isLibrary까지 포함해 노드 동등성으로 고정한다.
+      expect(second.graph.snapshot().nodes, first.graph.snapshot().nodes);
+      expect(
+        second.graph.node('project:lib/cache_fixture.dart')!.isLibrary,
+        isTrue,
+        reason: '라이브러리 정점은 생산·캐시 왕복 모두 isLibrary=true다',
+      );
 
       await source.writeAsString('class First {}\nclass Second {}\n');
       final changed = await index.index(root.path);

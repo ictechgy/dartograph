@@ -114,6 +114,8 @@ void main() {
 
     final typeLevel = GraphProjection.atLevel(orphan, GraphLevel.type);
     expect(typeLevel.nodes.single.id, 'project:lib/a.dart::Ghost.run');
+    // atLevel의 폴백은 선언 기본값이다(라이브러리로 표시하지 않는다).
+    expect(typeLevel.nodes.single.isLibrary, isFalse);
 
     // file 수준에서도 라이브러리 노드가 없으면 같은 보수 규칙을 쓴다.
     final fileLevel = GraphProjection.atLevel(orphan, GraphLevel.file);
@@ -157,6 +159,11 @@ void main() {
     expect(
       depthOne.nodes.firstWhere((node) => node.id == 'project:lib').sourceUri,
       isNull,
+    );
+    // 집계 정점은 라이브러리로 표시한다(파일 묶음 표시 — html 분류 보존).
+    expect(
+      depthOne.nodes.firstWhere((node) => node.id == 'project:lib').isLibrary,
+      isTrue,
     );
 
     // depth 2: `package:`는 패키지명이 첫 세그먼트라 `package:app/src`로

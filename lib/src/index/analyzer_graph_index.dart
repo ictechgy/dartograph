@@ -226,8 +226,9 @@ final class AnalyzerGraphIndex {
 // 노드 직렬화에 isLibrary를 추가할 때도 같다(v3 — 추출 의미 변화 없이 필드만 늘었다).
 const _cacheSchemaVersion = 3;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
-// 추출 의미가 바뀌어 identity를 올린다. 직렬화 형식(노드·간선·루트 필드)은
-// 그대로라 schemaVersion은 v2를 유지한다.
+// 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
+// 올리지 않았다(직렬화 변경 시에는 위 schemaVersion만 올린다 — isEnumConstant·
+// isLibrary 선례).
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v5-inline-ignore';
 
