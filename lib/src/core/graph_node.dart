@@ -10,6 +10,7 @@ final class GraphNode {
     int? line,
     int? column,
     bool synthesized = false,
+    bool isLibrary = false,
     bool isTypeDeclaration = false,
     bool isAbstract = false,
     bool isEnumConstant = false,
@@ -22,6 +23,13 @@ final class GraphNode {
     }
     if (column != null && column < 1) {
       throw ArgumentError.value(column, 'column', 'must be 1-based');
+    }
+    if (isLibrary && (isTypeDeclaration || isAbstract || isEnumConstant)) {
+      throw ArgumentError.value(
+        isLibrary,
+        'isLibrary',
+        'is mutually exclusive with declaration flags',
+      );
     }
     if (isAbstract && !isTypeDeclaration) {
       throw ArgumentError.value(
@@ -43,6 +51,7 @@ final class GraphNode {
       line: line,
       column: column,
       synthesized: synthesized,
+      isLibrary: isLibrary,
       isTypeDeclaration: isTypeDeclaration,
       isAbstract: isAbstract,
       isEnumConstant: isEnumConstant,
@@ -55,6 +64,7 @@ final class GraphNode {
     required this.line,
     required this.column,
     required this.synthesized,
+    required this.isLibrary,
     required this.isTypeDeclaration,
     required this.isAbstract,
     required this.isEnumConstant,
@@ -72,8 +82,14 @@ final class GraphNode {
   /// 알 수 있을 때의 1부터 시작하는 소스 열이다.
   final int? column;
 
-  /// 알려진 생성 코드에서 온 정점인지 나타낸다.
+  /// 알려진 생성 코드에서 온 정점인지 나타낸다. 생성 코드 표시는 정점의
+  /// 종류(라이브러리·선언)와 직교하므로 isLibrary와 함께 쓸 수 있다.
   final bool synthesized;
+
+  /// 라이브러리(파일) 정점인지 나타낸다. 선언 ID 모양(`<…dart>::<이름>`)에서
+  /// 종류를 유추하지 않게 한다 — 파일명에 `::`·`.dart::`가 있어도(일부 플랫폼에서
+  /// 합법) 분류가 흔들리지 않는다(감사 "낮음": html `::` 파일명 오분류의 근본 해결).
+  final bool isLibrary;
 
   /// Martin 추상도 계산에서 타입 선언의 분모에 포함되는지 나타낸다.
   final bool isTypeDeclaration;
@@ -93,6 +109,7 @@ final class GraphNode {
       line == other.line &&
       column == other.column &&
       synthesized == other.synthesized &&
+      isLibrary == other.isLibrary &&
       isTypeDeclaration == other.isTypeDeclaration &&
       isAbstract == other.isAbstract &&
       isEnumConstant == other.isEnumConstant;
@@ -104,6 +121,7 @@ final class GraphNode {
     line,
     column,
     synthesized,
+    isLibrary,
     isTypeDeclaration,
     isAbstract,
     isEnumConstant,

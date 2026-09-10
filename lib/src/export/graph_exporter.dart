@@ -162,7 +162,7 @@ abstract final class GraphExporter {
             <String, Object>{
               'id': node.id,
               'kind': _htmlKind(node),
-              'name': _htmlName(node.id),
+              'name': _htmlName(node),
               'synthesized': node.synthesized,
             },
       ],
@@ -379,30 +379,26 @@ abstract final class GraphExporter {
 ''';
   }
 
-  /// id가 선언(`.dart` 라이브러리 경로 바로 뒤 `::`)인지 가른다.
-  ///
-  /// 옛 `contains('::')` 판별은 파일명에 `::`가 있으면(macOS 등에서 합법) 라이브러리도
-  /// 선언으로 오분류한다 — 예: `package:app/weird::name.dart`는 라이브러리다. 선언 ID는
-  /// 항상 `<…dart>::<이름>` 모양이라 `.dart::`로 구분하면 파일명 `::`에 오분류하지 않는다
-  /// (감사 "낮음": html `::` 파일명 오분류).
-  ///
-  /// 잔여 엣지: 파일명 자체가 `.dart::`를 포함하면(`weird.dart::name.dart`) 여전히 선언으로
-  /// 오판한다. 근본 해법은 GraphNode에 명시 kind를 실어 id 파싱을 버리는 것이지만, cosmetic
-  /// 출력의 극단 엣지라 휴리스틱으로 두고 후속 후보로 기록한다(코어 변경 회피).
-  static bool _isDeclarationId(String id) => id.contains('.dart::');
-
+  /// 정점의 표시 종류. 라이브러리/선언 구분은 GraphNode의 명시적 isLibrary로만
+  /// 판정한다 — id 모양에서 유추하지 않는다(파일명에 `::`가 있어도(macOS 등에서
+  /// 합법), 심지어 `.dart::`를 포함해도 종류가 흔들리지 않는다. 감사 "낮음":
+  /// html `::` 파일명 오분류의 근본 해결 — 옛 `.dart::` 휴리스틱의 잔여 엣지였던
+  /// `weird.dart::name.dart` 같은 파일명도 정확히 라이브러리로 분류한다).
   static String _htmlKind(GraphNode node) {
-    if (!_isDeclarationId(node.id)) return 'library';
+    if (node.isLibrary) return 'library';
     return node.isTypeDeclaration ? 'type' : 'member';
   }
 
-  static String _htmlName(String id) {
-    if (_isDeclarationId(id)) {
+  static String _htmlName(GraphNode node) {
+    if (!node.isLibrary) {
       // 선언 이름은 마지막 `::` 뒤에 온다(파일명에 `::`가 있어도 구분자는 마지막 것).
-      return id.substring(id.lastIndexOf('::') + 2);
+      final separator = node.id.lastIndexOf('::');
+      if (separator >= 0) return node.id.substring(separator + 2);
+      // `<unnamed-extension@…>`처럼 `::` 없는 선언 ID는 경로 마지막 세그먼트로
+      // 표시한다(옛 라이브러리 분기와 같은 규칙 — 출력 보존).
     }
-    final slash = id.lastIndexOf('/');
-    return slash >= 0 ? id.substring(slash + 1) : id;
+    final slash = node.id.lastIndexOf('/');
+    return slash >= 0 ? node.id.substring(slash + 1) : node.id;
   }
 
   /// JSON 페이로드의 여는 꺾쇠를 전부 JSON 이스케이프로 바꾼다.

@@ -199,6 +199,20 @@ void main() {
       ),
       throwsArgumentError,
     );
+    // 라이브러리 정점은 선언 플래그와 공존할 수 없다.
+    expect(
+      () => GraphNode(id: 'a', isLibrary: true, isTypeDeclaration: true),
+      throwsArgumentError,
+      reason: 'a library is never a declaration',
+    );
+    expect(
+      () => GraphNode(id: 'a', isLibrary: true, isAbstract: true),
+      throwsArgumentError,
+    );
+    expect(
+      () => GraphNode(id: 'a', isLibrary: true, isEnumConstant: true),
+      throwsArgumentError,
+    );
   });
 
   test('equal GraphNodes are interchangeable in sets and maps', () {
@@ -233,6 +247,13 @@ void main() {
           synthesized: true,
           isTypeDeclaration: true,
         ),
+      ),
+    );
+    // 종류 플래그 하나(isLibrary)만 달라도 동등하지 않다.
+    expect(
+      GraphNode(id: 'a', sourceUri: 'project:lib/a.dart'),
+      isNot(
+        GraphNode(id: 'a', sourceUri: 'project:lib/a.dart', isLibrary: true),
       ),
     );
   });
