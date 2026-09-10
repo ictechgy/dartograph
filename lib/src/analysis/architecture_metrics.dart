@@ -62,7 +62,8 @@ final class ArchitectureMetrics {
   /// 고립 정점은 결합도 이야기가 없으므로 별도 영역으로 둔다. 그 외는 주계열
   /// 거리가 [tolerance] 이하면 main-sequence, 넘으면 주계열 아래(A+I < 1,
   /// 구체·안정 = 고통)냐 위(A+I > 1, 추상·무의존 = 무용)냐로 가른다.
-  /// `--strict`의 위반 판정(`distance > tolerance`)과 같은 경계다.
+  /// `--strict`의 위반 판정은 고립 정점을 면제한다(`!isolated &&
+  /// distance > tolerance`) — zone의 영역 경계와 정확히 같다.
   MetricsZone zone(double tolerance) {
     if (isolated) return MetricsZone.isolated;
     if (distance <= tolerance) return MetricsZone.mainSequence;
