@@ -230,6 +230,29 @@ void main() {
     expect(sarif, contains('lib/%2541.dart'));
   });
 
+  test('sarif uri passes file and package sources through uncorrupted', () {
+    DeadFinding finding(String source) => DeadFinding(
+      id: '$source::x',
+      kind: 'declaration',
+      source: source,
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+    // file:·package:는 이미 절대 URI인 소스다(projectIdForPath의 root 밖 fallback,
+    // 의존 해결). 이걸 `/`로 쪼개 재인코딩하면 스킴 콜론이 %3A로 손상되므로(실측
+    // file:///a→file%3A///a) 그대로 통과해야 한다. project 상대 경로는 여전히
+    // 세그먼트 인코딩된다(위 backslash·percent 테스트).
+    final sarif = DeadReporter.render(ReportFormat.sarif, [
+      finding('file:///abs/outside.dart'),
+      finding('file:///C:/abs/outside.dart'),
+      finding('package:dep/x.dart'),
+    ]);
+    expect(sarif, contains('"uri":"file:///abs/outside.dart"'));
+    expect(sarif, contains('"uri":"file:///C:/abs/outside.dart"'));
+    expect(sarif, contains('"uri":"package:dep/x.dart"'));
+    expect(sarif, isNot(contains('%3A')));
+  });
+
   test('json carries the report classification and GH reports suppression', () {
     final dead =
         jsonDecode(

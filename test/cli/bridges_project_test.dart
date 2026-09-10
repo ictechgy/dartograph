@@ -182,6 +182,79 @@ final channel = MethodChannel('dev.example/orphan');
     },
   );
 
+  test(
+    'a workspace member not listed in the root falls back with a limitation',
+    () async {
+      final notListed = await Directory.systemTemp.createTemp(
+        'bridges-notlisted.',
+      );
+      addTearDown(() => notListed.delete(recursive: true));
+      // 조상은 workspace:를 선언하지만 스캔 루트 패키지는 멤버 목록에 없다.
+      await File(p.join(notListed.path, 'pubspec.yaml')).writeAsString('''
+name: ws_root
+workspace:
+  - packages/other_pkg
+environment:
+  sdk: ^3.11.0
+''');
+      final member = Directory(p.join(notListed.path, 'packages', 'scan_pkg'));
+      await Directory(p.join(member.path, 'lib')).create(recursive: true);
+      await File(p.join(member.path, 'pubspec.yaml')).writeAsString('''
+name: scan_pkg
+resolution: workspace
+environment:
+  sdk: ^3.11.0
+''');
+      await File(p.join(member.path, 'lib', 'channel.dart')).writeAsString('''
+import 'package:flutter/services.dart';
+
+final channel = MethodChannel('dev.example/notlisted');
+''');
+
+      final document = await bridges([member.path]);
+
+      // 멤버십 미확인 → 조상을 프로젝트 루트로 채택하지 않고 스캔 루트로 폴백한다
+      // (잘못된 기준으로 조용히 조인되지 않게 limitation을 싣는다).
+      expect(document['project'], await member.resolveSymbolicLinks());
+      expect(document['limitations'], [
+        startsWith('pub-workspace-member-not-listed:'),
+      ]);
+    },
+  );
+
+  test('a workspace glob entry conservatively confirms membership', () async {
+    final globbed = await Directory.systemTemp.createTemp('bridges-glob.');
+    addTearDown(() => globbed.delete(recursive: true));
+    final globRoot = await globbed.resolveSymbolicLinks();
+    // workspace 목록이 글롭 — 정적 멤버십 해결이 불가하므로 보수적으로 멤버로 인정한다.
+    await File(p.join(globbed.path, 'pubspec.yaml')).writeAsString('''
+name: ws_glob_root
+workspace:
+  - packages/*
+environment:
+  sdk: ^3.11.0
+''');
+    final member = Directory(p.join(globbed.path, 'packages', 'glob_pkg'));
+    await Directory(p.join(member.path, 'lib')).create(recursive: true);
+    await File(p.join(member.path, 'pubspec.yaml')).writeAsString('''
+name: glob_pkg
+resolution: workspace
+environment:
+  sdk: ^3.11.0
+''');
+    await File(p.join(member.path, 'lib', 'channel.dart')).writeAsString('''
+import 'package:flutter/services.dart';
+
+final channel = MethodChannel('dev.example/glob');
+''');
+
+    final document = await bridges([member.path]);
+
+    // 글롭은 보수 허용 → workspace 루트를 채택하고 limitation이 없다.
+    expect(document['project'], globRoot);
+    expect(document['limitations'], isEmpty);
+  });
+
   test('an unparsable pubspec limits detection instead of failing', () async {
     final broken = await Directory.systemTemp.createTemp('bridges-broken.');
     addTearDown(() => broken.delete(recursive: true));

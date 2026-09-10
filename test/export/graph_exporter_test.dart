@@ -175,6 +175,41 @@ void main() {
     ]);
   });
 
+  test(
+    'HTML kind/name treat a `::` filename as a library, not a declaration',
+    () {
+      final weird = GraphSnapshot(
+        nodes: [
+          // 파일명에 `::`를 담은 경우(macOS 등에서 합법). 옛 contains('::') 판별은 이
+          // 라이브러리를 member로 오분류하고 이름을 첫 `::` 뒤로 잘랐다.
+          GraphNode(id: 'package:app/lib/weird::name.dart'),
+          GraphNode(
+            id: 'package:app/lib/weird::name.dart::Decl',
+            isTypeDeclaration: true,
+          ),
+        ],
+        edges: const [],
+      );
+
+      final nodes = (decodePayload(GraphExporter.html(weird))['nodes'] as List)
+          .cast<Map<String, Object?>>();
+      expect(nodes, [
+        {
+          'id': 'package:app/lib/weird::name.dart',
+          'kind': 'library',
+          'name': 'weird::name.dart',
+          'synthesized': false,
+        },
+        {
+          'id': 'package:app/lib/weird::name.dart::Decl',
+          'kind': 'type',
+          'name': 'Decl',
+          'synthesized': false,
+        },
+      ]);
+    },
+  );
+
   test('HTML truncation keeps the most connected and says so', () {
     final hub = GraphSnapshot(
       nodes: [

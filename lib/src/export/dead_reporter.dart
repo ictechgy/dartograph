@@ -238,6 +238,12 @@ abstract final class DeadReporter {
     })}\n';
   }
 
+  /// source ID에서 `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
+  ///
+  /// projectIdForPath는 상대 경로 앞에 항상 `project:` 센티널을 붙이므로,
+  /// `project:x.dart`라는 합법 파일명의 ID는 `project:project:x.dart`가 되어 한 번
+  /// 벗기면 원본 경로로 정확히 왕복한다 — 센티널 충돌은 없다(감사 "낮음" 항목을
+  /// 코드 대조로 vacuous 확인). `package:`·`file:` 소스는 그대로 둔다.
   static String _path(String source) => source.startsWith('project:')
       ? source.substring('project:'.length)
       : source;
@@ -246,8 +252,15 @@ abstract final class DeadReporter {
   /// 이스케이프로 해석해 경로를 조용히 손상·오귀속한다. 구분자(`/` — project ID는
   /// 항상 URL 구분자를 쓴다)로 분리해 세그먼트별로 인코딩하면 손실이 없고 정상
   /// 경로는 바이트가 불변이다.
+  ///
+  /// root 밖·의존 소스는 이미 절대 URI다(`file:`/`package:` — projectIdForPath의
+  /// root 밖 fallback과 패키지 해결). 이걸 `/`로 쪼개 재인코딩하면 스킴 콜론이
+  /// `%3A`로 손상되므로(실측 `file:///a`→`file%3A///a`, `package:p/x`→`package%3Ap/x`)
+  /// 그대로 통과시킨다. 스킴 없는 project 상대 경로만 세그먼트 인코딩한다.
   static String _sarifUri(String path) =>
-      Uri(pathSegments: path.split('/')).toString();
+      path.startsWith('file:') || path.startsWith('package:')
+      ? path
+      : Uri(pathSegments: path.split('/')).toString();
 
   /// GitHub workflow command 이스케이프. 스펙 최소집합(`%`, CR, LF + property의
   /// `:`·`,`)에 더해 C0·DEL·C1과 행 구조·시각 순서를 깨뜨릴 수 있는 문자

@@ -379,14 +379,24 @@ abstract final class GraphExporter {
 ''';
   }
 
+  /// id가 선언(`.dart` 라이브러리 경로 바로 뒤 `::`)인지 가른다.
+  ///
+  /// 옛 `contains('::')` 판별은 파일명에 `::`가 있으면(macOS 등에서 합법) 라이브러리도
+  /// 선언으로 오분류한다 — 예: `package:app/weird::name.dart`는 라이브러리다. 선언 ID는
+  /// 항상 `<…dart>::<이름>` 모양이라 `.dart::`로 구분하면 파일명 `::`에 오분류하지 않는다
+  /// (감사 "낮음": html `::` 파일명 오분류).
+  static bool _isDeclarationId(String id) => id.contains('.dart::');
+
   static String _htmlKind(GraphNode node) {
-    if (!node.id.contains('::')) return 'library';
+    if (!_isDeclarationId(node.id)) return 'library';
     return node.isTypeDeclaration ? 'type' : 'member';
   }
 
   static String _htmlName(String id) {
-    final symbolSeparator = id.indexOf('::');
-    if (symbolSeparator >= 0) return id.substring(symbolSeparator + 2);
+    if (_isDeclarationId(id)) {
+      // 선언 이름은 마지막 `::` 뒤에 온다(파일명에 `::`가 있어도 구분자는 마지막 것).
+      return id.substring(id.lastIndexOf('::') + 2);
+    }
     final slash = id.lastIndexOf('/');
     return slash >= 0 ? id.substring(slash + 1) : id;
   }
