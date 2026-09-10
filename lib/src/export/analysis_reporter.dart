@@ -42,11 +42,18 @@ abstract final class AnalysisReporter {
   }) =>
       '${jsonEncode({'explain': 'rules', 'id': explanation.id, 'known': explanation.known, 'layer': explanation.layer, 'limitations': limitations.toSet().toList()..sort(), 'matchedCandidate': explanation.matchedCandidate, 'matchedPattern': explanation.matchedPattern, 'rules': explanation.rules.map((rule) => rule.toJson()).toList()})}\n';
 
-  /// Martin 지표와 엄격 모드가 사용하는 허용 오차를 보존한다.
+  /// Martin 지표·주계열 영역(zone)과 엄격 모드가 사용하는 허용 오차를 보존한다.
+  ///
+  /// zone은 관측 시점의 허용 오차에 의존하는 표현 값이라 항목 toJson이 아니라
+  /// 여기서 합친다(정렬된 키 순서도 유지된다).
   static String metrics(
     Iterable<ArchitectureMetrics> metrics, {
     required Iterable<String> limitations,
     required double tolerance,
   }) =>
-      '${jsonEncode({'limitations': limitations.toSet().toList()..sort(), 'metrics': metrics.map((item) => item.toJson()).toList(), 'tolerance': tolerance})}\n';
+      '${jsonEncode({
+        'limitations': limitations.toSet().toList()..sort(),
+        'metrics': metrics.map((item) => {...item.toJson(), 'zone': item.zone(tolerance).value}).toList(),
+        'tolerance': tolerance,
+      })}\n';
 }

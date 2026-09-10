@@ -1,5 +1,28 @@
 import '../core/graph_snapshot.dart';
 
+/// 주계열(main sequence) 기준으로 본 정점의 위치(cartograph `MetricsZone` 패리티).
+enum MetricsZone {
+  /// 추상도와 불안정도가 균형을 이루는 영역(거리 D ≤ 허용 오차).
+  mainSequence('main-sequence'),
+
+  /// 구체적인데 많은 곳이 의존한다. 바꾸기 어렵고 바꿔야 할 일은 많다.
+  zoneOfPain('zone-of-pain'),
+
+  /// 추상적인데 아무도 의존하지 않는다. 대개 죽은 추상화다.
+  zoneOfUselessness('zone-of-uselessness'),
+
+  /// 들어오는 의존도 나가는 의존도 없다. 결합도 지표가 정의되지 않는다.
+  ///
+  /// 별도 영역으로 두지 않으면 고립 정점이 D=1로 계산되어 "고통의 영역" 1위를
+  /// 차지한다. 실제로는 아무와도 얽혀 있지 않은 정점이라 정반대 상황이다.
+  isolated('isolated');
+
+  const MetricsZone(this.value);
+
+  /// JSON·표기에 쓰는 값이다.
+  final String value;
+}
+
 /// 정점 하나의 Robert C. Martin 결합도·추상도 지표다.
 final class ArchitectureMetrics {
   /// 손으로 계산하거나 그래프 계산기에서 얻은 지표를 만든다.
@@ -33,6 +56,21 @@ final class ArchitectureMetrics {
 
   /// 들어오고 나가는 사용 의존이 모두 없는지 나타낸다.
   bool get isolated => afferentCoupling == 0 && efferentCoupling == 0;
+
+  /// 주어진 허용 오차 기준으로 어느 영역에 있는지 판단한다.
+  ///
+  /// 고립 정점은 결합도 이야기가 없으므로 별도 영역으로 둔다. 그 외는 주계열
+  /// 거리가 [tolerance] 이하면 main-sequence, 넘으면 주계열 아래(A+I < 1,
+  /// 구체·안정 = 고통)냐 위(A+I > 1, 추상·무의존 = 무용)냐로 가른다.
+  /// `--strict`의 위반 판정은 고립 정점을 면제한다(`!isolated &&
+  /// distance > tolerance`) — zone의 영역 경계와 정확히 같다.
+  MetricsZone zone(double tolerance) {
+    if (isolated) return MetricsZone.isolated;
+    if (distance <= tolerance) return MetricsZone.mainSequence;
+    return abstractness + instability < 1
+        ? MetricsZone.zoneOfPain
+        : MetricsZone.zoneOfUselessness;
+  }
 
   /// 결정적인 리포트 값으로 변환한다.
   Map<String, Object> toJson() => {

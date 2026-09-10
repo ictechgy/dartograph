@@ -123,6 +123,21 @@ rules:
       final document = jsonDecode(first.toString()) as Map<String, Object?>;
       expect(document.keys, ['limitations', 'metrics', 'tolerance']);
       expect(document['tolerance'], 0.3);
+      // 각 항목은 허용 오차 기준 영역(zone)을 함께 실는다(관측값 표현).
+      final entries = (document['metrics'] as List)
+          .cast<Map<String, Object?>>();
+      expect(entries, isNotEmpty);
+      expect(
+        entries.map((entry) => entry['zone']),
+        everyElement(
+          anyOf(
+            'main-sequence',
+            'zone-of-pain',
+            'zone-of-uselessness',
+            'isolated',
+          ),
+        ),
+      );
     },
   );
 
