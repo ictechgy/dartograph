@@ -43,6 +43,8 @@ final class DeadFinding {
   /// dead 발견에서는 확인한 전체 보존 루트다. `--report-test-only` 발견에서는
   /// 이 선언에 실제로 도달한 witness 테스트 루트 하나로 의미가 좁아진다
   /// (reason `reached only from test code`와 함께 읽는다).
+  /// `--report-redundant-public` 발견은 보존 루트 질문이 아니므로 빈 목록이다
+  /// (reason `public but only referenced within its own library`가 근거다).
   final List<String> retentionRootsChecked;
 
   /// 이 발견을 해석할 때 함께 보여야 하는 한계다.
@@ -555,7 +557,94 @@ final class ReachabilityAnalyzer {
     }
     return findings;
   }
+
+  /// Periphery `redundant public accessibility`와 같은 질문이다. 살아 있는
+  /// 공개 선언 중 들어오는 사용 간선이 **모두** 자기 라이브러리 안에서
+  /// 시작하는 것을 고른다 — 이 관측만으로는 라이브러리 비공개(`_`)로
+  /// 좁혀도 깨지는 참조가 없다. 삭제 권고가 아니라 가시성 관측이며 info로만
+  /// 보고한다. 단일 패키지 분석이라 외부 소비자는 보이지 않는다 — 게시된
+  /// 패키지의 공개 API는 이 관측으로 좁히면 안 된다.
+  ///
+  /// 보수적 제외: 모든 보존 루트(외부·도구·설정이 유지를 선언한 선언), enum
+  /// 상수(enum 도달 보존 정책과 충돌), 공개 계약을 이행하는 override 간선의
+  /// source, 연산자(이름에 `_`를 붙일 수 없어 좁힘 조언 자체가 불가능),
+  /// `<` 마커 식별자(`<unnamed-extension@…>`는 이미 라이브러리 비공개다),
+  /// 이름의 어떤 점 세그먼트라도 `_`로 시작하는 선언(비공개 컨테이너의
+  /// 멤버는 겉보기 공개 이름이어도 라이브러리 밖에서 접근 불가능하다).
+  /// 사용 간선의 source 라이브러리는 첫 `::` 앞 부분으로 잡는다(사영 접힘과
+  /// 같은 관례). 외부 라이브러리의 멤버 호출은 실제 멤버 정점에 정확히
+  /// 귀속되고(프로브 실측) 의존 패키지는 그래프 정점이 아니므로(RESEARCH
+  /// 확인·실측) 스코프 필터는 불필요하다.
+  List<DeadFinding> redundantPublicDeclarations(
+    GraphSnapshot graph, {
+    required Map<String, RetentionReason> roots,
+    List<String> limitations = const [],
+  }) {
+    final result = analyze(graph, roots: roots, limitations: limitations);
+    final notAlive = <String>{
+      for (final finding in result.deadDeclarations) finding.id,
+      for (final finding in result.deadFiles) finding.id,
+    };
+    final sourceLibraries = <String, List<String>>{};
+    for (final edge in graph.edges.where((edge) => edge.kind.impliesUsage)) {
+      sourceLibraries
+          .putIfAbsent(edge.targetId, () => [])
+          .add(edge.sourceId.split('::').first);
+    }
+    final overridesPublicContract = <String>{
+      for (final edge in graph.edges)
+        if (edge.kind == EdgeKind.override) edge.sourceId,
+    };
+    final findings = <DeadFinding>[];
+    for (final node in graph.nodes) {
+      final id = node.id;
+      final separator = id.indexOf('::');
+      // 선언 노드만 본다(라이브러리는 가시성 대상이 아니다).
+      if (separator < 0) continue;
+      if (roots.containsKey(id) || notAlive.contains(id)) continue;
+      if (node.isEnumConstant || overridesPublicContract.contains(id)) continue;
+      // 이름은 마지막 `::` 뒤(파일명에 `::`가 있어도 구분자는 마지막 것).
+      // `<` 마커는 이름 전체 기준으로 잡는다(`<unnamed-extension@…#n>` 안의
+      // 마침표가 멤버 구분처럼 보이지 않게).
+      final name = id.substring(id.lastIndexOf('::') + 2);
+      if (name.startsWith('<')) continue;
+      // 멤버는 마지막 점 뒤 부분이다. 어떤 세그먼트라도 `_` 접두면 이 선언은
+      // 라이브러리 밖에서 접근 불가능하다(비공개 컨테이너의 멤버 포함).
+      final parts = name.split('.');
+      if (parts.any((part) => part.startsWith('_'))) continue;
+      final member = parts.last;
+      // 연산자(`+`·`==`·`[]=`·`unary-` 등)는 이름에 `_`를 붙일 수 없다.
+      if (_operatorNames.contains(member) ||
+          RegExp(r'^[+\-*/%<>=&|^~\[\]]+$').hasMatch(member)) {
+        continue;
+      }
+      final ownLibrary = id.substring(0, separator);
+      final incoming = sourceLibraries[id] ?? const <String>[];
+      if (incoming.any((library) => library != ownLibrary)) continue;
+      findings.add(
+        DeadFinding(
+          id: id,
+          kind: 'declaration',
+          source: node.sourceUri ?? ownLibrary,
+          line: node.line,
+          column: node.column,
+          reason: 'public but only referenced within its own library',
+          retentionRootsChecked: const [],
+          limitations: limitationsForSource(
+            limitations,
+            node.sourceUri ?? ownLibrary,
+          ),
+        ),
+      );
+    }
+    findings.sort((a, b) => a.id.compareTo(b.id));
+    return findings;
+  }
 }
+
+/// 분석기가 쓰는 연산자 이름 중 문자를 포함하는 것들이다(나머지는 기호만으로
+/// 이뤄져 정규식으로 잡는다).
+const _operatorNames = {'unary-'};
 
 /// 테스트 코드의 보존 루트 source 접두어다.
 ///

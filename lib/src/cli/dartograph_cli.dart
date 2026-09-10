@@ -927,6 +927,7 @@ Future<int> _runDead(
   ReportFormat? reportFormat;
   String? rootPath;
   var reportTestOnly = false;
+  var reportRedundantPublic = false;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (const {
@@ -977,6 +978,12 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       reportTestOnly = true;
+    } else if (argument == '--report-redundant-public') {
+      if (reportRedundantPublic) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      reportRedundantPublic = true;
     } else if (!argument.startsWith('-') && rootPath == null) {
       rootPath = argument;
     } else {
@@ -984,17 +991,19 @@ Future<int> _runDead(
       return ExitStatus.usage.code;
     }
   }
-  // --report-test-only는 "테스트가 유일한 호출자인 프로덕션 선언"이라는 다른
-  // 질문을 info로 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는
-  // --baseline과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
+  // --report-test-only·--report-redundant-public는 각각 다른 질문을 info로
+  // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
+  // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
   if (rootPath == null ||
       reportFormat == null ||
+      (reportTestOnly && reportRedundantPublic) ||
       (explainId != null &&
           (reportFormat != ReportFormat.json ||
               baselinePath != null ||
               since != null ||
-              reportTestOnly)) ||
-      (reportTestOnly && baselinePath != null)) {
+              reportTestOnly ||
+              reportRedundantPublic)) ||
+      ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -1018,12 +1027,22 @@ Future<int> _runDead(
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }
-    // --report-test-only는 "테스트가 유일한 호출자인 프로덕션 선언"을 info로
-    // 답한다. 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지 않는다.
-    final report = reportTestOnly ? DeadReport.testOnly : DeadReport.dead;
+    // 두 info 리포트는 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지
+    // 않는다.
+    final report = reportTestOnly
+        ? DeadReport.testOnly
+        : reportRedundantPublic
+        ? DeadReport.redundantPublic
+        : DeadReport.dead;
     final List<DeadFinding> findings;
     if (reportTestOnly) {
       findings = analyzer.testOnlyDeclarations(
+        snapshot,
+        roots: indexed.retentionRoots,
+        limitations: limitations,
+      );
+    } else if (reportRedundantPublic) {
+      findings = analyzer.redundantPublicDeclarations(
         snapshot,
         roots: indexed.retentionRoots,
         limitations: limitations,
@@ -1083,7 +1102,9 @@ Future<int> _runDead(
         report: report,
       ),
     );
-    if (reportTestOnly) return ExitStatus.success.code;
+    if (reportTestOnly || reportRedundantPublic) {
+      return ExitStatus.success.code;
+    }
     return reported.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
@@ -1354,6 +1375,7 @@ Usage: dartograph [--help] [--version]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
        dartograph baseline --write <file> <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
@@ -1370,7 +1392,10 @@ Usage: dartograph [--help] [--version]
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
 declarations reached only from test code) at info severity, so it never fails
-the build and does not combine with --explain or --baseline. cycles/rules
+the build and does not combine with --explain or --baseline. dead
+--report-redundant-public likewise answers at info severity (public
+declarations whose observed references all come from their own library) with
+the same combination rules. cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.
 

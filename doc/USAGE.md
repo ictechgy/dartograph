@@ -18,6 +18,7 @@ dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbo
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
 dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
 dartograph baseline --write <file> <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
@@ -80,6 +81,16 @@ dartograph metrics [--strict] <package-root>
 시키지 않는다). 테스트 디렉터리 내부 선언과 `@visibleForTesting` 프로덕션 선언(테스트
 디렉터리 밖이라 루트로 남음)은 보수적으로 답에서 제외한다. 단일 대상 질의인 `--explain`,
 dead finding을 억제하는 `--baseline`과는 결합하지 않으며 `--since`·`--format`은 허용한다.
+
+`dead --report-redundant-public`도 다른 질문을 답한다: 살아 있는 **공개 선언**(이름이
+`_`로 시작하지 않는다) 중 들어오는 사용 참조가 전부 자기 라이브러리 안에서 시작하는
+것을 고른다. 이 관측만으로는 라이브러리 비공개로 좁혀도 깨지는 참조가 없다(Periphery
+`redundant public accessibility` 대응). 삭제 권고가 아니라 가시성 관측이므로 `info`
+심각도이고 **finding이 있어도 종료 코드 0**이다. 보존 루트(진입점·pragma·공개 API
+barrel·플러그인 등 외부·도구가 유지를 선언한 선언), enum 상수, 공개 계약을 이행하는
+override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단일 패키지 분석이라
+외부 소비자는 보이지 않는다 — **게시된 패키지의 공개 API는 이 관측으로 좁히지 말 것**.
+`--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
@@ -194,8 +205,8 @@ rules:
 
 | 코드 | 뜻 |
 |---:|---|
-| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`(info)는 finding이 있어도 성공 |
-| 1 | `dead` finding(`--report-test-only` 제외), 또는 `--strict` 분석 명령의 finding |
+| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
+| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함 |
 | 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 

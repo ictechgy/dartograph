@@ -563,4 +563,235 @@ void main() {
     );
     expect(findings, isEmpty);
   });
+
+  test('redundant public finds internal-only public declarations', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::runner',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Internal',
+          sourceUri: 'project:lib/a.dart',
+          isTypeDeclaration: true,
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::_secret',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::<unnamed-extension@project:lib/a.dart#3>',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:lib/b.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/b.dart::Shared',
+          sourceUri: 'project:lib/b.dart',
+          isTypeDeclaration: true,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::runner',
+          targetId: 'project:lib/a.dart::Internal',
+          kind: EdgeKind.reference,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::runner',
+          targetId: 'project:lib/a.dart::_secret',
+          kind: EdgeKind.call,
+        ),
+      )
+      // 이름 없는 extension은 살아 있어도 라이브러리 비공개 마커(`<`)로 제외된다.
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::runner',
+          targetId:
+              'project:lib/a.dart::<unnamed-extension@project:lib/a.dart#3>',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        // 다른 라이브러리가 쓰는 공개 선언은 좁히면 깨진다 — 제외.
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::Internal',
+          targetId: 'project:lib/b.dart::Shared',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    final findings = ReachabilityAnalyzer().redundantPublicDeclarations(
+      graph.snapshot(),
+      roots: const {
+        'project:lib/a.dart::runner': RetentionReason.mainEntryPoint,
+      },
+    );
+
+    // 내부 전용 공개 선언만 나온다: 비공개(_)·외부 사용(Shared)·고정 마커는 제외.
+    expect(findings.map((finding) => finding.id), [
+      'project:lib/a.dart::Internal',
+    ]);
+    expect(findings.single.kind, 'declaration');
+    expect(findings.single.reason, contains('own library'));
+  });
+
+  test(
+    'redundant public excludes roots, dead, enum constants, and overrides',
+    () {
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::root',
+            sourceUri: 'project:lib/a.dart',
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::deadPublic',
+            sourceUri: 'project:lib/a.dart',
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Color',
+            sourceUri: 'project:lib/a.dart',
+            isTypeDeclaration: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Color.red',
+            sourceUri: 'project:lib/a.dart',
+            isEnumConstant: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Impl.method',
+            sourceUri: 'project:lib/a.dart',
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/b.dart::Api.method',
+            sourceUri: 'project:lib/b.dart',
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'project:lib/a.dart::root',
+            targetId: 'project:lib/a.dart::Color',
+            kind: EdgeKind.reference,
+          ),
+        )
+        // Impl.method는 살아 있는 공개 선언이지만 override 계약을 이행 중이다.
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'project:lib/a.dart::root',
+            targetId: 'project:lib/a.dart::Impl.method',
+            kind: EdgeKind.call,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'project:lib/a.dart::Color',
+            targetId: 'project:lib/a.dart::Color.red',
+            kind: EdgeKind.member,
+          ),
+        )
+        ..addEdge(
+          // 공개 계약 이행 override — 가시성을 못 좁힌다.
+          const GraphEdge(
+            sourceId: 'project:lib/a.dart::Impl.method',
+            targetId: 'project:lib/b.dart::Api.method',
+            kind: EdgeKind.override,
+          ),
+        );
+
+      final findings = ReachabilityAnalyzer().redundantPublicDeclarations(
+        graph.snapshot(),
+        roots: const {'project:lib/a.dart::root': RetentionReason.publicApi},
+      );
+
+      // 보존 루트(root)·미도달(deadPublic)·enum 상수(Color.red)·override
+      // 이행(Impl.method)은 전부 제외되고 내부 전용 공개 타입만 남는다.
+      expect(findings.map((finding) => finding.id), [
+        'project:lib/a.dart::Color',
+      ]);
+    },
+  );
+
+  test('redundant public skips private containers and operators', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::root',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::_Hidden.helper',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Math.+',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Plain',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::_Hidden.helper',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::Math.+',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::Plain',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    final findings = ReachabilityAnalyzer().redundantPublicDeclarations(
+      graph.snapshot(),
+      roots: const {'project:lib/a.dart::root': RetentionReason.mainEntryPoint},
+    );
+    // `_Hidden.helper`는 겉보기 공개 이름이지만 비공개 컨테이너 안이라 라이브러리
+    // 밖 접근이 불가능하고, `+`는 이름에 `_`를 붙일 수 없는 연산자다. 내부
+    // 전용 공개 선언만 여전히 나온다.
+    expect(findings.map((finding) => finding.id), [
+      'project:lib/a.dart::Plain',
+    ]);
+  });
 }
