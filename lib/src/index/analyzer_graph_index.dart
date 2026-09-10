@@ -604,7 +604,7 @@ int _staleGeneratedCount(String root) {
     if (!directory.existsSync()) continue;
     for (final entity in _projectFiles(directory)) {
       if (!_isGenerated(entity.path)) continue;
-      final suffix = RegExp(r'\.(g|freezed|pb)\.dart$').firstMatch(entity.path);
+      final suffix = _generatedSiblingPattern.firstMatch(entity.path);
       if (suffix == null) continue;
       final source = File(
         entity.path.replaceRange(suffix.start, suffix.end, '.dart'),
@@ -872,6 +872,10 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
 /// 오해석되지 않는다. doc comment(`///`)와 블록 주석은 문서지 지시문이 아니다.
 /// 마커 뒤에 단어 문자가 오면(`dartograph:ignorex`) 다른 토큰으로 본다.
 final _ignoreDirective = RegExp(r'^dartograph:ignore(?![A-Za-z0-9_])');
+
+/// 생성 파일의 sibling source를 짝짓는 접미 패턴이다. 파일마다 컴파일하지
+/// 않게 상단에서 한 번 만든다.
+final _generatedSiblingPattern = RegExp(r'\.(g|freezed|pb)\.dart$');
 
 bool _isIgnoreDirective(String lexeme) {
   final text = lexeme.trim();

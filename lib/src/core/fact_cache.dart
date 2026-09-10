@@ -12,6 +12,10 @@ abstract interface class FactCache {
   Future<void> write(String key, String payload);
 }
 
+/// 캐시 파일 이름으로 쓰는 SHA-256 hex 키 패턴이다. 키 검증마다 컴파일하지
+/// 않게 상단에서 한 번 만든다.
+final _cacheKeyPattern = RegExp(r'^[a-f0-9]{64}$');
+
 /// 디렉터리 하나에 사실 payload를 원자적으로 저장하는 기본 캐시다.
 final class FileFactCache implements FactCache {
   /// 캐시 파일을 둘 [directory]를 지정한다.
@@ -41,7 +45,7 @@ final class FileFactCache implements FactCache {
   }
 
   File _file(String key) {
-    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(key)) {
+    if (!_cacheKeyPattern.hasMatch(key)) {
       throw ArgumentError.value(key, 'key', 'must be a SHA-256 hex digest');
     }
     return File('${directory.path}${Platform.pathSeparator}$key.json');

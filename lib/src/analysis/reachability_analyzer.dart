@@ -379,6 +379,15 @@ final class ReachabilityAnalyzer {
         memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
       }
     }
+    // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
+    // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다. 메모는 이
+    // 메서드 안에서만 유효하다(limitations 인자가 바뀌면 결과도 바뀐다) —
+    // source만 키로 하는 더 긴 수명의 저장소로 승격하지 않는다.
+    final sourceLimitations = <String, List<String>>{};
+    List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
+      source,
+      () => limitationsForSource(limitations, source),
+    );
     // enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화는 상수를
     // 직접 참조하지 않아 usage 간선이 없으므로, 보존하지 않으면 enum 상수가
     // 미도달로 잘못 보고된다(컨테이너 구제는 멤버→컨테이너 단방향이라 상수를 못 살린다).
@@ -398,21 +407,19 @@ final class ReachabilityAnalyzer {
         .where((node) => !paths.containsKey(node.id))
         .where((node) => !reachableContainers.contains(node.id))
         .where((node) => !reachableEnumConstants.contains(node.id))
-        .map(
-          (node) => DeadFinding(
+        .map((node) {
+          final source = node.sourceUri ?? node.id.split('::').first;
+          return DeadFinding(
             id: node.id,
             kind: 'declaration',
-            source: node.sourceUri ?? node.id.split('::').first,
+            source: source,
             line: node.line,
             column: node.column,
             reason: 'unreachable from all retention roots',
             retentionRootsChecked: rootsChecked,
-            limitations: limitationsForSource(
-              limitations,
-              node.sourceUri ?? node.id.split('::').first,
-            ),
-          ),
-        )
+            limitations: limitsFor(source),
+          );
+        })
         .toList();
 
     final libraryPaths = <String, _PathStep>{};
@@ -452,19 +459,17 @@ final class ReachabilityAnalyzer {
         .where((node) => !node.id.contains('::'))
         .where((node) => node.id.startsWith('package:'))
         .where((node) => !libraryPaths.containsKey(node.id))
-        .map(
-          (node) => DeadFinding(
+        .map((node) {
+          final source = _librarySource(node.id);
+          return DeadFinding(
             id: node.id,
             kind: 'file',
-            source: _librarySource(node.id),
+            source: source,
             reason: 'no reachable declaration or reachable library import',
             retentionRootsChecked: rootsChecked,
-            limitations: limitationsForSource(
-              limitations,
-              _librarySource(node.id),
-            ),
-          ),
-        )
+            limitations: limitsFor(source),
+          );
+        })
         .toList();
     return ReachabilityResult._(
       // :418의 정렬된 로컬을 재사용한다(이중 정렬 제거 — 감사 P5).
@@ -596,6 +601,13 @@ final class ReachabilityAnalyzer {
         if (edge.kind == EdgeKind.override) edge.sourceId,
     };
     final findings = <DeadFinding>[];
+    // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
+    // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다.
+    final sourceLimitations = <String, List<String>>{};
+    List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
+      source,
+      () => limitationsForSource(limitations, source),
+    );
     for (final node in graph.nodes) {
       final id = node.id;
       final separator = id.indexOf('::');
@@ -614,8 +626,9 @@ final class ReachabilityAnalyzer {
       if (parts.any((part) => part.startsWith('_'))) continue;
       final member = parts.last;
       // 연산자(`+`·`==`·`[]=`·`unary-` 등)는 이름에 `_`를 붙일 수 없다.
+      // 발견 루프 안에서 패턴을 다시 컴파일하지 않게 상단에서 한 번 만든다.
       if (_operatorNames.contains(member) ||
-          RegExp(r'^[+\-*/%<>=&|^~\[\]]+$').hasMatch(member)) {
+          _operatorSymbolPattern.hasMatch(member)) {
         continue;
       }
       final ownLibrary = id.substring(0, separator);
@@ -630,10 +643,7 @@ final class ReachabilityAnalyzer {
           column: node.column,
           reason: 'public but only referenced within its own library',
           retentionRootsChecked: const [],
-          limitations: limitationsForSource(
-            limitations,
-            node.sourceUri ?? ownLibrary,
-          ),
+          limitations: limitsFor(node.sourceUri ?? ownLibrary),
         ),
       );
     }
@@ -645,6 +655,10 @@ final class ReachabilityAnalyzer {
 /// 분석기가 쓰는 연산자 이름 중 문자를 포함하는 것들이다(나머지는 기호만으로
 /// 이뤄져 정규식으로 잡는다).
 const _operatorNames = {'unary-'};
+
+/// 기호만으로 이뤄진 연산자 이름 패턴이다. 후보 선언마다 컴파일하지 않게
+/// 상단에서 한 번 만든다(감사 P4의 layer_rules 패턴 캐시와 같은 부류).
+final _operatorSymbolPattern = RegExp(r'^[+\-*/%<>=&|^~\[\]]+$');
 
 /// 테스트 코드의 보존 루트 source 접두어다.
 ///

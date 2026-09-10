@@ -855,9 +855,12 @@ const _methodInvocationNames = {
 const _flutterServicesUri = 'package:flutter/services.dart';
 const _excludedDirectories = {'.dart_tool', '.git', 'build'};
 
+/// bridge fact 값이 거부하는 제어 문자 패턴이다. 값마다 컴파일하지 않게
+/// 상단에서 한 번 만든다.
+final _controlCharacterPattern = RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]');
+
 void _rejectControlCharacters(String value) {
-  if (value.trim().isEmpty ||
-      RegExp(r'[\x00-\x1F\x7F-\x9F\u2028\u2029]').hasMatch(value)) {
+  if (value.trim().isEmpty || _controlCharacterPattern.hasMatch(value)) {
     throw const FormatException(
       'bridge facts cannot contain empty values or control characters',
     );
