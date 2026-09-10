@@ -29,7 +29,7 @@ void main() {
         isTypeDeclaration: true,
         isAbstract: true,
       ),
-      GraphNode(id: 'a'),
+      GraphNode(id: 'a', isLibrary: true),
     ],
     edges: const [GraphEdge(sourceId: 'b', targetId: 'a', kind: EdgeKind.call)],
   );
@@ -129,18 +129,22 @@ void main() {
       'limitations': ['single configuration'],
       'nodes': [
         {'id': 'a', 'kind': 'library', 'name': 'a', 'synthesized': false},
-        {'id': 'b', 'kind': 'library', 'name': 'b', 'synthesized': true},
+        {'id': 'b', 'kind': 'type', 'name': 'b', 'synthesized': true},
       ],
     });
   });
 
-  test('HTML node kinds and display names derive from the id shape', () {
+  test('HTML node kinds and display names come from explicit node flags', () {
     final typed = GraphSnapshot(
       nodes: [
-        GraphNode(id: 'package:app/lib/foo.dart'),
+        GraphNode(id: 'package:app/lib/foo.dart', isLibrary: true),
         GraphNode(id: 'package:app/lib/foo.dart::Bar', isTypeDeclaration: true),
         GraphNode(id: 'package:app/lib/foo.dart::Bar.baz'),
-        GraphNode(id: '<no-library>'),
+        GraphNode(id: '<no-library>', isLibrary: true),
+        // `<unnamed-extension@…>`는 `::` 없는 선언 ID다. 종류는 명시 플래그로
+        // member가 되고(옛 id 모양 유추는 library로 오판했다) 이름은 경로
+        // 마지막 세그먼트로 보존된다.
+        GraphNode(id: '<unnamed-extension@package:app/lib/foo.dart#40>'),
       ],
       edges: const [],
     );
@@ -152,6 +156,12 @@ void main() {
         'id': '<no-library>',
         'kind': 'library',
         'name': '<no-library>',
+        'synthesized': false,
+      },
+      {
+        'id': '<unnamed-extension@package:app/lib/foo.dart#40>',
+        'kind': 'member',
+        'name': 'foo.dart#40>',
         'synthesized': false,
       },
       {
@@ -175,49 +185,55 @@ void main() {
     ]);
   });
 
-  test(
-    'HTML kind/name treat a `::` filename as a library, not a declaration',
-    () {
-      final weird = GraphSnapshot(
-        nodes: [
-          // 파일명에 `::`를 담은 경우(macOS 등에서 합법). 옛 contains('::') 판별은 이
-          // 라이브러리를 member로 오분류하고 이름을 첫 `::` 뒤로 잘랐다.
-          GraphNode(id: 'package:app/lib/weird::name.dart'),
-          GraphNode(
-            id: 'package:app/lib/weird::name.dart::Decl',
-            isTypeDeclaration: true,
-          ),
-          // `::` 파일명 안의 멤버도 이름이 마지막 `::` 뒤로 뽑힌다(옛 indexOf였으면
-          // 첫 `::` 뒤 `name.dart::Foo.bar`로 잘렸을 숨은 케이스).
-          GraphNode(id: 'package:app/lib/weird::name.dart::Foo.bar'),
-        ],
-        edges: const [],
-      );
+  test('HTML kind/name ignore `::` in filenames because kind is explicit', () {
+    final weird = GraphSnapshot(
+      nodes: [
+        // 파일명에 `::`를 담은 경우(macOS 등에서 합법). 종류는 id 모양이 아니라
+        // 명시 isLibrary가 정하므로 라이브러리는 라이브러리로 남는다.
+        GraphNode(id: 'package:app/lib/weird::name.dart', isLibrary: true),
+        GraphNode(
+          id: 'package:app/lib/weird::name.dart::Decl',
+          isTypeDeclaration: true,
+        ),
+        // 옛 `.dart::` 휴리스틱의 잔여 엣지: 파일명 자체가 `.dart::`를 포함하면
+        // (`weird.dart::name.dart`) id 파식으로는 선언과 구분이 불가능했다.
+        // 명시 종류는 이 경우도 정확히 가른다.
+        GraphNode(id: 'package:app/lib/weird.dart::name.dart', isLibrary: true),
+        GraphNode(id: 'package:app/lib/weird.dart::name.dart::Foo.bar'),
+      ],
+      edges: const [],
+    );
 
-      final nodes = (decodePayload(GraphExporter.html(weird))['nodes'] as List)
-          .cast<Map<String, Object?>>();
-      expect(nodes, [
-        {
-          'id': 'package:app/lib/weird::name.dart',
-          'kind': 'library',
-          'name': 'weird::name.dart',
-          'synthesized': false,
-        },
-        {
-          'id': 'package:app/lib/weird::name.dart::Decl',
-          'kind': 'type',
-          'name': 'Decl',
-          'synthesized': false,
-        },
-        {
-          'id': 'package:app/lib/weird::name.dart::Foo.bar',
-          'kind': 'member',
-          'name': 'Foo.bar',
-          'synthesized': false,
-        },
-      ]);
-    },
-  );
+    final nodes = (decodePayload(GraphExporter.html(weird))['nodes'] as List)
+        .cast<Map<String, Object?>>();
+    expect(nodes, [
+      {
+        'id': 'package:app/lib/weird.dart::name.dart',
+        'kind': 'library',
+        'name': 'weird.dart::name.dart',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/weird.dart::name.dart::Foo.bar',
+        'kind': 'member',
+        // 선언 이름은 마지막 `::` 뒤로 뽑힌다(파일명의 `::`와 무관).
+        'name': 'Foo.bar',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/weird::name.dart',
+        'kind': 'library',
+        'name': 'weird::name.dart',
+        'synthesized': false,
+      },
+      {
+        'id': 'package:app/lib/weird::name.dart::Decl',
+        'kind': 'type',
+        'name': 'Decl',
+        'synthesized': false,
+      },
+    ]);
+  });
 
   test('HTML truncation keeps the most connected and says so', () {
     final hub = GraphSnapshot(
@@ -256,7 +272,7 @@ void main() {
 
   test('HTML escapes angle brackets inside the JSON payload', () {
     final special = GraphSnapshot(
-      nodes: [GraphNode(id: '<no-library>')],
+      nodes: [GraphNode(id: '<no-library>', isLibrary: true)],
       edges: const [],
     );
 

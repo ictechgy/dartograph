@@ -43,7 +43,7 @@ abstract final class GraphProjection {
           GraphLevel.symbol => node.id,
         },
     };
-    return _project(graph, representative);
+    return _project(graph, representative, fallbackIsLibrary: false);
   }
 
   /// 그래프를 경로 앞 [depth]세그먼트로 요약한다
@@ -57,7 +57,8 @@ abstract final class GraphProjection {
   /// 밖의 ID(`file://` 등)는 변형 없이 통과한다. 폴더 대표는 실재 노드가
   /// 아니므로 id만 가진 집계 정점으로 만들어진다(폴더는 파일이 아니다 —
   /// sourceUri·line을 발명하지 않고, `synthesized`는 생성 코드 전용 표시라
-  /// 재사용하지 않는다).
+  /// 재사용하지 않는다). 집계 정점은 라이브러리 정점으로 표시한다 — 파일
+  /// 묶음이라는 표시 의미는 html 분류의 `library`와 같다.
   static GraphSnapshot collapse(GraphSnapshot graph, int depth) {
     if (depth < 1) {
       throw ArgumentError.value(depth, 'depth', 'collapse depth must be >= 1');
@@ -67,7 +68,7 @@ abstract final class GraphProjection {
       for (final node in graph.nodes)
         node.id: _collapsedId(_libraryOf(node.id, nodeIds), depth),
     };
-    return _project(graph, representative);
+    return _project(graph, representative, fallbackIsLibrary: true);
   }
 
   static String _collapsedId(String id, int depth) {
@@ -119,15 +120,22 @@ abstract final class GraphProjection {
 
   static GraphSnapshot _project(
     GraphSnapshot graph,
-    Map<String, String> representative,
-  ) {
+    Map<String, String> representative, {
+    required bool fallbackIsLibrary,
+  }) {
     final byId = <String, GraphNode>{
       for (final node in graph.nodes) node.id: node,
     };
     final projected = <String, GraphNode>{};
     for (final node in graph.nodes) {
       final id = representative[node.id]!;
-      projected.putIfAbsent(id, () => byId[id] ?? GraphNode(id: id));
+      // 실재 대표 노드는 명시적 종류를 그대로 이어받는다. 대표가 그래프에 없는
+      // id(합성 입력의 고아·collapse의 폴더 집계)면 [fallbackIsLibrary]로
+      // 종류를 정한다 — atLevel은 선언 기본, collapse는 라이브러리 집계.
+      projected.putIfAbsent(
+        id,
+        () => byId[id] ?? GraphNode(id: id, isLibrary: fallbackIsLibrary),
+      );
     }
     return GraphSnapshot(
       nodes: projected.values,

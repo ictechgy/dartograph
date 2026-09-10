@@ -102,7 +102,7 @@ final class AnalyzerGraphIndex {
       for (final unit in units) {
         final libraryId = _libraryId(unit.libraryElement.uri, root);
         if (!graph.containsNode(libraryId)) {
-          graph.addNode(GraphNode(id: libraryId));
+          graph.addNode(GraphNode(id: libraryId, isLibrary: true));
         }
         unit.unit.accept(
           _DeclarationCollector(
@@ -223,7 +223,8 @@ final class AnalyzerGraphIndex {
 
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
-const _cacheSchemaVersion = 2;
+// 노드 직렬화에 isLibrary를 추가할 때도 같다(v3 — 추출 의미 변화 없이 필드만 늘었다).
+const _cacheSchemaVersion = 3;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올린다. 직렬화 형식(노드·간선·루트 필드)은
 // 그대로라 schemaVersion은 v2를 유지한다.
@@ -430,6 +431,7 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
           'id': node.id,
           'isAbstract': node.isAbstract,
           'isEnumConstant': node.isEnumConstant,
+          'isLibrary': node.isLibrary,
           'isTypeDeclaration': node.isTypeDeclaration,
           'line': ?node.line,
           'sourceUri': ?node.sourceUri,
@@ -457,6 +459,7 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
           line: node['line'] as int?,
           column: node['column'] as int?,
           synthesized: node['synthesized']! as bool,
+          isLibrary: node['isLibrary']! as bool,
           isTypeDeclaration: node['isTypeDeclaration']! as bool,
           isAbstract: node['isAbstract']! as bool,
           isEnumConstant: node['isEnumConstant']! as bool,
