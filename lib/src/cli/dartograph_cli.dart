@@ -724,6 +724,9 @@ Future<int> _runInit(
     }
   }
   final root = rootPath ?? '.';
+  if (File(root).existsSync()) {
+    return _reportInitTargetNotDirectory(error, root);
+  }
   final directory = Directory(root);
   if (!directory.existsSync()) {
     return _reportInitDirectoryFailure(error, root);
@@ -739,6 +742,8 @@ Future<int> _runInit(
   final tempFile = File(p.join(root, '.dartograph.yaml.tmp.$pid'));
   try {
     tempFile.writeAsStringSync(configurationTemplate, flush: true);
+    // --force 시 대상이 심볼릭 링크라면 링크 대상을 덮어쓰지 않고 링크 자체를
+    // 원자적으로 정규 설정 파일로 교체해 외부 파일 오염을 방지한다.
     tempFile.renameSync(configFile.path);
     output.writeln('Wrote ${configFile.path}');
     return ExitStatus.success.code;
@@ -1386,6 +1391,11 @@ int _reportRulesConfigFailure(StringSink error) {
 
 int _reportInitDirectoryFailure(StringSink error, String path) {
   error.writeln('Init failed: target directory does not exist: $path');
+  return ExitStatus.failure.code;
+}
+
+int _reportInitTargetNotDirectory(StringSink error, String path) {
+  error.writeln('Init failed: target path is not a directory: $path');
   return ExitStatus.failure.code;
 }
 

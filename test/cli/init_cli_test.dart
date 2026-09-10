@@ -169,7 +169,7 @@ environment:
     expect(status, ExitStatus.failure.code);
     expect(
       error.toString(),
-      contains('Init failed: target directory does not exist: $filePath'),
+      contains('Init failed: target path is not a directory: $filePath'),
     );
   });
 
