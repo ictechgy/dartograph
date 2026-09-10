@@ -12,11 +12,12 @@
 
 - `dead` 명령에 선언된 라이브러리 외부에서 결코 참조되지 않는 공개 선언을 감지하는
   `--report-redundant-public` 옵션 추가 (Periphery redundant public accessibility 패리티).
-  `--report-test-only`와 동일한 info 계약(진단 항목이 있어도 종료 코드 0)을 따르며,
-  `--explain`, `--baseline`, 기계 가독 포맷과 결합된다. 보존 루트, enum 상수, override
-  구현체, 연산자, 비공개 컨테이너 멤버는 보수적으로 제외한다
+  `--report-test-only`와 동일한 info 계약(진단 항목이 있어도 종료 코드 0)을 따른다.
+  `--explain`·`--baseline`·`--report-test-only`와는 결합하지 않으며(usage 64),
+  `--since`와 기계 가독 포맷은 허용된다. 보존 루트, enum 상수, override 구현체,
+  연산자, 비공개 컨테이너 멤버는 보수적으로 제외한다
 
-- `metrics --format json` 각 항목에 아키텍처 영역을 나타내는 `zone` 필드 추가
+- `metrics` JSON 출력의 각 항목에 아키텍처 영역을 나타내는 `zone` 필드 추가
   (cartograph `MetricsZone` 패리티). 각 컴포넌트 메트릭에 `zone` 필드(`main-sequence`,
   `zone-of-pain`, `zone-of-uselessness`, `isolated`)를 포함한다. 영역 경계는 `--strict`
   임계값 계산과 일치한다
@@ -27,8 +28,8 @@
 
 - HTML 내보내기 및 사영에서 `.dart::` 문자열 휴리스틱에 의존하던 것을 `GraphNode`의
   명시적 `isLibrary` 불리언 플래그로 대체. 파일명에 `::`가 포함된 라이브러리가 정확하게
-  분류된다. 캐시 스키마 버전이 `v3`으로 증가하여 직렬화된 JSON·DOT·Mermaid 출력 변경 없이
-  이전 분석 캐시를 자연스럽게 재분석한다
+  분류된다. 분석 캐시 직렬화 스키마 버전이 `v3`으로 증가(캐시 identity는 불변)하여
+  직렬화된 JSON·DOT·Mermaid 출력 변경 없이 이전 분석 캐시를 자동으로 재분석한다
 
 - `bridges` 3개 진단 패밀리 전반의 문법 일치 수정(N ≥ 2인 `unscanned-*` limitation의
   복수형 명사 표기와 N = 1인 dynamic-* 단수형 동사 일치)
