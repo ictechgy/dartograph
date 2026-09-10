@@ -2,6 +2,41 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.6.0
+
+- **파괴적 변경(라이브러리 API)**: 공개 라이브러리 표면
+  (`package:dartograph/dartograph.dart`)을 실제로 지원하는 범위로 좁혔다. CLI
+  동작·종료 코드는 불변이다.
+  - `querySymbol` 제거 — `tool/` 벤치마크만 쓰던 `SymbolQuerySession`의 1회성
+    래퍼다. 대신 `SymbolQuerySession`을 만들고 `query`를 호출한다
+  - `CodeGraph.usageEdgesFrom` 제거(제품 호출자 없음; `CodeGraph.edges`를
+    필터링)
+  - `SymbolQuerySession.analysis`(`ReachabilityResult` 필드)가 더 이상 공개가
+    아니다. 세션이 `query --baseline` 흐름을 위해 `deadDeclarations`(불변
+    `List<DeadFinding>`)를 노출해, 공개 멤버가 export되지 않은 타입을 참조하지
+    않는다. 도달성 질문은 각 문서가 심볼의 도달성 상태를 싣는
+    `SymbolQuerySession.query`가 답한다. `ReachabilityResult`·
+    `ReachabilityExplanation`은 내부로 남고 `DeadFinding`은 이제 export된다
+
+- `bridges` pub workspace 감지가 멤버십을 검증한다. pubspec에
+  `resolution: workspace`를 선언한 패키지는 가장 가까운 조상 `workspace:` 루트가
+  그 패키지를 그럴듯하게 나열할 때 조인된다 — URL 정규화 후 명시 경로를 일치
+  확인하고, 글롭 항목과 목록이 아닌 `workspace:` 값은 보수적으로 인정한다.
+  패키지를 빠뜨린 잘 구성된 명시 경로 목록일 때만 스캔 루트로 폴백하고 새
+  `pub-workspace-member-not-listed` limitation을 실어, 잘못 구성된 workspace가
+  isthmus 조인 기준을 조용히 어긋내지 않는다
+
+- SARIF 출력이 이미 절대 URI인 소스를 더 이상 손상시키지 않는다. 소스가
+  `file:`(root 밖 경로)·`package:`(의존)인 dead finding은 `/`로 쪼개 재인코딩
+  (`file:///a.dart`가 `file%3A///a.dart`로 깨지던)하지 않고 그대로 통과한다.
+  project 상대 경로는 기존 세그먼트별 인코딩(백슬래시·퍼센트 안전)을 유지한다
+
+- HTML 그래프 출력이 파일명에 `::`를 담은 라이브러리를 이제 올바르게 분류한다
+  (임의 `::` 대신 `.dart::` 선언 경계 사용). 그런 라이브러리가 더 이상 member로
+  표시되지 않고, 표시 이름이 첫 `::`에서 잘리지 않는다
+
+- README를 명료하게 개정(영어 정본·한국어 쌍둥이); 동작 변경 없음
+
 ## 0.5.0
 
 - `bridges`에 `--project <shared-root>`와 pub workspace 자동 감지 추가
