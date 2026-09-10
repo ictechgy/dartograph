@@ -94,6 +94,8 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 1 "dead test-only corpus has a dead declaration" dead --format json fixtures/test_only_corpus
   expect_status 0 "dead report-test-only is info" dead --report-test-only --format json fixtures/test_only_corpus
   expect_status 0 "dead report-test-only text" dead --report-test-only --format text fixtures/test_only_corpus
+  expect_status 0 "dead redundant-public is info" dead --report-redundant-public --format json fixtures/test_only_corpus
+  expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
 

@@ -24,22 +24,31 @@ enum DeadReport {
 
   /// 테스트에서만 도달 — `info`라 빌드를 실패시키지 않는다. 죽은 코드가 아니라
   /// "테스트가 유일한 호출자"라는 관측이다.
-  testOnly;
+  testOnly,
+
+  /// 공개 접근성이 남아도 — `info`라 빌드를 실패시키지 않는다. 죽은 코드가
+  /// 아니라 "지금 관측으로는 라이브러리 비공개로 좁혀도 되는 공개 선언"이라는
+  /// 관측이다(Periphery `redundant public accessibility` 패리티).
+  redundantPublic;
 
   /// 사람 텍스트의 심각도 단어다.
-  String get severity => this == testOnly ? 'info' : 'warning';
+  String get severity => this == DeadReport.dead ? 'warning' : 'info';
 
-  /// 요약줄과 CI 제목에 쓰는 라벨이다.
-  String get label => this == testOnly ? 'test-only' : 'dead';
+  /// 요약줄과 CI 제목에 쓰는 라벨이다(json `report` 필드이기도 하다).
+  String get label => switch (this) {
+    DeadReport.dead => 'dead',
+    DeadReport.testOnly => 'test-only',
+    DeadReport.redundantPublic => 'redundant-public',
+  };
 
   /// GitHub Actions workflow command다(info는 `notice`).
-  String get githubCommand => this == testOnly ? 'notice' : 'warning';
+  String get githubCommand => this == DeadReport.dead ? 'warning' : 'notice';
 
   /// SARIF result level이다(info는 `note`).
-  String get sarifLevel => this == testOnly ? 'note' : 'warning';
+  String get sarifLevel => this == DeadReport.dead ? 'warning' : 'note';
 
   /// SARIF ruleId 접두어다.
-  String get rulePrefix => this == testOnly ? 'test-only' : 'dead';
+  String get rulePrefix => label;
 }
 
 /// 같은 발견 사실을 형식별로 손실 없이 직렬화한다.
@@ -222,10 +231,11 @@ abstract final class DeadReporter {
           'tool': {
             'driver': {
               'name': 'dartograph',
-              // testOnly는 선언 finding만 생성한다(reachability의
-              // testOnlyDeclarations — 파일은 보고하지 않음)라 'test-only-file'
-              // ruleId는 CLI에서 도달 불가. 라이브러리 호출자가 file finding을
-              // 넣는 조합만 rules 미선언이 되므로 그 불변식을 여기에 기록한다.
+              // testOnly·redundantPublic은 선언 finding만 생성한다(reachability의
+              // testOnlyDeclarations·redundantPublicDeclarations — 파일은 보고하지
+              // 않음)라 '<label>-file' ruleId는 CLI에서 도달 불가. 라이브러리
+              // 호출자가 file finding을 넣는 조합만 rules 미선언이 되므로 그
+              // 불변식을 여기에 기록한다.
               'rules': [
                 {'id': '${report.rulePrefix}-declaration'},
                 if (report == DeadReport.dead) {'id': '${report.rulePrefix}-file'},
