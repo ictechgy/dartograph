@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/atomic_write.dart';
 import 'reachability_analyzer.dart';
 
 /// 기존 코드베이스에서 이미 확인된 발견의 결정적 지문 모음이다.
@@ -53,19 +54,16 @@ final class BaselineFilterResult {
 /// 베이스라인 파일의 검증된 입출력 경계다.
 abstract final class BaselineStore {
   /// 부모 디렉터리를 만들고 결정적 JSON을 쓴다.
+  ///
+  /// 임시 파일의 배타적 생성·원자적 교체·실패 시 정리는 AtomicWrite 경계가
+  /// 담당하며, 이 경계는 baseline payload의 결정적 직렬화만 소유한다.
   static Future<void> write(Baseline baseline, File file) async {
     await file.parent.create(recursive: true);
     const encoder = JsonEncoder.withIndent('  ');
-    final temporary = File('${file.path}.tmp.$pid');
-    try {
-      await temporary.writeAsString(
-        '${encoder.convert({'fingerprints': baseline.fingerprints, 'formatVersion': Baseline.formatVersion, 'tool': 'dartograph'})}\n',
-        flush: true,
-      );
-      await temporary.rename(file.path);
-    } finally {
-      if (await temporary.exists()) await temporary.delete();
-    }
+    await AtomicWrite.string(
+      file,
+      '${encoder.convert({'fingerprints': baseline.fingerprints, 'formatVersion': Baseline.formatVersion, 'tool': 'dartograph'})}\n',
+    );
   }
 
   /// 스키마와 모든 지문 타입을 검증한 뒤 읽는다.
