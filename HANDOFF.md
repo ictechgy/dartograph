@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) + **죽은 공개 API 처분(PR #58 — 정책 A 최소화·hygiene)** → 미릴리스 누적 PR #58 생김(이어 #63도 lib/ 변경으로 추가); isthmus GRAPH-EXCHANGE 문구 갱신(isthmus PR #36 realpath + #37 조인 루트) 확인 후 issue #38 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52); 후속 #59·#60·#62(HANDOFF 기록)·#61(bridge 스코프 방문자 테스트 보강, 97.03%·테스트 전용)·#63(감사 낮음 실행가능 subset: SARIF uri file:/package: pass-through·html `.dart::` 판별·workspace 멤버십 검증, 97.04%), PR #39~#63 merge)_
+_Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 `85c345a`, pub.dev latest 0.6.0·태그 v0.6.0·GitHub Release·새 캐시 설치본 검증; 미릴리스 누적 PR #58(죽은 공개 API 처분·라이브러리 API)·#63(감사 낮음 subset: SARIF uri·html `.dart::`·workspace 멤버십)·#65(README 퇴고)를 소진, semver minor). 후속: issue #38 양측 종결·close(#57) + HANDOFF 기록(#59·#60·#62·#64) + bridge 스코프 테스트(#61) + README 퇴고(#65); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 + 0.4.1 + 성능 3건 + bridges + 0.5.0 + issue #38 dartograph 측(#52), PR #39~#66 merge)_
 
 ## Goal
 
@@ -22,25 +22,26 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
 
 ## Current Status
 
-- 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
-  Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
-  `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55·#56·#59·#60·#62) + issue #38
-  close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 방문자 테스트 보강(#61) + 감사 낮음
-  실행가능 subset(#63). PR #39~#63 모두 두 SDK CI green + GLM packet-review(필요 시) 후
-  머지했다(#58·#61·#63 GLM 차단 없음; docs 전용 전사 #57·#59·#60·#62는 리뷰 생략, 사유 기록).
+- 릴리스 기준: **`v0.6.0` → `85c345a`** (PR #66 merge = 게시 커밋). pub.dev latest 0.6.0
+  (Readme·Changelog 탭 **영어**)·GitHub Release(target=85c345a) 공개. 새 격리 캐시 설치본으로
+  `--version` 0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→limitation+스캔루트 폴백,
+  목록→workspace 루트) 검증. (이전 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
+- main 기준: **0.6.0 릴리스(PR #66)** + 0.5.0(#54) + HANDOFF 기록(#55·#56·#59·#60·#62·#64) +
+  issue #38 close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 테스트 보강(#61) + 감사 낮음
+  subset(#63) + README 퇴고(#65). PR #39~#66 모두 두 SDK CI green + GLM packet-review(필요 시)
+  후 머지했다(#58·#61·#63·#65 GLM 차단 없음; docs 전용 전사 #57·#59·#60·#62·#64는 리뷰 생략, 사유 기록).
   열린 제품 PR 없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션
   이월분이다(Next Steps 4의 목록).**
-- **미릴리스 누적: PR #58 + PR #63 (둘 다 lib/ 변경)** — #58(죽은 공개 API 처분:
-  querySymbol·usageEdgesFrom 제거, analysis→deadDeclarations getter, DeadFinding export;
-  CLI 무변경·라이브러리 API 표면 변경) + #63(감사 낮음 subset: SARIF uri의 file:·package:
-  pass-through, html `.dart::` 판별, workspace 멤버십 검증 + `pub-workspace-member-not-listed`
-  limitation; 정상 입력 CLI 출력 byte 불변·엣지만 수정). CHANGELOG는 관례상 `Unreleased` 절이
-  없으므로 **다음 릴리스 때 semver+CHANGELOG로 기록한다**(Next Steps 5). docs·테스트 전용
-  PR(#57·#59·#60·#61·#62)은 .pubignore로 패키지 제외라 누적이 아니다.
+- **미릴리스 누적 없음 — 0.6.0(PR #66)이 PR #58(죽은 공개 API 처분·라이브러리 API 표면
+  변경·CLI 무변경) + #63(감사 낮음 subset: SARIF uri file:·package: pass-through·html
+  `.dart::`·workspace 멤버십 + `pub-workspace-member-not-listed`) + #65(README 퇴고)를 소진**
+  (semver minor — 0.x에서 공개 API 제거는 파괴적). CHANGELOG 두 언어가 0.6.0을 breaking-change
+  마커 + 마이그레이션 힌트(querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query)로
+  기록. CHANGELOG에 `Unreleased` 절 없음. docs·테스트 전용(#57·#59~#62·#64)은 .pubignore 제외라
+  애초 누적이 아니었다.
 - 테스트 269개, 라인 커버리지 **97.04%**(감사 전 94.4%; PR #58 querySymbol 제거+getter
   스모크, PR #61 bridge 스코프 12테스트로 bridge_index 미커버 40→9줄, PR #63 감사 낮음
-  subset +4 회귀). 미릴리스 누적은 PR #58·#63(lib/) 둘 — #61·#62는 테스트·docs 전용.
+  subset +4 회귀). 미릴리스 누적 없음(0.6.0이 전부 릴리스).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -288,6 +289,19 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
   dry-run 0, 두 SDK CI green. GLM packet-review 차단 없음(4건 수용; 비차단 — SARIF 구조개선·
   html 멤버-in-`::` 테스트·정책 표 동기화·잔여 엣지 기록 반영, workspace nit은 fail-closed·
   병적 판정 무변경).
+- README 퇴고(PR #65, docs-only): 영문 README.md를 GLM packet-review 2회(차단 0·"pub.dev 발행
+  가능")로 여러 패스 퇴고(Install↔Usage 실행형태 통일, isthmus·GRAPH-EXCHANGE 소개+표기 통일,
+  관용구·병렬성, compare·skill·--baseline 불릿 보강, 섹션 "Analysis limitations and guarantees"),
+  README.ko.md 쌍둥이 동기화(구조·불릿 수 미러, 명령 불변). 사실 불변, CJK clean.
+- 0.6.0 릴리스(PR #66): 미릴리스 누적 PR #58(라이브러리 API)+#63(감사 낮음 subset)+#65(README)를
+  semver minor(0.x 공개 API 제거=파괴적)로 발행. 두 언어 CHANGELOG 0.6.0(breaking-change 마커 +
+  마이그레이션 힌트 + workspace 3분기 정확화 — GLM 릴리스 리뷰 4건 반영), 버전 정합 6곳
+  (pubspec·tool_info·USAGE ×2·SECURITY 0.6.x·cli_test --version), 269 테스트·커버리지 97.04%·
+  dead 0·corpus·cli-contract·dry-run 0, 두 SDK CI green → 머지(`85c345a`). GLM 릴리스 리뷰
+  (CHANGELOG ×2) 차단 없음·"발행 가능". publish 성공 → 태그 v0.6.0=게시 커밋(`85c345a`, `--target`)
+  + GitHub Release → 전파 ~3분 후 pub.dev latest 0.6.0 확인 → 새 격리 캐시 설치본으로 --version
+  0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→`pub-workspace-member-not-listed`+스캔루트 폴백,
+  목록→workspace 루트) 검증.
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
   로컬 rg 부재로 CI 위임.
 
@@ -421,18 +435,20 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
    (P7은 측정-보류, bridge 스코프 방문자는 PR #61 완료로 소진 — 위 backlog 참조, 재도출 금지.)
-5. 다음 릴리스도 지시 시에만: **미릴리스 누적 PR #58(죽은 공개 API 처분 — CLI 무변경·
-   라이브러리 API 표면 변경)을 두 언어 CHANGELOG에 기록하고 semver를 판단한 뒤**, 버전
-   정합 6곳 + (Korean) 표기 규약, clean git dry-run 후 publish → `--target`으로 같은 커밋
-   태그+Release → 전파 대기(분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
+5. **0.6.0 릴리스 완료(PR #66, 2026-09-10)** — 미릴리스 누적(PR #58+#63+#65)을 semver
+   minor(공개 API 제거)로 발행. 다음 릴리스도 지시 시에만: 두 언어 CHANGELOG + semver 판단,
+   버전 정합 6곳(pubspec·tool_info·USAGE ×2·SECURITY·cli_test) + (Korean) 표기 규약, clean git
+   dry-run 후 `dart pub publish --force` → `--target`으로 같은 커밋 태그+Release → 전파 대기
+   (분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
 
 ## Resume Prompt
 
 Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
-`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.5.0 is released
-(pub.dev latest 0.5.0 with ENGLISH README/Changelog, tag v0.5.0 at 16b18fd = publish commit,
-GitHub Release, fresh-cache install verified incl. bridges workspace detection and the 59-case
-CLI contract; 0.4.1 was the audit-fix release before it). This session
+`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.6.0 is released
+(pub.dev latest 0.6.0 with ENGLISH README/Changelog, tag v0.6.0 at 85c345a = publish commit,
+GitHub Release, fresh-cache install verified incl. --version 0.6.0, the 59-case CLI contract, and
+the new pub-workspace-member-not-listed membership fallback; 0.5.0 was the bridges-shared-root
+release before it, 0.4.1 the audit-fix release before that). This session
 converted README/CHANGELOG to English originals with Korean twins (README.ko.md/CHANGELOG.ko.md,
 .pubignore-excluded; CONTRIBUTING owns the twin-sync rule), ran a FULL codebase audit (structure/
 performance/security/correctness/test-gaps; method: direct review + 3 explore agents + 3 GLM
@@ -474,10 +490,13 @@ usageEdgesFrom removed (CodeGraph method, product-unused/test-only), and the Rea
 fixed (SymbolQuerySession.analysis made private `_analysis`; the only public surface is
 `List<DeadFinding> get deadDeclarations` (unmodifiable); the barrel now exports just DeadFinding;
 ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes UNCHANGED, coverage
-95.98%, GLM packet-review no blocking (2 non-blocking applied: getter unmodifiable + doc). **PR #58 is
-MERGED but UNRELEASED** — lib/ API surface changed, CLI did not; record it at the next release
-(CHANGELOG has no Unreleased section by convention). PR #58 AND PR #63 are the UNRELEASED
-accumulation (both touch lib/); docs/test-only PRs (#57·#59~#62) are .pubignore-excluded.
+95.98%, GLM packet-review no blocking (2 non-blocking applied: getter unmodifiable + doc). THEN PR
+#63 (audit-low actionable subset), PR #65 (README polish, GLM 2 rounds), and **0.6.0 was RELEASED
+(PR #66, semver minor for the public-API removal; pub.dev latest 0.6.0, tag v0.6.0 at 85c345a =
+publish commit, GitHub Release, fresh-cache install verified incl. --version 0.6.0, the 59-case CLI
+contract, and the new pub-workspace-member-not-listed membership fallback). NOTHING is unreleased
+now** — 0.6.0 absorbed PR #58 + #63 + #65; both CHANGELOGs record it with a breaking-change marker +
+migration hints (querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query).
 REMAINING: P7 (snapshot toSet rehash) is MEASURED & CONFIRMED DEFERRED (2026-09-09 — do NOT
 re-derive/re-measure): an isolated probe put the toSet rehash at 24µs for the realistic 14726-edge
 graph (0.002% of the ~1070ms indexing min, 0.5% of the snapshot edge work; the invariant
