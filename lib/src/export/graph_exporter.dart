@@ -66,9 +66,10 @@ abstract final class GraphExporter {
   /// Graphviz가 읽는 DOT 문서를 만든다.
   ///
   /// [cycleNodeIds]에 있는 정점은 순환 참여로 색칠한다(madge 순환 노드 색칠
-  /// 패리티 — 붉은 테두리·글자). 순환 판정은 분석 영역이므로 호출자가
-  /// `CycleDetector`로 계산해 전달하고, 비어 있으면 출력은 색칠 없이
-  /// 기존 바이트와 동일하다.
+  /// 패리티 — 붉은 테두리·글자). 속성은 `style=dashed`(synthesized)가 먼저
+  /// 오고 이어 `color=red fontcolor=red` 순으로 고정이며, 집합에 없는 id는
+  /// 그냥 무시된다. 순환 판정은 분석 영역이므로 호출자가 `CycleDetector`로
+  /// 계산해 전달하고, 비어 있으면 출력은 색칠 없이 기존 바이트와 동일하다.
   static String dot(
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],

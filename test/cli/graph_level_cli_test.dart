@@ -97,6 +97,30 @@ void main() {
       '  "c" -> "a" [label="call"];\n'
       '}\n',
     );
+
+    // 같은 CLI 경로라도 순환이 없으면 색칠이 없다(기존 출력 바이트 보존).
+    final acyclic = StringBuffer();
+    expect(
+      await runDartograph(
+        ['graph', '--format', 'dot', '.'],
+        output: acyclic,
+        indexPackage: (_) async => AnalyzerGraphResult(
+          graph: CodeGraph()
+            ..addNode(GraphNode(id: 'a'))
+            ..addNode(GraphNode(id: 'b'))
+            ..addEdge(
+              const GraphEdge(
+                sourceId: 'a',
+                targetId: 'b',
+                kind: EdgeKind.call,
+              ),
+            ),
+          limitations: const [],
+        ),
+      ),
+      ExitStatus.success.code,
+    );
+    expect(acyclic.toString(), isNot(contains('color=red')));
   });
 
   test('graph --level file answers the library graph', () async {
