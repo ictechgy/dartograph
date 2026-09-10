@@ -1,22 +1,22 @@
 # Handoff
 
-_Last updated: 2026-09-10 (0.7.0 릴리스 완료 — PR #78: 미릴리스 6건[#69, #71~#75] 일괄 발행, semver minor. 릴리스 기준 v0.7.0 → e1b3202. pub.dev latest 0.7.0, GitHub Release 완료, 새 격리 캐시 설치본 검증 완료. 미릴리스 누적 0건. 다음 세션 이월분 = Tier 3 범위 결정뿐)_
+_Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartograph init 패리티, dartograph.yaml 템플릿 생성, 원자적 쓰기·충돌 가드, CLI 계약 70케이스 통과. 릴리스 기준 v0.7.0 → e1b3202, main 최신 f4000eb. 미릴리스 누적 1건[#80])_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(0.7.0 릴리스, PR #78)**: 미릴리스 누적 6건(#69 bridges 문법 수정, #71 GraphNode isLibrary·캐시 v3, #72 metrics zone, #73 dot 순환 색칠, #74 graph --format anon, #75 dead --report-redundant-public)을 **semver minor(0.7.0)**로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증을 완료했다.
-- 직전 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76): ① bridges 개행 실패 현행 유지 종결, ② `unscanned-*` 복수형 문구 수정(#69), ③ GraphNode isLibrary(#71), ④ Tier 4 4종(#72~#75) 흡수.
-- 이전 세션(PR #57~#68): issue #38 close(#57), 죽은 API 처분(#58), README 퇴고(#65), 0.6.0 릴리스(#66).
+- **이번 세션(Tier 3 init 구현, PR #80)**: 사용자 요청에 따라 Tier 3 확장 작업 중 `dartograph init` 명령과 기본 `dartograph.yaml` 템플릿 생성을 구현하고, GLM 패킷 리뷰(미구현 키 제거, 파일 쓰기 원자성, 전용 진단 분리, 템플릿 파싱 실질 검증) 피드백을 반영해 머지했다.
+- 직전 세션(0.7.0 릴리스, PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor(0.7.0)로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증 완료.
+- 이전 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76): ① bridges 개행 실패 현행 유지 종결, ② `unscanned-*` 복수형 문구 수정(#69), ③ GraphNode isLibrary(#71), ④ Tier 4 4종(#72~#75) 흡수.
 
 ## Current Status
 
 - 릴리스 기준: **`v0.7.0` → `e1b3202`** (PR #78 merge = 게시 커밋). pub.dev latest 0.7.0
   (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.7.0) 공개. 새 격리 캐시 설치본으로
   `--version` 0.7.0·CLI 계약 62케이스 검증 완료. (이전 0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **PR #78(0.7.0 릴리스)** + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 + 세션 기록) + 0.6.0 릴리스(#66). 열린 제품 PR 없음.
-- **미릴리스 누적 0건** (0.7.0으로 전량 발행 완료).
-- 테스트 288개, 라인 커버리지 **97.15%**(감사 전 94.4%).
+- main 기준: **`f4000eb`** (PR #80 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 1건**: PR #80 (`dartograph init` 명령 및 `dartograph.yaml` 템플릿 생성).
+- 테스트 295개, 라인 커버리지 **96.93%**.
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -24,7 +24,22 @@ _Last updated: 2026-09-10 (0.7.0 릴리스 완료 — PR #78: 미릴리스 6건[
 
 ## Completed
 
-### 이번 세션 (0.7.0 릴리스, PR #78)
+### 이번 세션 (Tier 3 init 구현, PR #80)
+
+- **`init` 명령 및 `dartograph.yaml` 기본 템플릿 생성(PR #80, 2026-09-11)**:
+  - `dartograph init [--force] [<package-root>]` 구현 (cartograph `init` 패리티).
+  - 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿 생성 (`configuration_template.dart`).
+  - 현재 실제 구현된 스키마인 `entry_points`만 템플릿에 명시(미구현 키 사전 광고 방지).
+  - 충돌 방어(기존 파일 존재 시 exit 64) 및 `--force` 덮어쓰기 플래그 지원.
+  - 임시 파일(`.*.tmp.$pid`) 기반 원자적 교체(`renameSync`) 적용으로 쓰기 중단 시 원본 유실 방지.
+  - `--force` 시 심볼릭 링크 대상을 덮어쓰지 않고 링크 자체를 정규 파일로 교체하는 정책 문서화.
+  - 전용 에러 진단(`_reportInitDirectoryFailure`, `_reportInitTargetNotDirectory`, `_reportInitWriteFailure`) 분리.
+  - `init_cli_test.dart`(7개 케이스: 템플릿 YAML 파싱 유효성, `entry_points` 주석 해제 시 실제 보존 루트 축소 및 limitation 검증, 충돌 가드, force 덮어쓰기, 미존재 디렉터리 실패, 파일 대상 실패, 옵션 오류).
+  - `tool/verify-cli-contract.sh` 8개 케이스 보강(총 70개 케이스 pass).
+  - USAGE.md, README.md, README.ko.md, RESEARCH.md 동기화.
+  - GLM 패킷 리뷰 2회(초기 리뷰 및 delta 리뷰) 통과, 차단 사항 0건, CI(3.11.0 / 3.13.3) green 후 머지(`f4000eb`).
+
+### 직전 세션 (0.7.0 릴리스, PR #78)
 
 - **0.7.0 릴리스(PR #78, 2026-09-10)**: 미릴리스 누적 6건(#69, #71~#75)을 semver minor로
   발행. 신규 CLI 표면 2개(`graph --format anon`, `dead --report-redundant-public`)와
@@ -545,12 +560,13 @@ _Last updated: 2026-09-10 (0.7.0 릴리스 완료 — PR #78: 미릴리스 6건[
 2. 지금까지 완료: PR #39~#54(0.4.1·0.5.0 릴리스 + 성능 backlog + issue #38 dartograph 측)
    + PR #57~#68(issue #38 종결 + 죽은 API 처분 + README 퇴고 + 0.6.0 릴리스)
    + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 흡수)
-   + **PR #78(0.7.0 릴리스 완료 — 미릴리스 누적 6건 전량 발행)**.
-   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 0건**.
+   + PR #78(0.7.0 릴리스 완료 — 미릴리스 누적 6건 전량 발행)
+   + **PR #80(Tier 3 init 명령 및 dartograph.yaml 템플릿 생성 구현 완료)**.
+   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 1건**(PR #80).
 3. **다음 세션 이월분**:
-   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·init·markdown/codeowners 리포터·issue-type 필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
+   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·markdown/codeowners 리포터·issue-type 필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
 4. 제품 배포 blocker 없음. 다음 명시적인 사용자 지시를 따른다.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #78 bundled all six unreleased items (#69 bridges limitation grammar, #71 GraphNode isLibrary with cache schema v3, #72 metrics architectural zone labels, #73 DOT cycle node coloring, #74 graph --format anon, #75 dead --report-redundant-public) as a semver minor release with full twin CHANGELOG synchronization. GLM release review feedback was addressed (redundant-public option combination contract clarified, cache schema v3 vs cache identity disambiguated). NOTHING is unreleased (0 unreleased PRs). Line coverage is 97.15% across 288 tests. Next steps: Tier 3 absorption candidates in doc/RESEARCH.md (yaml extensions, init, markdown/codeowners reporters, issue-type filter, MCP server) to be decided on user request. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed (current main at f4000eb). 1 unreleased PR accumulated (#80). Line coverage is 96.93% across 295 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
