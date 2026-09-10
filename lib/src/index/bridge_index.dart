@@ -117,9 +117,13 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
     ))
       'missing-caller-symbols: some invocations have source locations but no supported enclosing declaration name',
     if (dynamicChannels > 0)
-      'dynamic-channel-names: $dynamicChannels channel constructors use a non-literal name',
+      'dynamic-channel-names: $dynamicChannels '
+          '${dynamicChannels == 1 ? 'channel constructor uses' : 'channel constructors use'} '
+          'a non-literal name',
     if (dynamicMethodNames > 0)
-      'dynamic-method-names: $dynamicMethodNames method invocations use a non-literal name',
+      'dynamic-method-names: $dynamicMethodNames '
+          '${dynamicMethodNames == 1 ? 'method invocation uses' : 'method invocations use'} '
+          'a non-literal name',
     if (unresolvedReceiverInvocations > 0)
       'unresolved-receiver-invocations: $unresolvedReceiverInvocations '
           '${unresolvedReceiverInvocations == 1 ? 'invokeMethod call has' : 'invokeMethod calls have'} '
@@ -137,9 +141,11 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
           '${patternVariableScopes == 1 ? 'pattern binding was' : 'pattern bindings were'} '
           'resolved conservatively',
     if (unscannedEventChannels > 0)
-      'unscanned-event-channels: $unscannedEventChannels EventChannel constructor',
+      'unscanned-event-channels: $unscannedEventChannels '
+          'EventChannel ${unscannedEventChannels == 1 ? 'constructor' : 'constructors'}',
     if (unscannedBasicMessageChannels > 0)
-      'unscanned-basic-message-channels: $unscannedBasicMessageChannels BasicMessageChannel constructor',
+      'unscanned-basic-message-channels: $unscannedBasicMessageChannels '
+          'BasicMessageChannel ${unscannedBasicMessageChannels == 1 ? 'constructor' : 'constructors'}',
     if (conditionalFlutterImports > 0)
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '

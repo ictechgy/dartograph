@@ -547,7 +547,7 @@ void callExternal() {
       expect(
         document['limitations'],
         contains(
-          'dynamic-method-names: 1 method invocations use a non-literal name',
+          'dynamic-method-names: 1 method invocation uses a non-literal name',
         ),
       );
       expect(
