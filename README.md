@@ -52,6 +52,9 @@ The examples below assume a global install; from a source checkout, prefix each
 command with `dart run` (for example, `dart run dartograph graph --format dot .`).
 
 ```bash
+# initialize configuration template
+dartograph init .
+
 # graph & dead code
 dartograph graph --format dot .
 dartograph graph --format html .
@@ -117,6 +120,8 @@ Full arguments, output formats, exit codes, and CI examples live in
   abstractness, and distance from the main sequence — each entry also carries
   its zone (`main-sequence`, `zone-of-pain`, `zone-of-uselessness`, or
   `isolated` for entries with no couplings at all) at the reported tolerance.
+- `init` writes a commented `dartograph.yaml` configuration template to the
+  project root (pass `--force` to overwrite an existing configuration).
 
 A `// dartograph:ignore` line comment suppresses dead reporting for the
 declaration it heads (retained as `retentionReason: inlineIgnore`) — a decision
@@ -140,7 +145,7 @@ Limitations:
 - A package can contain several `main` functions. By default every `main` under
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
-  functions of those files.
+  functions of those files (a template can be generated with `dartograph init`).
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.

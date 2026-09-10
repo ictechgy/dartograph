@@ -22,6 +22,7 @@ import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
 import 'agent_skill.dart';
 import 'changed_files.dart';
+import 'configuration_template.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
@@ -176,6 +177,8 @@ Future<int> _dispatch(
         stderrSink,
         indexPackage ?? AnalyzerGraphIndex().index,
       );
+    case 'init':
+      return await _runInit(arguments.skip(1).toList(), stdoutSink, stderrSink);
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
@@ -696,6 +699,63 @@ Future<int> _runSkill(
       'Skill installation failed: check the destination permissions.',
     );
     return ExitStatus.failure.code;
+  }
+}
+
+Future<int> _runInit(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  bool force = false;
+  String? rootPath;
+  for (final argument in arguments) {
+    if (argument == '--force') {
+      if (force) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      force = true;
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  final root = rootPath ?? '.';
+  if (File(root).existsSync()) {
+    return _reportInitTargetNotDirectory(error, root);
+  }
+  final directory = Directory(root);
+  if (!directory.existsSync()) {
+    return _reportInitDirectoryFailure(error, root);
+  }
+  final configFile = File(p.join(root, 'dartograph.yaml'));
+  if (!force &&
+      (configFile.existsSync() || Link(configFile.path).existsSync())) {
+    error.writeln(
+      '${configFile.path} already exists. Pass --force to overwrite it.',
+    );
+    return ExitStatus.usage.code;
+  }
+  final tempFile = File(p.join(root, '.dartograph.yaml.tmp.$pid'));
+  try {
+    tempFile.writeAsStringSync(configurationTemplate, flush: true);
+    // --force 시 대상이 심볼릭 링크라면 링크 대상을 덮어쓰지 않고 링크 자체를
+    // 원자적으로 정규 설정 파일로 교체해 외부 파일 오염을 방지한다.
+    tempFile.renameSync(configFile.path);
+    output.writeln('Wrote ${configFile.path}');
+    return ExitStatus.success.code;
+  } on IOException {
+    try {
+      if (tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
+    } on IOException {
+      // Best-effort cleanup of temporary file.
+    }
+    return _reportInitWriteFailure(error, configFile.path);
   }
 }
 
@@ -1329,6 +1389,21 @@ int _reportRulesConfigFailure(StringSink error) {
   return ExitStatus.failure.code;
 }
 
+int _reportInitDirectoryFailure(StringSink error, String path) {
+  error.writeln('Init failed: target directory does not exist: $path');
+  return ExitStatus.failure.code;
+}
+
+int _reportInitTargetNotDirectory(StringSink error, String path) {
+  error.writeln('Init failed: target path is not a directory: $path');
+  return ExitStatus.failure.code;
+}
+
+int _reportInitWriteFailure(StringSink error, String path) {
+  error.writeln('Init failed: unable to write $path.');
+  return ExitStatus.failure.code;
+}
+
 Future<Baseline> _readBaseline(File file) async {
   try {
     return await BaselineStore.read(file);
@@ -1372,6 +1447,7 @@ const _help = '''
 dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
+       dartograph init [--force] [<package-root>]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
        dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
        dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
@@ -1388,6 +1464,9 @@ Usage: dartograph [--help] [--version]
        dartograph rules --config <yaml-file> [--strict] <package-root>
        dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
        dartograph metrics [--strict] <package-root>
+
+init writes a commented dartograph.yaml configuration template to the project
+root. Pass --force to overwrite an existing configuration file.
 
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production

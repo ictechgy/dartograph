@@ -119,10 +119,17 @@ Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `af
   루트·enum 상수·override 이행 제외. 외부 멤버 호출의 멤버 정점 정확 귀속과
   의존 패키지 무정점은 프로브 실측으로 확인.
 
+구현됨 — Tier 3:
+
+- init — cartograph `init` 패리티(`Sources/cartograph/CartographCommand.swift` 및
+  `ConfigurationTemplate.swift` 확인). `dartograph init [--force] [<package-root>]` —
+  프로젝트 루트에 주석 달린 `dartograph.yaml` 템플릿 생성, 충돌 방어(exit 64),
+  `--force` 덮어쓰기, 발견 가능성을 위한 주석 예제(entry_points, layers/rules, thresholds).
+
 남은 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):
 
 - Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
-  `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
+  markdown·codeowners 리포터, issue-type 필터, MCP 서버.
 
 Tier 1~2 심사 때 목록에 들지 않은 나머지 강점들은 의도적으로 미채택이다(재도출하지 않는다):
 dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query --depth/--limit`·
