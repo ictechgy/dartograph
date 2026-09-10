@@ -1,27 +1,27 @@
 # dartograph
 
-Queryable dependency graphs for Dart and Flutter codebases. The sister project
-of [cartograph](https://github.com/ictechgy/cartograph) (Swift).
+Queryable dependency graphs for Dart and Flutter codebases. Sister project of
+[cartograph](https://github.com/ictechgy/cartograph) (Swift).
 
 [한국어 README](README.ko.md)
 
 **MIT licensed, and permanently free — commercial use included.** There will
-never be a paid tier, license keys, seat or line-of-code limits, telemetry, or
+never be paid tiers, license keys, seat or line-of-code limits, telemetry, or
 account sign-in.
 
 The name blends **Dart** and cartograph.
 
 ## Why
 
-DCM (formerly dart_code_metrics) has unused-code and unused-file
-detection for Flutter — and went paid in 2023. Its free tier covers **one seat
-and up to 50k lines of code**; teams and larger projects have to pay.
+DCM (formerly dart_code_metrics) detects unused code and files in Flutter
+projects — and went paid in 2023. Its free tier covers **one seat and up to 50k
+lines of code**, so teams and larger projects have to pay.
 
-dartograph fills that gap as **permanently free (MIT), commercial use
-included** — the same reason cartograph exists after Periphery went commercial.
+dartograph fills that gap: **permanently free (MIT), commercial use included** —
+just as cartograph does for Swift after Periphery went commercial.
 
-- The source of truth is `package:analyzer` — the official analyzer published by
-  the Dart team — not text search.
+- The source of truth is `package:analyzer`, the Dart team's official analyzer
+  package — not text search.
 - Unused code, unused files, dependency cycles, layer rules, and architecture
   metrics all come from one graph.
 - Every answer carries its evidence. dartograph never renders a deletion
@@ -32,66 +32,86 @@ included** — the same reason cartograph exists after Periphery went commercial
 **Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
 [GitHub Releases](https://github.com/ictechgy/dartograph/releases).** Every
-release passes the full test suite, the line-coverage gate, a package dry-run,
-and dogfooding against real public Flutter plugins. `bridges` conservatively
-produces MethodChannel provenance, lexical scope, UTF-8 positions, UTC
-millisecond timestamps, and dynamic/unresolved limitations per isthmus
-GRAPH-EXCHANGE v1.
+release passes the full test suite, the line-coverage gate, and a package
+dry-run, and is dogfooded against real public Flutter plugins.
 
 ## Install
 
 dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
-Dart 3.11 or later.
+Dart SDK 3.11 or later.
 
 ```bash
 dart pub global activate dartograph
 dartograph --version
 ```
 
-From a source checkout, run the same commands via `dart run dartograph`.
-
 ## Usage
 
-Pass the root of the Dart package to analyze as the last argument.
+Most commands take the root of the Dart package to analyze as the last argument.
+The examples below assume a global install; from a source checkout, prefix each
+command with `dart run` (for example, `dart run dartograph graph --format dot .`).
 
 ```bash
-dart run dartograph graph --format dot .
-dart run dartograph graph --format html .
-dart run dartograph dead --format text .
-dart run dartograph baseline --write .dartograph-baseline.json .
-dart run dartograph dead --format github-actions \
+# graph & dead code
+dartograph graph --format dot .
+dartograph graph --format html .
+dartograph dead --format text .
+
+# baseline & narrowed CI reporting
+dartograph baseline --write .dartograph-baseline.json .
+dartograph dead --format github-actions \
   --baseline .dartograph-baseline.json --since origin/main .
-dart run dartograph query ApiClient --baseline .dartograph-baseline.json .
-dart run dartograph query --batch requests.json .
-dart run dartograph compare ../before-checkout ../after-checkout
-dart run dartograph affected origin/main .
-dart run dartograph skill
-dart run dartograph bridges --format json .
-dart run dartograph cycles --strict .
-dart run dartograph rules --config layers.yaml --strict .
-dart run dartograph metrics .
+
+# symbol queries
+dartograph query ApiClient --baseline .dartograph-baseline.json .
+dartograph query --batch requests.json .
+
+# change impact
+dartograph compare ../before-checkout ../after-checkout
+dartograph affected origin/main .
+
+# Flutter bridge facts, cycles, layer rules, metrics, agent skill
+dartograph bridges --format json .
+dartograph cycles --strict .
+dartograph rules --config layers.yaml --strict .
+dartograph metrics .
+dartograph skill
 ```
 
-With a global install, replace `dart run dartograph` with `dartograph` on every
-line. Full arguments, output formats, exit codes, and CI examples live in
+Full arguments, output formats, exit codes, and CI examples live in
 [`doc/USAGE.md`](doc/USAGE.md) (Korean).
 
 - `--since` builds the whole project graph first, then narrows reporting to the
   changed locations. It covers commits after the base ref, staged and unstaged
-  edits, and untracked files; CI needs the full Git history. Report formats are
-  `text`, `json`, `github-actions`, and `sarif`.
-- `query` answers for a single symbol — both-direction neighbors, members,
-  retention paths, and limitations — using the same field names as cartograph,
-  instead of dumping the whole graph.
-- `affected <git-ref>` answers which libraries changed since a Git revision and
-  which libraries transitively depend on them, each with its shortest dependency
-  path as evidence.
+  edits, and untracked files; CI therefore needs the full Git history. Output
+  formats are `text`, `json`, `github-actions`, and `sarif`.
+- `--baseline <file>` suppresses the exact findings recorded by
+  `baseline --write`, so known dead code does not fail CI and only new findings
+  surface.
+- `query` answers questions about a single symbol — neighbors in both
+  directions, members, retention paths, baseline status, and limitations — using
+  the same field names as cartograph, instead of dumping the whole graph.
+- `affected <git-ref>` reports which libraries changed since a Git revision and
+  which libraries transitively depend on them — each dependent backed by its
+  shortest dependency path to a changed library as evidence.
+- `compare <before> <after>` diffs two checkouts of the same package: added and
+  removed vertices, edges, and retention roots, plus what became newly
+  unreachable or newly reachable (a newly-unreachable declaration carries its
+  before-path, removed edges, and removed roots as evidence). Unlike `--since`,
+  it compares two whole graphs rather than filtering report locations.
 - `bridges` emits Flutter `MethodChannel` creation and
-  `invokeMethod`/`invokeListMethod`/`invokeMapMethod` facts in isthmus
-  `GRAPH-EXCHANGE` version 1. Dynamic names stay facts; unattributed or invalid
-  calls and partial parses stay visible as limitation counts. EventChannel and
-  BasicMessageChannel are outside the current join scope and are counted as
-  limitations rather than mistaken for facts.
+  `invokeMethod`/`invokeListMethod`/`invokeMapMethod` facts in
+  [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md)
+  v1 — the bridge-fact format [isthmus](https://github.com/ictechgy/isthmus)
+  joins across platform boundaries (cartograph produces it too). Each fact
+  carries MethodChannel provenance, lexical scope, UTF-8 positions, and UTC
+  millisecond timestamps. Dynamic channel names remain facts; unattributed or
+  malformed invocations, partial parses, and EventChannel/BasicMessageChannel
+  (outside the scope of the current analysis) are counted as limitations rather
+  than read as facts.
+- `skill` prints a ready-to-paste skill — or installs it into a directory with
+  `--install <dir>` — that teaches a coding agent how to drive dartograph for
+  evidence-backed answers.
 - `cycles`, `rules`, and `metrics` only report by default; findings become exit
   code 1 with `--strict`. Metrics are per-library Ca, Ce, instability,
   abstractness, and distance from the main sequence.
@@ -100,12 +120,14 @@ A `// dartograph:ignore` line comment suppresses dead reporting for the
 declaration it heads (retained as `retentionReason: inlineIgnore`) — a decision
 by the repository author, recorded in the graph itself.
 
-dartograph does not decide what is safe to delete and never deletes code.
-Every finding's evidence and `limitations` need human review. It is a
+dartograph does not decide what is safe to delete and never deletes code. The
+evidence and limitations attached to every finding require human review. It is a
 whole-project reachability tool, not a reimplementation of `dart analyze`'s
 library-local `unused_element`.
 
-## Analysis limitations
+## Analysis limitations and guarantees
+
+Limitations:
 
 - Conditional imports/exports: only the single configuration the analyzer picks
   is observed.
@@ -113,10 +135,10 @@ library-local `unused_element`.
   never used as deletion evidence.
 - Generated code older than its source is reported as a limitation; generated
   declarations themselves are conservatively retained.
-- There can be multiple `main` functions. By default every entry point under
+- A package can contain several `main` functions. By default every `main` under
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
-  in `dartograph.yaml` `entry_points` narrows retention to the `main` functions
-  of those files.
+  under `entry_points` in `dartograph.yaml` narrows retention to the `main`
+  functions of those files.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
@@ -124,16 +146,17 @@ library-local `unused_element`.
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.
 
-The analysis cache lives outside the analyzed project, in the OS user cache
-(`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) under
-`dartograph/<project-root-hash>`. It is invalidated automatically when project
-or dependency contents, mtimes, package resolution, the Dart SDK, or the
-analysis revision change. A missing or corrupted cache never changes results —
-it only costs analysis time.
+Guarantees:
 
-Findings with more than 20 retention roots record the total count, a sample of
-the first 20, and `retentionRootsTruncated: true` to keep output bounded. The
-fact that evidence was truncated is never hidden.
+- The analysis cache lives outside the analyzed project, in the OS user cache
+  (`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) under
+  `dartograph/<project-root-hash>`. It is invalidated automatically when project
+  or dependency contents, mtimes, package resolution, the Dart SDK, or the
+  analysis revision change. A missing or corrupted cache never changes results;
+  it only costs analysis time.
+- For findings with more than 20 retention roots, dartograph records the total
+  count, the first 20 as a sample, and `retentionRootsTruncated: true` to keep
+  output bounded. The fact that evidence was truncated is never hidden.
 
 ## Documents
 
