@@ -1264,7 +1264,17 @@ Future<int> _runGraph(
       snapshot = GraphProjection.collapse(snapshot, collapse);
     }
     output.write(switch (format) {
-      'dot' => GraphExporter.dot(snapshot, limitations: limitations),
+      // 순환 색칠은 dot 전용(madge 패리티)이다. 판정은 CycleDetector가
+      // 담당하고(투영된·그려지는 그래프 기준), 다른 포맷에 계산 비용을
+      // 들이지 않는다.
+      'dot' => GraphExporter.dot(
+        snapshot,
+        limitations: limitations,
+        cycleNodeIds: {
+          for (final cycle in CycleDetector().detect(snapshot))
+            ...cycle.component,
+        },
+      ),
       'json' => GraphExporter.json(snapshot, limitations: limitations),
       'html' => GraphExporter.html(snapshot, limitations: limitations),
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),

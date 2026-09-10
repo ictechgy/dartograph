@@ -55,6 +55,42 @@ void main() {
     );
   });
 
+  test('DOT colors cycle participants and leaves acyclic bytes unchanged', () {
+    final cyclic = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a', isLibrary: true),
+        GraphNode(id: 'b'),
+        GraphNode(id: 's', synthesized: true),
+        GraphNode(id: 'z'),
+      ],
+      edges: const [
+        GraphEdge(sourceId: 'a', targetId: 'b', kind: EdgeKind.call),
+        GraphEdge(sourceId: 'b', targetId: 'a', kind: EdgeKind.call),
+        GraphEdge(sourceId: 's', targetId: 'a', kind: EdgeKind.call),
+        GraphEdge(sourceId: 'b', targetId: 's', kind: EdgeKind.call),
+        GraphEdge(sourceId: 'z', targetId: 'a', kind: EdgeKind.reference),
+      ],
+    );
+
+    // 순환 참여 정점만 붉게 — z(순환 밖)는 색칠 없고, 비참여 출력은 기존 바이트.
+    expect(
+      GraphExporter.dot(cyclic, cycleNodeIds: const {'a', 'b', 's'}),
+      'digraph dartograph {\n'
+      '  "a" [color=red fontcolor=red];\n'
+      '  "b" [color=red fontcolor=red];\n'
+      '  "s" [style=dashed color=red fontcolor=red];\n'
+      '  "z";\n'
+      '  "a" -> "b" [label="call"];\n'
+      '  "b" -> "a" [label="call"];\n'
+      '  "b" -> "s" [label="call"];\n'
+      '  "s" -> "a" [label="call"];\n'
+      '  "z" -> "a" [label="reference"];\n'
+      '}\n',
+    );
+    // cycleNodeIds를 주지 않으면 색칠이 없다(acyclic 그래프의 기존 출력 보존).
+    expect(GraphExporter.dot(cyclic), isNot(contains('color=red')));
+  });
+
   test('Mermaid escapes quotes, backslashes, and hashes with entity codes', () {
     final special = GraphSnapshot(
       // 두 번째 ID는 escape 결과(`#quot;`·`#92;`)와 겹치는 적대적 원문이다.

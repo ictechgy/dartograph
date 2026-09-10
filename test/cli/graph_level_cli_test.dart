@@ -61,6 +61,68 @@ void main() {
     return AnalyzerGraphResult(graph: graph, limitations: const []);
   }
 
+  test('graph --format dot colors nodes that participate in cycles', () async {
+    // a→b→a 순환: 참여 정점 둘만 붉게 색칠되고 순환 밖 c는 그대로다.
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'a'))
+      ..addNode(GraphNode(id: 'b'))
+      ..addNode(GraphNode(id: 'c'))
+      ..addEdge(
+        const GraphEdge(sourceId: 'a', targetId: 'b', kind: EdgeKind.call),
+      )
+      ..addEdge(
+        const GraphEdge(sourceId: 'b', targetId: 'a', kind: EdgeKind.call),
+      )
+      ..addEdge(
+        const GraphEdge(sourceId: 'c', targetId: 'a', kind: EdgeKind.call),
+      );
+    final output = StringBuffer();
+    expect(
+      await runDartograph(
+        ['graph', '--format', 'dot', '.'],
+        output: output,
+        indexPackage: (_) async =>
+            AnalyzerGraphResult(graph: graph, limitations: const []),
+      ),
+      ExitStatus.success.code,
+    );
+    expect(
+      output.toString(),
+      'digraph dartograph {\n'
+      '  "a" [color=red fontcolor=red];\n'
+      '  "b" [color=red fontcolor=red];\n'
+      '  "c";\n'
+      '  "a" -> "b" [label="call"];\n'
+      '  "b" -> "a" [label="call"];\n'
+      '  "c" -> "a" [label="call"];\n'
+      '}\n',
+    );
+
+    // 같은 CLI 경로라도 순환이 없으면 색칠이 없다(기존 출력 바이트 보존).
+    final acyclic = StringBuffer();
+    expect(
+      await runDartograph(
+        ['graph', '--format', 'dot', '.'],
+        output: acyclic,
+        indexPackage: (_) async => AnalyzerGraphResult(
+          graph: CodeGraph()
+            ..addNode(GraphNode(id: 'a'))
+            ..addNode(GraphNode(id: 'b'))
+            ..addEdge(
+              const GraphEdge(
+                sourceId: 'a',
+                targetId: 'b',
+                kind: EdgeKind.call,
+              ),
+            ),
+          limitations: const [],
+        ),
+      ),
+      ExitStatus.success.code,
+    );
+    expect(acyclic.toString(), isNot(contains('color=red')));
+  });
+
   test('graph --level file answers the library graph', () async {
     final output = StringBuffer();
     expect(
