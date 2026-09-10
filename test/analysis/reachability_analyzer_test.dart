@@ -733,4 +733,65 @@ void main() {
       ]);
     },
   );
+
+  test('redundant public skips private containers and operators', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::root',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::_Hidden.helper',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Math.+',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Plain',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::_Hidden.helper',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::Math.+',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::Plain',
+          kind: EdgeKind.call,
+        ),
+      );
+
+    final findings = ReachabilityAnalyzer().redundantPublicDeclarations(
+      graph.snapshot(),
+      roots: const {'project:lib/a.dart::root': RetentionReason.mainEntryPoint},
+    );
+    // `_Hidden.helper`는 겉보기 공개 이름이지만 비공개 컨테이너 안이라 라이브러리
+    // 밖 접근이 불가능하고, `+`는 이름에 `_`를 붙일 수 없는 연산자다. 내부
+    // 전용 공개 선언만 여전히 나온다.
+    expect(findings.map((finding) => finding.id), [
+      'project:lib/a.dart::Plain',
+    ]);
+  });
 }

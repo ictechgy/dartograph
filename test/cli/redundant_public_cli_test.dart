@@ -102,6 +102,50 @@ void main() {
       ExitStatus.usage.code,
     );
   });
+
+  test('redundant public renders info severity in sarif', () async {
+    final output = StringBuffer();
+    expect(
+      await runDartograph([
+        'dead',
+        '--report-redundant-public',
+        '--format',
+        'sarif',
+        fixture.path,
+      ], output: output),
+      ExitStatus.success.code,
+    );
+    // info 모드의 SARIF 토큰: level `note`, 선언 규칙만 선언(-file 없음).
+    expect(output.toString(), contains('"level":"note"'));
+    expect(output.toString(), contains('"id":"redundant-public-declaration"'));
+    expect(output.toString(), isNot(contains('redundant-public-file')));
+  });
+
+  test('redundant public rejects duplicate flags and --explain', () async {
+    expect(
+      await runDartograph([
+        'dead',
+        '--report-redundant-public',
+        '--report-redundant-public',
+        '--format',
+        'json',
+        fixture.path,
+      ], error: StringBuffer()),
+      ExitStatus.usage.code,
+    );
+    expect(
+      await runDartograph([
+        'dead',
+        '--report-redundant-public',
+        '--explain',
+        'project:lib/internal_helpers.dart::internalScale',
+        '--format',
+        'json',
+        fixture.path,
+      ], error: StringBuffer()),
+      ExitStatus.usage.code,
+    );
+  });
 }
 
 Future<void> _copy(Directory source, Directory destination) async {
