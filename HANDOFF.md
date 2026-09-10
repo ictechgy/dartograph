@@ -1,48 +1,22 @@
 # Handoff
 
-_Last updated: 2026-09-10 (**세션 마감** — 0.6.0 후속 세션 PR #69~#76: 감사 낮음 이월 2건 처분(bridges 제어문자 **현행 유지 종결** #69/#70) + **GraphNode 명시 isLibrary**(#71, 캐시 스키마 v3) + **Tier 4 흡수 4종**(metrics zone #72·순환 색칠 #73·anon #74·redundant public #75, RESEARCH 원장 이행 #76). **미릴리스 누적 6건**(#69·#71·#72·#73·#74·#75) — 다음 릴리스 때 CHANGELOG 기록(semver minor 권장). **다음 세션 이월분 = Tier 3 범위 결정 + 다음 릴리스뿐**(Next Steps 4). 릴리스 기준은 0.6.0(`85c345a`) 그대로. 후속: issue #38 종결(#57) + 죽은 API(#58) + 감사 subset(#63) + README(#65) + 0.6.0(#66) + 마감(#68); 선행: 전체 감사 + 수정 6건 + 0.4.1 + 성능 + bridges + 0.5.0(#52), PR #39~#68 merge)_
+_Last updated: 2026-09-10 (0.7.0 릴리스 완료 — PR #78: 미릴리스 6건[#69, #71~#75] 일괄 발행, semver minor. 릴리스 기준 v0.7.0 → e1b3202. pub.dev latest 0.7.0, GitHub Release 완료, 새 격리 캐시 설치본 검증 완료. 미릴리스 누적 0건. 다음 세션 이월분 = Tier 3 범위 결정뿐)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76 — 마감)**: ① bridges 동적
-  이름 toSource 개행 시 전체 문서 실패는 **현행 유지로 종결**(완화는 isthmus 조율 없이 금지,
-  재론 금지), ② `unscanned-*` 복수형 문구는 **3개 family 일괄 수정**(#69). 이어 사용자
-  지시("남은것도 ㄱㄱ")로 ③ **GraphNode 명시 isLibrary 실어 html id 파싱 폐지**(#71)와
-  ④ **Tier 4(cosmetic) 4종 흡수**(#72~#75 — 사용자 범위 선택 "Tier 4 먼저": metrics zone
-  라벨·순환 노드 색칠·anon export·redundant public)을 완료하고 기록까지 마쳤다(#70·#76).
-  **이 세션은 여기서 마감 — 나머지는 전부 다음 세션 이월분이다(Tier 3 범위 결정·다음
-  릴리스, Next Steps 4).**
-- 이전 세션(PR #57~#68, 마감): issue #38 양측 종결 확인·close(#57), 죽은 공개 API 처분(#58),
-  P7 측정-보류 확정(#60), bridge 스코프 방문자 테스트 보강(#61), 감사 "낮음" 실행가능
-  subset(#63), README 퇴고(#65), **0.6.0 릴리스**(#66, semver minor), 세션 마감 기록(#68).
-- 그 이전 세션(PR #39~#56): README·CHANGELOG 영어 정본 전환 + 제품 코드 전량 감사 + 결함 수정
-  6건 + 0.4.1 + 성능 backlog 3건(측정 선행) + bridges 공유 루트(issue #38 dartograph 측 #52) +
-  0.5.0 릴리스 — 상세는 Completed·CHANGELOG·git 이력 참조.
+- **이번 세션(0.7.0 릴리스, PR #78)**: 미릴리스 누적 6건(#69 bridges 문법 수정, #71 GraphNode isLibrary·캐시 v3, #72 metrics zone, #73 dot 순환 색칠, #74 graph --format anon, #75 dead --report-redundant-public)을 **semver minor(0.7.0)**로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증을 완료했다.
+- 직전 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76): ① bridges 개행 실패 현행 유지 종결, ② `unscanned-*` 복수형 문구 수정(#69), ③ GraphNode isLibrary(#71), ④ Tier 4 4종(#72~#75) 흡수.
+- 이전 세션(PR #57~#68): issue #38 close(#57), 죽은 API 처분(#58), README 퇴고(#65), 0.6.0 릴리스(#66).
 
 ## Current Status
 
-- 릴리스 기준: **`v0.6.0` → `85c345a`** (PR #66 merge = 게시 커밋). pub.dev latest 0.6.0
-  (Readme·Changelog 탭 **영어**)·GitHub Release(target=85c345a) 공개. 새 격리 캐시 설치본으로
-  `--version` 0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→limitation+스캔루트 폴백,
-  목록→workspace 루트) 검증. (이전 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 + 세션
-  기록)** + 0.6.0 릴리스(#66) + 0.5.0(#54) + HANDOFF 기록(#55·#56·#59·#60·#62·#64·#68·#70·#76) +
-  issue #38 close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 테스트 보강(#61) + 감사 낮음
-  subset(#63) + README 퇴고(#65). PR #39~#76 모두 두 SDK CI green + GLM packet-review(필요 시)
-  후 머지했다(#71~#75 전부 차단 없음 — #72의 "차단"은 패킷 밖 CLI 코드 실측으로 해소, #75의
-  차단 3건 중 1건 수정·2건 프로브 실측 기각; 비차단은 실측·규칙 근거로 처분 기록. docs 전용
-  전사는 리뷰 생략, 사유 기록. #76의 3.11.0 1회 fail은 재실행 통과 — 플레이크). 열린 제품 PR
-  없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션 이월분이다(Tier 3 범위
-  결정·다음 릴리스, Next Steps 4).**
-- **미릴리스 누적 6건 — #69(bridges limitation 복수형 문법 3종), #71(GraphNode isLibrary —
-  캐시 schemaVersion v3로 옛 분석 캐시 자연 재분석, json·dot·mermaid 무변경), #72(metrics
-  zone 라벨 — metrics JSON 각 항목 `zone` 추가), #73(dot 순환 색칠 — 순환 없는 그래프 바이트
-  불변), #74(`graph --format anon` 신규 포맷), #75(`dead --report-redundant-public` 신규
-  info 리포트)**. 다음 릴리스는 semver minor(신규 CLI 표면 2개 + 덧셈 필드). **다음 릴리스 때
-  CHANGELOG(두 언어)에 기록.**
-- 테스트 288개, 라인 커버리지 **97.08%**(감사 전 94.4%; 이번 세션 +19 테스트 — isLibrary
-  가드·캐시 왕복·사영 폴백·zone 분류·dot 색칠·익명화 결정성·redundant-public 분류).
+- 릴리스 기준: **`v0.7.0` → `e1b3202`** (PR #78 merge = 게시 커밋). pub.dev latest 0.7.0
+  (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.7.0) 공개. 새 격리 캐시 설치본으로
+  `--version` 0.7.0·CLI 계약 62케이스 검증 완료. (이전 0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
+- main 기준: **PR #78(0.7.0 릴리스)** + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 + 세션 기록) + 0.6.0 릴리스(#66). 열린 제품 PR 없음.
+- **미릴리스 누적 0건** (0.7.0으로 전량 발행 완료).
+- 테스트 288개, 라인 커버리지 **97.15%**(감사 전 94.4%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -50,7 +24,25 @@ _Last updated: 2026-09-10 (**세션 마감** — 0.6.0 후속 세션 PR #69~#76:
 
 ## Completed
 
-### 이번 세션 (감사 낮음 이월 2건 처분 + GraphNode kind + Tier 4 흡수, PR #69~#75)
+### 이번 세션 (0.7.0 릴리스, PR #78)
+
+- **0.7.0 릴리스(PR #78, 2026-09-10)**: 미릴리스 누적 6건(#69, #71~#75)을 semver minor로
+  발행. 신규 CLI 표면 2개(`graph --format anon`, `dead --report-redundant-public`)와
+  덧셈 필드(`metrics` zone), dot 순환 색칠, GraphNode `isLibrary` 플래그 및 캐시 스키마 v3.
+  - **버전 정합 6곳**: `pubspec.yaml`, `lib/src/core/tool_info.dart`(toolVersion 0.7.0),
+    `doc/USAGE.md`(2곳 0.7.0), `SECURITY.md`(0.7.x 지원 창), `test/cli/dartograph_cli_test.dart`
+    (`--version` 단언 0.7.0).
+  - **CHANGELOG 두 언어 정합**: `CHANGELOG.md`(영어 정본) 및 `CHANGELOG.ko.md`(한국어 쌍둥이)에
+    0.7.0 섹션 작성 및 완전 동기화.
+  - **GLM 릴리스 리뷰 반영**: 차단 B1(redundant-public 옵션 결합 계약 정정: `--explain`·
+    `--baseline`·`--report-test-only`와 결합 금지 usage 64, `--since` 및 머신 리더블 포맷 허용),
+    B2(GraphNode 직렬화 스키마 v3 증가, 캐시 identity 불변 명시), 비차단 N1/N4/N5(관용 어휘
+    화이트리스트 표기, `metrics` JSON 출력 표현, 한국어 어휘 일원화) 반영.
+  - **게시 및 검증**: clean git dry-run 0 경고 확인 → `dart pub publish --force` 업로드 성공
+    → 태그 `v0.7.0`=게시 커밋(`e1b3202`) 생성·푸시 → GitHub Release 생성 → pub.dev API latest 0.7.0
+    확인 → 새 격리 캐시(PUB_CACHE) 설치본으로 `--version` 0.7.0 및 CLI 계약 62케이스 통과 실측.
+
+### 직전 세션 (감사 낮음 이월 2건 처분 + GraphNode kind + Tier 4 흡수, PR #69~#75)
 
 - **① bridges 동적 이름 toSource 개행 시 전체 문서 실패 — 판단 완료·현행 유지로 종결**:
   프로브 실측(리터럴 `\x01` 이스케이프·멀티라인 리터럴·toSource 개행 3케이스 전부 exit 2
@@ -413,6 +405,15 @@ _Last updated: 2026-09-10 (**세션 마감** — 0.6.0 후속 세션 PR #69~#76:
   호출의 멤버 정점 정확 귀속·의존 패키지 무정점). 최종 288 테스트·커버리지 97.08%.
 - docs(#76): RESEARCH Tier 4 이행 + HANDOFF 세션 전사. 3.11.0 잡이 1회 fail(로그 도메인
   차단으로 원인 미확인) — 재실행으로 통과(같은 코드가 #75에서 양 SDK green이라 플레이크 판정).
+- 0.7.0 릴리스(PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor로 발행.
+  두 언어 CHANGELOG 0.7.0(완전 동기화), 버전 정합 6곳(pubspec·tool_info·USAGE ×2·SECURITY 0.7.x·
+  cli_test --version), format·analyze clean, 288 테스트 통과, 커버리지 97.15%,
+  dead 0, corpus·cli-contract(62케이스) 통과, clean git dry-run 0 경고, 두 SDK CI green.
+  GLM 릴리스 리뷰: 차단 B1(redundant-public 옵션 결합 계약 정정: --explain/--baseline/--report-test-only
+  결합 금지 usage 64, --since 및 머신 리더블 포맷 허용) 및 B2(직렬화 스키마 v3 증가,
+  캐시 identity 불변 명시) 반영 후 머지(`e1b3202`). publish 성공 → 태그 v0.7.0=게시 커밋(`e1b3202`)
+  + GitHub Release → pub.dev API latest 0.7.0 즉시 확인 → 새 격리 캐시 설치본으로
+  --version 0.7.0 및 CLI 계약 62케이스 통과 실측.
 
 ## Blockers & Open Questions
 
@@ -541,142 +542,15 @@ _Last updated: 2026-09-10 (**세션 마감** — 0.6.0 후속 세션 PR #69~#76:
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 지금까지 완료: PR #39~#54(+docs #47·#51·#53·#55·#56) — **0.4.1·0.5.0 릴리스 +
-   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측**, 이어서 PR #57~#68(감사 낮음
-   subset·죽은 API 처분·README 퇴고·**0.6.0 릴리스**·세션 마감), 이어서 **PR #69(감사 낮음
-   이월 2건 판단 처분 — ① 현행 유지 종결·② 복수형 문법 3개 family)**. 완료된 구현·감사·
-   측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적은 PR #69 하나**(CHANGELOG
-   `Unreleased` 절 없음 — 릴리스 때 기록; Current Status 참조).
-3. **issue #38 완전 종결·close 완료(2026-09-09)** — dartograph 측(PR #52, 0.5.0
-   릴리스 + 코멘트 issuecomment-5599285065)과 isthmus 측 GRAPH-EXCHANGE 문구 갱신
-   (isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge)이 모두 끝났다. isthmus
-   저장소는 소유자/조율 경로로만 갱신(임의 수정 금지 유지). 재개 시 issue가
-   closed인지 API로 확인.
-4. **다음 세션 이월분(우선선위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
-   있다, 재도출 금지)**:
-   a. 감사 낮음 판단 필요 2건 + GraphNode 명시 kind + **Tier 4 전부 소진(2026-09-10)**
-      — ① bridges 제어문자 이름은 현행 유지 종결(재론 금지), ② `unscanned-*` 복수형은
-      #69, ③ GraphNode isLibrary는 #71, ④ Tier 4 4종은 #72~#75. 감사 낮음 잔여 후보
-      없음.
-   b. 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·init·markdown/codeowners 리포터·
-      issue-type 필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
-   (P7은 측정-보류, bridge 스코프 방문자는 PR #61 완료로 소진 — 위 backlog 참조, 재도출 금지.)
-5. **0.6.0 릴리스 완료(PR #66, 2026-09-10)** — 미릴리스 누적(PR #58+#63+#65)을 semver
-   minor(공개 API 제거)로 발행. 다음 릴리스도 지시 시에만: 두 언어 CHANGELOG(미릴리스
-   6건 #69·#71~#75 포함) + semver 판단(신규 CLI 표면 2개·덧셈 필드 → minor 권장),
-   버전 정합 6곳(pubspec·tool_info·USAGE ×2·SECURITY·cli_test) + (Korean) 표기 규약, clean git
-   dry-run 후 `dart pub publish --force` → `--target`으로 같은 커밋 태그+Release → 전파 대기
-   (분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
+2. 지금까지 완료: PR #39~#54(0.4.1·0.5.0 릴리스 + 성능 backlog + issue #38 dartograph 측)
+   + PR #57~#68(issue #38 종결 + 죽은 API 처분 + README 퇴고 + 0.6.0 릴리스)
+   + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 흡수)
+   + **PR #78(0.7.0 릴리스 완료 — 미릴리스 누적 6건 전량 발행)**.
+   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 0건**.
+3. **다음 세션 이월분**:
+   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·init·markdown/codeowners 리포터·issue-type 필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
+4. 제품 배포 blocker 없음. 다음 명시적인 사용자 지시를 따른다.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable
-`AGENTS.md` files, then continue from: `Verify current Git state. Product 0.6.0 is released
-(pub.dev latest 0.6.0 with ENGLISH README/Changelog, tag v0.6.0 at 85c345a = publish commit,
-GitHub Release, fresh-cache install verified incl. --version 0.6.0, the 59-case CLI contract, and
-the new pub-workspace-member-not-listed membership fallback; 0.5.0 was the bridges-shared-root
-release before it, 0.4.1 the audit-fix release before that). This session
-converted README/CHANGELOG to English originals with Korean twins (README.ko.md/CHANGELOG.ko.md,
-.pubignore-excluded; CONTRIBUTING owns the twin-sync rule), ran a FULL codebase audit (structure/
-performance/security/correctness/test-gaps; method: direct review + 3 explore agents + 3 GLM
-cross-check packets, every major claim empirically re-verified), and merged six audit-fix PRs:
-#40 control-character/injection policy across all output surfaces (mermaid newline statement-splitting
-was a measured injection; SARIF Uri(path:) corrupted backslash/percent paths; policy table now lives
-in graph_exporter class docs), #41 CLI Error boundary (on Object last resort, exit-255/stack-trace
-leak closed) + bridges/git-UTF8 attribution, #42 cache-key resolution-closure coverage (stale hit
-reproduced via tool/ helper rename; whole-root enumeration with hidden-directory pruning for .fvm),
-#43 output fidelity (dead json report field, GH suppression notice, conditional isEnumConstant,
-SARIF region invention removed, staleness mtime declared as determinism exception), #44 symlink
-bidirectional matching for --since/affected + entry-points narrowing limitation + SECURITY symlink
-channel, #45 test-gap regressions (coverage 94.4→95.9%). Then 0.4.1 was released bundling all of it
-(user-approved). AFTER the release, the measured performance backlog was completed too (user order
-"1번 ㄱㄱ"): new A/B harness tool/benchmark_index.dart (synthetic dep-free 600-file package, 7
-artifact sha256 pins output equality, per-run hash cross-check), then #48 indexing -28% (P1
-element→ID memo, P2 CodeGraph cached read views + export-loop hoist, P9 shared edge comparator,
-P10 single pubspec read/source computation), #49 query batch -84% (P3/P6 ReachabilityResult
-isReachable/reachableMemberOf indexes, P5 double-sort removal, compare limitations hoist), #50
-rules -72% (P4 per-pattern glob RegExp cache, P8 unique-source symlink resolution memo for
---since). All three: hashes identical, 244 tests unmodified. THEN issue #38 was handled (PR #52):
-bridges --project <shared-root> + pub workspace auto-detection (see Completed/Blockers for the
-isthmus contract semantics; round-trip verified against installed isthmus 0.2.0 BOTH directions).
-The issue comment with the contract semantics WAS posted after the owner granted issues write
-scope (issuecomment-5599285065). Then **0.5.0 was released** (PR #54, semver minor for the new
-bridges option; pub.dev latest 0.5.0, tag v0.5.0 at 16b18fd = publish commit, GitHub Release,
-fresh-cache install verified incl. workspace detection and the 59-case contract). AFTER 0.5.0 these
-follow-ups merged: PR #57 (docs: issue #38 closed on both sides), **PR #58 (dead public API
-disposition, policy A minimize+hygiene)**, PR #59·#60·#62 (HANDOFF status records incl. P7
-measured-defer + item c), PR #61 (bridge scope-visitor test coverage, 12 tests, 95.98→97.03%,
-test-only), and **PR #63 (audit-low ACTIONABLE subset: SARIF uri file:/package: pass-through —
-measured corruption package:app/x→package%3Aapp/x; html `.dart::` kind discriminator for `::`
-filenames; pub workspace MEMBERSHIP validation + pub-workspace-member-not-listed limitation; project:
-sentinel confirmed VACUOUS; coverage 97.04%, GLM no blocking)**. PR #58:
-querySymbol removed (unexport ALONE trips the self-`dead`
-gate as "unreachable from all retention roots", so the function was DELETED and benchmark_query
-inlines the equivalent `SymbolQuerySession(...).query(name)`, identicalResults stays true),
-usageEdgesFrom removed (CodeGraph method, product-unused/test-only), and the ReachabilityResult leak
-fixed (SymbolQuerySession.analysis made private `_analysis`; the only public surface is
-`List<DeadFinding> get deadDeclarations` (unmodifiable); the barrel now exports just DeadFinding;
-ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes UNCHANGED, coverage
-95.98%, GLM packet-review no blocking (2 non-blocking applied: getter unmodifiable + doc). THEN PR
-#63 (audit-low actionable subset), PR #65 (README polish, GLM 2 rounds), and **0.6.0 was RELEASED
-(PR #66, semver minor for the public-API removal; pub.dev latest 0.6.0, tag v0.6.0 at 85c345a =
-publish commit, GitHub Release, fresh-cache install verified incl. --version 0.6.0, the 59-case CLI
-contract, and the new pub-workspace-member-not-listed membership fallback). NOTHING else is
-unreleased** — 0.6.0 absorbed PR #58 + #63 + #65; both CHANGELOGs record it with a breaking-change
-marker + migration hints (querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query).
-THEN (2026-09-10 follow-up session, PR #69) the last two deferred audit-low items were DISPOSED by
-user decision: (1) bridges dynamic-name toSource newline → whole-document failure is KEPT AS-IS
-(measured: literal \x01, multiline literal, and toSource-with-newline all exit 2 "Bridges extraction
-failed"; newline-free dynamic names emit fine dynamic:true — toSource folds line breaks to spaces;
-contract-aligned fail-closed per GRAPH-EXCHANGE no-control-chars-in-names + "don't emit a document
-the consumer would reject"; USAGE has documented this since 0.3.0 — relaxation to per-fact skip would
-change what isthmus counts, so it stays isthmus-coordination-only; do NOT re-open without a new
-request), and (2) `unscanned-*` plural wording FIXED across all 3 families (PR #69: unscanned-*
-N≥2 "constructors", dynamic-channel/method-names N=1 singular verb agreement — the latter found
-during probing; N≥2 dynamic-* and N=1 unscanned-* strings byte-identical, prefixes unchanged,
-GRAPH-EXCHANGE declares limitations free-form/unvalidated so contract-safe; one test pin updated;
-269 tests, coverage 97.04% unchanged, corpus/cli-contract/dry-run 0, GLM no blocking, both SDK CI
-green, merged 15c4b21). PR #69 is the ONLY unreleased accumulation (record in both CHANGELOGs at
-the next release; bridges-only strings so cache-irrelevant).
-REMAINING: P7 (snapshot toSet rehash) is MEASURED & CONFIRMED DEFERRED (2026-09-09 — do NOT
-re-derive/re-measure): an isolated probe put the toSet rehash at 24µs for the realistic 14726-edge
-graph (0.002% of the ~1070ms indexing min, 0.5% of the snapshot edge work; the invariant
-toList()..sort() dominates and P7 does not touch it; ≤1% even at 500k edges) — negligible, so the
-public factory's defensive dedup stays; bridge scope-visitor test coverage is DONE (PR #61: 12 tests
-in test/index/bridge_scope_test.dart, coverage 95.98→97.03%, bridge_index uncovered 40→9 lines, the
-rest vacuous/impractical — do not re-derive); audit-low ACTIONABLE subset is DONE (PR #63) and the
-two judgment items are DISPOSED (bridges toSource newline KEPT-AS-IS above + unscanned-* plural
-FIXED in PR #69; GraphNode explicit-kind threading remains a follow-up candidate, scope on request);
-issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
-(2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
-<shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
-verified both directions; contract semantics posted as issuecomment-5599285065), AND the isthmus-side
-GRAPH-EXCHANGE wording was updated via isthmus PR #36 (project realpath normalization) + PR #37
-(monorepo join-root declaration, a producer-declared "join root" definition covering BOTH cartograph's
---project (the analysis root itself) and dartograph's re-basing option; no isthmus code change,
-consumer exact-string fail-closed preserved), so the issue was CLOSED (reason: completed, closing
-comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was updated only via the
-owner/coordination path); external-retentions stays contract-blocked (PR #27);
-Tier 3 absorption candidates live in doc/RESEARCH.md (Tier 4 is DONE: #72 metrics zone labels —
-cartograph MetricsZone parity incl. isolated zone, boundary == --strict predicate; #73 DOT cycle
-node coloring — madge parity, CycleDetector SCC in CLI, byte-identical for acyclic graphs;
-#74 graph --format anon — dependency-cruiser anon parity, deterministic injective s<i> tokens,
-structure/extensions/whitelist preserved, limitation paths replaced whole via single-pass
-alternation; #75 dead --report-redundant-public — Periphery parity, info report with test-only
-contract[exit 0, no --explain/--baseline/--report-test-only], conservative exclusions incl.
-retention roots, enum constants, override implementers, operators, private containers via
-all-segment underscore check; GLM B1/B2 rebutted by probes — member calls attribute to member
-nodes exactly and dependency packages contribute no graph nodes). GraphNode now carries explicit
-isLibrary (PR #71): html kind/name no longer parse ids, cache schemaVersion 3 (old caches
-re-analyze), collapse aggregates display as libraries, json/dot/mermaid unchanged — do NOT
-re-derive; the only real-graph html delta was the `.dart::`-filename residual which is now fixed.
-UNRELEASED: PRs #69, #71, #72, #73, #74, #75 (six) — record in both CHANGELOGs at the next
-release (semver minor recommended: two new CLI surfaces [graph --format anon,
-dead --report-redundant-public], additive metrics `zone` field, DOT coloring only for cyclic
-graphs, schema bump). Audit no-issue confirmations and vacuous findings are listed in HANDOFF —
-do not re-derive. **The session is CLOSED (PRs #69~#76, records included): everything deferred
-to the next session is enumerated in Next Steps items 4-5 — Tier 3 absorption scope (decide on
-request: yaml extensions, init, markdown/codeowners reporters, issue-type filter, MCP server)
-and the next release (on order: bundle the six unreleased PRs, CHANGELOG twins, semver minor,
-version sync 6 spots, clean-git dry-run, publish, --target tag+Release, fresh-cache verify).**
-Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #78 bundled all six unreleased items (#69 bridges limitation grammar, #71 GraphNode isLibrary with cache schema v3, #72 metrics architectural zone labels, #73 DOT cycle node coloring, #74 graph --format anon, #75 dead --report-redundant-public) as a semver minor release with full twin CHANGELOG synchronization. GLM release review feedback was addressed (redundant-public option combination contract clarified, cache schema v3 vs cache identity disambiguated). NOTHING is unreleased (0 unreleased PRs). Line coverage is 97.15% across 288 tests. Next steps: Tier 3 absorption candidates in doc/RESEARCH.md (yaml extensions, init, markdown/codeowners reporters, issue-type filter, MCP server) to be decided on user request. Follow the next explicit user task.`
