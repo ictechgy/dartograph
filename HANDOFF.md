@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) + **죽은 공개 API 처분(PR #58 — 정책 A 최소화·hygiene)** → 미릴리스 누적 PR #58 생김; isthmus GRAPH-EXCHANGE 문구 갱신(isthmus PR #36 realpath + #37 조인 루트) 확인 후 issue #38 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52); 후속 #59·#60(HANDOFF 기록: #58 반영·P7 측정-보류)·#61(bridge 스코프 방문자 테스트 보강, 커버리지 97.03%·테스트 전용), PR #39~#61 merge)_
+_Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) + **죽은 공개 API 처분(PR #58 — 정책 A 최소화·hygiene)** → 미릴리스 누적 PR #58 생김(이어 #63도 lib/ 변경으로 추가); isthmus GRAPH-EXCHANGE 문구 갱신(isthmus PR #36 realpath + #37 조인 루트) 확인 후 issue #38 마감 코멘트(issuecomment-5602011319)·close(reason: completed); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 전환 + 0.4.1 + 성능 3건 + bridges 공유 루트 + **0.5.0 릴리스** + issue #38 dartograph 측(PR #52); 후속 #59·#60·#62(HANDOFF 기록)·#61(bridge 스코프 방문자 테스트 보강, 97.03%·테스트 전용)·#63(감사 낮음 실행가능 subset: SARIF uri file:/package: pass-through·html `.dart::` 판별·workspace 멤버십 검증, 97.04%), PR #39~#63 merge)_
 
 ## Goal
 
@@ -25,21 +25,22 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
 - 릴리스 기준: **`v0.4.1` → `53a4e0f`** (PR #46 merge). pub.dev(latest 0.4.1,
   Readme·Changelog 탭 **영어**)·GitHub Release 공개 완료. 새 격리 캐시 설치본으로
   `--version`·`report` 필드·Mermaid `#10;` 단일행·CLI 계약 55케이스 확인.
-- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55·#56·#59·#60) + issue #38 close(#57) +
-  죽은 공개 API 처분(#58) + bridge 스코프 방문자 테스트 보강(#61). PR #39~#61 모두 두 SDK
-  CI green + GLM packet-review(필요 시) 후 머지했다(#58·#61 GLM 차단 없음; #57·#59·#60
-  docs 전용 전사는 리뷰 생략, 사유 기록).
+- main 기준: 0.5.0 릴리스(PR #54) + HANDOFF 기록(#55·#56·#59·#60·#62) + issue #38
+  close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 방문자 테스트 보강(#61) + 감사 낮음
+  실행가능 subset(#63). PR #39~#63 모두 두 SDK CI green + GLM packet-review(필요 시) 후
+  머지했다(#58·#61·#63 GLM 차단 없음; docs 전용 전사 #57·#59·#60·#62는 리뷰 생략, 사유 기록).
   열린 제품 PR 없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션
   이월분이다(Next Steps 4의 목록).**
-- **미릴리스 누적: PR #58(죽은 공개 API 처분 리팩터)** — lib/ 변경(querySymbol·
-  usageEdgesFrom 제거, SymbolQuerySession.analysis→deadDeclarations getter, DeadFinding
-  export)이 미릴리스. **CLI 출력·종료코드 무변경**(getter는 위임만)이고 라이브러리
-  API 표면 변경(문서화·외부 소비자 없음). CHANGELOG는 관례상 `Unreleased` 절이
-  없으므로 **다음 릴리스 때 semver+CHANGELOG로 기록한다**(Current Status·Next Steps 5).
-  PR #57(issue #38 close)은 HANDOFF-only(.pubignore로 패키지 제외)라 누적이 아니다.
-- 테스트 265개, 라인 커버리지 **97.03%**(감사 전 94.4%; PR #58이 미커버 querySymbol
-  제거 + getter 스모크, PR #61이 bridge 스코프 방문자 12테스트로 bridge_index 미커버
-  40→9줄). 미릴리스 누적은 PR #58(lib/) 하나 — PR #61은 테스트 전용(.pubignore 제외).
+- **미릴리스 누적: PR #58 + PR #63 (둘 다 lib/ 변경)** — #58(죽은 공개 API 처분:
+  querySymbol·usageEdgesFrom 제거, analysis→deadDeclarations getter, DeadFinding export;
+  CLI 무변경·라이브러리 API 표면 변경) + #63(감사 낮음 subset: SARIF uri의 file:·package:
+  pass-through, html `.dart::` 판별, workspace 멤버십 검증 + `pub-workspace-member-not-listed`
+  limitation; 정상 입력 CLI 출력 byte 불변·엣지만 수정). CHANGELOG는 관례상 `Unreleased` 절이
+  없으므로 **다음 릴리스 때 semver+CHANGELOG로 기록한다**(Next Steps 5). docs·테스트 전용
+  PR(#57·#59·#60·#61·#62)은 .pubignore로 패키지 제외라 누적이 아니다.
+- 테스트 269개, 라인 커버리지 **97.04%**(감사 전 94.4%; PR #58 querySymbol 제거+getter
+  스모크, PR #61 bridge 스코프 12테스트로 bridge_index 미커버 40→9줄, PR #63 감사 낮음
+  subset +4 회귀). 미릴리스 누적은 PR #58·#63(lib/) 둘 — #61·#62는 테스트·docs 전용.
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -273,6 +274,20 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
   트래버스만·효과 무단언 → 섀도잉 fixture로 반영; 나머지 nit·범위 밖은 기록). 남은 9줄은
   vacuous/비실용: 165-168 비교자 동일-offset tiebreaker, 217 TOCTOU race, 718 resolved
   flutter InstanceCreation 필요, 833-835 조건부 re-export — 재추격 금지.
+- 후속 docs(PR #62): item c 완료를 HANDOFF로 전사, 두 SDK CI green(GLM 생략 — 검증된 사실 전사).
+- 감사 "낮음" 실행가능 subset(PR #63): 제품 코드 3건 수정 + 1건 vacuous 문서화.
+  (1) SARIF uri 버그 실측(프로브: `_sarifUri`가 `package:app/x`→`package%3Aapp/x`,
+  `file:///a`→`file%3A///a` 손상) → 원본 source의 project: 접두로 판정해 절대 URI는
+  pass-through(GLM 제안 반영: root 수준 `file:x.dart` 파일명 잔여 충돌도 구조적으로 차단).
+  (2) html `::` 파일명 오분류 → `.dart::` 판별자 휴리스틱(GraphNode 코어 변경 회피; 잔여
+  `.dart::` 파일명·근본해결 kind threading은 후속 기록). (3) workspace 멤버십 검증(`workspace:`
+  목록 명시경로 일치·글롭 보수 허용·미멤버 `pub-workspace-member-not-listed` limitation+폴백).
+  (4) `project:` 센티널 충돌은 vacuous 확인(항상 prepend→한 번 strip 왕복, 주석 고정). 제외 2건
+  (bridges toSource 개행=isthmus 조율, `unscanned-*` 복수형=출력 변경)은 별도 판단 보류.
+  format·analyze clean, 269 테스트(+4 회귀), 커버리지 97.04%, dead 0, corpus·cli-contract·
+  dry-run 0, 두 SDK CI green. GLM packet-review 차단 없음(4건 수용; 비차단 — SARIF 구조개선·
+  html 멤버-in-`::` 테스트·정책 표 동기화·잔여 엣지 기록 반영, workspace nit은 fail-closed·
+  병적 판정 무변경).
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
   로컬 rg 부재로 CI 위임.
 
@@ -317,9 +332,12 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
   공개 표면 고정(배럴 import로 DeadFinding 이름 사용=export 증명 + 위임 내용 + 불변),
   커버리지 95.98%, GLM packet-review 차단 없음(비차단 getter 불변화·doc 일반화 반영,
   DeadFinding primitive·잔존 없음은 코드/grep 검증). **미릴리스 — 다음 릴리스 때 기록.**
-- **낮음/기록**: html `_htmlKind`의 `::` 포함 파일명 오분류, `_path`의 `project:` 센티널
-  충돌(합법 파일명 `project:x.dart`), SARIF rules 배열의 testOnly×file 잠재 불일치
-  (현재 vacuous·주석 고정), SARIF Windows 절대경로 fallback의 `file:///` 표준화 후보,
+- **낮음/기록**: **감사 낮음 실행가능 subset 완료(PR #63)** — html `::` 파일명 오분류(`.dart::`
+  판별자 휴리스틱; 잔여 `.dart::` 파일명 + GraphNode kind threading은 후속), SARIF `file:`·`package:`
+  uri 손상(원본 source project: 접두 판정 → 절대 URI pass-through; Windows 전용 아님), workspace
+  멤버십 검증(목록 일치 + `pub-workspace-member-not-listed` limitation), `_path`의 `project:` 센티널
+  충돌은 **vacuous 확인**(항상 prepend→한 번 strip 왕복, 주석 고정). SARIF rules 배열의 testOnly×file
+  잠재 불일치(현재 vacuous·주석 고정),
   bridges 동적 이름 toSource 개행 시 전체 문서 실패(GRAPH-EXCHANGE dynamic:true 보존
   원칙과 긴장 — isthmus 조율 사안), bridge limitations 미정렬(생산자 고정 순서라 결정성
   유지), graph_exporter limitations 미dedup(CLI가 선행 dedup), **bridge_index 스코프 방문자
@@ -394,11 +412,11 @@ _Last updated: 2026-09-09 (후속: issue #38 양측 종결·close(PR #57 docs) +
    closed인지 API로 확인.
 4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
    있다, 재도출 금지)**:
-   a. 감사 낮음 항목들(html `::` 파일명 오분류, `project:` 센티널 충돌, SARIF Windows
-      fallback, bridges toSource 개행 정책=GRAPH-EXCHANGE 조율 사안, workspace 멤버십
-      검증, `unscanned-*` 복수형 문구). 실행 가능 부분집합(html `::`·project: 센티널·
-      SARIF Windows fallback·workspace 멤버십)과 조율/출력변경 2건(bridges toSource 개행=
-      isthmus 조율, `unscanned-*` 복수형=출력 문자열 변경 별도 판단)으로 나뉜다.
+   a. 감사 낮음 **남은 2건(별도 판단 필요)**: bridges 동적 이름 toSource 개행 시 전체 문서 실패
+      (GRAPH-EXCHANGE dynamic:true 보존 원칙과 긴장 — isthmus 조율 사안, 임의 변경 금지),
+      `unscanned-*` limitation 복수형 문구(기존 출력 문자열 변경 — 기록·판단 필요). 후속 후보:
+      GraphNode에 명시 kind 싣기(html id 파싱 근본 해결, 코어 변경). 실행 가능 subset(html `::`·
+      SARIF uri·workspace 멤버십) + `project:` vacuous는 **PR #63 완료로 소진**(backlog 참조).
    b. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
@@ -441,10 +459,14 @@ isthmus contract semantics; round-trip verified against installed isthmus 0.2.0 
 The issue comment with the contract semantics WAS posted after the owner granted issues write
 scope (issuecomment-5599285065). Then **0.5.0 was released** (PR #54, semver minor for the new
 bridges option; pub.dev latest 0.5.0, tag v0.5.0 at 16b18fd = publish commit, GitHub Release,
-fresh-cache install verified incl. workspace detection and the 59-case contract). AFTER 0.5.0 five
+fresh-cache install verified incl. workspace detection and the 59-case contract). AFTER 0.5.0 these
 follow-ups merged: PR #57 (docs: issue #38 closed on both sides), **PR #58 (dead public API
-disposition, policy A minimize+hygiene)**, PR #59·#60 (HANDOFF status records incl. P7 measured-defer),
-and PR #61 (bridge scope-visitor test coverage, 12 tests, coverage 95.98→97.03%, test-only). PR #58:
+disposition, policy A minimize+hygiene)**, PR #59·#60·#62 (HANDOFF status records incl. P7
+measured-defer + item c), PR #61 (bridge scope-visitor test coverage, 12 tests, 95.98→97.03%,
+test-only), and **PR #63 (audit-low ACTIONABLE subset: SARIF uri file:/package: pass-through —
+measured corruption package:app/x→package%3Aapp/x; html `.dart::` kind discriminator for `::`
+filenames; pub workspace MEMBERSHIP validation + pub-workspace-member-not-listed limitation; project:
+sentinel confirmed VACUOUS; coverage 97.04%, GLM no blocking)**. PR #58:
 querySymbol removed (unexport ALONE trips the self-`dead`
 gate as "unreachable from all retention roots", so the function was DELETED and benchmark_query
 inlines the equivalent `SymbolQuerySession(...).query(name)`, identicalResults stays true),
@@ -454,15 +476,19 @@ fixed (SymbolQuerySession.analysis made private `_analysis`; the only public sur
 ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes UNCHANGED, coverage
 95.98%, GLM packet-review no blocking (2 non-blocking applied: getter unmodifiable + doc). **PR #58 is
 MERGED but UNRELEASED** — lib/ API surface changed, CLI did not; record it at the next release
-(CHANGELOG has no Unreleased section by convention). PR #57 was HANDOFF-only (.pubignore-excluded),
-so PR #58 is the ONLY unreleased accumulation.
+(CHANGELOG has no Unreleased section by convention). PR #58 AND PR #63 are the UNRELEASED
+accumulation (both touch lib/); docs/test-only PRs (#57·#59~#62) are .pubignore-excluded.
 REMAINING: P7 (snapshot toSet rehash) is MEASURED & CONFIRMED DEFERRED (2026-09-09 — do NOT
 re-derive/re-measure): an isolated probe put the toSet rehash at 24µs for the realistic 14726-edge
 graph (0.002% of the ~1070ms indexing min, 0.5% of the snapshot edge work; the invariant
 toList()..sort() dominates and P7 does not touch it; ≤1% even at 500k edges) — negligible, so the
 public factory's defensive dedup stays; bridge scope-visitor test coverage is DONE (PR #61: 12 tests
 in test/index/bridge_scope_test.dart, coverage 95.98→97.03%, bridge_index uncovered 40→9 lines, the
-rest vacuous/impractical — do not re-derive);
+rest vacuous/impractical — do not re-derive); audit-low ACTIONABLE subset is DONE (PR #63: SARIF uri
+file:/package: pass-through, html `.dart::` kind discriminator, pub workspace membership validation;
+project: sentinel VACUOUS; the remaining audit-low items — bridges toSource newline (isthmus
+coordination) and `unscanned-*` plural wording (output change) — are DEFERRED as separate decisions,
+and GraphNode explicit-kind threading is a follow-up candidate);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
 (2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
 <shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
@@ -475,5 +501,6 @@ comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was u
 owner/coordination path); external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
 findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
-the next session is enumerated in Next Steps item 4 (audit low items, Tier 3/4).
+the next session is enumerated in Next Steps item 4 (remaining audit-low items needing separate
+decisions — bridges toSource newline isthmus coordination + unscanned-* plural wording, Tier 3/4).
 Follow the next explicit user task.`
