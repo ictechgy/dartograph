@@ -184,7 +184,7 @@ abstract final class DeadReporter {
             'locations': [
               {
                 'physicalLocation': {
-                  'artifactLocation': {'uri': _sarifUri(_path(finding.source))},
+                  'artifactLocation': {'uri': _sarifUri(finding.source)},
                   // 파일 finding(line 없음)에 1:1 region을 발명하지 않는다 —
                   // SARIF에서 region은 선택이며 위치 증거 날조는 근거 규약 위반이다.
                   if (finding.line != null)
@@ -253,14 +253,15 @@ abstract final class DeadReporter {
   /// 항상 URL 구분자를 쓴다)로 분리해 세그먼트별로 인코딩하면 손실이 없고 정상
   /// 경로는 바이트가 불변이다.
   ///
-  /// root 밖·의존 소스는 이미 절대 URI다(`file:`/`package:` — projectIdForPath의
-  /// root 밖 fallback과 패키지 해결). 이걸 `/`로 쪼개 재인코딩하면 스킴 콜론이
-  /// `%3A`로 손상되므로(실측 `file:///a`→`file%3A///a`, `package:p/x`→`package%3Ap/x`)
-  /// 그대로 통과시킨다. 스킴 없는 project 상대 경로만 세그먼트 인코딩한다.
-  static String _sarifUri(String path) =>
-      path.startsWith('file:') || path.startsWith('package:')
-      ? path
-      : Uri(pathSegments: path.split('/')).toString();
+  /// 원본 [source]의 `project:` 접두로 판정한다: project 소스는 상대 경로라 센티널을
+  /// 벗겨 세그먼트 인코딩하고, 나머지(`file:`·`package:` — projectIdForPath의 root 밖
+  /// fallback·의존 해결)는 이미 절대 URI라 그대로 통과시킨다(`/`로 쪼개 재인코딩하면
+  /// 스킴 콜론이 `%3A`로 손상, 실측 `file:///a`→`file%3A///a`). 원본 접두로 판정하므로
+  /// `file:x.dart`라는 root 수준 파일명(id `project:file:x.dart`)도 절대 URI로 오인하지
+  /// 않는다(상대 경로로 인코딩).
+  static String _sarifUri(String source) => source.startsWith('project:')
+      ? Uri(pathSegments: _path(source).split('/')).toString()
+      : source;
 
   /// GitHub workflow command 이스케이프. 스펙 최소집합(`%`, CR, LF + property의
   /// `:`·`,`)에 더해 C0·DEL·C1과 행 구조·시각 순서를 깨뜨릴 수 있는 문자

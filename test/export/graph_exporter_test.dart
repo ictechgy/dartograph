@@ -187,6 +187,9 @@ void main() {
             id: 'package:app/lib/weird::name.dart::Decl',
             isTypeDeclaration: true,
           ),
+          // `::` 파일명 안의 멤버도 이름이 마지막 `::` 뒤로 뽑힌다(옛 indexOf였으면
+          // 첫 `::` 뒤 `name.dart::Foo.bar`로 잘렸을 숨은 케이스).
+          GraphNode(id: 'package:app/lib/weird::name.dart::Foo.bar'),
         ],
         edges: const [],
       );
@@ -204,6 +207,12 @@ void main() {
           'id': 'package:app/lib/weird::name.dart::Decl',
           'kind': 'type',
           'name': 'Decl',
+          'synthesized': false,
+        },
+        {
+          'id': 'package:app/lib/weird::name.dart::Foo.bar',
+          'kind': 'member',
+          'name': 'Foo.bar',
           'synthesized': false,
         },
       ]);

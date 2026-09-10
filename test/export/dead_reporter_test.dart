@@ -240,17 +240,24 @@ void main() {
     );
     // file:·package:는 이미 절대 URI인 소스다(projectIdForPath의 root 밖 fallback,
     // 의존 해결). 이걸 `/`로 쪼개 재인코딩하면 스킴 콜론이 %3A로 손상되므로(실측
-    // file:///a→file%3A///a) 그대로 통과해야 한다. project 상대 경로는 여전히
-    // 세그먼트 인코딩된다(위 backslash·percent 테스트).
-    final sarif = DeadReporter.render(ReportFormat.sarif, [
+    // file:///a→file%3A///a) 그대로 통과해야 한다.
+    final passthrough = DeadReporter.render(ReportFormat.sarif, [
       finding('file:///abs/outside.dart'),
       finding('file:///C:/abs/outside.dart'),
       finding('package:dep/x.dart'),
     ]);
-    expect(sarif, contains('"uri":"file:///abs/outside.dart"'));
-    expect(sarif, contains('"uri":"file:///C:/abs/outside.dart"'));
-    expect(sarif, contains('"uri":"package:dep/x.dart"'));
-    expect(sarif, isNot(contains('%3A')));
+    expect(passthrough, contains('"uri":"file:///abs/outside.dart"'));
+    expect(passthrough, contains('"uri":"file:///C:/abs/outside.dart"'));
+    expect(passthrough, contains('"uri":"package:dep/x.dart"'));
+    expect(passthrough, isNot(contains('%3A')));
+
+    // 반대로 `file:weird.dart`라는 root 수준 파일(id project:file:weird.dart)은 절대
+    // URI가 아니라 project 상대 경로다 — 세그먼트 인코딩되어야 한다. _path 결과의
+    // file:/package: 접두가 아니라 원본 source의 project: 접두로 판정하는 이유다.
+    final collision = DeadReporter.render(ReportFormat.sarif, [
+      finding('project:file:weird.dart'),
+    ]);
+    expect(collision, contains('"uri":"file%3Aweird.dart"'));
   });
 
   test('json carries the report classification and GH reports suppression', () {
