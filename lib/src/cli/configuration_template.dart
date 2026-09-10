@@ -9,33 +9,4 @@ const configurationTemplate = '''
 # to specific application entry points.
 # entry_points:
 #   - lib/main.dart
-
-# Architecture layers and boundary rules.
-# Used by `dartograph rules <rules-file> <package-root>`.
-# layers:
-#   - name: Presentation
-#     match:
-#       - "lib/ui/**"
-#       - "lib/screens/**"
-#   - name: Domain
-#     match:
-#       - "lib/domain/**"
-#   - name: Data
-#     match:
-#       - "lib/data/**"
-
-# rules:
-#   - name: Presentation must not access Data directly
-#     from: Presentation
-#     deny:
-#       - Data
-#   - name: Domain must not depend on Presentation or Data
-#     from: Domain
-#     deny:
-#       - Presentation
-#       - Data
-
-# Architecture metric thresholds for `dartograph metrics --strict`.
-# thresholds:
-#   max_distance: 0.3
 ''';

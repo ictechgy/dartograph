@@ -4,6 +4,7 @@ import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/core/retention_reason.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 void main() {
   test('init writes dartograph.yaml template and succeeds', () async {
@@ -25,13 +26,11 @@ void main() {
 
     final content = configFile.readAsStringSync();
     expect(content, contains('entry_points:'));
-    expect(content, contains('layers:'));
-    expect(content, contains('rules:'));
-    expect(content, contains('thresholds:'));
+    expect(loadYaml(content), isNull);
   });
 
   test(
-    'generated template is accepted by indexer keeping conservative policy',
+    'generated template with uncommented entry_points narrows retention roots',
     () async {
       final temporary = await Directory.systemTemp.createTemp(
         'dartograph-init-pkg-',
@@ -45,6 +44,8 @@ environment:
 ''');
       final libDir = Directory('${temporary.path}/lib')..createSync();
       await File('${libDir.path}/main.dart').writeAsString('void main() {}');
+      final binDir = Directory('${temporary.path}/bin')..createSync();
+      await File('${binDir.path}/tool.dart').writeAsString('void main() {}');
 
       final output = StringBuffer();
       final status = await runDartograph([
@@ -53,13 +54,31 @@ environment:
       ], output: output);
       expect(status, ExitStatus.success.code);
 
+      final configFile = File('${temporary.path}/dartograph.yaml');
+      final content = configFile.readAsStringSync();
+      final uncommented = content
+          .replaceAll('# entry_points:', 'entry_points:')
+          .replaceAll('#   - lib/main.dart', '  - lib/main.dart');
+      await configFile.writeAsString(uncommented);
+
+      final yamlDoc = loadYaml(uncommented);
+      expect(yamlDoc, isA<YamlMap>());
+      expect(yamlDoc['entry_points'], ['lib/main.dart']);
+
       final result = await AnalyzerGraphIndex().index(temporary.path);
       final mainRoots = result.retentionRoots.entries
           .where((entry) => entry.value == RetentionReason.mainEntryPoint)
           .map((entry) => entry.key)
-          .toList();
+          .toSet();
 
       expect(mainRoots, contains('project:lib/main.dart::main'));
+      expect(mainRoots, isNot(contains('project:bin/tool.dart::main')));
+      expect(
+        result.limitationDetails,
+        contains(
+          'entry-points: main retention roots narrowed to 1 declared build target(s)',
+        ),
+      );
     },
   );
 
@@ -120,18 +139,39 @@ environment:
     },
   );
 
-  test(
-    'init reports analysis failure 2 when directory does not exist',
-    () async {
-      final error = StringBuffer();
-      final status = await runDartograph([
-        'init',
-        '/non/existent/path/for/dartograph',
-      ], error: error);
+  test('init reports failure 2 when directory does not exist', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-init-missing-',
+    );
+    final missingPath = '${temporary.path}/missing';
 
-      expect(status, ExitStatus.failure.code);
-    },
-  );
+    final error = StringBuffer();
+    final status = await runDartograph(['init', missingPath], error: error);
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      error.toString(),
+      contains('Init failed: target directory does not exist: $missingPath'),
+    );
+  });
+
+  test('init reports failure 2 when target path is a file', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-init-file-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+    final filePath = '${temporary.path}/regular-file';
+    await File(filePath).writeAsString('file content');
+
+    final error = StringBuffer();
+    final status = await runDartograph(['init', filePath], error: error);
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      error.toString(),
+      contains('Init failed: target directory does not exist: $filePath'),
+    );
+  });
 
   test('init reports usage 64 for invalid arguments', () async {
     final error1 = StringBuffer();
@@ -147,5 +187,14 @@ environment:
     final status2 = await runDartograph(['init', '--unknown'], error: error2);
     expect(status2, ExitStatus.usage.code);
     expect(error2.toString(), contains('Usage: dartograph'));
+
+    final error3 = StringBuffer();
+    final status3 = await runDartograph([
+      'init',
+      'dir1',
+      'dir2',
+    ], error: error3);
+    expect(status3, ExitStatus.usage.code);
+    expect(error3.toString(), contains('Usage: dartograph'));
   });
 }

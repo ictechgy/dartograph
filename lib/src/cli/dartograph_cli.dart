@@ -726,23 +726,31 @@ Future<int> _runInit(
   final root = rootPath ?? '.';
   final directory = Directory(root);
   if (!directory.existsSync()) {
-    return _reportAnalysisFailure(error);
+    return _reportInitDirectoryFailure(error, root);
   }
   final configFile = File(p.join(root, 'dartograph.yaml'));
-  if (!force && configFile.existsSync()) {
+  if (!force &&
+      (configFile.existsSync() || Link(configFile.path).existsSync())) {
     error.writeln(
       '${configFile.path} already exists. Pass --force to overwrite it.',
     );
     return ExitStatus.usage.code;
   }
+  final tempFile = File(p.join(root, '.dartograph.yaml.tmp.$pid'));
   try {
-    configFile.writeAsStringSync(configurationTemplate);
+    tempFile.writeAsStringSync(configurationTemplate, flush: true);
+    tempFile.renameSync(configFile.path);
     output.writeln('Wrote ${configFile.path}');
     return ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
   } on IOException {
-    return _reportAnalysisFailure(error);
+    try {
+      if (tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
+    } on IOException {
+      // Best-effort cleanup of temporary file.
+    }
+    return _reportInitWriteFailure(error, configFile.path);
   }
 }
 
@@ -1373,6 +1381,16 @@ int _reportBaselineWriteFailure(StringSink error) {
 
 int _reportRulesConfigFailure(StringSink error) {
   error.writeln('Analysis failed: unable to read the rules configuration.');
+  return ExitStatus.failure.code;
+}
+
+int _reportInitDirectoryFailure(StringSink error, String path) {
+  error.writeln('Init failed: target directory does not exist: $path');
+  return ExitStatus.failure.code;
+}
+
+int _reportInitWriteFailure(StringSink error, String path) {
+  error.writeln('Init failed: unable to write $path.');
   return ExitStatus.failure.code;
 }
 

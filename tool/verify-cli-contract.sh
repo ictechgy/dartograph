@@ -103,8 +103,15 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "init" init "$INIT_DIR"
   expect_status 64 "init conflict without force" init "$INIT_DIR"
   expect_status 0 "init force overwrite" init --force "$INIT_DIR"
-  expect_status 2 "init failure on non-existent directory" init /non/existent/path/for/dartograph
+  expect_status 2 "init failure on non-existent directory" init "$TEMPORARY_DIRECTORY/does-not-exist"
+  expect_status 2 "init failure on file target" init "$INIT_DIR/dartograph.yaml"
   expect_status 64 "init duplicate force" init --force --force "$INIT_DIR"
+  expect_status 64 "init multiple positional arguments" init "$INIT_DIR" "$INIT_DIR"
+  INIT_DEFAULT_DIR="$TEMPORARY_DIRECTORY/init-default"
+  mkdir -p "$INIT_DEFAULT_DIR"
+  pushd "$INIT_DEFAULT_DIR" >/dev/null
+  expect_status 0 "init default directory" init
+  popd >/dev/null
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "CLI contract failed: $FAILURES case(s)" >&2
