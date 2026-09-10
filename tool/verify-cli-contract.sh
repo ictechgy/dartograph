@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/dartograph-cli-contract.XXXXXX")"
-trap 'rm -f "$TEMPORARY_DIRECTORY/dartograph" "$TEMPORARY_DIRECTORY/baseline.json"; rmdir "$TEMPORARY_DIRECTORY"' EXIT
+trap 'rm -rf "$TEMPORARY_DIRECTORY"' EXIT
 
 BINARY="${1:-$TEMPORARY_DIRECTORY/dartograph}"
 if [[ $# -eq 0 ]]; then
@@ -98,6 +98,13 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
+  mkdir -p "$INIT_DIR"
+  expect_status 0 "init" init "$INIT_DIR"
+  expect_status 64 "init conflict without force" init "$INIT_DIR"
+  expect_status 0 "init force overwrite" init --force "$INIT_DIR"
+  expect_status 2 "init failure on non-existent directory" init /non/existent/path/for/dartograph
+  expect_status 64 "init duplicate force" init --force --force "$INIT_DIR"
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "CLI contract failed: $FAILURES case(s)" >&2

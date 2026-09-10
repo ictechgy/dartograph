@@ -14,6 +14,7 @@ dartograph --version
 ## 명령
 
 ```text
+dartograph init [--force] [<package-root>]
 dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
 dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
 dartograph dead --explain <symbol-id> --format json <package-root>
@@ -32,6 +33,9 @@ dartograph rules --config <yaml-file> [--strict] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
 dartograph metrics [--strict] <package-root>
 ```
+
+`init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다.
+이미 파일이 존재하면 안전을 위해 중단(exit 64)하며, `--force`를 전달하면 덮어쓴다.
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
@@ -231,7 +235,7 @@ rules:
 - enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화처럼 개별 상수를 직접
   참조하지 않는 소비가 있으므로 enum→상수 `member` 간선만으로 미도달이라고 단정하지 않는다.
   `dead --explain`은 `retained by its reachable enum` 근거와 enum까지의 경로를 낸다.
-- `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다.
+- `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다(템플릿은 `dartograph init`으로 생성할 수 있다).
 
 ```yaml
 # dartograph.yaml (프로젝트 루트, 선택)
