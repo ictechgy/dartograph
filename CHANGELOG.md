@@ -2,6 +2,47 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.6.0
+
+- **Breaking change (library API)**: the public library surface
+  (`package:dartograph/dartograph.dart`) was trimmed to what is actually
+  supported. CLI behavior and exit codes are unchanged.
+  - `querySymbol` was removed — a one-shot wrapper around `SymbolQuerySession`
+    used only by `tool/` benchmarks. Construct a `SymbolQuerySession` and call
+    `query` instead
+  - `CodeGraph.usageEdgesFrom` was removed (no product caller; filter
+    `CodeGraph.edges` instead)
+  - `SymbolQuerySession.analysis` (a `ReachabilityResult` field) is no longer
+    public. The session now exposes `deadDeclarations` (an unmodifiable
+    `List<DeadFinding>`) for the `query --baseline` flow, so no public member
+    references an unexported type. Reachability questions are answered by
+    `SymbolQuerySession.query`, whose document carries each symbol's
+    reachability state. `ReachabilityResult`/`ReachabilityExplanation` stay
+    internal; `DeadFinding` is now exported
+
+- `bridges` pub workspace detection now validates membership. A package whose
+  pubspec declares `resolution: workspace` joins the nearest ancestor
+  `workspace:` root when that root plausibly lists it — explicit paths are
+  matched after URL normalization, while glob entries and non-list `workspace:`
+  values are conservatively accepted. Only a well-formed explicit-path list that
+  omits the package falls back to the scan root, with a new
+  `pub-workspace-member-not-listed` limitation so a misconfigured workspace never
+  silently skews the isthmus join basis
+
+- SARIF output no longer corrupts already-absolute source URIs. A dead finding
+  whose source is `file:` (an out-of-root path) or `package:` (a dependency) is
+  passed through unchanged instead of being split on `/` and re-encoded (which
+  turned `file:///a.dart` into `file%3A///a.dart`). Project-relative sources keep
+  the existing per-segment encoding (backslash- and percent-safe)
+
+- HTML graph output now classifies a library whose file name contains `::`
+  correctly, using the `.dart::` declaration boundary instead of any `::`. Such a
+  library is no longer shown as a member, and its display name is no longer
+  truncated at the first `::`
+
+- README revised for clarity (English original and Korean twin); no behavior
+  change
+
 ## 0.5.0
 
 - `bridges` gained `--project <shared-root>` and pub workspace auto-detection
