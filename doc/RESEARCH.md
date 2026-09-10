@@ -104,12 +104,25 @@ Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `af
 - `// dartograph:ignore` (PR #34) — Periphery comment command 흡수. 선언 단위,
   `retentionReason: inlineIgnore` 보존 루트 모델(도달성 전이 — baseline과 대비 문서화).
 
+구현·머지됨 — Tier 4(cosmetic) 4종 (2026-09-10, 사용자 범위 선택):
+
+- metrics zone 라벨 (PR #72) — cartograph `MetricsZone` 패리티(1차 출처
+  `Sources/CartographAnalysis/ArchitectureMetrics.swift` 직접 확인). 고립 별도
+  영역 포함 4종, 허용 오차 경계는 `--strict` 판정과 일치.
+- 순환 노드 색칠 (PR #73) — madge 패리티(`lib/graph.js` `setNodeColor` 확인).
+  `graph --format dot`에서 순환 참여 정점 붉게. 순환 없는 그래프 바이트 불변.
+- anon export (PR #74) — dependency-cruiser `anon` 리포터 패리티
+  (`src/report/anon/` 확인). `graph --format anon` — json 문서 모양 유지,
+  결정적 토큰 치환(s0, s1, …), limitation 경로 치환은 다중 세그먼트 경로 전체만.
+- redundant public (PR #75) — Periphery `redundant public accessibility` 패리티.
+  `dead --report-redundant-public` info 관측. 비공개 컨테이너 멤버·연산자·보존
+  루트·enum 상수·override 이행 제외. 외부 멤버 호출의 멤버 정점 정확 귀속과
+  의존 패키지 무정점은 프로브 실측으로 확인.
+
 남은 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):
 
 - Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
   `init`, markdown·codeowners 리포터, issue-type 필터, MCP 서버.
-- Tier 4(cosmetic): metrics zone 라벨(zone-of-pain·main-sequence), 순환 노드 색칠, redundant public,
-  anon export.
 
 Tier 1~2 심사 때 목록에 들지 않은 나머지 강점들은 의도적으로 미채택이다(재도출하지 않는다):
 dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query --depth/--limit`·
