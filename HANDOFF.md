@@ -1,19 +1,20 @@
 # Handoff
 
-_Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 `85c345a`, pub.dev latest 0.6.0·태그 v0.6.0·GitHub Release·새 캐시 설치본 검증; 미릴리스 누적 PR #58(죽은 공개 API 처분·라이브러리 API)·#63(감사 낮음 subset: SARIF uri·html `.dart::`·workspace 멤버십)·#65(README 퇴고)를 소진, semver minor). 후속: issue #38 양측 종결·close(#57) + HANDOFF 기록(#59·#60·#62·#64) + bridge 스코프 테스트(#61) + README 퇴고(#65); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 + 0.4.1 + 성능 3건 + bridges + 0.5.0 + issue #38 dartograph 측(#52), PR #39~#66 merge)_
+_Last updated: 2026-09-10 (0.6.0 릴리스 후속 — 감사 낮음 이월 2건 판단 처분: bridges 제어문자 이름 **현행 유지로 종결**(실측+계약 대조, 재론 금지), `unscanned-*` 복수형 문구 **3개 family 일괄 수정 완료**(PR #69, 미릴리스 누적 1건 — 다음 릴리스 때 CHANGELOG 기록). 릴리스 기준은 0.6.0(`85c345a`) 그대로. 후속: issue #38 양측 종결·close(#57) + 죽은 공개 API 처분(#58) + 감사 낮음 subset(#63) + README 퇴고(#65) + 0.6.0(#66) + 세션 마감 기록(#68); 선행 세션: 전체 감사 + 수정 6건 + 영어 문서 + 0.4.1 + 성능 3건 + bridges + 0.5.0 + issue #38 dartograph 측(#52), PR #39~#68 merge)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(후속, PR #57~#67 — 마감)**: HANDOFF를 읽고 사용자 지시로 이월 항목을 순차
-  소진했다 — issue #38 양측 종결 확인·close(#57), 죽은 공개 API 처분(정책 A 최소화·hygiene,
-  #58), P7 측정-보류 확정(#60), bridge 스코프 방문자 테스트 보강(#61), 감사 "낮음" 실행가능
-  subset(SARIF uri·html `.dart::`·workspace 멤버십, #63), README 영어 여러 패스 퇴고(GLM 2회)+
-  한글 쌍둥이 동기화(#65), 그리고 "배포까지" 지시로 **0.6.0 릴리스**(semver minor — 0.x 공개
-  API 제거; #66 — pub.dev·태그 v0.6.0=`85c345a`·GitHub Release·새 캐시 설치본 검증). HANDOFF는
-  각 단계마다 기록(#59·#60·#62·#64·#67). **이 세션은 여기서 마감 — 나머지는 다음 세션
-  이월분이다(Next Steps 4: 판단 필요 감사-낮음 2건·Tier 3/4).**
-- 이전 세션(PR #39~#56): README·CHANGELOG 영어 정본 전환 + 제품 코드 전량 감사 + 결함 수정
+- **이번 세션(감사 낮음 이월 2건 판단 처분, PR #69~)**: Next Steps 4a의 판단 필요
+  2건을 실측·계약 대조 후 사용자 결정으로 처분했다 — ① bridges 동적 이름 toSource 개행
+  시 전체 문서 실패는 **현행 유지로 종결**(완화는 isthmus 조율 없이 금지 유지, 재론 금지),
+  ② `unscanned-*` 복수형 문구는 **3개 family 일괄 수정**(PR #69 — unscanned-* N≥2 복수형 +
+  dynamic-* N=1 단수 문법[감사 외 실측 발견], N≥2·unscanned N=1 바이트 불변, 핀 1개 갱신).
+  남은 이월분은 GraphNode 명시 kind 후보와 Tier 3/4뿐(Next Steps 4).
+- 이전 세션(PR #57~#68, 마감): issue #38 양측 종결 확인·close(#57), 죽은 공개 API 처분(#58),
+  P7 측정-보류 확정(#60), bridge 스코프 방문자 테스트 보강(#61), 감사 "낮음" 실행가능
+  subset(#63), README 퇴고(#65), **0.6.0 릴리스**(#66, semver minor), 세션 마감 기록(#68).
+- 그 이전 세션(PR #39~#56): README·CHANGELOG 영어 정본 전환 + 제품 코드 전량 감사 + 결함 수정
   6건 + 0.4.1 + 성능 backlog 3건(측정 선행) + bridges 공유 루트(issue #38 dartograph 측 #52) +
   0.5.0 릴리스 — 상세는 Completed·CHANGELOG·git 이력 참조.
 
@@ -23,19 +24,16 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
   (Readme·Changelog 탭 **영어**)·GitHub Release(target=85c345a) 공개. 새 격리 캐시 설치본으로
   `--version` 0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→limitation+스캔루트 폴백,
   목록→workspace 루트) 검증. (이전 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **0.6.0 릴리스(PR #66)** + 0.5.0(#54) + HANDOFF 기록(#55·#56·#59·#60·#62·#64) +
-  issue #38 close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프 테스트 보강(#61) + 감사 낮음
-  subset(#63) + README 퇴고(#65). PR #39~#66 모두 두 SDK CI green + GLM packet-review(필요 시)
-  후 머지했다(#58·#61·#63·#65 GLM 차단 없음; docs 전용 전사 #57·#59·#60·#62·#64는 리뷰 생략, 사유 기록).
-  열린 제품 PR 없음. **이 세션의 작업은 여기서 마감 — 나머지는 전부 다음 세션
-  이월분이다(Next Steps 4의 목록).**
-- **미릴리스 누적 없음 — 0.6.0(PR #66)이 PR #58(죽은 공개 API 처분·라이브러리 API 표면
-  변경·CLI 무변경) + #63(감사 낮음 subset: SARIF uri file:·package: pass-through·html
-  `.dart::`·workspace 멤버십 + `pub-workspace-member-not-listed`) + #65(README 퇴고)를 소진**
-  (semver minor — 0.x에서 공개 API 제거는 파괴적). CHANGELOG 두 언어가 0.6.0을 breaking-change
-  마커 + 마이그레이션 힌트(querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query)로
-  기록. CHANGELOG에 `Unreleased` 절 없음. docs·테스트 전용(#57·#59~#62·#64)은 .pubignore 제외라
-  애초 누적이 아니었다.
+- main 기준: **PR #69(감사 낮음 이월 2건 처분)** + 0.6.0 릴리스(#66) + 0.5.0(#54) + HANDOFF 기록
+  (#55·#56·#59·#60·#62·#64·#68) + issue #38 close(#57) + 죽은 공개 API 처분(#58) + bridge 스코프
+  테스트 보강(#61) + 감사 낮음 subset(#63) + README 퇴고(#65). PR #39~#69 모두 두 SDK CI green +
+  GLM packet-review(필요 시) 후 머지했다(#69 GLM 차단 없음 — 비차단 4건 실측·규칙 근거로 처분;
+  docs 전용 전사는 리뷰 생략, 사유 기록). 열린 제품 PR 없음.
+- **미릴리스 누적 1건 — PR #69(bridges limitation 복수형 문법 3개 family)**: bridges 전용
+  문자열이라 그래프 캐시 무관. N≥2 dynamic-*·N=1 unscanned-* 문자열은 바이트 불변이고
+  변경은 unscanned-* N≥2 복수형과 dynamic-* N=1 단수 문법뿐(테스트 핀 1개 갱신). GRAPH-EXCHANGE가
+  limitations를 "소비자가 검증하지 않는" 자유 문장으로 규정하므로 계약상 안전(접두사 불변).
+  **다음 릴리스 때 CHANGELOG(두 언어)에 기록.**
 - 테스트 269개, 라인 커버리지 **97.04%**(감사 전 94.4%; PR #58 querySymbol 제거+getter
   스모크, PR #61 bridge 스코프 12테스트로 bridge_index 미커버 40→9줄, PR #63 감사 낮음
   subset +4 회귀). 미릴리스 누적 없음(0.6.0이 전부 릴리스).
@@ -46,7 +44,28 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
 
 ## Completed
 
-### 이번 세션 (후속: issue #38 close + 이월 항목 + README 퇴고 + 0.6.0 릴리스, PR #57~#67)
+### 이번 세션 (감사 낮음 이월 2건 판단 처분, PR #69~)
+
+- **① bridges 동적 이름 toSource 개행 시 전체 문서 실패 — 판단 완료·현행 유지로 종결**:
+  프로브 실측(리터럴 `\x01` 이스케이프·멀티라인 리터럴·toSource 개행 3케이스 전부 exit 2
+  "Bridges extraction failed"; 개행 없는 동적 이름은 정상 방출 dynamic:true — toSource가
+  줄바꿈을 공백으로 접는 건 대조군으로 확인) + GRAPH-EXCHANGE 대조(이름 제어문자 금지가
+  생산자 의무이고 project 필드의 "소비자에게 거부될 문서를 내보내지 않는다" 논리와 동일한
+  fail-closed; USAGE.md가 0.3.0부터의 동작으로 이미 문서화) → 사용자 결정: **현행 유지**.
+  완화(per-fact skip + 신규 limitation)는 소비자가 세는 dynamic fact 수가 달라지는 교환
+  의미론 변경이라 isthmus 조율 없이 금지 유지. **새 요청·isthmus 제안이 없는 한 재론 금지.**
+- **② `unscanned-*` 복수형 문구 — 완료(PR #69, 3개 family 일괄)**: 감사 지적분(unscanned-* N≥2
+  복수형 누락)과 실측 중 발견한 dynamic-* N=1 문법 결함(`1 method invocations use`·
+  `1 channel constructors use`)을 함께 정리. 나머지 family 형식과 동일한 삼항식. N≥2 dynamic-*·
+  N=1 unscanned-* 문자열 바이트 불변, 테스트 핀 1개 갱신(dynamic-method-names N=1). 검증:
+  format·analyze clean, 269 테스트, 커버리지 97.04%(불변), corpus·cli-contract·dry-run 0,
+  프로브로 N=2/N=3 렌더링 확인, 저장소 전역 grep으로 외부 참조 없음 확인. GLM packet-review
+  차단 없음(비차단 — diff 범위 실측 확인, 신규 분기 핀은 CONTRIBUTING "문구 복제 금지"로 기각,
+  패킷 밖 소비자는 grep 실측 없음, 버전 bump는 limitations가 검증 제외 자유 문장임으로 기각).
+  두 SDK CI green 후 머지(`15c4b21`). **미릴리스 — 다음 릴리스 때 CHANGELOG(두 언어) 기록.**
+- 동일 세션에서 이 문서에 ①·② 처분을 전사(docs 전용 — GLM 리뷰 생략, 검증된 사실 전사).
+
+### 이전 세션 (후속: issue #38 close + 이월 항목 + README 퇴고 + 0.6.0 릴리스, PR #57~#68)
 
 이월 항목을 순차 소진했다(PR별 상세는 Verification과 각 PR 본문 참조).
 
@@ -330,7 +349,15 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
   0.6.0·CLI 계약 59케이스·workspace 멤버십(미목록→`pub-workspace-member-not-listed`+스캔루트 폴백,
   목록→workspace 루트) 검증.
 - 로컬 커버리지: 전용 포트 + `format_coverage -i`(플래그 주의). check-analyzer-boundary는
-  로컬 rg 부재로 CI 위임.
+   로컬 rg 부재로 CI 위임.
+- 감사 낮음 이월 2건 처분(2026-09-10, PR #69): ① 프로브 4케이스(리터럴 `\x01`·멀티라인
+  리터럴·toSource 개행 → 전부 exit 2, 개행 없는 동적 이름 → 정상 방출 대조군) + GRAPH-EXCHANGE
+  원문 대조로 현행 유지 판단의 근거를 확정. ② 구현 검증 — format·analyze clean, 269 테스트
+  (격리 설치 CLI 계약 포함), 커버리지 97.04%(불변), corpus·cli-contract·dry-run 0, 프로브로
+  N=2/N=3 복수형 렌더링 확인, 저장소 전역 grep으로 변경 문자열의 외부 참조 없음 확인.
+  GLM packet-review 차단 없음(비차단 — diff 범위는 git diff로 실측 확인; 신규 분기 핀 추가는
+  CONTRIBUTING "문구 복제 금지"로 기각; 패킷 밖 소비자는 grep으로 없음 확인; 버전 bump는
+  limitations가 검증 제외 자유 문장임으로 기각). 두 SDK CI green 후 머지(`15c4b21`).
 
 ## Blockers & Open Questions
 
@@ -345,7 +372,7 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
   방식)가 양측 반영됐고 왕복 실측(dartograph#38·#52)으로 조인 확인 → 마감 코멘트
   (issuecomment-5602011319) 후 close. **자매 저장소는 소유자/조율 경로로만 갱신됐고
   dartograph가 isthmus를 임의 수정한 적 없음(금지 유지).** 남은 비차단 후속(workspace
-  멤버십 검증·`unscanned-*` 복수형 문구)은 Next Steps 4의 감사 낮음 항목으로 이관.
+  멤버십 검증·`unscanned-*` 복수형 문구)도 각각 PR #63·#69로 완료 — 이 이슈의 후속은 전부 소진.
 - external-retentions 구현 금지(GRAPH-EXCHANGE 계약, PR #27) 유지.
 
 ### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
@@ -379,14 +406,19 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
   멤버십 검증(목록 일치 + `pub-workspace-member-not-listed` limitation), `_path`의 `project:` 센티널
   충돌은 **vacuous 확인**(항상 prepend→한 번 strip 왕복, 주석 고정). SARIF rules 배열의 testOnly×file
   잠재 불일치(현재 vacuous·주석 고정),
-  bridges 동적 이름 toSource 개행 시 전체 문서 실패(GRAPH-EXCHANGE dynamic:true 보존
-  원칙과 긴장 — isthmus 조율 사안), bridge limitations 미정렬(생산자 고정 순서라 결정성
+  bridges 동적 이름 toSource 개행 시 전체 문서 실패 — **판단 완료(2026-09-10): 현행 유지로
+  종결**(실측·계약 근거는 Completed 이번 세션 절; 완화는 isthmus 조율 없이 금지, 재론 금지),
+  bridge limitations 미정렬(생산자 고정 순서라 결정성
   유지), graph_exporter limitations 미dedup(CLI가 선행 dedup), **bridge_index 스코프 방문자
   — 완료(PR #61, 감사 T4: catch/for/지역함수/클로저/채널 재대입 + 섀도잉 단언, 미커버
   40→9줄)**, 남은 9줄은 vacuous/비실용(165-168 비교자 동일-offset tiebreaker·217 TOCTOU
   race·718 resolved flutter 필요·833-835 조건부 re-export — 재추격 금지),
   cli 잔여 57줄(희귀 분기), `<no-library>` 파일 수준 합류(의도·문서화됨). 감사 T6
   (graph_projection:43·cycle_detector 방어 분기)은 도달불가/무해 확인 — 재도출 금지.
+- **`unscanned-*` 복수형 문구 — 완료(PR #69, 2026-09-10)**: 3개 family 일괄 정리(unscanned-*
+  N≥2 복수형 + dynamic-* N=1 단수 문법[실측 발견]). 나머지 family 형식과 동일한 삼항식,
+  N≥2 dynamic-*·N=1 unscanned-* 바이트 불변, 접두사 불변(GRAPH-EXCHANGE: limitations은
+  소비자가 검증하지 않는 자유 문장). 상세·검증은 Completed 이번 세션 절. **미릴리스.**
 - **vacuous 확인(재도출 금지)**: dead findings 정렬 키 위치 무시(kind+id 동일·위치 다른
   finding은 ID 유일성으로 불가), mermaid 간선 null(snapshot endpoint 검증), N2/N4.
 
@@ -442,10 +474,11 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
 2. 지금까지 완료: PR #39~#54(+docs #47·#51·#53·#55·#56) — **0.4.1·0.5.0 릴리스 +
-   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측**, 이어서 PR #57(issue #38
-   양측 종결·close) + PR #58(죽은 공개 API 처분). 완료된 구현·감사·측정·릴리스·처분을
-   반복하지 않는다. **미릴리스 누적은 PR #58 하나**(CHANGELOG `Unreleased` 절 없음 —
-   릴리스 때 기록; Current Status 참조).
+   성능 backlog(P1~P6·P8~P10) + issue #38 dartograph 측**, 이어서 PR #57~#68(감사 낮음
+   subset·죽은 API 처분·README 퇴고·**0.6.0 릴리스**·세션 마감), 이어서 **PR #69(감사 낮음
+   이월 2건 판단 처분 — ① 현행 유지 종결·② 복수형 문법 3개 family)**. 완료된 구현·감사·
+   측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적은 PR #69 하나**(CHANGELOG
+   `Unreleased` 절 없음 — 릴리스 때 기록; Current Status 참조).
 3. **issue #38 완전 종결·close 완료(2026-09-09)** — dartograph 측(PR #52, 0.5.0
    릴리스 + 코멘트 issuecomment-5599285065)과 isthmus 측 GRAPH-EXCHANGE 문구 갱신
    (isthmus PR #36 realpath + #37 조인 루트, 둘 다 merge)이 모두 끝났다. isthmus
@@ -453,17 +486,17 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
    closed인지 API로 확인.
 4. **다음 세션 이월분(우선순위 제안 — 전부 근거·선행 조건이 위 Blockers/backlog 목록에
    있다, 재도출 금지)**:
-   a. 감사 낮음 **남은 2건(별도 판단 필요)**: bridges 동적 이름 toSource 개행 시 전체 문서 실패
-      (GRAPH-EXCHANGE dynamic:true 보존 원칙과 긴장 — isthmus 조율 사안, 임의 변경 금지),
-      `unscanned-*` limitation 복수형 문구(기존 출력 문자열 변경 — 기록·판단 필요). 후속 후보:
-      GraphNode에 명시 kind 싣기(html id 파싱 근본 해결, 코어 변경). 실행 가능 subset(html `::`·
-      SARIF uri·workspace 멤버십) + `project:` vacuous는 **PR #63 완료로 소진**(backlog 참조).
+   a. 감사 낮음 판단 필요 2건은 **전부 소진(2026-09-10)** — ① bridges 제어문자 이름 전체
+      문서 실패는 현행 유지로 종결(완화는 isthmus 조율 없이 금지·재론 금지), ② `unscanned-*`
+      복수형은 PR #69 완료. 남은 후보: GraphNode에 명시 kind 싣기(html id 파싱 근본 해결,
+      코어 변경 — 사용자 요청 시 범위 결정).
    b. 새 흡수 범위 = RESEARCH Tier 3/4(yaml 확장·init·markdown/codeowners 리포터·
       issue-type 필터·MCP / metrics zone 라벨·순환 색칠 등) — 사용자 요청 시 PRD/PLAN에서
       범위 결정.
    (P7은 측정-보류, bridge 스코프 방문자는 PR #61 완료로 소진 — 위 backlog 참조, 재도출 금지.)
 5. **0.6.0 릴리스 완료(PR #66, 2026-09-10)** — 미릴리스 누적(PR #58+#63+#65)을 semver
-   minor(공개 API 제거)로 발행. 다음 릴리스도 지시 시에만: 두 언어 CHANGELOG + semver 판단,
+   minor(공개 API 제거)로 발행. 다음 릴리스도 지시 시에만: 두 언어 CHANGELOG(PR #69 포함) +
+   semver 판단,
    버전 정합 6곳(pubspec·tool_info·USAGE ×2·SECURITY·cli_test) + (Korean) 표기 규약, clean git
    dry-run 후 `dart pub publish --force` → `--target`으로 같은 커밋 태그+Release → 전파 대기
    (분 단위, 재시도) 후 새 캐시 설치본 검증. 동일 버전 재게시 금지.
@@ -521,20 +554,32 @@ ReachabilityResult/ReachabilityExplanation stay internal). CLI output/exit codes
 #63 (audit-low actionable subset), PR #65 (README polish, GLM 2 rounds), and **0.6.0 was RELEASED
 (PR #66, semver minor for the public-API removal; pub.dev latest 0.6.0, tag v0.6.0 at 85c345a =
 publish commit, GitHub Release, fresh-cache install verified incl. --version 0.6.0, the 59-case CLI
-contract, and the new pub-workspace-member-not-listed membership fallback). NOTHING is unreleased
-now** — 0.6.0 absorbed PR #58 + #63 + #65; both CHANGELOGs record it with a breaking-change marker +
-migration hints (querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query).
+contract, and the new pub-workspace-member-not-listed membership fallback). NOTHING else is
+unreleased** — 0.6.0 absorbed PR #58 + #63 + #65; both CHANGELOGs record it with a breaking-change
+marker + migration hints (querySymbol→SymbolQuerySession.query, analysis→deadDeclarations/query).
+THEN (2026-09-10 follow-up session, PR #69) the last two deferred audit-low items were DISPOSED by
+user decision: (1) bridges dynamic-name toSource newline → whole-document failure is KEPT AS-IS
+(measured: literal \x01, multiline literal, and toSource-with-newline all exit 2 "Bridges extraction
+failed"; newline-free dynamic names emit fine dynamic:true — toSource folds line breaks to spaces;
+contract-aligned fail-closed per GRAPH-EXCHANGE no-control-chars-in-names + "don't emit a document
+the consumer would reject"; USAGE has documented this since 0.3.0 — relaxation to per-fact skip would
+change what isthmus counts, so it stays isthmus-coordination-only; do NOT re-open without a new
+request), and (2) `unscanned-*` plural wording FIXED across all 3 families (PR #69: unscanned-*
+N≥2 "constructors", dynamic-channel/method-names N=1 singular verb agreement — the latter found
+during probing; N≥2 dynamic-* and N=1 unscanned-* strings byte-identical, prefixes unchanged,
+GRAPH-EXCHANGE declares limitations free-form/unvalidated so contract-safe; one test pin updated;
+269 tests, coverage 97.04% unchanged, corpus/cli-contract/dry-run 0, GLM no blocking, both SDK CI
+green, merged 15c4b21). PR #69 is the ONLY unreleased accumulation (record in both CHANGELOGs at
+the next release; bridges-only strings so cache-irrelevant).
 REMAINING: P7 (snapshot toSet rehash) is MEASURED & CONFIRMED DEFERRED (2026-09-09 — do NOT
 re-derive/re-measure): an isolated probe put the toSet rehash at 24µs for the realistic 14726-edge
 graph (0.002% of the ~1070ms indexing min, 0.5% of the snapshot edge work; the invariant
 toList()..sort() dominates and P7 does not touch it; ≤1% even at 500k edges) — negligible, so the
 public factory's defensive dedup stays; bridge scope-visitor test coverage is DONE (PR #61: 12 tests
 in test/index/bridge_scope_test.dart, coverage 95.98→97.03%, bridge_index uncovered 40→9 lines, the
-rest vacuous/impractical — do not re-derive); audit-low ACTIONABLE subset is DONE (PR #63: SARIF uri
-file:/package: pass-through, html `.dart::` kind discriminator, pub workspace membership validation;
-project: sentinel VACUOUS; the remaining audit-low items — bridges toSource newline (isthmus
-coordination) and `unscanned-*` plural wording (output change) — are DEFERRED as separate decisions,
-and GraphNode explicit-kind threading is a follow-up candidate);
+rest vacuous/impractical — do not re-derive); audit-low ACTIONABLE subset is DONE (PR #63) and the
+two judgment items are DISPOSED (bridges toSource newline KEPT-AS-IS above + unscanned-* plural
+FIXED in PR #69; GraphNode explicit-kind threading remains a follow-up candidate, scope on request);
 issue #38 (isthmus bridges --project / pub-workspace shared root) — FULLY CLOSED on BOTH sides
 (2026-09-09): the dartograph side is DONE and RELEASED in 0.5.0 (PR #52: bridges --project
 <shared-root> + pub workspace auto-detection with fallback limitations, isthmus-installed round-trip
@@ -546,7 +591,7 @@ consumer exact-string fail-closed preserved), so the issue was CLOSED (reason: c
 comment issuecomment-5602011319); do NOT touch the isthmus repo itself (it was updated only via the
 owner/coordination path); external-retentions stays contract-blocked (PR #27);
 Tier 3/4 absorption candidates live in doc/RESEARCH.md. Audit no-issue confirmations and vacuous
-findings are listed in HANDOFF — do not re-derive. The session is CLOSED: everything deferred to
-the next session is enumerated in Next Steps item 4 (remaining audit-low items needing separate
-decisions — bridges toSource newline isthmus coordination + unscanned-* plural wording, Tier 3/4).
+findings are listed in HANDOFF — do not re-derive. The session's disposition work is COMPLETE:
+everything deferred to the next session is enumerated in Next Steps item 4 (GraphNode explicit-kind
+candidate, Tier 3/4).
 Follow the next explicit user task.`
