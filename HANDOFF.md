@@ -5,20 +5,17 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- 이번 세션은 (1) 사용자 지시로 README·CHANGELOG를 **영어 정본**(pub.dev 노출)으로
-  전환하고 한국어본을 `README.ko.md`·`CHANGELOG.ko.md`로 분리했으며(PR #39),
-  (2) "코드 전체적 리뷰(성능·보안·구조)" 지시로 제품 코드 6,684줄 전량 감사를
-  수행하고(직접 검토 + explore 하위 에이전트 3축 + GLM 교차검증 3패킷, 중요 지적은
-  전부 실측·코드 대조 재검증), (3) 감사 결함 수정 6건을 머지하고(PR #40~#45),
-  (4) 사용자 승인("감사 수정과 묶어서")에 따라 **0.4.1을 릴리스**했고(PR #46 —
-  pub.dev·태그 v0.4.1·GitHub Release·새 캐시 설치본 검증), (5) 이어서 사용자
-  지시("1번 ㄱㄱ")로 감사 성능 backlog를 **측정 선행 규칙**대로 처리했고
-  (PR #48~#50 — A/B 하네스 신설, 인덱싱 -28%·query 배치 -84%·rules -72%,
-  7종 산출물 해시 전후 동일), (6) 이어서 "이슈 38 처리해줘" 지시로 isthmus
-  모노레포 조인 요청의 dartograph 측 구현을 완료했고(PR #52 — bridges
-  `--project` + pub workspace 자동 감지, 설치본 isthmus 왕복 실측), (7) "릴리즈해줘"
-  지시로 성능 3건 + bridges를 **0.5.0으로 릴리스**했다(PR #54 — pub.dev·태그
-  v0.5.0·GitHub Release·설치본 검증, issue #38 코멘트도 권한 부여 후 게시).
+- **이번 세션(후속, PR #57~#67 — 마감)**: HANDOFF를 읽고 사용자 지시로 이월 항목을 순차
+  소진했다 — issue #38 양측 종결 확인·close(#57), 죽은 공개 API 처분(정책 A 최소화·hygiene,
+  #58), P7 측정-보류 확정(#60), bridge 스코프 방문자 테스트 보강(#61), 감사 "낮음" 실행가능
+  subset(SARIF uri·html `.dart::`·workspace 멤버십, #63), README 영어 여러 패스 퇴고(GLM 2회)+
+  한글 쌍둥이 동기화(#65), 그리고 "배포까지" 지시로 **0.6.0 릴리스**(semver minor — 0.x 공개
+  API 제거; #66 — pub.dev·태그 v0.6.0=`85c345a`·GitHub Release·새 캐시 설치본 검증). HANDOFF는
+  각 단계마다 기록(#59·#60·#62·#64·#67). **이 세션은 여기서 마감 — 나머지는 다음 세션
+  이월분이다(Next Steps 4: 판단 필요 감사-낮음 2건·Tier 3/4).**
+- 이전 세션(PR #39~#56): README·CHANGELOG 영어 정본 전환 + 제품 코드 전량 감사 + 결함 수정
+  6건 + 0.4.1 + 성능 backlog 3건(측정 선행) + bridges 공유 루트(issue #38 dartograph 측 #52) +
+  0.5.0 릴리스 — 상세는 Completed·CHANGELOG·git 이력 참조.
 
 ## Current Status
 
@@ -49,7 +46,37 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
 
 ## Completed
 
-### 이번 세션 (영어 문서 + 전체 감사 + 수정 6건 + 0.4.1, PR #39~#46)
+### 이번 세션 (후속: issue #38 close + 이월 항목 + README 퇴고 + 0.6.0 릴리스, PR #57~#67)
+
+이월 항목을 순차 소진했다(PR별 상세는 Verification과 각 PR 본문 참조).
+
+- **issue #38 양측 종결·close(#57)**: isthmus 측 GRAPH-EXCHANGE 문구 갱신(isthmus PR #36
+  realpath + #37 조인 루트, 둘 다 merge)을 API로 확인하고 dartograph 0.5.0 동작과 대조 →
+  마감 코멘트(issuecomment-5602011319) + close(reason: completed). isthmus는 소유자/조율
+  경로로만 갱신(임의 수정 금지 유지).
+- **죽은 공개 API 처분(#58, 정책 A 최소화·hygiene)**: `querySymbol`(unexport alone은 자기
+  dead 검사 위반 → 함수 삭제 + benchmark 인라인)·`usageEdgesFrom`(제품 호출 0) 제거,
+  `ReachabilityResult` 누출 해소(`analysis`→private + `deadDeclarations` getter, 배럴은
+  `DeadFinding`만 export). CLI 출력·종료코드 무변경.
+- **P7 측정-보류 확정(#60)**: 고립 프로브(합성 Set<GraphEdge> 30회 최소)로 toSet 재해싱
+  14726간선 24µs = 인덱싱 0.002% 측정 → negligible, 보류(제품 코드 무변경).
+- **bridge 스코프 방문자 테스트 보강(#61)**: test/index/bridge_scope_test.dart 12케이스
+  (catch/for/지역함수/클로저/재대입 + GLM 권장 섀도잉 + 인접 채널 경로), bridge_index
+  미커버 40→9줄, 커버리지 97.03%.
+- **감사 "낮음" 실행가능 subset(#63)**: SARIF uri 버그 수정(file:·package: pass-through,
+  프로브 실측), html `::` 파일명 오분류(`.dart::` 휴리스틱), pub workspace 멤버십 검증
+  (+`pub-workspace-member-not-listed`), `project:` 센티널 vacuous 문서화. 커버리지 97.04%.
+- **README 퇴고(#65)**: 영문 README.md를 GLM packet-review 2회(차단 0·"pub.dev 발행 가능")로
+  여러 패스 퇴고 + README.ko.md 쌍둥이 동기화. 사실 불변.
+- **0.6.0 릴리스(#66)**: semver minor(0.x 공개 API 제거=파괴적). CHANGELOG 두 언어
+  (breaking 마커 + 마이그레이션 힌트), 버전 정합 6곳, GLM 릴리스 리뷰 차단 없음, publish →
+  태그 v0.6.0=게시 커밋(`85c345a`, `--target`) → GitHub Release → 전파 ~3분 → 새 캐시
+  설치본 검증(--version·계약 59·workspace 멤버십 양방향).
+- GLM packet-review 이번 세션 6회(제품 #58·#61·#63, README #65 ×2, 릴리스 #66) 전부 차단
+  없음, 비차단 피드백 실측 대조 후 반영. docs 전용 전사(#57·#59·#60·#62·#64·#67)는 리뷰
+  생략(사유 기록).
+
+### 이전 세션 (영어 문서 + 전체 감사 + 수정 6건 + 0.4.1 + 성능 + bridges + 0.5.0, PR #39~#56)
 
 - **영어 정본 전환(PR #39)**: README·CHANGELOG 전량 영어화(0.1.0~0.4.0 전 버전),
   한국어본 분리·상호 링크, CONTRIBUTING에 쌍둥이 동기화 규칙·`(Korean)` 표기 규약·
@@ -154,7 +181,7 @@ _Last updated: 2026-09-10 (**0.6.0 릴리스** — PR #66 merge = 게시 커밋 
     선언 — cartograph `--project`도 포섭). dartograph는 isthmus를 임의 수정하지 않았고
     (소유자/조율 경로), issue #38는 양측 종결로 close 됐다(현재 상태는 Blockers 정본).
 
-### 이전 세션 (0.4.0 릴리스 + Tier 2 흡수, PR #13~#37)
+### 지지난 세션 (0.4.0 릴리스 + Tier 2 흡수, PR #13~#37)
 
 - 0.4.0(PR #36, `811bdff`): Tier 2 흡수 4건 — `affected`(#31)·`graph --format html`(#32)·
   `graph --level`+`--collapse`(#33)·`// dartograph:ignore`(#34) + operator usage-edge
