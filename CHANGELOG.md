@@ -2,6 +2,18 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Added the development-source-only `bridges --messages --format json` producer
+  for observed Flutter `BasicMessageChannel.send` calls. It emits bridge-facts
+  v2 with `transport: "basic-message-channel"` and `kind: "message-send"`,
+  while keeping channel construction and MethodChannel method facts separate.
+  Dynamic names preserve their source expression; an optional `channelPrefix`
+  is emitted only for an AST-proven decoded, non-empty leading literal in a
+  string interpolation. Prefixes are candidate evidence, not complete runtime
+  address or instance identity, and this producer is not part of published
+  `0.8.0`.
+
 ## 0.8.0
 
 - Added a runnable `example/main.dart` demonstrating the public library API:

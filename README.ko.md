@@ -58,6 +58,7 @@ dartograph affected origin/main .
 
 # Flutter 브리지 사실, 순환, 레이어 규칙, 지표, 에이전트 스킬
 dartograph bridges --format json .
+dartograph bridges --messages --format json .
 dartograph cycles --strict .
 dartograph rules --config layers.yaml --strict .
 dartograph metrics .
@@ -71,7 +72,14 @@ dartograph skill
 - `query`는 한 심볼에 관한 질문에 답한다 — 양방향 이웃, 멤버, 보존 경로, baseline 상태, 한계 — 전체 그래프를 덤프하는 대신 cartograph와 같은 필드 이름을 쓴다.
 - `affected <git-ref>`는 어떤 라이브러리가 Git 리비전 이후 변경됐는지, 어떤 라이브러리가 그것들에 전이적으로 의존하는지를 보고하며, 각 의존자는 변경 라이브러리까지의 최단 의존 경로를 근거로 싣는다.
 - `compare <before> <after>`는 같은 패키지의 두 체크아웃을 비교해 추가·제거된 정점·간선·보존 루트와 새로 미도달·도달이 된 것을 낸다(새로 미도달이 된 선언은 before-path·제거된 간선·제거된 루트를 근거로 싣는다). `--since`와 달리 보고 위치를 필터링하는 게 아니라 두 그래프 전체를 비교한다.
-- `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1로 낸다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이다(cartograph도 생산한다). 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel(현재 분석 범위 밖)은 사실로 읽히지 않고 한계로 집계된다.
+- `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1로 낸다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이다(cartograph도 생산한다). 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel은 기본 명령에서 사실로 읽히지 않고 한계로 집계된다.
+- `bridges --messages --format json .`은 BasicMessageChannel의 실제 `send` 호출을 위한
+  개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`과
+  `kind: "message-send"`를 담은 bridge-facts v2를 내보내며, 채널 생성만 send로
+  바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을
+  유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은
+  선행 literal을 증명할 때만 내보내며, 완전한 runtime 주소나 instance identity의
+  증명이 아닌 후보 prefix다. 이 producer는 아직 발행된 `0.8.0` 패키지에 포함되지 않는다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 실는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).

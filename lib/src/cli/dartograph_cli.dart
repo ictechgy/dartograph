@@ -1054,9 +1054,18 @@ Future<int> _runBridges(
   // `--project <shared-root>`는 위치 인자 사이에 어디든 올 수 있다(query의
   // `--depth`와 같은 규칙). 중복·값 빠짐·옵션 모양 값은 usage(64)다.
   String? projectOption;
+  var messagesOption = false;
   final positional = <String>[];
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
+    if (argument == '--messages') {
+      if (messagesOption) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      messagesOption = true;
+      continue;
+    }
     if (argument != '--project') {
       positional.add(argument);
       continue;
@@ -1119,6 +1128,7 @@ Future<int> _runBridges(
     final indexed = indexBridges(
       root,
       projectRootPath: project == root ? null : project,
+      messages: messagesOption,
     );
     output.write(
       exportBridgeFacts(
@@ -1126,6 +1136,8 @@ Future<int> _runBridges(
         generatedAt: now(),
         facts: indexed.facts,
         limitations: [...indexed.limitations, ...projectLimitations],
+        version: messagesOption ? 2 : 1,
+        transport: messagesOption ? 'basic-message-channel' : null,
       ),
     );
     return ExitStatus.success.code;
@@ -1985,6 +1997,7 @@ Usage: dartograph [--help] [--version]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
+       dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] <package-root>
        dartograph cycles --explain <symbol-id> <package-root>
        dartograph rules --config <yaml-file> [--strict] <package-root>
@@ -2024,6 +2037,10 @@ comments may sit between, code may not. A trailing comment at the end of a
 line does not suppress the next declaration. Retention keeps what the
 declaration references reachable too — use a baseline to suppress a single
 finding, including file findings.
+
+bridges --messages emits opt-in BasicMessageChannel send facts as bridge-facts
+version 2 with transport basic-message-channel. The default bridges command
+keeps the version 1 MethodChannel output.
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become

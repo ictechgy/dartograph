@@ -2,6 +2,17 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- Flutter `BasicMessageChannel.send` 호출을 관측하는 개발 소스 전용
+  `bridges --messages --format json` producer를 추가했다. `transport:
+  "basic-message-channel"`과 `kind: "message-send"`를 담은 bridge-facts v2를
+  내보내며, 채널 생성과 MethodChannel 메서드 fact를 서로 섞지 않는다. 동적 이름은
+  원래 소스 표현식을 유지하고, `channelPrefix`는 AST가 문자열 interpolation의
+  decoded 비어 있지 않은 선행 literal을 증명할 때만 낸다. prefix는 완전한 runtime
+  주소나 instance identity가 아니라 후보 근거이며, 이 producer는 발행된 `0.8.0`에
+  아직 포함되지 않는다.
+
 ## 0.8.0
 
 - 공개 라이브러리 API를 보여주는 실행 가능한 `example/main.dart` 추가 — `CodeGraph`를

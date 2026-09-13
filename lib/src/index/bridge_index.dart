@@ -19,14 +19,18 @@ final class BridgeIndexResult {
   final List<String> limitations;
 }
 
-/// [rootPath]의 Dart 파일에서 Flutter MethodChannel 사실을 추출한다.
+/// [rootPath]의 Dart 파일에서 Flutter 채널 사실을 추출한다.
 ///
 /// [projectRootPath]는 `location.path`의 기준이 되는 공유 프로젝트(모노레포)
 /// 루트다(GRAPH-EXCHANGE: location.path는 project 루트 기준 상대 경로). null이면
 /// 해석된 [rootPath]를 기준으로 삼아 기존 출력을 보존한다. 스캔 범위는 계속
 /// [rootPath] 트리다 — [projectRootPath]가 [rootPath]의 조상임을 확인하는 것은
 /// 호출자(CLI) 책임이다.
-BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
+BridgeIndexResult indexBridges(
+  String rootPath, {
+  String? projectRootPath,
+  bool messages = false,
+}) {
   final root = Directory(
     Directory(rootPath).absolute.resolveSymbolicLinksSync(),
   );
@@ -51,6 +55,8 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
   var patternVariableScopes = 0;
   var unscannedEventChannels = 0;
   var unscannedBasicMessageChannels = 0;
+  var dynamicBasicMessageChannels = 0;
+  var unresolvedBasicMessageSends = 0;
   var conditionalFlutterImports = 0;
   var flutterServicesReexports = 0;
   var parseErrorFiles = 0;
@@ -79,7 +85,7 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
     };
     if (flutterPrefixes.values.every((prefixes) => prefixes.isEmpty)) continue;
 
-    final constants = _topLevelStringConstants(parsed.unit);
+    final constants = _topLevelStringConstants(parsed.unit, messages: messages);
     final rootDeclaredNames = _topLevelDeclaredNames(parsed.unit);
     final rootChannels = _topLevelChannels(
       parsed.unit,
@@ -95,6 +101,13 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
       rootDeclaredNames,
       constants,
       rootChannels,
+      _topLevelBasicChannels(
+        parsed.unit,
+        constants,
+        flutterPrefixes,
+        rootDeclaredNames,
+      ),
+      messages: messages,
     );
     parsed.unit.accept(visitor);
     facts.addAll(visitor.facts);
@@ -105,6 +118,8 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
     patternVariableScopes += visitor.patternVariableScopes;
     unscannedEventChannels += visitor.unscannedEventChannels;
     unscannedBasicMessageChannels += visitor.unscannedBasicMessageChannels;
+    dynamicBasicMessageChannels += visitor.dynamicBasicMessageChannels;
+    unresolvedBasicMessageSends += visitor.unresolvedBasicMessageSends;
   }
   facts.sort(_compareFacts);
   final dynamicChannels = facts
@@ -113,12 +128,18 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
       .length;
   return BridgeIndexResult(facts, [
     if (facts.any(
-      (fact) => fact['kind'] == 'method-invoke' && !fact.containsKey('symbol'),
+      (fact) =>
+          (fact['kind'] == 'method-invoke' || fact['kind'] == 'message-send') &&
+          !fact.containsKey('symbol'),
     ))
       'missing-caller-symbols: some invocations have source locations but no supported enclosing declaration name',
     if (dynamicChannels > 0)
       'dynamic-channel-names: $dynamicChannels '
           '${dynamicChannels == 1 ? 'channel constructor uses' : 'channel constructors use'} '
+          'a non-literal name',
+    if (dynamicBasicMessageChannels > 0)
+      'dynamic-channel-names: $dynamicBasicMessageChannels '
+          '${dynamicBasicMessageChannels == 1 ? 'BasicMessageChannel constructor uses' : 'BasicMessageChannel constructors use'} '
           'a non-literal name',
     if (dynamicMethodNames > 0)
       'dynamic-method-names: $dynamicMethodNames '
@@ -146,6 +167,10 @@ BridgeIndexResult indexBridges(String rootPath, {String? projectRootPath}) {
     if (unscannedBasicMessageChannels > 0)
       'unscanned-basic-message-channels: $unscannedBasicMessageChannels '
           'BasicMessageChannel ${unscannedBasicMessageChannels == 1 ? 'constructor' : 'constructors'}',
+    if (unresolvedBasicMessageSends > 0)
+      'unresolved-basic-message-sends: $unresolvedBasicMessageSends '
+          '${unresolvedBasicMessageSends == 1 ? 'send call has' : 'send calls have'} '
+          'an unresolved receiver',
     if (conditionalFlutterImports > 0)
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '
@@ -232,18 +257,23 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     this.lineInfo,
     this.flutterPrefixes,
     Set<String> rootDeclaredNames,
-    Map<String, String> rootConstants,
+    Map<String, _BridgeName> rootConstants,
     Map<String, _BridgeName> rootChannels,
-  ) : _declaredNameScopes = [rootDeclaredNames],
-      _stringConstantScopes = [rootConstants],
-      _channelScopes = [rootChannels];
+    Map<String, _BridgeName> rootBasicChannels, {
+    required this.messages,
+  }) : _declaredNameScopes = [rootDeclaredNames],
+       _stringConstantScopes = [rootConstants],
+       _channelScopes = [rootChannels],
+       _basicChannelScopes = [rootBasicChannels];
 
   final String path;
   final String source;
   final LineInfo lineInfo;
   final Map<String, Set<String?>> flutterPrefixes;
+  final bool messages;
   final List<Map<String, _BridgeName>> _channelScopes;
-  final List<Map<String, String>> _stringConstantScopes;
+  final List<Map<String, _BridgeName>> _basicChannelScopes;
+  final List<Map<String, _BridgeName>> _stringConstantScopes;
   final List<Set<String>> _declaredNameScopes;
   final facts = <Map<String, Object?>>[];
   var dynamicMethodNames = 0;
@@ -253,6 +283,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   var patternVariableScopes = 0;
   var unscannedEventChannels = 0;
   var unscannedBasicMessageChannels = 0;
+  var dynamicBasicMessageChannels = 0;
+  var unresolvedBasicMessageSends = 0;
 
   @override
   void visitClassDeclaration(ClassDeclaration node) {
@@ -333,6 +365,10 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       final channel = _channelCreatedBy(variable.initializer);
       if (channel != null) {
         _channelScopes.last[variable.name.lexeme] = channel;
+      }
+      final basicChannel = _basicChannelCreatedBy(variable.initializer);
+      if (basicChannel != null) {
+        _basicChannelScopes.last[variable.name.lexeme] = basicChannel;
       }
     }
   }
@@ -439,6 +475,10 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _recordStringConstant(node);
     final channel = _channelCreatedBy(node.initializer);
     if (channel != null) _channelScopes.last[node.name.lexeme] = channel;
+    final basicChannel = _basicChannelCreatedBy(node.initializer);
+    if (basicChannel != null) {
+      _basicChannelScopes.last[node.name.lexeme] = basicChannel;
+    }
     super.visitVariableDeclaration(node);
   }
 
@@ -447,6 +487,11 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     final left = node.leftHandSide;
     if (node.operator.lexeme == '=' && left is SimpleIdentifier) {
       _assignChannel(left.name, _channelCreatedBy(node.rightHandSide));
+      _assignBasicChannel(
+        left.name,
+        _basicChannelCreatedBy(node.rightHandSide),
+      );
+      _removeStringConstant(left.name);
     }
     super.visitAssignmentExpression(node);
   }
@@ -456,8 +501,10 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     final type = node.methodName.name;
     if (_isUnresolvedFlutterConstructor(node, type)) {
       _recordChannelConstruction(node, type, node.argumentList);
-    } else if (_methodInvocationNames.contains(type)) {
+    } else if (!messages && _methodInvocationNames.contains(type)) {
       _recordMethodInvocation(node);
+    } else if (messages && type == 'send') {
+      _recordMessageSend(node);
     }
     super.visitMethodInvocation(node);
   }
@@ -473,8 +520,14 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   void _recordStringConstant(VariableDeclaration declaration) {
     final initializer = declaration.initializer;
-    if (!declaration.isConst || initializer is! SimpleStringLiteral) return;
-    _stringConstantScopes.last[declaration.name.lexeme] = initializer.value;
+    if (initializer is! SingleStringLiteral ||
+        !(declaration.isConst || (messages && declaration.isFinal)) ||
+        (!messages && initializer is! SimpleStringLiteral)) {
+      return;
+    }
+    _stringConstantScopes.last[declaration.name.lexeme] = _bridgeName(
+      initializer,
+    );
   }
 
   void _recordChannelConstruction(
@@ -487,10 +540,17 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       return;
     }
     if (type == 'BasicMessageChannel') {
-      unscannedBasicMessageChannels++;
+      if (messages) {
+        final channel = _firstBridgeName(arguments);
+        if (channel?.dynamic == true) dynamicBasicMessageChannels++;
+      } else {
+        unscannedBasicMessageChannels++;
+      }
       return;
     }
-    if (type != 'MethodChannel' || arguments.arguments.isEmpty) return;
+    if (messages || type != 'MethodChannel' || arguments.arguments.isEmpty) {
+      return;
+    }
     final channel = _bridgeName(arguments.arguments.first);
     final fact = _fact(
       node,
@@ -533,6 +593,30 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     if (fact != null) facts.add(fact);
   }
 
+  void _recordMessageSend(MethodInvocation node) {
+    final target = node.realTarget;
+    if (target == null) {
+      unresolvedBasicMessageSends++;
+      return;
+    }
+    final channel = target is SimpleIdentifier
+        ? _basicChannel(named: target.name)
+        : _basicChannelCreatedBy(target);
+    if (channel == null) {
+      unresolvedBasicMessageSends++;
+      return;
+    }
+    final fact = _fact(
+      node,
+      node.methodName.offset,
+      'message-send',
+      channel.value,
+      dynamic: channel.dynamic,
+      channelPrefix: channel.channelPrefix,
+    );
+    if (fact != null) facts.add(fact);
+  }
+
   _BridgeName? _channelCreatedBy(AstNode? expression) {
     if (expression is MethodInvocation &&
         _isUnresolvedFlutterConstructor(
@@ -545,6 +629,23 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     if (expression is InstanceCreationExpression &&
         expression.constructorName.type.name.lexeme == 'MethodChannel' &&
         _isFlutterConstructor(expression, 'MethodChannel')) {
+      return _firstBridgeName(expression.argumentList);
+    }
+    return null;
+  }
+
+  _BridgeName? _basicChannelCreatedBy(AstNode? expression) {
+    if (expression is MethodInvocation &&
+        _isUnresolvedFlutterConstructor(
+          expression,
+          expression.methodName.name,
+        ) &&
+        expression.methodName.name == 'BasicMessageChannel') {
+      return _firstBridgeName(expression.argumentList);
+    }
+    if (expression is InstanceCreationExpression &&
+        expression.constructorName.type.name.lexeme == 'BasicMessageChannel' &&
+        _isFlutterConstructor(expression, 'BasicMessageChannel')) {
       return _firstBridgeName(expression.argumentList);
     }
     return null;
@@ -572,13 +673,28 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   _BridgeName _bridgeName(AstNode node) {
     if (node is SimpleStringLiteral) {
-      return (value: node.value, dynamic: false);
+      return (value: node.value, dynamic: false, channelPrefix: null);
     }
     if (node is SimpleIdentifier) {
       final value = _stringConstant(named: node.name);
-      if (value != null) return (value: value, dynamic: false);
+      if (value != null) {
+        return value.dynamic
+            ? (
+                value: node.toSource(),
+                dynamic: true,
+                channelPrefix: value.channelPrefix,
+              )
+            : value;
+      }
     }
-    return (value: node.toSource(), dynamic: true);
+    return (
+      value: node.toSource(),
+      dynamic: true,
+      channelPrefix:
+          node is StringInterpolation && node.firstString.value.isNotEmpty
+          ? node.firstString.value
+          : null,
+    );
   }
 
   Map<String, Object?>? _fact(
@@ -588,6 +704,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     String channel, {
     String? method,
     required bool dynamic,
+    String? channelPrefix,
   }) {
     _rejectControlCharacters(path);
     // 빈 채널·메서드 이름은 그 fact만 건너뛰고 empty-bridge-names로 집계한다.
@@ -599,6 +716,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
     _rejectControlCharacters(channel);
     if (method != null) _rejectControlCharacters(method);
+    if (channelPrefix != null) _rejectControlCharacters(channelPrefix);
     final location = lineInfo.getLocation(offset);
     final lineOffset = lineInfo.getOffsetOfLine(location.lineNumber - 1);
     final utf8Column =
@@ -610,6 +728,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       'channel': channel,
       'method': ?method,
       'dynamic': dynamic,
+      if (dynamic && channelPrefix != null && channelPrefix.isNotEmpty)
+        'channelPrefix': channelPrefix,
       'location': {
         'path': path,
         'line': location.lineNumber,
@@ -620,12 +740,14 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   void _pushScope() {
     _channelScopes.add({});
+    _basicChannelScopes.add({});
     _stringConstantScopes.add({});
     _declaredNameScopes.add({});
   }
 
   void _popScope() {
     _channelScopes.removeLast();
+    _basicChannelScopes.removeLast();
     _stringConstantScopes.removeLast();
     _declaredNameScopes.removeLast();
   }
@@ -647,6 +769,18 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
   }
 
+  void _assignBasicChannel(String name, _BridgeName? channel) {
+    for (var index = _basicChannelScopes.length - 1; index >= 0; index--) {
+      if (!_declaredNameScopes[index].contains(name)) continue;
+      if (channel == null) {
+        _basicChannelScopes[index].remove(name);
+      } else {
+        _basicChannelScopes[index][name] = channel;
+      }
+      return;
+    }
+  }
+
   _BridgeName? _channel({required String named}) {
     for (var index = _channelScopes.length - 1; index >= 0; index--) {
       final value = _channelScopes[index][named];
@@ -656,13 +790,30 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     return null;
   }
 
-  String? _stringConstant({required String named}) {
+  _BridgeName? _basicChannel({required String named}) {
+    for (var index = _basicChannelScopes.length - 1; index >= 0; index--) {
+      final value = _basicChannelScopes[index][named];
+      if (value != null) return value;
+      if (_declaredNameScopes[index].contains(named)) return null;
+    }
+    return null;
+  }
+
+  _BridgeName? _stringConstant({required String named}) {
     for (var index = _stringConstantScopes.length - 1; index >= 0; index--) {
       final value = _stringConstantScopes[index][named];
       if (value != null) return value;
       if (_declaredNameScopes[index].contains(named)) return null;
     }
     return null;
+  }
+
+  void _removeStringConstant(String name) {
+    for (var index = _stringConstantScopes.length - 1; index >= 0; index--) {
+      if (!_declaredNameScopes[index].contains(name)) continue;
+      _stringConstantScopes[index].remove(name);
+      return;
+    }
   }
 }
 
@@ -694,7 +845,7 @@ Map<String, Object?>? _enclosingSymbol(AstNode node) {
 
 Map<String, _BridgeName> _topLevelChannels(
   CompilationUnit unit,
-  Map<String, String> strings,
+  Map<String, _BridgeName> strings,
   Map<String, Set<String?>> flutterPrefixes,
   Set<String> declaredNames,
 ) {
@@ -734,6 +885,49 @@ Map<String, _BridgeName> _topLevelChannels(
   return channels;
 }
 
+Map<String, _BridgeName> _topLevelBasicChannels(
+  CompilationUnit unit,
+  Map<String, _BridgeName> strings,
+  Map<String, Set<String?>> flutterPrefixes,
+  Set<String> declaredNames,
+) {
+  final channels = <String, _BridgeName>{};
+  for (final declaration
+      in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
+    for (final variable in declaration.variables.variables) {
+      final initializer = variable.initializer;
+      final ArgumentList? arguments;
+      if (initializer is MethodInvocation &&
+          initializer.methodName.name == 'BasicMessageChannel' &&
+          _matchesPrefix(
+            initializer.target,
+            'BasicMessageChannel',
+            flutterPrefixes,
+            declaredNames,
+          )) {
+        arguments = initializer.argumentList;
+      } else if (initializer is InstanceCreationExpression &&
+          initializer.constructorName.type.name.lexeme ==
+              'BasicMessageChannel' &&
+          _matchesPrefix(
+            initializer.constructorName.type.importPrefix,
+            'BasicMessageChannel',
+            flutterPrefixes,
+            declaredNames,
+          )) {
+        arguments = initializer.argumentList;
+      } else {
+        arguments = null;
+      }
+      final first = arguments?.arguments.firstOrNull;
+      if (first != null) {
+        channels[variable.name.lexeme] = _bridgeName(first, strings);
+      }
+    }
+  }
+  return channels;
+}
+
 bool _matchesPrefix(
   AstNode? target,
   String type,
@@ -747,12 +941,28 @@ bool _matchesPrefix(
           : !declaredNames.contains(prefix));
 }
 
-_BridgeName _bridgeName(AstNode node, Map<String, String> strings) {
-  if (node is SimpleStringLiteral) return (value: node.value, dynamic: false);
-  if (node is SimpleIdentifier && strings[node.name] != null) {
-    return (value: strings[node.name]!, dynamic: false);
+_BridgeName _bridgeName(AstNode node, Map<String, _BridgeName> strings) {
+  if (node is SimpleStringLiteral) {
+    return (value: node.value, dynamic: false, channelPrefix: null);
   }
-  return (value: node.toSource(), dynamic: true);
+  if (node is SimpleIdentifier && strings[node.name] != null) {
+    final value = strings[node.name]!;
+    return value.dynamic
+        ? (
+            value: node.toSource(),
+            dynamic: true,
+            channelPrefix: value.channelPrefix,
+          )
+        : value;
+  }
+  return (
+    value: node.toSource(),
+    dynamic: true,
+    channelPrefix:
+        node is StringInterpolation && node.firstString.value.isNotEmpty
+        ? node.firstString.value
+        : null,
+  );
 }
 
 Set<String> _topLevelDeclaredNames(CompilationUnit unit) {
@@ -782,14 +992,19 @@ Set<String> _topLevelDeclaredNames(CompilationUnit unit) {
   return names;
 }
 
-Map<String, String> _topLevelStringConstants(CompilationUnit unit) {
-  final strings = <String, String>{};
+Map<String, _BridgeName> _topLevelStringConstants(
+  CompilationUnit unit, {
+  required bool messages,
+}) {
+  final strings = <String, _BridgeName>{};
   for (final declaration
       in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
     for (final variable in declaration.variables.variables) {
       final value = variable.initializer;
-      if (variable.isConst && value is SimpleStringLiteral) {
-        strings[variable.name.lexeme] = value.value;
+      if (value is SingleStringLiteral &&
+          (variable.isConst || (messages && variable.isFinal)) &&
+          (messages || value is SimpleStringLiteral)) {
+        strings[variable.name.lexeme] = _bridgeName(value, strings);
       }
     }
   }
@@ -867,4 +1082,4 @@ void _rejectControlCharacters(String value) {
   }
 }
 
-typedef _BridgeName = ({String value, bool dynamic});
+typedef _BridgeName = ({String value, bool dynamic, String? channelPrefix});

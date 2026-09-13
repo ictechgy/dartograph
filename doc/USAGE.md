@@ -32,6 +32,7 @@ dartograph skill [--install <skills-directory> [--force]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
+dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
 dartograph cycles --explain <symbol-id> <package-root>
 dartograph rules --config <yaml-file> [--strict] <package-root>
@@ -109,8 +110,15 @@ override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단�
 `--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
-경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
-GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
+경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
+채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다. `bridges --messages`는 개발 소스
+전용 opt-in 경로로, 실제 BasicMessageChannel `send` 호출만 bridge-facts v2
+(`transport: basic-message-channel`, `kind: message-send`)로 낸다. 채널 생성은 send로
+세지 않으며 MethodChannel의 method 필드도 만들지 않는다. 동적 이름은 원래 표현식을
+보존하고, `channelPrefix`는 AST가 증명한 decoded 비어 있지 않은 문자열 interpolation
+선행 literal일 때만 후보 근거로 낸다. prefix는 완전한 runtime 주소·instance identity의
+증명이 아니며, 이 경로는 아직 발행된 0.8.0 패키지에 포함되지 않았다. 패키지의
+`lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 
 `bridges --project <shared-root>`은 모노레포 조인용 공유 루트를 선언한다. 스캔 범위는
