@@ -516,6 +516,22 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: ski
 - YAML 설정 읽기 상한(PR #87, 2026-09-13): format·analyze clean, 307→308 테스트, corpus·
   cli-contract·dry-run 0, 커버리지 97.00%, 두 SDK CI green. GLM 리뷰 차단 0 + 조건부 항목
   (bridge_index pubspec 읽기)을 코드 실측으로 기각 — 머지 코멘트에 근거 기록.
+- 0.8.0 발행 준비 + pub 점수 개선(PR #89·#90, 2026-09-13):
+  - #89: 버전 정합 6곳 + CHANGELOG 두 언어 0.8.0 섹션. GLM 릴리스 리뷰 — 차단 1건
+    (본문 생성 스크립트 앵커 실수로 두 CHANGELOG 헤더가 이중 삽입 — 실재했고 수정),
+    비차단 반영: **Narrow breaking change** 라벨 2건(매달린 링크 --force 요구, 1 MiB
+    상한), exit 64 명시, 해시 주장 스코핑. 두 SDK CI green.
+  - #90: pub.dev 점수 2건 — `example/main.dart` 신설(예제 보존 서사를 리뷰 지적으로
+    실측 교정: 라이브러리 생존은 import 간선이 아니라 컨테이너 구제)과 analyzer 제약
+    `>=14.3.0 <15.0.0` 완화(DECISION 절차 이행 — 5개 API 표면 14.4.0 소스 직접 확인 +
+    전체 스위트 14.4.0 통과, 계약 테스트를 마이너 집합 모델로 갱신). GLM 리뷰 차단 3건
+    — B1(예제 서사)·B2(신선 resolution tripwire 부재) 실재 확인·수정(주간
+    analyzer-freshness 워크플로우 신설), B3(14.3.0 고정 limitation)은 실측 기각(문구
+    버전 비의존 + 14.4.0 생성자 불변 확인). #90 브랜치의 커밋이 amend 전 원본으로 로컬
+    main에 남은 사고는 reset --hard origin/main으로 정리(내용은 amend 커밋에 보존).
+  - **게시 경계(기록)**: 격리 홈에 pub.dev 자격 증명이 없고 `dart pub publish`의 OAuth
+    로그인 플로우가 임시 로컬 포트 바인드(EPERM)를 필요로 한다 — 게시는 사용자가 호스트에서
+    실행한다(전용 포트로는 지정 불가).
 
 ## Blockers & Open Questions
 
