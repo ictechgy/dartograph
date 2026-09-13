@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심볼릭 링크 관통 차단·원자적 쓰기 경화, 반복 RegExp hoist, CLI 진단 메시지·help 계약 보강, USAGE 종료 코드 절 정리. 릴리스 기준 v0.7.0 → e1b3202, main 최신 d38228b. 미릴리스 누적 4건[#80, #82~#84])_
+_Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: skill 심볼릭 링크 관통 차단·원자적 쓰기 경화, 반복 RegExp hoist, CLI 진단 메시지·help 계약 보강, USAGE 종료 코드 절 정리, 저장소 제공 YAML 설정 읽기 상한. 릴리스 기준 v0.7.0 → e1b3202, main 최신 cf8a029. 미릴리스 누적 5건[#80, #82~#84, #87])_
 
 ## Goal
 
@@ -20,10 +20,10 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심
 - 릴리스 기준: **`v0.7.0` → `e1b3202`** (PR #78 merge = 게시 커밋). pub.dev latest 0.7.0
   (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.7.0) 공개. 새 격리 캐시 설치본으로
   `--version` 0.7.0·CLI 계약 62케이스 검증 완료. (이전 0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`d38228b`** (PR #85 머지). 열린 제품 PR 없음.
-- **미릴리스 누적 4건**: PR #80(init 명령) + PR #82(원자적 쓰기 경화) + PR #83(진단 메시지·help)
-  + PR #84(RegExp hoist·메모). #85는 문서 전용(누적 제외).
-- 테스트 304개, 라인 커버리지 **96.99%**(#83 브랜치 기준, #82 97.04%·#84 96.94%).
+- main 기준: **`cf8a029`** (PR #87 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 5건**: PR #80(init 명령) + PR #82(원자적 쓰기 경화) + PR #83(진단 메시지·help)
+  + PR #84(RegExp hoist·메모) + PR #87(YAML 설정 읽기 상한). #85·#86은 문서 전용(누적 제외).
+- 테스트 308개, 라인 커버리지 **97.00%**(#87 브랜치 기준, #82 97.04%·#83 96.99%·#84 96.94%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -85,6 +85,20 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심
   - 종료 코드 표 확장: `dead --explain` 미도달 대상 1, 얕은 클론 Git 변경 파일 계산 실패 2.
   - init pubspec 경고·skill 설치 경로 문단 추가. CONTRIBUTING에 check-analyzer-boundary의
     ripgrep 전제 명시. verify-cli-contract.sh 헤더에 "exit-code 계약만 검증" 명시.
+- **저장소 제공 YAML 설정 읽기 상한(PR #87)**:
+  - 검토 LOW 항목 마무리 — dartograph.yaml·pubspec.yaml·layers.yaml을 읽는 5곳 모두 상한이
+    없어 hostile repo의 과도한 문서가 파서 메모리·재귀 비용으로 이어질 수 있었다(alias 폭탄은
+    yaml 3.1.4에서 불가능, SOE는 최후 방어가 수습 — 남는 자원 경로 차단).
+  - `core/config_source.dart` 신설: 1 MiB(batch 선례) 초과 시 **경로 없는 정적 문구**의
+    FormatException. 5개 읽기 지점 이관 — analyzer pubspec·`_readEntryPoints`·CLI workspace
+    감지 2곳(기존 `pub-workspace-pubspec-unparsed`·후보 스킵 폴백 유지)·rules `--config`
+    (async, `invalid rules configuration` 진단).
+  - 회귀: 상한 단위 테스트(동기·비동기, 경로 미반향, 경계값 1 MiB 통과/+1 거절) + rules 초과
+    설정 CLI 회귀. USAGE에 rules 1 MiB 문서화.
+  - GLM 리뷰 차단 0. 조건부 확인 항목(bridge_index가 pubspec을 읽는지)은 코드 실측으로 기각 —
+    bridge_index는 YAML을 읽지 않는다(62행은 bridge 스캐너의 Dart 소스 읽기). 반영: 경계값
+    테스트, async 메시지 검사, USAGE 문서화. 기각: batch 상수 통합(오류 문구가 1 MiB를
+    하드코딩).
 
 ### 직전 세션 (Tier 3 init 구현, PR #80)
 
@@ -499,6 +513,9 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심
   출력 byte 보존 실측. GLM packet-review 3회(#82 차단 0, #84 차단 0, #83 지적 3건 —
   stale 패킷 2건 소거 + 1차 출처 실측 해소, 상세는 Completed) + #85는 문서 전용 생략(사유
   본문 기록). 머지 순서 #82(`e40e8c3`) → #84·#85 → #83(`d38228b`).
+- YAML 설정 읽기 상한(PR #87, 2026-09-13): format·analyze clean, 307→308 테스트, corpus·
+  cli-contract·dry-run 0, 커버리지 97.00%, 두 SDK CI green. GLM 리뷰 차단 0 + 조건부 항목
+  (bridge_index pubspec 읽기)을 코드 실측으로 기각 — 머지 코멘트에 근거 기록.
 
 ## Blockers & Open Questions
 
@@ -646,4 +663,4 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed. PRs #82-#85 applied the five-axis review (atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure; current main at d38228b). 4 unreleased PRs accumulated (#80, #82, #83, #84). Line coverage is 96.99% across 304 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed. PRs #82-#85 and #87 applied the five-axis review (atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure, and a 1 MiB read cap for repository-provided YAML configs; current main at cf8a029). 5 unreleased PRs accumulated (#80, #82, #83, #84, #87). Line coverage is 97.00% across 308 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
