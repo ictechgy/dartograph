@@ -1,0 +1,285 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/mcp_server.dart';
+import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+void main() {
+  late Directory directory;
+  late AnalyzerGraphResult indexed;
+  late List<Directory> scratch;
+  late StringBuffer diagnostics;
+
+  setUp(() async {
+    directory = await Directory.systemTemp.createTemp('mcp-test.');
+    scratch = [];
+    diagnostics = StringBuffer();
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Foo',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:lib/b.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/b.dart::Bar',
+          sourceUri: 'project:lib/b.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/b.dart',
+          targetId: 'project:lib/a.dart',
+          kind: EdgeKind.import,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/b.dart::Bar',
+          targetId: 'project:lib/a.dart::Foo',
+          kind: EdgeKind.call,
+        ),
+      );
+    indexed = AnalyzerGraphResult(graph: graph, limitations: const []);
+  });
+
+  tearDown(() => directory.delete(recursive: true));
+
+  /// JSON-RPC 메시지 목록을 서버에 흘려보내고 응답을 파싱한다.
+  Future<List<Map<String, Object?>>> exchange(List<Object?> messages) async {
+    final output = StringBuffer();
+    final status = await runMcpServer(
+      input: Stream.fromIterable(messages.map(jsonEncode)),
+      output: output,
+      error: diagnostics,
+      indexPackage: (root) async {
+        if (!Directory(root).existsSync()) {
+          throw const FileSystemException('missing package root');
+        }
+        return indexed;
+      },
+      createScratch: () async {
+        final created = await Directory.systemTemp.createTemp('mcp-scratch.');
+        scratch.add(created);
+        return created;
+      },
+    );
+    expect(status, 0);
+    return output
+        .toString()
+        .trim()
+        .split('\n')
+        .where((line) => line.isNotEmpty)
+        .map((line) => jsonDecode(line) as Map<String, Object?>)
+        .toList();
+  }
+
+  Object request(int id, String method, [Object? params]) => {
+    'jsonrpc': '2.0',
+    'id': id,
+    'method': method,
+    'params': ?params,
+  };
+
+  test(
+    'initialize negotiates the protocol and reports the server version',
+    () async {
+      final responses = await exchange([
+        request(1, 'initialize', {'protocolVersion': mcpProtocolVersion}),
+        {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+      ]);
+
+      expect(responses.length, 1);
+      final result = responses.single['result'] as Map<String, Object?>;
+      expect(result['protocolVersion'], mcpProtocolVersion);
+      final info = result['serverInfo'] as Map<String, Object?>;
+      expect(info['name'], 'dartograph');
+      expect(info['version'], isNotEmpty);
+      expect(result['capabilities'], {'tools': <String, Object?>{}});
+    },
+  );
+
+  test('tools/list exposes the three read-only tools with schemas', () async {
+    final responses = await exchange([request(2, 'tools/list')]);
+
+    final tools = ((responses.single['result'] as Map)['tools'] as List)
+        .cast<Map<String, Object?>>();
+    expect(tools.map((tool) => tool['name']).toList(), [
+      impactToolName,
+      dependencyToolName,
+      verifyToolName,
+    ]);
+    for (final tool in tools) {
+      final schema = tool['inputSchema'] as Map<String, Object?>;
+      expect(schema['type'], 'object');
+      expect((schema['required'] as List), contains('packageRoot'));
+    }
+  });
+
+  test(
+    'impact_query answers a JSON impact document and cleans scratch files',
+    () async {
+      final responses = await exchange([
+        request(3, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'changed': ['lib/a.dart'],
+          },
+        }),
+      ]);
+
+      final result = responses.single['result'] as Map<String, Object?>;
+      expect(result['isError'], isFalse);
+      final text =
+          (result['content'] as List)
+                  .cast<Map<String, Object?>>()
+                  .single['text']
+              as String;
+      expect(text, startsWith('exitCode: 0'));
+      final document =
+          jsonDecode(text.substring(text.indexOf('\n')))
+              as Map<String, Object?>;
+      expect(document['version'], 1);
+      expect((document['coverage'] as Map)['relatedTests'], 0);
+      // 임시 파일이 남지 않아야 한다(도구가 만든 scratch 디렉터리 정리).
+      expect(scratch, isNotEmpty);
+      for (final created in scratch) {
+        expect(created.existsSync(), isFalse);
+      }
+    },
+  );
+
+  test('impact_query rejects ambiguous seed inputs', () async {
+    final responses = await exchange([
+      request(4, 'tools/call', {
+        'name': impactToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'since': 'HEAD',
+          'symbol': 'project:lib/a.dart::Foo',
+        },
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isTrue);
+    expect(
+      ((result['content'] as List).single as Map)['text'],
+      contains('exactly one of since, changed, or symbol'),
+    );
+  });
+
+  test('dependency_query answers a symbol query', () async {
+    final responses = await exchange([
+      request(5, 'tools/call', {
+        'name': dependencyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'symbol': 'project:lib/a.dart',
+        },
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isFalse);
+    final text = ((result['content'] as List).single as Map)['text'] as String;
+    expect(text, contains('"requested"'));
+  });
+
+  test('dependency_query rejects a missing selector', () async {
+    final responses = await exchange([
+      request(6, 'tools/call', {
+        'name': dependencyToolName,
+        'arguments': {'packageRoot': directory.path},
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isTrue);
+  });
+
+  test(
+    'verify_run reports the exit code and output for a successful run',
+    () async {
+      final responses = await exchange([
+        request(7, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {'packageRoot': directory.path, 'command': 'cycles'},
+        }),
+      ]);
+
+      final result = responses.single['result'] as Map<String, Object?>;
+      expect(result['isError'], isFalse);
+      final text =
+          ((result['content'] as List).single as Map)['text'] as String;
+      expect(text, startsWith('exitCode: 0'));
+    },
+  );
+
+  test('verify_run reports an analysis failure as an error', () async {
+    final responses = await exchange([
+      request(8, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': p.join(directory.path, 'does-not-exist'),
+          'command': 'cycles',
+        },
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isTrue);
+    final text = ((result['content'] as List).single as Map)['text'] as String;
+    expect(text, startsWith('exitCode: 2'));
+  });
+
+  test('verify_run rejects an invalid command', () async {
+    final responses = await exchange([
+      request(9, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {'packageRoot': directory.path, 'command': 'delete'},
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isTrue);
+    expect(
+      ((result['content'] as List).single as Map)['text'],
+      contains('command must be one of'),
+    );
+  });
+
+  test('protocol errors are answered without crashing the server', () async {
+    final output = StringBuffer();
+    await runMcpServer(
+      input: Stream.fromIterable(const [
+        'not json',
+        '{"jsonrpc":"2.0","id":10,"method":"no/such"}',
+        '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"nope"}}',
+        '{"jsonrpc":"2.0","id":12,"method":"ping"}',
+      ]),
+      output: output,
+      error: diagnostics,
+      indexPackage: (_) async => indexed,
+    );
+
+    final responses = output
+        .toString()
+        .trim()
+        .split('\n')
+        .map((line) => jsonDecode(line) as Map<String, Object?>)
+        .toList();
+    expect((responses[0]['error'] as Map)['code'], -32700);
+    expect(responses[0]['id'], isNull);
+    expect((responses[1]['error'] as Map)['code'], -32601);
+    expect((responses[2]['error'] as Map)['code'], -32602);
+    expect(responses[3]['result'], <String, Object?>{});
+  });
+}

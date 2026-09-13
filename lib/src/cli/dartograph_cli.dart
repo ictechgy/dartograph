@@ -27,6 +27,7 @@ import '../index/bridge_index.dart';
 import 'agent_skill.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
+import 'mcp_server.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
@@ -191,6 +192,8 @@ Future<int> _dispatch(
       );
     case 'init':
       return await _runInit(arguments.skip(1).toList(), stdoutSink, stderrSink);
+    case 'mcp':
+      return await _runMcp(arguments.skip(1).toList(), stdoutSink, stderrSink);
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
@@ -1649,6 +1652,23 @@ Future<int> _runGraph(
   }
 }
 
+Future<int> _runMcp(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  // 옵션이 없다. 도구 인자(packageRoot 등)는 클라이언트가 요청마다 보낸다.
+  if (arguments.isNotEmpty) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  return runMcpServer(
+    input: stdin.transform(utf8.decoder).transform(const LineSplitter()),
+    output: output,
+    error: error,
+  );
+}
+
 int _reportAnalysisFailure(StringSink error) {
   error.writeln('Analysis failed: unable to index the package.');
   return ExitStatus.failure.code;
@@ -1743,6 +1763,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
+       dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] <package-root>
        dartograph cycles --explain <symbol-id> <package-root>
@@ -1812,6 +1833,13 @@ symbols that inspecting only the changed files would have missed.
 --fail-on <level> turns a risk level of at least <level> into exit 1
 (default none). Impact is an observed dependency reachability, not a deletion
 verdict; an unlisted declaration is not proven unaffected.
+
+mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
+clients. It exposes three read-only tools over the existing CLI paths:
+impact_query (the impact pre-check), dependency_query (query/--batch), and
+verify_run (dead, cycles, rules, metrics with exit code and raw output).
+stdout carries only JSON-RPC; diagnostics stay on stderr. The caller passes
+packageRoot per call. Nothing is modified by these tools.
 
 Exit codes:
   0   success

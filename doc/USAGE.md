@@ -29,6 +29,7 @@ dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions
 dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
+dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
 dartograph cycles --explain <symbol-id> <package-root>
@@ -238,6 +239,25 @@ rules:
 `generated-code-staleness` limitation은 mtime 관측이다 — git은 mtime을 보존하지
 않으므로 fresh clone 사이에서는 이 문자열의 presence가 달라질 수 있다(내용이 아니라
 환경의 관측이며, findings·간선·노드는 영향받지 않는다).
+
+## MCP 서버
+
+`dartograph mcp`는 stdio로 Model Context Protocol(JSON-RPC 2.0) 서버를 띄운다.
+AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의 분석을 도구
+호출로 쓸 수 있다. stdout에는 JSON-RPC만 쓰고 진단은 stderr로 보낸다. 세 도구 모두
+**읽기 전용**이며 저장소를 수정하지 않는다. 각 도구는 기존 CLI 실행 경로를 그대로
+재사용하므로 출력 스키마와 종료 코드가 CLI와 어긋나지 않는다.
+
+| 도구 | 입력 | 답 |
+|---|---|---|
+| `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
+| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
+| `verify_run` | `packageRoot`, `command`(`dead`\|`cycles`\|`rules`\|`metrics`), `strict`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
+
+도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
+`exitCode: <0|1|2|64>`다. 분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
+`dead`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
+입력 스키마·예시는 [MCP.md](MCP.md)에 있다.
 
 ## 종료 코드
 

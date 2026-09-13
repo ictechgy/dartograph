@@ -117,6 +117,7 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
   expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
+  expect_status 64 "mcp with arguments" mcp --help
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"
   expect_status 0 "init" init "$INIT_DIR"

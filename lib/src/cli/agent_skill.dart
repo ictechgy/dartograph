@@ -25,6 +25,14 @@ If invocation details are unclear, inspect `dartograph --help`.
   lists the libraries changed since that revision and their transitive
   dependents with dependency-path evidence. It observes at library level;
   an unlisted declaration is not proven unaffected.
+- Pre-change impact, deeper: `dartograph impact --since <ref>|--changed <json>|--symbol <id>`
+  reports changed symbols, every symbol that transitively uses them with a
+  shortest usage path, call sites into changed declarations, related test
+  libraries, a risk score with factors, and a `coverage` block of what
+  inspecting changed files alone would miss. Prefer it before an edit.
+- Tool integration: `dartograph mcp` serves Model Context Protocol tools on
+  stdio (`impact_query`, `dependency_query`, `verify_run`) for clients that
+  speak MCP; it reuses the same analysis paths and modifies nothing.
 - Cross-language facts: use `dartograph bridges --format json <package-root>`
   and the project's existing isthmus workflow when the task crosses native code.
 
