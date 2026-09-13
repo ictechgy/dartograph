@@ -36,6 +36,13 @@ dartograph metrics [--strict] <package-root>
 
 `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다.
 이미 파일이 존재하면 안전을 위해 중단(exit 64)하며, `--force`를 전달하면 덮어쓴다.
+대상 디렉터리에 `pubspec.yaml`이 없으면 stderr로 경고를 낸다 — 첫 pubspec 이전의
+스캐폴딩도 지원하지만 잘못된 디렉터리 실수를 조용히 넘기지 않기 위해서다.
+
+`skill`은 에이전트 스킬 문서를 출력한다. `--install <skills-directory>`는
+`<skills-directory>/dartograph/SKILL.md`에 기록하고 성공·충돌 메시지에 그 경로를
+표시한다. 기존 파일이나 링크가 있으면 exit 64로 중단하며 `--force`로 덮어쓴다.
+그 자리의 심볼릭 링크는 대상을 따라가지 않고 링크 자체를 교체한다.
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
@@ -141,6 +148,36 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 두 값 모두 1 미만·비정수·값 빠짐·중복 플래그는 usage(64)다. `--depth`·`--limit`은
 `--batch`·`--baseline`과 함께 쓸 수 있다.
 
+`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하이며
+요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
+그래프·도달성·이웃 색인은 한 번만 만들고 baseline도 한 번 적용한다. 출력은
+`format: symbol-query-batch`, `version: 1`, `results: [...]`이며 각 결과는 단일 query
+문서다. 하나라도 `notFound`이면 전체 종료 코드는 64지만 나머지 결과도 모두 반환한다.
+`ambiguous`는 후보 목록과 함께 정상 결과로 반환한다. 자동으로 하나를 고르지 않는다.
+
+`compare`에는 같은 프로젝트의 서로 다른 커밋을 checkout한 두 디렉터리를 넘긴다.
+두 checkout에서 의존성을 준비하고 SDK·빌드 설정을 맞춰야 한다. 명령은 checkout이나
+의존성 설치를 수행하지 않는다. `--since`의 보고 위치 필터와 달리 두 그래프를 비교한다.
+출력은 `graph-comparison` 버전 1이며 추가·제거 정점/간선/루트와 `newlyUnreachable`,
+`newlyReachable`, `newlyRetainedByMember`를 담는다. 기존에 존재한 선언의 미도달 전환에
+`beforePath`, `removedEdgesOnBeforePath`, `removedRootsOnBeforePath`를 붙인다.
+멤버에 의해 보존되던 선언은 `retainedByMember` witness를 별도로 표시한다.
+이는 관측된 그래프 변화이며 단일 변경의 인과 증명이나 삭제 가능 판정은 아니다.
+이름 변경은 삭제/추가로 나타난다. 두 입력의 한계를 함께 읽어야 하며 보고 성공은 코드 0이다.
+
+`affected <git-ref>`는 Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 라이브러리와
+그에 전이적으로 의존하는 라이브러리를 JSON으로 답한다. 변경 파일이 귀속되는 라이브러리를
+씨앗으로 import·export 간선을 역방향으로 건너며, 각 피영향 라이브러리에는 가장 가까운
+변경 라이브러리까지의 최단 의존 사슬 `path`와 `depth`가 붙는다. part 파일의 변경은 호스트
+라이브러리로 귀속된다. `--since`와 같이 전체 Git 이력이 필요하고(CI에서 full fetch),
+심볼릭 링크 소스는 링크 경로와 해석된 실 경로 양방향으로 변경 집합과 매치된다.
+출력 `changed`는 씨앗 라이브러리, `affected`는 그 종속자이며 둘은 겹치지 않는다.
+영향 반경은 라이브러리(파일) 수준 관측이고, 나열되지 않은 라이브러리의 개별 선언이
+영향받지 않았다는 증명은 아니다. 패키지 안에 있으면서 어떤 분석 대상 라이브러리에도
+속하지 않는 변경 Dart 파일은 `changed-dart-files-without-library` 한계로 알린다.
+삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
+보고 성공은 영향 개수와 무관하게 코드 0이다.
+
 `rules --config`의 layers.yaml 스키마는 엄격하다. `layers`는 `name`과 `match`(정점 ID와
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
 `rules`는 `name`·`from`(출발 레이어)·`allow` 또는 `deny`(정확히 하나, 대상 레이어 목록)를
@@ -177,41 +214,11 @@ rules:
 
 ## 종료 코드
 
-`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하이며
-요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
-그래프·도달성·이웃 색인은 한 번만 만들고 baseline도 한 번 적용한다. 출력은
-`format: symbol-query-batch`, `version: 1`, `results: [...]`이며 각 결과는 단일 query
-문서다. 하나라도 `notFound`이면 전체 종료 코드는 64지만 나머지 결과도 모두 반환한다.
-`ambiguous`는 후보 목록과 함께 정상 결과로 반환한다. 자동으로 하나를 고르지 않는다.
-
-`compare`에는 같은 프로젝트의 서로 다른 커밋을 checkout한 두 디렉터리를 넘긴다.
-두 checkout에서 의존성을 준비하고 SDK·빌드 설정을 맞춰야 한다. 명령은 checkout이나
-의존성 설치를 수행하지 않는다. `--since`의 보고 위치 필터와 달리 두 그래프를 비교한다.
-출력은 `graph-comparison` 버전 1이며 추가·제거 정점/간선/루트와 `newlyUnreachable`,
-`newlyReachable`, `newlyRetainedByMember`를 담는다. 기존에 존재한 선언의 미도달 전환에
-`beforePath`, `removedEdgesOnBeforePath`, `removedRootsOnBeforePath`를 붙인다.
-멤버에 의해 보존되던 선언은 `retainedByMember` witness를 별도로 표시한다.
-이는 관측된 그래프 변화이며 단일 변경의 인과 증명이나 삭제 가능 판정은 아니다.
-이름 변경은 삭제/추가로 나타난다. 두 입력의 한계를 함께 읽어야 하며 보고 성공은 코드 0이다.
-
-`affected <git-ref>`는 Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 라이브러리와
-그에 전이적으로 의존하는 라이브러리를 JSON으로 답한다. 변경 파일이 귀속되는 라이브러리를
-씨앗으로 import·export 간선을 역방향으로 건너며, 각 피영향 라이브러리에는 가장 가까운
-변경 라이브러리까지의 최단 의존 사슬 `path`와 `depth`가 붙는다. part 파일의 변경은 호스트
-라이브러리로 귀속된다. `--since`와 같이 전체 Git 이력이 필요하고(CI에서 full fetch),
-심볼릭 링크 소스는 링크 경로와 해석된 실 경로 양방향으로 변경 집합과 매치된다.
-출력 `changed`는 씨앗 라이브러리, `affected`는 그 종속자이며 둘은 겹치지 않는다.
-영향 반경은 라이브러리(파일) 수준 관측이고, 나열되지 않은 라이브러리의 개별 선언이
-영향받지 않았다는 증명은 아니다. 패키지 안에 있으면서 어떤 분석 대상 라이브러리에도
-속하지 않는 변경 Dart 파일은 `changed-dart-files-without-library` 한계로 알린다.
-삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
-보고 성공은 영향 개수와 무관하게 코드 0이다.
-
 | 코드 | 뜻 |
 |---:|---|
 | 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
-| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), 또는 `--strict` 분석 명령의 finding |
-| 2 | 패키지를 신뢰할 수 있게 분석하지 못함 |
+| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
+| 2 | 패키지를 신뢰할 수 있게 분석하지 못함, 또는 `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다) |
 | 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 
 ## CI 예제

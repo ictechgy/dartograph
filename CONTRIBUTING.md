@@ -47,6 +47,7 @@ dart pub publish --dry-run
 그 테스트 안의 `test/tool/verify_global_activation_test.dart`가 격리 설치·설치본 CLI 계약을 확인합니다.
 따라서 CI에 별도 `dart test`와 `verify-global-activation.sh` 실행을 중복 추가하지 않습니다.
 컴파일된 native executable 검증은 `verify-cli-contract.sh`로 별도 유지합니다.
+`check-analyzer-boundary.sh`는 ripgrep(`rg`)을 필요로 합니다 — 로컬에 없으면 exit 2로 실패하며 CI는 설치돼 있습니다.
 자기 분석 findings 0도 전체 테스트에 포함됩니다. 실패한 검사를 생략하거나 임계값을 낮추지 않습니다.
 
 ## 선택 검증과 릴리스
