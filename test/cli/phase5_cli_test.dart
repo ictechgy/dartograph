@@ -178,6 +178,26 @@ rules:
     },
   );
 
+  test(
+    'rules reports analysis failure for an oversized configuration',
+    () async {
+      // 파서 비용 상한: 1 MiB를 넘는 설정은 읽기 전에 fail-closed로 거절한다.
+      rules.writeAsStringSync('# ${'x' * (1024 * 1024)}\n');
+      final error = StringBuffer();
+
+      final status = await runDartograph(
+        ['rules', '--config', rules.path, temporary.path],
+        error: error,
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(status, ExitStatus.failure.code);
+      expect(error.toString(), contains('invalid rules configuration'));
+      expect(error.toString(), contains('KiB limit'));
+      expect(error.toString(), isNot(contains(rules.path)));
+    },
+  );
+
   test('cycles --explain names the cycle a member takes part in', () async {
     final output = StringBuffer();
     final status = await run([
