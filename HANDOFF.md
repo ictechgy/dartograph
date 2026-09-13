@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: skill 심볼릭 링크 관통 차단·원자적 쓰기 경화, 반복 RegExp hoist, CLI 진단 메시지·help 계약 보강, USAGE 종료 코드 절 정리, 저장소 제공 YAML 설정 읽기 상한. 릴리스 기준 v0.7.0 → e1b3202, main 최신 cf8a029. 미릴리스 누적 5건[#80, #82~#84, #87])_
+_Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반영[#80, #82~#87, #90]을 발행, pub.dev 160/160. 릴리스 기준 v0.8.0 → 8d8baa3, main 최신 8d8baa3. 게시는 사용자가 호스트에서 실행하고 태그·Release·설치본 검증·점수 확인은 세션에서 수행했다)_
 
 ## Goal
 
@@ -17,13 +17,19 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: ski
 
 ## Current Status
 
-- 릴리스 기준: **`v0.7.0` → `e1b3202`** (PR #78 merge = 게시 커밋). pub.dev latest 0.7.0
-  (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.7.0) 공개. 새 격리 캐시 설치본으로
-  `--version` 0.7.0·CLI 계약 62케이스 검증 완료. (이전 0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`cf8a029`** (PR #87 머지). 열린 제품 PR 없음.
+- 릴리스 기준: **`v0.8.0` → `8d8baa3`** (게시 커밋 = PR #91 merge). pub.dev latest 0.8.0
+  (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.8.0) 공개·**점수 160/160**.
+  새 격리 캐시 설치본으로 `--version` 0.8.0·CLI 계약 통과 실측. (이전 0.7.0→`e1b3202`,
+  0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
+- main 기준: **`8d8baa3`** (PR #91 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 0건** — 5건(#80, #82~#84, #87)과 #90(example + analyzer 14.4.x)이
+  0.8.0으로 발행됐다. #85·#86·#91은 문서 전용.
 - **미릴리스 누적 5건**: PR #80(init 명령) + PR #82(원자적 쓰기 경화) + PR #83(진단 메시지·help)
   + PR #84(RegExp hoist·메모) + PR #87(YAML 설정 읽기 상한). #85·#86은 문서 전용(누적 제외).
 - 테스트 308개, 라인 커버리지 **97.00%**(#87 브랜치 기준, #82 97.04%·#83 96.99%·#84 96.94%).
+- analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
+  (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
+  신선한 resolution으로 게이트를 돌린다.
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -532,6 +538,12 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: ski
   - **게시 경계(기록)**: 격리 홈에 pub.dev 자격 증명이 없고 `dart pub publish`의 OAuth
     로그인 플로우가 임시 로컬 포트 바인드(EPERM)를 필요로 한다 — 게시는 사용자가 호스트에서
     실행한다(전용 포트로는 지정 불가).
+- 0.8.0 릴리스(2026-09-13, 게시 커밋 `8d8baa3`): 사용자 호스트 게시 성공(16:20 UTC) →
+  태그 v0.8.0 = 8d8baa3 푸시 → GitHub Release 생성(태그가 이미 존재하면 `gh release
+  create --target`은 invalid — 태그 지정 없이 생성) → pub.dev latest 0.8.0 API 확인
+  (버전 목록 엔드포인트는 수분 전파 지연이 있어 첫 activate가 실패했다가 성공) → 새 격리
+  캐시 설치본으로 `--version` 0.8.0·CLI 계약 통과 실측 → **pub.dev 점수 160/160 회복
+  확인**(example·의존성 최신 지원 반영).
 
 ## Blockers & Open Questions
 
@@ -675,7 +687,7 @@ _Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85 + #87: ski
      수행), NAME_MAX 인접 baseline 경로 temp 이름(기존 패턴), package_config rootUri의
      저장소 밖 읽기(INFO — 내용은 로컬 sha256으로만 소비), 익명화의 그래프 밖 진입점 경로
      남음(문서화된 보장 경계 — 인덱스 시점 치환표 등록이 해소안).
-4. 제품 배포 blocker 없음. 다음 명시적인 사용자 지시를 따른다.
+4. 제품 배포 blocker 없음. 0.8.0 게시·검증까지 완료됐다. 다음 명시적인 사용자 지시를 따른다.
 
 ## Resume Prompt
 
