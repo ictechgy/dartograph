@@ -1,5 +1,3 @@
-// Runtime scanner compatibility entry point.
-//
-// The implementation lives in `src/index` because it is the adapter boundary
-// that owns all `package:analyzer` imports.
+// 기존 runtime scanner import 경로를 유지한다.
+// analyzer 기반 구현은 어댑터 경계인 src/index가 소유한다.
 export '../index/runtime_scanner.dart';
