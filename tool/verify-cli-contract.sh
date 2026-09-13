@@ -100,6 +100,23 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  CHANGES_FILE="$TEMPORARY_DIRECTORY/changes.json"
+  printf '["lib/a.dart"]' > "$CHANGES_FILE"
+  expect_status 0 "impact changed" impact --changed "$CHANGES_FILE" --format json fixtures/phase5_contract
+  expect_status 0 "impact changed text" impact --changed "$CHANGES_FILE" fixtures/phase5_contract
+  expect_status 0 "impact changed markdown" impact --changed "$CHANGES_FILE" --format markdown fixtures/phase5_contract
+  expect_status 0 "impact changed sarif" impact --changed "$CHANGES_FILE" --format sarif fixtures/phase5_contract
+  expect_status 0 "impact changed github-actions" impact --changed "$CHANGES_FILE" --format github-actions fixtures/phase5_contract
+  expect_status 0 "impact symbol" impact --symbol project:lib/a.dart::a --format json fixtures/phase5_contract
+  expect_status 0 "impact since" impact --since HEAD --format json fixtures/phase5_contract
+  expect_status 64 "impact no seed" impact fixtures/phase5_contract
+  expect_status 64 "impact two seeds" impact --since HEAD --symbol project:lib/a.dart::a fixtures/phase5_contract
+  expect_status 64 "impact unknown format" impact --since HEAD --format xml fixtures/phase5_contract
+  expect_status 64 "impact unknown fail-on" impact --since HEAD --fail-on sometimes fixtures/phase5_contract
+  expect_status 64 "impact duplicate since" impact --since A --since B fixtures/phase5_contract
+  expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
+  expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
+  expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"
   expect_status 0 "init" init "$INIT_DIR"

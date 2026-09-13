@@ -25,6 +25,9 @@ dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit 
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph compare <before-package-root> <after-package-root>
 dartograph affected <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] <package-root>
+dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
@@ -178,6 +181,29 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
 보고 성공은 영향 개수와 무관하게 코드 0이다.
 
+`impact`는 같은 질문을 **수정 전에, 더 깊게** 답한다. `affected`가 라이브러리(파일)
+수준 영향 반경만 내는 것과 달리, `impact`는 변경 씨앗에 사용 간선(`call`·`reference`·
+`inheritance`·`implements`·`mixin`·`override`·`import`·`export`)으로 전이적으로
+의존하는 **심볼**을 최단 사용 경로·깊이와 함께 나열하고, 변경 선언으로 들어오는
+**호출 지점**(파일·줄·열), 변경 라이브러리를 (전이적으로) import하는 **관련 테스트
+라이브러리**, 그리고 팩터별 **위험도**(0–100, `low`/`medium`/`high`)를 함께 낸다.
+사람은 `text`·`markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다.
+
+씨앗은 정확히 하나를 준다: `--since <git-ref>`(Git 변경 파일, `affected`와 같은
+전체 이력·심볼릭 링크 양방향 매칭), `--changed <changes.json>`(프로젝트 상대 경로의
+JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상한), 또는
+`--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
+
+`--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과
+개수·위험도는 제한하지 않고 잘린 수만 `truncated`로 알린다). `--fail-on <level>`은
+전체 위험도가 그 수준 이상이면 종료 코드 1로 만든다(기본 `none`은 항상 0). 출력에는
+`coverage` 블록이 있어 **변경 파일만 확인했을 때 누락됐을** 영향 심볼 수와 목록을
+제시한다 — 사전 점검의 가치를 수치로 남긴다.
+
+`--symbol`이 그래프에 없으면 `known:false`와 종료 코드 64로 구분한다(`query`·
+`dead --explain` 계열과 같다). `impact`는 관측된 의존 도달성이지 삭제 판정이 아니며,
+나열되지 않은 선언이 영향을 받지 않았다는 증명이 아니다.
+
 `rules --config`의 layers.yaml 스키마는 엄격하다. 설정 파일은 1 MiB 이하여야 한다(초과 시
 분석 실패). `layers`는 `name`과 `match`(정점 ID와
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
@@ -230,6 +256,7 @@ rules:
 - uses: dart-lang/setup-dart@v1
 - run: dart pub global activate dartograph 0.8.0
 - run: dartograph dead --format github-actions --since origin/main .
+- run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```
 
 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.

@@ -13,6 +13,7 @@ import '../analysis/layer_rules.dart';
 import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../analysis/graph_comparison.dart';
+import '../analysis/impact_analyzer.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
 import '../core/tool_info.dart';
@@ -20,6 +21,7 @@ import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
+import '../export/impact_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
 import 'agent_skill.dart';
@@ -95,6 +97,14 @@ Future<int> _dispatch(
   switch (command) {
     case 'affected':
       return await _runAffected(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        indexPackage ?? AnalyzerGraphIndex().index,
+        changedFilesSince ?? ChangedFiles.since,
+      );
+    case 'impact':
+      return await _runImpact(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
@@ -216,44 +226,15 @@ Future<int> _runAffected(
     // 루트 패키지 안 파일 전용이다(projectIdForPath가 루트 밖 경로에는
     // file:// URI를 돌려준다) — 의존 패키지 소스가 같은 스킴으로 오매칭될
     // 여지가 없다.
-    final sources = <String>{
-      for (final node in snapshot.nodes)
-        if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
-    }.toList()..sort();
-    final changedSources = <String>{};
-    final matchedChangedFiles = <String>{};
-    for (final source in sources) {
-      final relative = source.substring('project:'.length);
-      final absolute = p.normalize(p.join(canonicalRoot, relative));
-      final canonical = await _canonicalSource(canonicalRoot, source);
-      // dead --since의 _changedContains와 달리 canonical == null(깨진 링크·
-      // 소멸 파일)은 매치 실패다: git은 삭제 파일을 변경 집합에 넣지 않으므로
-      // 사라진 파일의 라이브러리를 '변경됨' 씨앗으로 보고하면 오보다.
-      final matched =
-          changed.contains(absolute) ||
-          (canonical != null && changed.contains(canonical));
-      if (matched) {
-        changedSources.add(source);
-        matchedChangedFiles
-          ..add(absolute)
-          ..add(canonical ?? absolute);
-      }
-    }
-    // 패키지 안에 있는데 어떤 분석 라이브러리에도 속하지 않는 변경 Dart 파일은
-    // 영향 반경 계산에서 조용히 사라지므로 한계로 남긴다(삭제 파일은 Git 단계에서
-    // 이미 제외된다 — ChangedFiles 계약). 소스 URI는 매치됐지만 라이브러리
-    // 노드로 귀속되지 못한 경우(unattributedSources)도 같은 한계로 센다.
+    final matched = await _matchChangedSources(
+      indexed: indexed,
+      changed: changed,
+      canonicalRoot: canonicalRoot,
+    );
+    final changedSources = matched.matchedSources;
     final result = AffectedAnalysis.analyze(snapshot, changedSources);
     final unmappedDartFiles =
-        changed
-            .where(
-              (path) =>
-                  p.extension(path) == '.dart' &&
-                  p.isWithin(canonicalRoot, path) &&
-                  !matchedChangedFiles.contains(path),
-            )
-            .length +
-        result.unattributedSources.length;
+        matched.unmappedDartFiles + result.unattributedSources.length;
     final limitations = _limitations(indexed);
     if (unmappedDartFiles > 0) {
       limitations.add(
@@ -277,6 +258,284 @@ Future<int> _runAffected(
   } on Exception {
     return _reportAnalysisFailure(error);
   }
+}
+
+Future<int> _runImpact(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+  ChangedFilesSince changedFilesSince,
+) async {
+  // 씨앗 입력은 --since/--changed/--symbol 중 정확히 하나다. 나머지는 영향
+  // 계산 옵션이다. 값이 빠지거나 중복이면 조용히 받아들이지 않고 usage(64)다
+  // (query --depth/--limit·rules --config와 같은 계약).
+  String? since;
+  String? changedFile;
+  String? symbol;
+  String? failOn;
+  String? rootPath;
+  ImpactFormat? format;
+  int? depthOption;
+  int? limitOption;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--since' && since == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      since = arguments[index];
+    } else if (argument == '--changed' && changedFile == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      changedFile = arguments[index];
+    } else if (argument == '--symbol' && symbol == null) {
+      // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
+      // 않는다(`<no-library>` 같은 특수 형태가 있다).
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      symbol = arguments[index];
+    } else if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      final parsed = switch (value) {
+        'text' => ImpactFormat.text,
+        'json' => ImpactFormat.json,
+        'markdown' => ImpactFormat.markdown,
+        'github-actions' => ImpactFormat.githubActions,
+        'sarif' => ImpactFormat.sarif,
+        _ => null,
+      };
+      if (parsed == null) {
+        error.writeln(
+          'Unknown report format: $value '
+          '(expected text, json, markdown, github-actions, or sarif).',
+        );
+        return ExitStatus.usage.code;
+      }
+      format = parsed;
+    } else if (argument == '--depth' && depthOption == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = int.tryParse(arguments[index]);
+      if (value == null || value < 1) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      depthOption = value;
+    } else if (argument == '--limit' && limitOption == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = int.tryParse(arguments[index]);
+      if (value == null || value < 1) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      limitOption = value;
+    } else if (argument == '--fail-on' && failOn == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      if (!const {'none', 'low', 'medium', 'high'}.contains(value)) {
+        error.writeln(
+          'Unknown fail-on level: $value '
+          '(expected none, low, medium, or high).',
+        );
+        return ExitStatus.usage.code;
+      }
+      failOn = value;
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  final seedModes = [since, changedFile, symbol].where((v) => v != null).length;
+  if (rootPath == null || seedModes != 1) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  const thresholds = {'none': 0, 'low': 1, 'medium': 2, 'high': 3};
+  final threshold = thresholds[failOn ?? 'none']!;
+  try {
+    final indexed = await indexPackage(rootPath);
+    final snapshot = indexed.graph.snapshot();
+    final limitations = _limitations(indexed);
+    final changedSources = <String>{};
+    final changedSymbols = <String>[];
+    var unmappedDartFiles = 0;
+    if (since != null) {
+      final changed = await changedFilesSince(since, rootPath);
+      final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+      final matched = await _matchChangedSources(
+        indexed: indexed,
+        changed: changed,
+        canonicalRoot: canonicalRoot,
+      );
+      changedSources.addAll(matched.matchedSources);
+      unmappedDartFiles = matched.unmappedDartFiles;
+    } else if (changedFile != null) {
+      changedSources.addAll(await _readChangedEntries(changedFile));
+    } else {
+      changedSymbols.add(symbol!);
+    }
+    final report = ImpactAnalysis.analyze(
+      snapshot,
+      changedSources: changedSources,
+      changedSymbols: changedSymbols,
+      maxDepth: depthOption,
+      limit: limitOption,
+    );
+    if (unmappedDartFiles > 0) {
+      limitations.add(
+        'changed-dart-files-without-library: $unmappedDartFiles changed Dart '
+        'file(s) are not part of any analyzed library',
+      );
+    }
+    if (report.unattributedSources.isNotEmpty) {
+      limitations.add(
+        'changed-sources-without-node: ${report.unattributedSources.length} '
+        'changed source(s) are not attributed to any graph node',
+      );
+    }
+    output.write(
+      ImpactReporter.render(
+        format ?? ImpactFormat.text,
+        report,
+        limitations: limitations.toSet().toList()..sort(),
+        explainId: symbol,
+        known: symbol == null ? null : report.missingSymbols.isEmpty,
+      ),
+    );
+    // 미발견 심볼은 query/--explain 계열과 같이 64로 구분한다(보고는 그대로).
+    if (report.missingSymbols.isNotEmpty) {
+      return ExitStatus.usage.code;
+    }
+    if (threshold > 0 && _riskRank(report.risk.level) >= threshold) {
+      return ExitStatus.findings.code;
+    }
+    return ExitStatus.success.code;
+  } on ChangedFilesException {
+    error.writeln(
+      'Changed files could not be computed. In CI, fetch full Git history.',
+    );
+    return ExitStatus.failure.code;
+  } on FormatException {
+    error.writeln(
+      'Invalid changed list: provide a JSON array of 1–1000 non-empty '
+      'project-relative paths (maximum 1 MiB).',
+    );
+    return ExitStatus.usage.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+/// risk level을 `--fail-on` 비교용 순위로 바꾼다.
+int _riskRank(String level) => switch (level) {
+  'high' => 3,
+  'medium' => 2,
+  _ => 1,
+};
+
+/// `--changed`의 JSON 문자열 배열을 `project:` 소스 URI 집합으로 읽는다.
+///
+/// query --batch와 같은 상한(1 MiB, 1–1000개, 비어 있지 않은 문자열)을 쓴다.
+Future<Set<String>> _readChangedEntries(String path) async {
+  final file = File(path);
+  if (await file.length() > 1024 * 1024) throw const FormatException();
+  final value = jsonDecode(await file.readAsString());
+  if (value is! List ||
+      value.isEmpty ||
+      value.length > 1000 ||
+      value.any((item) => item is! String || item.trim().isEmpty)) {
+    throw const FormatException();
+  }
+  return {
+    for (final entry in value.cast<String>()) _relativeToProjectSource(entry),
+  };
+}
+
+/// 프로젝트 상대 경로를 `project:` 소스 URI로 정규화한다.
+String _relativeToProjectSource(String entry) {
+  var value = entry.replaceAll('\\', '/');
+  while (value.startsWith('./')) {
+    value = value.substring(2);
+  }
+  return 'project:${p.posix.normalize(value)}';
+}
+
+/// `project:` 소스 URI 중 변경 집합에 매치되는 것을 고른다.
+///
+/// dead --since·affected·impact가 공유하는 양방향 링크 매칭이다(링크 경로 자체와
+/// 링크 대상 실 경로). canonical을 얻지 못한 소스(깨진 링크·소멸)는 affected·impact
+/// 에서 비매치로 처리한다 — git은 삭제 파일을 변경 집합에 넣지 않으므로 사라진
+/// 파일의 라이브러리를 '변경됨'으로 보고하면 오보다. 매치된 절대 경로와 함께
+/// 라이브러리로 귀속되지 못한 변경 Dart 파일 수를 돌려준다.
+Future<
+  ({
+    Set<String> matchedSources,
+    Set<String> matchedFiles,
+    int unmappedDartFiles,
+  })
+>
+_matchChangedSources({
+  required AnalyzerGraphResult indexed,
+  required Set<String> changed,
+  required String canonicalRoot,
+}) async {
+  final sources = <String>{
+    for (final node in indexed.graph.snapshot().nodes)
+      if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
+  }.toList()..sort();
+  final matchedSources = <String>{};
+  final matchedFiles = <String>{};
+  for (final source in sources) {
+    final relative = source.substring('project:'.length);
+    final absolute = p.normalize(p.join(canonicalRoot, relative));
+    final canonical = await _canonicalSource(canonicalRoot, source);
+    if (changed.contains(absolute) ||
+        (canonical != null && changed.contains(canonical))) {
+      matchedSources.add(source);
+      matchedFiles
+        ..add(absolute)
+        ..add(canonical ?? absolute);
+    }
+  }
+  final unmapped = changed
+      .where(
+        (path) =>
+            p.extension(path) == '.dart' &&
+            p.isWithin(canonicalRoot, path) &&
+            !matchedFiles.contains(path),
+      )
+      .length;
+  return (
+    matchedSources: matchedSources,
+    matchedFiles: matchedFiles,
+    unmappedDartFiles: unmapped,
+  );
 }
 
 Future<int> _runCompare(
@@ -1480,6 +1739,9 @@ Usage: dartograph [--help] [--version]
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
        dartograph compare <before-package-root> <after-package-root>
        dartograph affected <git-ref> <package-root>
+       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] <package-root>
+       dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] <package-root>
@@ -1539,6 +1801,17 @@ carry no source location.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".
+
+impact answers "what does changing this affect?" before the edit. Give it a
+git revision (--since), a JSON array of changed project-relative paths
+(--changed), or one symbol id (--symbol); it reports the changed set, every
+symbol that transitively uses it with a shortest usage path, the call sites
+into changed declarations, the test libraries that depend on the changed set,
+and a risk score with its factors. The coverage block counts the impacted
+symbols that inspecting only the changed files would have missed.
+--fail-on <level> turns a risk level of at least <level> into exit 1
+(default none). Impact is an observed dependency reachability, not a deletion
+verdict; an unlisted declaration is not proven unaffected.
 
 Exit codes:
   0   success
