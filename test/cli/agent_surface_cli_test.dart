@@ -428,6 +428,84 @@ void main() {
     );
   });
 
+  test('skill install refuses a dangling symlink without --force, then '
+      'replaces the link itself', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'dartograph-skill-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    // 링크 대상은 존재하지 않는다. File.exists가 링크를 따라가 false가 되어도
+    // init과 같이 --force를 요구하고, 교체 시 쓰기가 링크를 따라가 대상 경로에
+    // 파일을 만들면 안 된다.
+    final escape = File('${directory.path}/escape.md');
+    final installed = Link('${directory.path}/dartograph/SKILL.md');
+    await Directory(installed.parent.path).create(recursive: true);
+    await installed.create(escape.path);
+
+    final conflict = StringBuffer();
+    expect(
+      await runDartograph([
+        'skill',
+        '--install',
+        directory.path,
+      ], error: conflict),
+      ExitStatus.usage.code,
+    );
+    expect(conflict.toString(), contains('--force'));
+    expect(FileSystemEntity.isLinkSync(installed.path), isTrue);
+    expect(escape.existsSync(), isFalse);
+
+    final output = StringBuffer();
+    expect(
+      await runDartograph([
+        'skill',
+        '--install',
+        directory.path,
+        '--force',
+      ], output: output),
+      ExitStatus.success.code,
+    );
+
+    expect(escape.existsSync(), isFalse);
+    expect(FileSystemEntity.isLinkSync(installed.path), isFalse);
+    expect(
+      await File(installed.path).readAsString(),
+      contains('Confirm the actual build target'),
+    );
+  });
+
+  test(
+    'skill install --force overwrites a symlink itself, not its target',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'dartograph-skill-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final outside = File('${directory.path}/outside.md')
+        ..writeAsStringSync('precious');
+      final installed = Link('${directory.path}/dartograph/SKILL.md');
+      await Directory(installed.parent.path).create(recursive: true);
+      await installed.create(outside.path);
+
+      expect(
+        await runDartograph([
+          'skill',
+          '--install',
+          directory.path,
+          '--force',
+        ], output: StringBuffer()),
+        ExitStatus.success.code,
+      );
+
+      expect(await outside.readAsString(), 'precious');
+      expect(FileSystemEntity.isLinkSync(installed.path), isFalse);
+      expect(
+        await File(installed.path).readAsString(),
+        contains('Confirm the actual build target'),
+      );
+    },
+  );
+
   test(
     'bridges emits isthmus-compatible MethodChannel facts and limitations',
     () async {

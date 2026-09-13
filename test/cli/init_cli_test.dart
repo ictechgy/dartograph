@@ -139,6 +139,31 @@ environment:
     },
   );
 
+  test('init --force replaces a dartograph.yaml symlink itself', () async {
+    final temporary = await Directory.systemTemp.createTemp('dartograph-init-');
+    addTearDown(() => temporary.delete(recursive: true));
+
+    final outside = File('${temporary.path}/outside.yaml')
+      ..writeAsStringSync('precious');
+    final configFile = Link('${temporary.path}/dartograph.yaml')
+      ..createSync(outside.path);
+
+    final output = StringBuffer();
+    final status = await runDartograph([
+      'init',
+      '--force',
+      temporary.path,
+    ], output: output);
+
+    expect(status, ExitStatus.success.code);
+    expect(outside.readAsStringSync(), 'precious');
+    expect(FileSystemEntity.isLinkSync(configFile.path), isFalse);
+    expect(
+      File(configFile.path).readAsStringSync(),
+      contains('Dartograph configuration'),
+    );
+  });
+
   test('init reports failure 2 when directory does not exist', () async {
     final temporary = await Directory.systemTemp.createTemp(
       'dartograph-init-missing-',
