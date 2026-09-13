@@ -2,6 +2,54 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.8.0
+
+- Added the `dartograph init [--force] [<package-root>]` command, which writes
+  a commented `dartograph.yaml` configuration template to the project root
+  (parity with cartograph's `init`). The template advertises only the
+  implemented schema (`entry_points`). An existing file blocks generation with
+  exit 64; `--force` overwrites it. The write is an atomic replacement — a
+  symlink at the target path is replaced as a link, never followed
+
+- Added actionable CLI diagnostics and expanded `--help` contract
+  documentation: `skill --install` success and conflict messages now name the
+  installed path (`<dir>/dartograph/SKILL.md`); `rules` configuration failures
+  are split into unreadable (echoing the user-supplied `--config` value) and
+  invalid (parser detail, no path); unknown report format / graph level /
+  graph format one-line errors now list the accepted values; `init` warns on
+  stderr when the target directory has no `pubspec.yaml` (exit code stays 0);
+  and `--help` documents the skill install path, the replace-symlink-as-link
+  policy, and the exit-code contract (`dead --explain` of an unreachable
+  target exits 1; a query/--explain target absent from the graph exits 64)
+
+- Security hardening: `skill --install` no longer writes through a symlink at
+  the destination — previously `File.writeAsString` followed links and could
+  clobber a file outside an untrusted checkout (with no `--force` needed when
+  the link dangled). init, skill, and baseline writes now share one atomic
+  write boundary with hard-to-predict temp names (PID plus a suffix drawn from
+  a cryptographically secure generator) and exclusive creation, so a pre-planted
+  entry at the temp path fails closed instead of being truncated or followed.
+  **Narrow breaking change**: a dangling symlink at `<dir>/dartograph/SKILL.md`
+  now requires `--force`, matching `init` — without `--force`, any existing
+  file or link at that path is refused with exit 64
+
+- **Narrow breaking change**: repository-provided YAML configuration files
+  (`dartograph.yaml`, `pubspec.yaml`, layers.yaml passed to `rules --config`)
+  larger than 1 MiB are now rejected with a static path-free error before
+  parsing instead of being handed to the YAML parser (fail-closed resource
+  bound; real configs are orders of magnitude smaller). Each read site keeps
+  its existing failure contract (analysis exit 2, or the workspace-detection
+  limitation fallback)
+
+- Performance: regular expressions are no longer recompiled inside hot loops —
+  the operator-name pattern in `dead --report-redundant-public`, the fact-cache
+  key pattern, the bridge fact control-character pattern, and the generated
+  sibling suffix pattern are now built once. Per-source limitation filtering is
+  memoized in the dead-declaration, dead-file, and redundant-public finding
+  loops. For inputs where the new size cap and destination refusals do not
+  trigger, analysis output remains byte-for-byte identical to 0.7.0 (verified
+  by artifact hash equality)
+
 ## 0.7.0
 
 - Added `graph --format anon` for privacy-preserving graph export (parity with

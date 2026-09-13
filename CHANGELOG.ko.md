@@ -2,6 +2,43 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.8.0
+
+- `dartograph init [--force] [<package-root>]` 명령 추가 — 프로젝트 루트에 주석 달린
+  `dartograph.yaml` 설정 템플릿을 생성한다(cartograph `init` 패리티). 템플릿은 구현된
+  스키마(`entry_points`)만 광고한다. 기존 파일이 있으면 exit 64로 중단하고 `--force`로
+  덮어쓴다. 쓰기는 원자적 교체다 — 대상 자리의 심볼릭 링크는 링크 자체를 교체하며 따라가지
+  않는다
+
+- 실행 가능한 CLI 진단과 `--help` 계약 문서를 보강했다: `skill --install`의 성공·충돌
+  메시지가 실제 설치 경로(`<dir>/dartograph/SKILL.md`)를 알려준다. `rules` 설정 실패는
+  읽기 실패(사용자가 준 `--config` 값을 표시)와 형식 오류(파서 상세, 경로 없음)로 나뉜다.
+  알 수 없는 리포트 포맷·그래프 레벨·그래프 포맷 한줄 오류가 유효값을 함께 알려준다.
+  `init`은 대상 디렉터리에 `pubspec.yaml`이 없으면 stderr로 경고한다(종료 코드는 0 유지).
+  `--help`는 skill 설치 경로와 링크-자체-교체 정책, 종료 코드 계약(미도달 대상의
+  `dead --explain`은 1, 그래프에 없는 query/--explain 대상은 64)을 문서화한다
+
+- 보안 경화: `skill --install`은 더 이상 대상 자리의 심볼릭 링크를 관통해 쓰지 않는다 —
+  기존에는 `File.writeAsString`이 링크를 따라가 신뢰할 수 없는 체크아웃 밖 파일을 덮어쓸 수
+  있었다(링크가 매달려 있으면 `--force`도 필요 없었다). init·skill·baseline 쓰기는 임측하기
+  어려운 임시 이름(PID+암호학적으로 안전한 생성기의 접미사)과 배타적 생성을 갖춘 하나의
+  원자적 쓰기 경계를 공유한다 — 임시 경로에 미리 심어둔 내용물은 절단·관통되지 않고
+  fail-closed로 실패한다. **경미한 파괴적 변경**: `<dir>/dartograph/SKILL.md`의 매달린
+  링크는 이제 `init`과 같이 `--force`를 요구한다 — `--force` 없이는 그 자리의 기존 파일·
+  링크를 exit 64로 거부한다
+
+- **경미한 파괴적 변경**: 저장소가 제공하는 YAML 설정 파일(`dartograph.yaml`,
+  `pubspec.yaml`, `rules --config`에 주는 layers.yaml)이 1 MiB를 넘으면 파서에 넘기지
+  않고 경로 없는 정적 오류로 거절한다(fail-closed 자원 상한. 실제 설정은 이보다 몇 자릿수
+  작다). 각 읽기 지점은 기존 실패 계약을 유지한다(분석 종료 코드 2, 또는 workspace 감지
+  limitation 폴백)
+
+- 성능: 핫 루프 안에서 정규식을 다시 컴파일하지 않는다 — `dead --report-redundant-public`의
+  연산자 이름 패턴, fact 캐시 키 패턴, bridge fact 제어문자 패턴, 생성 파일 sibling 접미
+  패턴을 한 번만 만든다. dead 선언·dead 파일·redundant-public 발견 루프의 source별
+  limitation 필터링을 메모한다. 새 상한·거절이 발동하지 않는 입력에서 분석 출력은 0.7.0과
+  byte-for-byte 동일하다(산출물 해시 동일성으로 검증)
+
 ## 0.7.0
 
 - `graph` 명령에 프라이버시를 보호하는 익명화 그래프 내보내기 포맷인 `--format anon` 추가
