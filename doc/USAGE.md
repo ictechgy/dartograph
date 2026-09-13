@@ -29,6 +29,7 @@ dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions
 dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
+dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
@@ -204,6 +205,48 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상�
 `--symbol`이 그래프에 없으면 `known:false`와 종료 코드 64로 구분한다(`query`·
 `dead --explain` 계열과 같다). `impact`는 관측된 의존 도달성이지 삭제 판정이 아니며,
 나열되지 않은 선언이 영향을 받지 않았다는 증명이 아니다.
+
+`runtime`은 정적 import 그래프에 잡히지 않고 **실행 시점에만 드러나는 입력**을 찾고,
+기본으로 이 환경에 대해 판정한다. 카테고리는 다섯이다: 환경변수·dart-define(`env`),
+동적 로딩(`dynamicLoad` — `Isolate.spawnUri`, `Process.run`/`start`,
+`DynamicLibrary.open`, `dart:mirrors`, `Function.apply`), 설정 파일·경로(`config`),
+번들 에셋(`asset` — `pubspec.yaml`의 `flutter.assets` 선언과 `rootBundle`·
+`Image.asset`·`AssetImage`), 외부 URL(`external`). 각 사실은 `present`(제공됨)·
+`defaulted`(기본값으로 충족)·`missing`(이 환경에서 미충족)으로 판정되고, 정적으로
+확정할 수 없거나 프로브할 수 없는 것은 이유와 함께 `unverified`에 남는다. 미충족·
+미판정·외부 자원 수는 위험도(0–100)로 합산되고 `low`/`medium`/`high` 등급이 붙는다.
+`--no-verify`는 판정을 끄고 탐지만 한다(위험도 없음).
+
+`--env KEY=VALUE`·`--dart-define KEY=VALUE`는 반복 지정할 수 있고 같은 키는 마지막
+값이 이긴다. 값 자체는 절대 출력되지 않는다 — "설정되었지만 빈 값"은 미설정과 다른
+관측이므로 빈 값은 유효하고, 키가 비면(`=VALUE`) usage(64)다. 두 채널은 서로를
+충족하지 않는다(dart-define과 프로세스 환경은 다른 입력이다). `--env`를 하나라도 주면
+그 집합만 쓰고 프로세스 환경은 무시하며(hermetic), 주지 않으면 실제 프로세스 환경을
+쓰고 그 사실을 `environment-source` limitation에 남긴다.
+
+`--execute <dart-entrypoint>`는 **임의 코드를 실행한다**: 패키지 루트에서
+`dart run <entrypoint>`를 띄우고(60초 상한) `--env` 값을 상속 환경 위에 덮어쓴 뒤
+종료 코드와 stderr 요약(4 KiB 상한)을 실행 증거로 남긴다. 실행 실패는 위험 요인
+(`execution-failed`, 30)이 되지만 나머지 보고는 그대로 나온다. 경로처럼 보이는 인자
+(`.dart`로 끝나거나 경로 구분자를 포함)는 파일 존재를 요구하며 없으면 usage(64)다 —
+패키지 실행 파일 이름은 `dart run`이 해석하므로 존재를 요구하지 않는다. 신뢰한
+프로젝트에서만 쓴다.
+
+`--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다. 사람은 `text`·
+`markdown`, CI는 `github-actions`(`missing` 항목은 위험이 `high`면 `error`, 아니면
+`warning`)·`sarif`를 쓴다. `--limit <n>`은 **보고** 항목 수 상한이다(탐지·판정·위험도는
+제한하지 않는다 — `--limit`이 종료 코드를 바꾸면 게이트가 아니다). 생략한 수는 목록별로
+`truncated`에 남는다. `--fail-on <level>`은 위험 등급이 그 수준 이상이면 종료 코드 1로
+만든다(기본 `none`은 임계를 0으로 두어 항상 0이다). 종료 코드는 0(보고 성공), 1(위험
+등급이 `--fail-on` 임계 이상), 2(분석 실패 — 없는 루트 등), 64(usage 오류, `--execute`
+경로 없음)다.
+
+`runtime`의 판정은 관측이지 실행 가능성 판정이 아니다. `missing`은 그 입력이 필수라는
+뜻이 아니다 — 선택적 읽기와 필수 읽기를 구분하지 않는다. 외부 URL은 프로브하지 않고,
+리플렉션·계산된 이름은 `<computed>`로 남기며, 표준 소스 디렉터리(`lib`·`bin`·`test`·
+`example`·`integration_test`) 밖은 보지 않는다. 상대 경로는 패키지 루트 기준으로
+확인하지만 실제 프로그램은 스크립트 URI나 작업 디렉터리 기준으로 열 수 있다. 탐지·판정
+한계는 보고서의 `limitations`에 모두 실린다.
 
 `rules --config`의 layers.yaml 스키마는 엄격하다. 설정 파일은 1 MiB 이하여야 한다(초과 시
 분석 실패). `layers`는 `name`과 `match`(정점 ID와

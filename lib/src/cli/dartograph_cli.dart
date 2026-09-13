@@ -22,8 +22,13 @@ import '../export/analysis_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
+import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
+import '../runtime/runtime_executor.dart';
+import '../runtime/runtime_facts.dart';
+import '../runtime/runtime_scanner.dart';
+import '../runtime/runtime_verifier.dart';
 import 'agent_skill.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
@@ -192,6 +197,12 @@ Future<int> _dispatch(
       );
     case 'init':
       return await _runInit(arguments.skip(1).toList(), stdoutSink, stderrSink);
+    case 'runtime':
+      return await _runRuntime(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+      );
     case 'mcp':
       return await _runMcp(arguments.skip(1).toList(), stdoutSink, stderrSink);
     default:
@@ -1652,6 +1663,214 @@ Future<int> _runGraph(
   }
 }
 
+/// `runtime --format`의 값을 형식으로 바꾼다. 모르는 값이면 null이다.
+RuntimeFormat? _runtimeFormat(String value) => switch (value) {
+  'text' => RuntimeFormat.text,
+  'json' => RuntimeFormat.json,
+  'markdown' => RuntimeFormat.markdown,
+  'github-actions' => RuntimeFormat.githubActions,
+  'sarif' => RuntimeFormat.sarif,
+  _ => null,
+};
+
+/// `runtime --env`·`--dart-define`의 `KEY=VALUE`를 파싱한다.
+///
+/// 키가 비어 있으면(`=VALUE`) 정의가 아니므로 null을 돌려준다. 값은 빈 문자열을
+/// 허용한다 — "설정되었지만 빈 값"은 미설정과 다른 관측이기 때문이다.
+({String key, String value})? _parseDefinition(String value) {
+  final separator = value.indexOf('=');
+  if (separator <= 0) return null;
+  return (
+    key: value.substring(0, separator),
+    value: value.substring(separator + 1),
+  );
+}
+
+/// runtime 위험 등급을 `--fail-on` 비교용 순위로 바꾼다.
+///
+/// impact의 [_riskRank]와 달리 `none`이 0이다 — runtime은 위험 요인이 하나도
+/// 없으면 점수 0을 내므로, `--fail-on low`가 그 경우를 발견으로 세면 게이트가
+/// 거짓 보고를 하게 된다.
+int _runtimeRiskRank(String level) => switch (level) {
+  'high' => 3,
+  'medium' => 2,
+  'low' => 1,
+  _ => 0,
+};
+
+Future<int> _runRuntime(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  // 검증은 기본 수행한다(--no-verify로 끈다). --env·--dart-define은 반복
+  // 지정할 수 있고 같은 키를 두 번 주면 마지막 값이 이긴다. 그 밖의 옵션은
+  // impact와 같이 중복을 거부한다 — 값이 조용히 버려지면 사용자는 자기가 준
+  // 입력이 판정에 쓰였다고 믿게 된다.
+  var verify = true;
+  var verifySeen = false;
+  RuntimeFormat? format;
+  final dartDefines = <String, String>{};
+  final environment = <String, String>{};
+  var environmentGiven = false;
+  int? limitOption;
+  String? failOn;
+  String? entrypoint;
+  String? rootPath;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if ((argument == '--verify' || argument == '--no-verify') && !verifySeen) {
+      verifySeen = true;
+      verify = argument == '--verify';
+    } else if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final parsed = _runtimeFormat(arguments[index]);
+      if (parsed == null) {
+        error.writeln(
+          'Unknown report format: ${arguments[index]} '
+          '(expected text, json, markdown, github-actions, or sarif).',
+        );
+        return ExitStatus.usage.code;
+      }
+      format = parsed;
+    } else if (argument == '--dart-define' || argument == '--env') {
+      final isDefine = argument == '--dart-define';
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final parsed = _parseDefinition(arguments[index]);
+      if (parsed == null) {
+        error.writeln(
+          'Invalid $argument: expected $argument KEY=VALUE with a non-empty '
+          'KEY.',
+        );
+        return ExitStatus.usage.code;
+      }
+      if (isDefine) {
+        dartDefines[parsed.key] = parsed.value;
+      } else {
+        environmentGiven = true;
+        environment[parsed.key] = parsed.value;
+      }
+    } else if (argument == '--limit' && limitOption == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = int.tryParse(arguments[index]);
+      if (value == null || value < 1) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      limitOption = value;
+    } else if (argument == '--fail-on' && failOn == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      if (!const {'none', 'low', 'medium', 'high'}.contains(value)) {
+        error.writeln(
+          'Unknown fail-on level: $value '
+          '(expected none, low, medium, or high).',
+        );
+        return ExitStatus.usage.code;
+      }
+      failOn = value;
+    } else if (argument == '--execute' && entrypoint == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      entrypoint = arguments[index];
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (rootPath == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  const thresholds = {'none': 0, 'low': 1, 'medium': 2, 'high': 3};
+  final threshold = thresholds[failOn ?? 'none']!;
+  // --env가 하나라도 오면 그 집합만 쓴다(hermetic). 주지 않으면 실제 프로세스
+  // 환경을 쓰고, 그 사실을 보고서 limitation에 남긴다.
+  final inputs = RuntimeInputs(
+    environment: environmentGiven ? environment : Platform.environment,
+    dartDefines: dartDefines,
+    environmentFromProcess: !environmentGiven,
+    windows: Platform.isWindows,
+  );
+  try {
+    // 패키지 루트 부재를 --execute 실패로 오귀인하지 않도록 먼저 해석한다.
+    final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+    if (entrypoint != null && _looksLikeEntryPointPath(entrypoint)) {
+      final file = File(
+        p.isAbsolute(entrypoint) ? entrypoint : p.join(rootPath, entrypoint),
+      );
+      if (!file.existsSync()) {
+        error.writeln(
+          'Entrypoint not found: $entrypoint. Pass a .dart file or a package '
+          'executable name.',
+        );
+        return ExitStatus.usage.code;
+      }
+    }
+    final facts = await RuntimeScanner().scan(rootPath);
+    RuntimeExecution? execution;
+    if (entrypoint != null) {
+      // --env를 주었으면 그 값으로 실제 실행해 본다(상속 환경 위에 덮어쓴다).
+      execution = await executeEntrypoint(
+        entrypoint: entrypoint,
+        rootPath: rootPath,
+        environment: environmentGiven ? environment : null,
+      );
+    }
+    final report = RuntimeVerifier.analyze(
+      facts: facts,
+      inputs: inputs,
+      fileSystem: LocalRuntimeFileSystem(canonicalRoot),
+      execution: execution,
+      limit: limitOption,
+      verify: verify,
+    );
+    output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));
+    if (threshold > 0 && _runtimeRiskRank(report.risk.level) >= threshold) {
+      return ExitStatus.findings.code;
+    }
+    return ExitStatus.success.code;
+  } on ProcessException {
+    // --execute의 dart 실행 파일을 띄우지 못했다.
+    error.writeln('Analysis failed: unable to run the --execute entrypoint.');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+/// `--execute` 값이 파일 경로를 뜻하는지 판정한다.
+///
+/// `.dart`로 끝나거나 경로 구분자가 있으면 경로다. 그 밖의 단일 이름은
+/// `dart run`이 해석하는 패키지 실행 파일 이름일 수 있으므로 존재를 요구하지
+/// 않는다(`dart run`의 실패는 실행 증거로 남는다).
+bool _looksLikeEntryPointPath(String entrypoint) =>
+    entrypoint.endsWith('.dart') ||
+    entrypoint.contains('/') ||
+    entrypoint.contains(r'\');
+
 Future<int> _runMcp(
   List<String> arguments,
   StringSink output,
@@ -1763,6 +1982,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
+       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] <package-root>
@@ -1841,10 +2061,27 @@ verify_run (dead, cycles, rules, metrics with exit code and raw output).
 stdout carries only JSON-RPC; diagnostics stay on stderr. The caller passes
 packageRoot per call. Nothing is modified by these tools.
 
+runtime reports the dependencies that only appear at run time — environment
+variables and dart-defines, dynamic loading (Isolate.spawnUri, Process.run,
+DynamicLibrary.open, dart:mirrors), configuration paths, bundled assets, and
+external URLs — and, by default, judges each one against this environment:
+present, defaulted, or missing, with everything that could not be judged left
+in `unverified` with its reason. Missing and unjudged facts feed a risk score.
+--env and --dart-define are repeatable and replace their channels hermetically
+(when --env is given, only those values are used and the process environment is
+ignored); the values themselves are never printed. --verify is on by default
+and --no-verify only detects. --fail-on <level> turns a risk level of at least
+<level> into exit 1. --execute <dart-entrypoint> RUNS ARBITRARY CODE: it starts
+`dart run <entrypoint>` in the package root (60s timeout), applies the --env
+values on top of the inherited environment, and reports the exit code and a
+stderr summary as execution evidence. A missing path is not proof that the
+program cannot run, and a present one is not proof that it does.
+
 Exit codes:
   0   success
   1   dead findings (including a dead --explain of an unreachable target),
-      or cycles/rules/metrics findings with --strict
+      or cycles/rules/metrics findings with --strict, or a runtime/impact
+      risk level at or above --fail-on
   2   analysis failure
   64  usage error, or a query/--explain target not found in the graph
 ''';

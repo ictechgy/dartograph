@@ -222,6 +222,33 @@ final class AnalyzerGraphIndex {
   }
 }
 
+/// [rootPath] 아래 표준 소스 디렉터리의 resolved unit을 결정적 순서로 돌려준다.
+///
+/// 그래프가 아닌 다른 analyzer 사실(예: 런타임 의존성)을 읽는 모듈이 쓴다. 같은
+/// 파일 열거·SDK 탐색·컨텍스트 선택 규칙을 공유해, 그래프와 다른 사실이 서로
+/// 다른 파일 집합을 보지 않게 한다. 그래프 캐시는 그래프 전용이므로 여기서는
+/// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
+Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
+  final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+  final collection = AnalysisContextCollection(
+    includedPaths: [root],
+    sdkPath: _dartSdkPath(),
+  );
+  try {
+    final units = <ResolvedUnitResult>[];
+    for (final path in _dartFilesUnder(root, collection)) {
+      final result = await _contextIncluding(
+        collection,
+        path,
+      ).currentSession.getResolvedUnit(path);
+      if (result is ResolvedUnitResult) units.add(result);
+    }
+    return units;
+  } finally {
+    await collection.dispose();
+  }
+}
+
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
 // 노드 직렬화에 isLibrary를 추가할 때도 같다(v3 — 추출 의미 변화 없이 필드만 늘었다).

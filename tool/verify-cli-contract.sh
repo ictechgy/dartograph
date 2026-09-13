@@ -117,6 +117,35 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
   expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
+  expect_status 0 "runtime report" runtime fixtures/runtime_corpus
+  expect_status 0 "runtime text" runtime --format text fixtures/runtime_corpus
+  expect_status 0 "runtime json" runtime --format json --verify fixtures/runtime_corpus
+  expect_status 0 "runtime markdown" runtime --format markdown fixtures/runtime_corpus
+  expect_status 0 "runtime github-actions" runtime --format github-actions fixtures/runtime_corpus
+  expect_status 0 "runtime sarif" runtime --format sarif fixtures/runtime_corpus
+  expect_status 0 "runtime detect only" runtime --no-verify fixtures/runtime_corpus
+  expect_status 0 "runtime limit" runtime --limit 1 --format json fixtures/runtime_corpus
+  expect_status 0 "runtime env override" runtime --env RUNTIME_CORPUS_TOKEN=present fixtures/runtime_corpus
+  expect_status 0 "runtime dart-define override" runtime --dart-define RUNTIME_CORPUS_BASE_URL=https://example.com fixtures/runtime_corpus
+  expect_status 0 "runtime fail-on none" runtime --fail-on none fixtures/runtime_corpus
+  expect_status 0 "runtime execute entrypoint" runtime --execute bin/corpus_worker.dart fixtures/runtime_corpus
+  expect_status 1 "runtime fail-on medium findings" runtime --fail-on medium fixtures/runtime_corpus
+  expect_status 1 "runtime fail-on high findings" runtime --fail-on high fixtures/runtime_corpus
+  expect_status 64 "runtime missing root" runtime
+  expect_status 64 "runtime unknown format" runtime --format xml fixtures/runtime_corpus
+  expect_status 64 "runtime unknown fail-on" runtime --fail-on sometimes fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate format" runtime --format json --format text fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate verify" runtime --verify --no-verify fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate fail-on" runtime --fail-on none --fail-on high fixtures/runtime_corpus
+  expect_status 64 "runtime env missing value" runtime --env
+  expect_status 64 "runtime env without equals" runtime --env RUNTIME_CORPUS_TOKEN fixtures/runtime_corpus
+  expect_status 64 "runtime dart-define missing value" runtime --dart-define
+  expect_status 64 "runtime empty definition key" runtime --dart-define =value fixtures/runtime_corpus
+  expect_status 64 "runtime zero limit" runtime --limit 0 fixtures/runtime_corpus
+  expect_status 64 "runtime execute missing value" runtime --execute
+  expect_status 64 "runtime execute unknown entrypoint" runtime --execute bin/nope.dart fixtures/runtime_corpus
+  expect_status 64 "runtime two roots" runtime fixtures/phase5_contract fixtures/runtime_corpus
+  expect_status 2 "runtime failure" runtime --format json fixtures/does-not-exist
   expect_status 64 "mcp with arguments" mcp --help
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"

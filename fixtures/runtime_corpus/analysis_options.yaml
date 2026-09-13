@@ -1,0 +1,8 @@
+# 런타임 의존성 탐지 검증 입력이다. 의도된 미충족 입력(missing)과 Flutter SDK
+# 없이 분석하는 미해석 import를 오류로 올리지 않는다.
+analyzer:
+  errors:
+    asset_does_not_exist: ignore
+    undefined_identifier: ignore
+    unused_element: ignore
+    uri_does_not_exist: ignore
