@@ -14,9 +14,14 @@ void main() {
     expect(
       output.toString(),
       contains(
-        '1   dead findings, or cycles/rules/metrics findings with --strict',
+        '1   dead findings (including a dead --explain of an unreachable '
+        'target),\n      or cycles/rules/metrics findings with --strict',
       ),
     );
+    // help가 계약을 요약하는지 확인한다: dead --explain의 죽은 대상은 1이고,
+    // 그래프에 없는 대상은 64다.
+    expect(output.toString(), contains('64  usage error'));
+    expect(output.toString(), contains('not found in the graph'));
   });
 
   test('short help prints the exit contract and succeeds', () async {

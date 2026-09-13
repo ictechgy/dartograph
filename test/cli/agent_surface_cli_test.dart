@@ -395,6 +395,8 @@ void main() {
       ExitStatus.success.code,
     );
     final installed = File('${directory.path}/dartograph/SKILL.md');
+    // 성공 메시지가 실제 설치 경로를 알려준다(init과 같은 계약).
+    expect(output.toString(), contains(installed.path));
     expect(
       await installed.readAsString(),
       contains('Confirm the actual build target'),

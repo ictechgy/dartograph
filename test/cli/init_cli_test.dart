@@ -12,14 +12,18 @@ void main() {
     addTearDown(() => temporary.delete(recursive: true));
 
     final output = StringBuffer();
-    final status = await runDartograph([
-      'init',
-      temporary.path,
-    ], output: output);
+    final error = StringBuffer();
+    final status = await runDartograph(
+      ['init', temporary.path],
+      output: output,
+      error: error,
+    );
 
     expect(status, ExitStatus.success.code);
     expect(output.toString(), contains('Wrote '));
     expect(output.toString(), contains('dartograph.yaml'));
+    // pubspec이 없는 디렉터리에의 쓰기는 잘못된 위치 실수일 수 있어 경고한다.
+    expect(error.toString(), contains('no pubspec.yaml'));
 
     final configFile = File('${temporary.path}/dartograph.yaml');
     expect(configFile.existsSync(), isTrue);
@@ -48,11 +52,15 @@ environment:
       await File('${binDir.path}/tool.dart').writeAsString('void main() {}');
 
       final output = StringBuffer();
-      final status = await runDartograph([
-        'init',
-        temporary.path,
-      ], output: output);
+      final error = StringBuffer();
+      final status = await runDartograph(
+        ['init', temporary.path],
+        output: output,
+        error: error,
+      );
       expect(status, ExitStatus.success.code);
+      // pubspec이 있는 패키지 루트에서는 경고가 없다.
+      expect(error.toString(), isEmpty);
 
       final configFile = File('${temporary.path}/dartograph.yaml');
       final content = configFile.readAsStringSync();
@@ -120,11 +128,12 @@ environment:
       await configFile.writeAsString('existing content');
 
       final output = StringBuffer();
-      final status = await runDartograph([
-        'init',
-        '--force',
-        temporary.path,
-      ], output: output);
+      final error = StringBuffer();
+      final status = await runDartograph(
+        ['init', '--force', temporary.path],
+        output: output,
+        error: error,
+      );
 
       expect(status, ExitStatus.success.code);
       expect(output.toString(), contains('Wrote '));
@@ -149,11 +158,14 @@ environment:
       ..createSync(outside.path);
 
     final output = StringBuffer();
-    final status = await runDartograph([
-      'init',
-      '--force',
-      temporary.path,
-    ], output: output);
+    // pubspec이 없는 temp 디렉터리라 경고가 나오지만 process stderr가 아니라
+    // sink로 받는다.
+    final error = StringBuffer();
+    final status = await runDartograph(
+      ['init', '--force', temporary.path],
+      output: output,
+      error: error,
+    );
 
     expect(status, ExitStatus.success.code);
     expect(outside.readAsStringSync(), 'precious');

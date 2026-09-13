@@ -438,9 +438,12 @@ Future<int> _runRules(
   } on FileSystemException {
     // config 파일 부재·읽기 실패는 인덱싱 실패와 다르다. 원인을 반대로 가리키지 않게
     // 구분하되, 기존 계약(phase5_cli_test)이 단언하는 "Analysis failed:" 접두는 유지한다.
-    return _reportRulesConfigFailure(error);
-  } on FormatException {
-    return _reportRulesConfigFailure(error);
+    return _reportRulesConfigUnreadable(error, config);
+  } on FormatException catch (exception) {
+    // 파서 상세는 키 이름 등 설정 내용만 담는다. loadYaml은 문자열을 받으므로
+    // YamlException에도 파일 경로가 없고, .message는 줄 위치도 담지 않는다.
+    // 설정 파일 경로는 기존 계약대로 이 진단에 반향하지 않는다.
+    return _reportRulesConfigInvalid(error, exception.message);
   }
   try {
     final indexed = await indexPackage(root);
@@ -691,13 +694,15 @@ Future<int> _runSkill(
     // init의 충돌 가드와 같이 링크 자체도 검사한다. File.exists는 링크를
     // 따라가므로 매달린 링크는 이 검사만으로는 보이지 않는다.
     if (!force && (await skill.exists() || await Link(skill.path).exists())) {
-      error.writeln('Skill already exists. Pass --force to overwrite it.');
+      error.writeln(
+        '${skill.path} already exists. Pass --force to overwrite it.',
+      );
       return ExitStatus.usage.code;
     }
     // init과 같은 원자적 교체로 쓴다. 대상 자리의 심볼릭 링크를 따라가지 않고
     // 링크 자체를 교체해 신뢰할 수 없는 디렉터리의 링크 대상 파일 오염을 막는다.
     AtomicWrite.stringSync(skill, agentSkillMarkdown);
-    output.writeln('Installed dartograph skill.');
+    output.writeln('Installed dartograph skill at ${skill.path}.');
     return ExitStatus.success.code;
   } on FileSystemException {
     error.writeln(
@@ -749,6 +754,13 @@ Future<int> _runInit(
     // 원자적으로 정규 설정 파일로 교체해 외부 파일 오염을 방지한다.
     AtomicWrite.stringSync(configFile, configurationTemplate);
     output.writeln('Wrote ${configFile.path}');
+    // 첫 pubspec 이전 스캐폴딩도 지원하지만, 잘못된 디렉터리에 쓰는 실수를
+    // 조용히 넘기지 않게 표시한다.
+    if (!File(p.join(root, 'pubspec.yaml')).existsSync()) {
+      error.writeln(
+        'Warning: no pubspec.yaml found here; dartograph.yaml written anyway.',
+      );
+    }
     return ExitStatus.success.code;
   } on IOException {
     return _reportInitWriteFailure(error, configFile.path);
@@ -1010,7 +1022,10 @@ Future<int> _runDead(
                     .where((item) => item.name == value)
                     .firstOrNull;
           if (reportFormat == null) {
-            error.writeln('Unknown report format: $value');
+            error.writeln(
+              'Unknown report format: $value '
+              '(expected text, json, github-actions, or sarif).',
+            );
             return ExitStatus.usage.code;
           }
         case '--baseline':
@@ -1298,7 +1313,9 @@ Future<int> _runGraph(
         _ => null,
       };
       if (level == null) {
-        error.writeln('Unknown graph level: $value');
+        error.writeln(
+          'Unknown graph level: $value (expected file, type, or symbol).',
+        );
         return ExitStatus.usage.code;
       }
     } else {
@@ -1325,7 +1342,9 @@ Future<int> _runGraph(
   }
   final format = positional[1];
   if (!const {'dot', 'json', 'mermaid', 'html', 'anon'}.contains(format)) {
-    error.writeln('Unknown graph format: $format');
+    error.writeln(
+      'Unknown graph format: $format (expected dot, json, mermaid, html, or anon).',
+    );
     return ExitStatus.usage.code;
   }
   try {
@@ -1380,8 +1399,15 @@ int _reportBaselineWriteFailure(StringSink error) {
   return ExitStatus.failure.code;
 }
 
-int _reportRulesConfigFailure(StringSink error) {
-  error.writeln('Analysis failed: unable to read the rules configuration.');
+int _reportRulesConfigUnreadable(StringSink error, String config) {
+  error.writeln(
+    'Analysis failed: unable to read the rules configuration: $config.',
+  );
+  return ExitStatus.failure.code;
+}
+
+int _reportRulesConfigInvalid(StringSink error, String detail) {
+  error.writeln('Analysis failed: invalid rules configuration: $detail');
   return ExitStatus.failure.code;
 }
 
@@ -1464,6 +1490,10 @@ Usage: dartograph [--help] [--version]
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
 
+skill prints an installable agent skill. --install writes
+<skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
+file (a symlink at that path is replaced as a link, never followed).
+
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
 declarations reached only from test code) at info severity, so it never fails
@@ -1511,7 +1541,8 @@ missing option value is not silently consumed. Pass such a path as "./-name".
 
 Exit codes:
   0   success
-  1   dead findings, or cycles/rules/metrics findings with --strict
+  1   dead findings (including a dead --explain of an unreachable target),
+      or cycles/rules/metrics findings with --strict
   2   analysis failure
-  64  usage error
+  64  usage error, or a query/--explain target not found in the graph
 ''';
