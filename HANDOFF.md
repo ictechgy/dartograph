@@ -1,16 +1,18 @@
 # Handoff
 
-_Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반영[#80, #82~#87, #90]을 발행, pub.dev 160/160. 릴리스 기준 v0.8.0 → 8d8baa3, main 최신 8d8baa3. 게시는 사용자가 호스트에서 실행하고 태그·Release·설치본 검증·점수 확인은 세션에서 수행했다)_
+_Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반영[#80, #82~#87, #90]을 발행, pub.dev 160/160. 릴리스 기준 v0.8.0 → 8d8baa3, main 최신 c64eb84. 게시는 사용자가 호스트에서 실행하고 태그·Release·설치본 검증·점수 확인은 세션에서 수행했다)_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(전체 개선 검토 반영, PR #82~#85)**: 5축(성능·보안·구조·기능·사용성) 전수 검토의
-  결과를 3개 제품 PR + 1개 문서 PR로 반영하고 GLM 패킷 리뷰를 통과시켜 머지했다. ⑤ 보안
-  (skill 심볼릭 링크 write-through, temp 경화), ② 성능(루프 내 RegExp 컴파일 4곳 hoist +
-  limitationsForSource 메모), ③ 사용성(skill 경로 표시, rules 실패 분리, usage 한줄 메시지
-  유효값, init pubspec 경고, help 종료 코드 계약), ④ 문서(USAGE 종료 코드 절 재배치·표 확장,
-  CONTRIBUTING rg 전제, 계약 스크립트 주석).
+- **이번 세션(0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92)**: 5축(성능·보안·구조·기능·
+  사용성) 전수 검토의 결과를 제품 PR 5건(#82·#83·#84·#87·#90) + 문서 PR 4건(#85·#86·#91·#92)으로
+  반영하고 GLM 패킷 리뷰를 통과시켜 머지했다. ① 보안(skill 심볼릭 링크 write-through 차단,
+  temp 경화), ② 성능(루프 내 RegExp 컴파일 4곳 hoist + limitationsForSource 메모), ③ 사용성
+  (skill 경로 표시, rules 실패 분리, usage 한줄 메시지 유효값, init pubspec 경고, help 종료
+  코드 계약), ④ 기능/문서(YAML 설정 1 MiB 상한, USAGE 종료 코드 절 재배치·표 확장,
+  CONTRIBUTING rg 전제), ⑤ **0.8.0 발행**(사용자 호스트 게시 + 세션의 태그·Release·설치본
+  검증·점수 160/160 확인)과 pub 점수 개선(example 신설, analyzer 14.4.x 완화).
 - 직전 세션(Tier 3 init 구현, PR #80): 사용자 요청에 따라 Tier 3 확장 작업 중 `dartograph init`
   명령과 기본 `dartograph.yaml` 템플릿 생성을 구현하고, GLM 패킷 리뷰 피드백을 반영해 머지했다.
 - 이전 세션(0.7.0 릴리스, PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor(0.7.0)로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증 완료.
@@ -21,11 +23,9 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
   (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.8.0) 공개·**점수 160/160**.
   새 격리 캐시 설치본으로 `--version` 0.8.0·CLI 계약 통과 실측. (이전 0.7.0→`e1b3202`,
   0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`8d8baa3`** (PR #91 머지). 열린 제품 PR 없음.
+- main 기준: **`c64eb84`** (PR #92 머지). 열린 제품 PR 없음.
 - **미릴리스 누적 0건** — 5건(#80, #82~#84, #87)과 #90(example + analyzer 14.4.x)이
-  0.8.0으로 발행됐다. #85·#86·#91은 문서 전용.
-- **미릴리스 누적 5건**: PR #80(init 명령) + PR #82(원자적 쓰기 경화) + PR #83(진단 메시지·help)
-  + PR #84(RegExp hoist·메모) + PR #87(YAML 설정 읽기 상한). #85·#86은 문서 전용(누적 제외).
+  0.8.0으로 발행됐다. #85·#86·#91·#92는 문서 전용.
 - 테스트 308개, 라인 커버리지 **97.00%**(#87 브랜치 기준, #82 97.04%·#83 96.99%·#84 96.94%).
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
@@ -37,13 +37,13 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
 
 ## Completed
 
-### 이번 세션 (전체 개선 검토 반영, PR #82~#85)
+### 이번 세션 (0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92)
 
 5축(성능·보안·구조·기능·사용성) 전수 검토를 코드 실측으로 수행(탐색 3병렬 + 핵심 지적 직접
 대조)하고, 결과를 최소 diff PR로 나눠 반영했다. 종결·재도출 금지 항목(P7, bridges 개행, T6,
 대형 모듈 분리, package:args 등)은 검토에서 제외했다.
 
-- **원자적 쓰기 경화(PR #82, `64118cd`→squash 없이 머지 커밋)**:
+- **원자적 쓰기 경화(PR #82, 브랜치 헤드 `dc03c0c`)**:
   - 신규 검토 지적 — `skill --install`이 `writeAsString`으로 심볼릭 링크를 **관통**해 신뢰할
     수 없는 체크아웃 밖 파일을 덮어썼다(링크 대상 부재 시 `--force` 불필요). init만 PR #80의
     rename 정책이 있고 baseline temp(`.tmp.$pid`)는 예측 가능·관통 가능하는 3박자 불일치.
@@ -105,6 +105,12 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
     bridge_index는 YAML을 읽지 않는다(62행은 bridge 스캐너의 Dart 소스 읽기). 반영: 경계값
     테스트, async 메시지 검사, USAGE 문서화. 기각: batch 상수 통합(오류 문구가 1 MiB를
     하드코딩).
+- **0.8.0 발행 준비·게시·점수 개선(PR #89~#92)**:
+  - #89(버전 정합 6곳 + CHANGELOG 두 언어)·#90(example 신설 + analyzer `>=14.3.0 <15.0.0`
+    완화 + 주간 analyzer-freshness 워크플로우)로 게시 전 상태를 완성 — 리뷰·실측 상세는
+    Verification의 0.8.0 항목과 doc/DECISION-analyzer.md 14.4.x 확장 절.
+  - 사용자 호스트 게시(16:20 UTC) → 태그·Release·설치본 검증·점수 160/160 확인(상세는
+    Verification). HANDOFF 본문의 게시 경계 기록 참조.
 
 ### 직전 세션 (Tier 3 init 구현, PR #80)
 
@@ -370,15 +376,17 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
   graph_edge(`compareGraphEdges` 공유 비교자), graph_snapshot(간선 toSet dedup — P7 측정-보류),
   fact_cache, retention_reason(`inlineIgnore` 포함 8값), **atomic_write**(PID+무작위 접미사
   배타적 생성·rename 교체·정리의 공용 쓰기 경계 — init·skill·baseline이 사용; 보장 경계는
-  클래스 문서), tool_info.
+  클래스 문서), **config_source**(저장소 제공 YAML 설정의 1 MiB 읽기 상한 — 5개 읽기 지점이
+  사용; 초과 시 경로 없는 정적 FormatException), tool_info.
 - 문서: README.md(영어 정본)·README.ko.md, CHANGELOG.md(영어)·CHANGELOG.ko.md,
   SECURITY.md(심볼릭 링크 채널), doc/USAGE.md(affected·html·level/collapse·ignore·
   entry-points limitation·결정성 예외 2종), CONTRIBUTING(영어 정본 규칙·릴리스 체크리스트),
   lib/AGENTS.md(결정성 예외), doc/RESEARCH.md(Tier 2 마감·미채택 처분).
-- 테스트: 253개. 신규 계열 — test/export 제어문자 골든, test/cli/audit_gap_cli_test,
-  test/cli/bridges_project_test(공유 루트 9케이스),
-  affected_cli_test·graph_level_cli_test, fact_cache_test의 비표준 디렉터리 stale 회귀,
-  changed_files decode 회귀, symlink 양방향 회귀(adoption·affected).
+- `example/main.dart`: 공개 라이브러리 API 시연(pub.dev example 점수). 모든 선언이 main에서
+  도달해 자체 분석 findings 0 게이트를 유지한다.
+- 테스트: 308개. 신규 계열 — test/core/atomic_write_test(배타적 생성 fail-closed·링크 교체·
+  정리), test/core/config_source_test(1 MiB 경계), init·skill symlink 회귀, oversized
+  rules config CLI 회귀, analyzer_version_contract_test(검증된 마이너 집합 모델).
 
 ## Important Context / Decisions
 
@@ -665,6 +673,22 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
 - 샌드박스: rg 없음(bash grep, boundary 게이트는 CI), Write 도구는 워크스페이스 밖 거부
   (PR 본문은 bash heredoc), 커버리지는 전용 포트, macOS는 비-UTF8 파일명·`::` 파일명
   생성 가능(개행 파일명도 가능 — 주입 테스트에 활용).
+- **packet-review는 PR 브랜치가 체크아웃된 상태에서 보낸다**: 래퍼가 --files를 현재
+  작업 트리에서 읽으므로, 다른 브랜치를 체크아웃한 채 보내면 리뷰어가 이전 내용을 보고
+  stale 차단 지적을 낸다(#83에서 실증 — 3건 중 2건이 이미 반영된 핀). 리뷰어 지적은
+  항상 현재 브랜치 코드와 대조한다.
+- **게이트의 성공 문구를 확인한다**: `dart format --set-exit-if-changed . && echo OK`를
+  `;` 뒤에 두면 실패해도 다음 명령이 돈다 — FORMAT_OK 미출력을 놓쳐 CI 22초 fail(#83).
+  포맷·analyze·테스트 출력에는 항상 성공 마커를 찍고 그 출력을 읽는다.
+- **`dart pub publish`는 샌드박스에서 실행 불가**(0.8.0 실증): 격리 홈에 pub.dev 자격
+  증명이 없고 OAuth 로그인 플로우가 임시 로컬 포트 바인드(EPERM — 전용 포트 단일 허용)를
+  필요로 한다. 게시는 사용자가 호스트에서 실행하고, 세션은 태그·Release·설치본 검증을
+  이어받는다.
+- **`gh release create --target`은 태그가 이미 원격에 있으면 invalid**다 — 태그를 먼저
+  푸시했다면 --target 없이 생성한다(태그가 커밋을 이미 가리킨다).
+- **pub.dev 버전 목록 엔드포인트는 패키지 API보다 수분 늦게 갱신된다** — 게시 직후
+  fresh-cache `pub global activate <새 버전>`이 "doesn't match any versions"로 실패하면
+  재시도한다(재게시 금지).
 - **반쪽 수정 금지 / 게이트별 exit code 개별 확인 / Directory.current 프로세스 전역 /
   상대 경로 파일 쓰기 오염 주의 / 실패 재현은 올바른 기준 커밋에서 / main 직접 커밋
   금지 / 기본값 출력 보존은 회귀로 고정** — 계속 유효.
@@ -675,11 +699,10 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
 2. 지금까지 완료: PR #39~#54(0.4.1·0.5.0 릴리스 + 성능 backlog + issue #38 dartograph 측)
    + PR #57~#68(issue #38 종결 + 죽은 API 처분 + README 퇴고 + 0.6.0 릴리스)
    + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 흡수)
-   + PR #78(0.7.0 릴리스 완료 — 미릴리스 누적 6건 전량 발행)
-   + **PR #80(Tier 3 init 명령 및 dartograph.yaml 템플릿 생성 구현 완료)**.
-   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 1건**(PR #80).
+   + PR #78(0.7.0 릴리스) + PR #80(Tier 3 init 명령)
+   + **PR #82~#92(전체 개선 검토 반영 + 0.8.0 릴리스 — 미릴리스 전량 발행, 점수 160/160)**.
+   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 0건.**
 3. **다음 세션 이월분**:
-   - 미릴리스 누적 4건(#80, #82~#84) — 다음 릴리스 때 CHANGELOG 두 언어에 기록.
    - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·markdown/codeowners 리포터·issue-type
      필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
    - 검토에서 의도적 제외한 항목(재상정 금지는 아니지만 재검토 시 근거 필요): html 400노드
@@ -691,4 +714,4 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed. PRs #82-#85 and #87 applied the five-axis review (atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure, and a 1 MiB read cap for repository-provided YAML configs; current main at cf8a029). 5 unreleased PRs accumulated (#80, #82, #83, #84, #87). Line coverage is 97.00% across 308 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.8.0 is released (pub.dev latest 0.8.0, score 160/160, ENGLISH README/Changelog, tag v0.8.0 at 8d8baa3 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.8.0 and the CLI contract; previous releases: 0.7.0 at e1b3202, 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PRs #80 and #82-#92 shipped Tier 3 'dartograph init' plus the five-axis review: atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure, a 1 MiB read cap for repository-provided YAML configs (core/config_source.dart), example/main.dart, and the analyzer range widened to >=14.3.0 <15.0.0 with validated-minor set {3,4} and a weekly analyzer-freshness CI lane (0 unreleased PRs; main at c64eb84). Line coverage is 97.00% across 308 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
