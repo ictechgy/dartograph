@@ -147,6 +147,38 @@ cache hit와 miss의 출력이 같다. 캐시는 canonical project root의 SHA-2
 릴리스 후보 self graph에서 첫 cache miss는 8.82초, 같은 입력의 hit는 3.97초였고 두
 JSON의 SHA-256이 일치했다.
 
+## 14.4.x 확장 (2026-09-13)
+
+- 상태: 채택 (위 14.3.x 고정 결정의 범위 확장 — 기존 기록은 유지)
+- 범위: pub.dev 유지관리 점수 — 의존성이 최신 stable을 지원해야 30일 후 점수가 감점된다.
+  analyzer 14.4.0이 2026-09-13에 공개되어 `>=14.3.0 <14.4.0` 제약은 이를 지원하지 않는다.
+
+### 결정
+
+1. pubspec 제약을 `>=14.3.0 <15.0.0`로 넓힌다. 검증된 마이너 집합은 **{14.3, 14.4}**다.
+2. `test/index/analyzer_version_contract_test.dart`의 상수를 마이너 집합 모델로 갱신한다
+   (해석된 버전이 집합에 속하는지 검사).
+
+### 근거 (문서 절차대로 API 표면 재검증)
+
+- 지정된 5개 표면을 설치된 14.4.0 소스에서 직접 확인:
+  `declaredFragment`(ast.dart), `Identifier.element`(ast.dart:27466 `Element? get element`),
+  `Element.library`(element.dart), `Element.enclosingElement`(element.dart),
+  `Element.firstFragment`(element.dart).
+- 전체 테스트 스위트가 analyzer 14.4.0 해석에서 컴파일·통과 — index 어댑터가 5개 표면을
+  실제로 쓰는 경로가 14.4.0에서 재검증됐다(문서 규칙: API는 설치된 소스와 실제 컴파일로 확인).
+- 캐시 정합성: 해석 resolution이 바뀌면 `.dart_tool/package_config.json`의 analyzer
+  `rootUri` 경로(`analyzer-14.4.0/`)가 바뀌고 이 파일은 캐시 키 입력이라 자동 무효화된다
+  — 별도 identity 변경 불필요.
+
+### 실험 환경
+
+| 항목 | 값 |
+|---|---|
+| analyzer | 14.4.0 |
+| 기본 Dart | 3.13.3 (macOS arm64) |
+| 검증 방법 | 전체 테스트 스위트 컴파일·통과 + 5개 표면 소스 확인 |
+
 ## Phase 1에 넘기는 제약
 
 - analyzer 타입은 `lib/src/index/` 밖으로 노출하지 않는다.

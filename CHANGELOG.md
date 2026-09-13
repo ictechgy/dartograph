@@ -4,6 +4,16 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## 0.8.0
 
+- Added a runnable `example/main.dart` demonstrating the public library API:
+  constructing a `CodeGraph`, snapshotting it, querying dead declarations
+  through a `SymbolQuerySession`, and serializing findings with `toJson`
+
+- Widened the validated `analyzer` dependency range to `>=14.3.0 <15.0.0`
+  (14.4.x re-validated per `doc/DECISION-analyzer.md`; the full test suite
+  compiles and passes against 14.4.0). Cache keys already incorporate the
+  resolved package configuration, so analyzer upgrades invalidate cached
+  analyses naturally
+
 - Added the `dartograph init [--force] [<package-root>]` command, which writes
   a commented `dartograph.yaml` configuration template to the project root
   (parity with cartograph's `init`). The template advertises only the

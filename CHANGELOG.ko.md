@@ -4,6 +4,15 @@
 
 ## 0.8.0
 
+- 공개 라이브러리 API를 보여주는 실행 가능한 `example/main.dart` 추가 — `CodeGraph`를
+  직접 구성하고 스냅샷한 뒤 `SymbolQuerySession`으로 미도달 선언을 질의하고 `toJson`으로
+  직렬화하는 흐름이다
+
+- 검증된 `analyzer` 의존성 범위를 `>=14.3.0 <15.0.0`으로 넓혔다(14.4.x를
+  `doc/DECISION-analyzer.md` 절차대로 재검증 — 전체 테스트 스위트가 14.4.0에서
+  컴파일·통과). 캐시 키는 이미 해석된 패키지 설정을 반영하므로 analyzer 업그레이드 시
+  캐시가 자동 무효화된다
+
 - `dartograph init [--force] [<package-root>]` 명령 추가 — 프로젝트 루트에 주석 달린
   `dartograph.yaml` 설정 템플릿을 생성한다(cartograph `init` 패리티). 템플릿은 구현된
   스키마(`entry_points`)만 광고한다. 기존 파일이 있으면 exit 64로 중단하고 `--force`로

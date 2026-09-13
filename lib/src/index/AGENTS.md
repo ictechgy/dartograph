@@ -2,7 +2,7 @@
 
 [제품 모듈 규칙](../../AGENTS.md)을 따른다. package:analyzer import는 제품 코드 중 이 폴더에만 둔다.
 
-- analyzer는 pubspec.yaml의 검증된 14.3.x 범위를 유지한다. API는 설치된 소스와 실제 컴파일로 확인한다.
+- analyzer는 검증된 마이너 집합을 유지한다 — 정본은 test/index/analyzer_version_contract_test.dart와 doc/DECISION-analyzer.md다. API는 설치된 소스와 실제 컴파일로 확인한다.
 - 심볼의 library URI·선언 경로 ID와 source 위치를 구분한다. part는 호스트 library에 귀속된다.
   익명 extension의 source·offset 보조 ID는 편집에 따라 달라질 수 있으므로 영구 식별자로 과장하지 않는다.
 - 프로젝트 경로는 canonical root 기준 project: ID로 정규화한다. OS 경로 구분자·symlink·루트 밖 경로를 검증한다.

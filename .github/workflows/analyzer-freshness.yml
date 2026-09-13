@@ -1,0 +1,25 @@
+name: analyzer-freshness
+
+# analyzer 제약은 검증된 마이너 집합만 허용한다(doc/DECISION-analyzer.md).
+# CI는 커밋된 pubspec.lock으로 해석하므로 새 analyzer 마이너가 나와도
+# 계약 테스트가 스스로 울지 않는다. 이 스케줄 잡이 신선한 resolution으로
+# 전체 스위트를 돌려 검증 집합 밖 마이너를 조기에 잡는다.
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+        with:
+          sdk: 3.13.3
+      - run: dart pub upgrade
+      - run: dart test
