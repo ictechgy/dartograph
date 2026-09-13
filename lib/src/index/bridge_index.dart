@@ -138,7 +138,7 @@ BridgeIndexResult indexBridges(
           '${dynamicChannels == 1 ? 'channel constructor uses' : 'channel constructors use'} '
           'a non-literal name',
     if (dynamicBasicMessageChannels > 0)
-      'dynamic-channel-names: $dynamicBasicMessageChannels '
+      'dynamic-basic-message-channel-names: $dynamicBasicMessageChannels '
           '${dynamicBasicMessageChannels == 1 ? 'BasicMessageChannel constructor uses' : 'BasicMessageChannel constructors use'} '
           'a non-literal name',
     if (dynamicMethodNames > 0)
@@ -170,7 +170,7 @@ BridgeIndexResult indexBridges(
     if (unresolvedBasicMessageSends > 0)
       'unresolved-basic-message-sends: $unresolvedBasicMessageSends '
           '${unresolvedBasicMessageSends == 1 ? 'send call has' : 'send calls have'} '
-          'an unresolved receiver',
+          'no proven BasicMessageChannel receiver',
     if (conditionalFlutterImports > 0)
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '
@@ -485,13 +485,20 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitAssignmentExpression(AssignmentExpression node) {
     final left = node.leftHandSide;
-    if (node.operator.lexeme == '=' && left is SimpleIdentifier) {
-      _assignChannel(left.name, _channelCreatedBy(node.rightHandSide));
-      _assignBasicChannel(
-        left.name,
-        _basicChannelCreatedBy(node.rightHandSide),
-      );
-      _removeStringConstant(left.name);
+    if (node.operator.lexeme == '=') {
+      if (left is SimpleIdentifier) {
+        final name = left.name;
+        _assignChannel(name, _channelCreatedBy(node.rightHandSide));
+        _assignBasicChannel(name, _basicChannelCreatedBy(node.rightHandSide));
+        _removeStringConstant(name);
+      } else if (messages &&
+          left is PropertyAccess &&
+          left.target is ThisExpression) {
+        _assignBasicChannel(
+          left.propertyName.name,
+          _basicChannelCreatedBy(node.rightHandSide),
+        );
+      }
     }
     super.visitAssignmentExpression(node);
   }

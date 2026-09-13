@@ -38,6 +38,12 @@ class Api {
       result.limitations,
       contains(startsWith('unresolved-basic-message-sends:')),
     );
+    expect(
+      result.limitations,
+      contains(
+        'unresolved-basic-message-sends: 1 send call has no proven BasicMessageChannel receiver',
+      ),
+    );
   });
 
   test(
@@ -77,6 +83,30 @@ void mutates() {
       );
     },
   );
+
+  test('updates a mutable field when reassigned through this', () async {
+    final root = await Directory.systemTemp.createTemp('bridge-messages.');
+    addTearDown(() => root.delete(recursive: true));
+    await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('before', codec);
+
+  void send() {
+    this.channel = BasicMessageChannel<Object?>('after', codec);
+    channel.send(null);
+  }
+}
+''');
+
+    final result = indexBridges(root.path, messages: true);
+
+    expect(result.facts, hasLength(1));
+    expect(result.facts.single['channel'], 'after');
+    expect(result.limitations, isEmpty);
+  });
 
   test(
     'retains dynamic interpolation and only its decoded leading prefix',
@@ -119,4 +149,32 @@ final channel = BasicMessageChannel<Object?>('unused', codec);
     expect(result.facts, isEmpty);
     expect(result.limitations, isEmpty);
   });
+
+  test(
+    'uses a Basic-specific dynamic name limitation in message mode',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-messages.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+final method = MethodChannel(methodName);
+final basic = BasicMessageChannel<Object?>(basicName, codec);
+void send() => basic.send(null);
+''');
+
+      final result = indexBridges(root.path, messages: true);
+
+      expect(
+        result.limitations,
+        contains(startsWith('dynamic-basic-message-channel-names:')),
+      );
+      expect(
+        result.limitations.where(
+          (limitation) => limitation.startsWith('dynamic-channel-names:'),
+        ),
+        isEmpty,
+      );
+    },
+  );
 }
