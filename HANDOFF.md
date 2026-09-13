@@ -1,22 +1,29 @@
 # Handoff
 
-_Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartograph init 패리티, dartograph.yaml 템플릿 생성, 원자적 쓰기·충돌 가드, CLI 계약 70케이스 통과. 릴리스 기준 v0.7.0 → e1b3202, main 최신 f4000eb. 미릴리스 누적 1건[#80])_
+_Last updated: 2026-09-13 (전체 개선 검토 반영 — PR #82~#85: skill 심볼릭 링크 관통 차단·원자적 쓰기 경화, 반복 RegExp hoist, CLI 진단 메시지·help 계약 보강, USAGE 종료 코드 절 정리. 릴리스 기준 v0.7.0 → e1b3202, main 최신 d38228b. 미릴리스 누적 4건[#80, #82~#84])_
 
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(Tier 3 init 구현, PR #80)**: 사용자 요청에 따라 Tier 3 확장 작업 중 `dartograph init` 명령과 기본 `dartograph.yaml` 템플릿 생성을 구현하고, GLM 패킷 리뷰(미구현 키 제거, 파일 쓰기 원자성, 전용 진단 분리, 템플릿 파싱 실질 검증) 피드백을 반영해 머지했다.
-- 직전 세션(0.7.0 릴리스, PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor(0.7.0)로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증 완료.
-- 이전 세션(감사 낮음 처분 + GraphNode kind + Tier 4, PR #69~#76): ① bridges 개행 실패 현행 유지 종결, ② `unscanned-*` 복수형 문구 수정(#69), ③ GraphNode isLibrary(#71), ④ Tier 4 4종(#72~#75) 흡수.
+- **이번 세션(전체 개선 검토 반영, PR #82~#85)**: 5축(성능·보안·구조·기능·사용성) 전수 검토의
+  결과를 3개 제품 PR + 1개 문서 PR로 반영하고 GLM 패킷 리뷰를 통과시켜 머지했다. ⑤ 보안
+  (skill 심볼릭 링크 write-through, temp 경화), ② 성능(루프 내 RegExp 컴파일 4곳 hoist +
+  limitationsForSource 메모), ③ 사용성(skill 경로 표시, rules 실패 분리, usage 한줄 메시지
+  유효값, init pubspec 경고, help 종료 코드 계약), ④ 문서(USAGE 종료 코드 절 재배치·표 확장,
+  CONTRIBUTING rg 전제, 계약 스크립트 주석).
+- 직전 세션(Tier 3 init 구현, PR #80): 사용자 요청에 따라 Tier 3 확장 작업 중 `dartograph init`
+  명령과 기본 `dartograph.yaml` 템플릿 생성을 구현하고, GLM 패킷 리뷰 피드백을 반영해 머지했다.
+- 이전 세션(0.7.0 릴리스, PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor(0.7.0)로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증 완료.
 
 ## Current Status
 
 - 릴리스 기준: **`v0.7.0` → `e1b3202`** (PR #78 merge = 게시 커밋). pub.dev latest 0.7.0
   (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.7.0) 공개. 새 격리 캐시 설치본으로
   `--version` 0.7.0·CLI 계약 62케이스 검증 완료. (이전 0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`f4000eb`** (PR #80 머지). 열린 제품 PR 없음.
-- **미릴리스 누적 1건**: PR #80 (`dartograph init` 명령 및 `dartograph.yaml` 템플릿 생성).
-- 테스트 295개, 라인 커버리지 **96.93%**.
+- main 기준: **`d38228b`** (PR #85 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 4건**: PR #80(init 명령) + PR #82(원자적 쓰기 경화) + PR #83(진단 메시지·help)
+  + PR #84(RegExp hoist·메모). #85는 문서 전용(누적 제외).
+- 테스트 304개, 라인 커버리지 **96.99%**(#83 브랜치 기준, #82 97.04%·#84 96.94%).
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
@@ -24,7 +31,62 @@ _Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartogra
 
 ## Completed
 
-### 이번 세션 (Tier 3 init 구현, PR #80)
+### 이번 세션 (전체 개선 검토 반영, PR #82~#85)
+
+5축(성능·보안·구조·기능·사용성) 전수 검토를 코드 실측으로 수행(탐색 3병렬 + 핵심 지적 직접
+대조)하고, 결과를 최소 diff PR로 나눠 반영했다. 종결·재도출 금지 항목(P7, bridges 개행, T6,
+대형 모듈 분리, package:args 등)은 검토에서 제외했다.
+
+- **원자적 쓰기 경화(PR #82, `64118cd`→squash 없이 머지 커밋)**:
+  - 신규 검토 지적 — `skill --install`이 `writeAsString`으로 심볼릭 링크를 **관통**해 신뢰할
+    수 없는 체크아웃 밖 파일을 덮어썼다(링크 대상 부재 시 `--force` 불필요). init만 PR #80의
+    rename 정책이 있고 baseline temp(`.tmp.$pid`)는 예측 가능·관통 가능하는 3박자 불일치.
+  - `lib/src/core/atomic_write.dart` 신설: PID+무작위 16hex 접미사, 배타적 생성(기존
+    내용물 있으면 실패 — 심어둔 링크 절단·관통 불가), rename 교체(대상 자리 링크는 링크
+    자체를 교체), best-effort 정리로 원래 예외 보존. 보장 경계(POSIX 속성, 적극적 race
+    범위 밖, 부모 디렉터리 미생성)를 클래스 문서로 명시.
+  - init·skill·`BaselineStore.write` 이관. **skill 충돌 가드에 `Link.exists()` 추가**로
+    매달린 링크도 `--force` 요구(init 정렬).
+  - 회귀: 배타적 생성 fail-closed(접미사 주입 파라미터), 대상 자리 매달린/살아 있는 링크
+    교체 단위·CLI 테스트 6건 신설. fact_cache는 사용자 사설 캐시 디렉터리(위협 모델 밖)라
+    기존 패턴 유지.
+  - GLM 리뷰 차단 0. 반영: 정리 이중 실패 시 원래 예외 보존, 접미사 8→16, Random hoist,
+    위협 모델 문서화, skill 가드 정렬, 배타적 생성 테스트. 기각: NAME_MAX 인접 경로(기존
+    패턴), 디렉터리 fsync(CLI 무관), rename 전 재검사(경쟁 하 무의미).
+- **반복 RegExp hoist + limitation 메모(PR #84)**:
+  - `dead --report-redundant-public`이 후보 선언마다 연산자 패턴을 컴파일(0.7.0 신규 코드에
+    재발생한 감사 P4 부류) + fact_cache 키 검증·bridge fact 값·생성 파일 접미 3곳. 전부
+    상단 `final` hoist.
+  - `limitationsForSource`의 finding마다 filter·toSet·sort를 dead 선언·dead 파일·
+    redundant-public 세 루프에서 source별 메모. 함수가 결정적이라 출력 불변. 메모의
+    메서드 지역성(limitations 인자 의존)을 주석으로 고정. dead 선언 루프 이중 `split` 제거.
+  - **출력 byte 동등성 실측**: `tool/benchmark_index.dart` 7종 sha256이 main과 완전 동일.
+  - GLM 리뷰 차단 0. 반영: 메모 지역성 주석, 이중 split. 기각: putIfAbsent 교체(가독성),
+    `List.unmodifiable` 포장(identity 소비자·변이 없음 — retentionRootsChecked 선례).
+- **진단 메시지·help 계약 보강(PR #83)**:
+  - skill 설치 성공·충돌 메시지에 실제 경로 표시(init과 동일 계약).
+  - rules 설정 실패 분리 — 읽기 실패는 사용자가 준 `--config` 값을, 형식 오류는 파서 상세를
+    표시. **진단 경로 미반향 계약 유지**(파서 상세는 설정 내용만; loadYaml 문자열 입력이라
+    YamlException에도 경로 없음 — yaml 3.1.4·source_span 1.10.2 소스로 `YamlException ←
+    SourceSpanFormatException implements FormatException` 1차 출처 확인). phase5 정확 핀 갱신.
+  - 형식·레벨 오류 한줄 메시지 3곳에 유효값 추가(contains 핀 무수정 통과).
+  - pubspec 없는 디렉터리 init 시 stderr 경고(exit 0 유지 — 스캐폴딩 지원, 실수 가시화).
+  - help: skill 문단(설치 경로·링크 교체 정책) + 종료 코드 계약 명시(dead --explain 미도달
+    대상 1, 그래프 부재 query/--explain 64 — **기존 동작의 문서화**). `dead --explain` 1→0
+    변경은 의도적으로 하지 않음.
+  - GLM 리뷰: 지적 3건 중 B1·B3는 **패킷이 이전 체크아웃을 읽은 stale 지적**(핀 갱신·help
+    핀 이미 반영·'delete' 부분열 grep으로 소거), B2는 1차 출처 실측으로 해소(YamlException
+    타입·layer_rules 메시지 경로 부재). 반영: 주석 정확화, 테스트 stderr sink, skill 경로 핀.
+  - 실수 기록: `dart format --set-exit-if-changed` 실패(&& 체인의 FORMAT_OK 미출력)를 놓쳐
+    CI 22초 fail — 로컬 재포맷 후 해소. **포맷 게이트 출력은 성공 문구를 확인한다.**
+- **문서 정리(PR #85, 문서 전용·GLM 생략 — 재배치·기존 계약 문서화 사유 기록)**:
+  - USAGE `## 종료 코드` 절에 끼어 있던 query --batch·compare·affected 문단 30줄을 `## 명령`
+    절로 이동(내용 무변경).
+  - 종료 코드 표 확장: `dead --explain` 미도달 대상 1, 얕은 클론 Git 변경 파일 계산 실패 2.
+  - init pubspec 경고·skill 설치 경로 문단 추가. CONTRIBUTING에 check-analyzer-boundary의
+    ripgrep 전제 명시. verify-cli-contract.sh 헤더에 "exit-code 계약만 검증" 명시.
+
+### 직전 세션 (Tier 3 init 구현, PR #80)
 
 - **`init` 명령 및 `dartograph.yaml` 기본 템플릿 생성(PR #80, 2026-09-11)**:
   - `dartograph init [--force] [<package-root>]` 구현 (cartograph `init` 패리티).
@@ -286,7 +348,9 @@ _Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartogra
 - `lib/src/core/`: `code_graph`(nodes/edges 뷰 캐시+addNode/addEdge 무효화 — 중복 간선은
   GraphEdge 값 동등성으로 무효화 생략, 주석), graph_node(가드 4종+==/hashCode 테스트됨),
   graph_edge(`compareGraphEdges` 공유 비교자), graph_snapshot(간선 toSet dedup — P7 측정-보류),
-  fact_cache, retention_reason(`inlineIgnore` 포함 8값).
+  fact_cache, retention_reason(`inlineIgnore` 포함 8값), **atomic_write**(PID+무작위 접미사
+  배타적 생성·rename 교체·정리의 공용 쓰기 경계 — init·skill·baseline이 사용; 보장 경계는
+  클래스 문서), tool_info.
 - 문서: README.md(영어 정본)·README.ko.md, CHANGELOG.md(영어)·CHANGELOG.ko.md,
   SECURITY.md(심볼릭 링크 채널), doc/USAGE.md(affected·html·level/collapse·ignore·
   entry-points limitation·결정성 예외 2종), CONTRIBUTING(영어 정본 규칙·릴리스 체크리스트),
@@ -429,6 +493,12 @@ _Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartogra
   캐시 identity 불변 명시) 반영 후 머지(`e1b3202`). publish 성공 → 태그 v0.7.0=게시 커밋(`e1b3202`)
   + GitHub Release → pub.dev API latest 0.7.0 즉시 확인 → 새 격리 캐시 설치본으로
   --version 0.7.0 및 CLI 계약 62케이스 통과 실측.
+- 전체 개선 검토 반영(PR #82~#85, 2026-09-13): 각 PR마다 format·analyze clean, 전체 테스트
+  (295→304), corpus·cli-contract·clean git dry-run 0, 두 SDK CI green 후 머지. 커버리지
+  #82 97.04%·#84 96.94%·#83 96.99%(≥90). #84는 benchmark 7종 sha256 main 완전 동일로
+  출력 byte 보존 실측. GLM packet-review 3회(#82 차단 0, #84 차단 0, #83 지적 3건 —
+  stale 패킷 2건 소거 + 1차 출처 실측 해소, 상세는 Completed) + #85는 문서 전용 생략(사유
+  본문 기록). 머지 순서 #82(`e40e8c3`) → #84·#85 → #83(`d38228b`).
 
 ## Blockers & Open Questions
 
@@ -564,9 +634,16 @@ _Last updated: 2026-09-11 (Tier 3 init 명령 구현 완료 — PR #80: cartogra
    + **PR #80(Tier 3 init 명령 및 dartograph.yaml 템플릿 생성 구현 완료)**.
    완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 1건**(PR #80).
 3. **다음 세션 이월분**:
-   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·markdown/codeowners 리포터·issue-type 필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
+   - 미릴리스 누적 4건(#80, #82~#84) — 다음 릴리스 때 CHANGELOG 두 언어에 기록.
+   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·markdown/codeowners 리포터·issue-type
+     필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
+   - 검토에서 의도적 제외한 항목(재상정 금지는 아니지만 재검토 시 근거 필요): html 400노드
+     상한 플래그화(help·USAGE에 고정 문서화됨), `dead --explain` 종료 코드 동작(계약 문서화만
+     수행), NAME_MAX 인접 baseline 경로 temp 이름(기존 패턴), package_config rootUri의
+     저장소 밖 읽기(INFO — 내용은 로컬 sha256으로만 소비), 익명화의 그래프 밖 진입점 경로
+     남음(문서화된 보장 경계 — 인덱스 시점 치환표 등록이 해소안).
 4. 제품 배포 blocker 없음. 다음 명시적인 사용자 지시를 따른다.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed (current main at f4000eb). 1 unreleased PR accumulated (#80). Line coverage is 96.93% across 295 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.7.0 is released (pub.dev latest 0.7.0 with ENGLISH README/Changelog, tag v0.7.0 at e1b3202 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.7.0 and the 62-case CLI contract; previous releases: 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PR #80 implemented Tier 3 'dartograph init' and commented dartograph.yaml template generation with atomic write, symlink safety, and 70 CLI contract cases passed. PRs #82-#85 applied the five-axis review (atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure; current main at d38228b). 4 unreleased PRs accumulated (#80, #82, #83, #84). Line coverage is 96.99% across 304 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
