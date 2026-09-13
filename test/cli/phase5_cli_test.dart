@@ -166,11 +166,13 @@ rules:
         indexPackage: (_) async => indexed,
       );
       // config 파일 부재는 FileSystemException이다. 인덱싱 실패로 뭉개지 않고
-      // 구분하되 기존 계약의 "Analysis failed:" 접두는 유지한다.
+      // 구분하되 기존 계약의 "Analysis failed:" 접두는 유지하고, 사용자가
+      // 준 --config 값으로 어느 파일이 읽히지 않았는지 가리킨다.
       expect(status, ExitStatus.failure.code);
       expect(
         error.toString(),
-        'Analysis failed: unable to read the rules configuration.\n',
+        'Analysis failed: unable to read the rules configuration: '
+        '${temporary.path}/absent.yaml.\n',
       );
       expect(error.toString(), isNot(contains('unable to index')));
     },
