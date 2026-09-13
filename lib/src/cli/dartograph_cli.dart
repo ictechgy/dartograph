@@ -14,6 +14,7 @@ import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../analysis/graph_comparison.dart';
 import '../core/atomic_write.dart';
+import '../core/config_source.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
@@ -434,7 +435,7 @@ Future<int> _runRules(
   }
   final LayerRuleSet ruleSet;
   try {
-    ruleSet = LayerRuleSet.parse(await File(config).readAsString());
+    ruleSet = LayerRuleSet.parse(await readConfiguration(File(config)));
   } on FileSystemException {
     // config 파일 부재·읽기 실패는 인덱싱 실패와 다르다. 원인을 반대로 가리키지 않게
     // 구분하되, 기존 계약(phase5_cli_test)이 단언하는 "Analysis failed:" 접두는 유지한다.
@@ -892,7 +893,7 @@ _WorkspaceDetection _detectPubWorkspace(String rootPath) {
   try {
     final pubspec = File(p.join(rootPath, 'pubspec.yaml'));
     if (!pubspec.existsSync()) return const _WorkspaceDetection(null, null);
-    document = loadYaml(pubspec.readAsStringSync());
+    document = loadYaml(readConfigurationSync(pubspec));
   } on Exception {
     return const _WorkspaceDetection(
       null,
@@ -908,7 +909,7 @@ _WorkspaceDetection _detectPubWorkspace(String rootPath) {
     final candidate = File(p.join(directory.path, 'pubspec.yaml'));
     if (candidate.existsSync()) {
       try {
-        final parsed = loadYaml(candidate.readAsStringSync());
+        final parsed = loadYaml(readConfigurationSync(candidate));
         if (parsed is YamlMap && parsed['workspace'] != null) {
           final workspaceRoot = directory.resolveSymbolicLinksSync();
           if (_workspaceListsMember(

@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:crypto/crypto.dart';
 import 'package:yaml/yaml.dart';
 
+import '../core/config_source.dart';
 import '../core/code_graph.dart';
 import '../core/fact_cache.dart';
 import '../core/graph_edge.dart';
@@ -153,7 +154,7 @@ final class AnalyzerGraphIndex {
       }
       final pubspecFile = File(p.join(root, 'pubspec.yaml'));
       final pubspecContent = pubspecFile.existsSync()
-          ? pubspecFile.readAsStringSync()
+          ? readConfigurationSync(pubspecFile)
           : null;
       _addPublicApiRoots(
         root,
@@ -901,7 +902,7 @@ const _entryPointDirectories = {'bin', 'example', 'lib'};
 Set<String>? _readEntryPoints(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return null;
-  final document = loadYaml(file.readAsStringSync());
+  final document = loadYaml(readConfigurationSync(file));
   // loadYaml은 빈 문서·주석뿐인 문서·`---`만 있는 문서·명시적 `null`을 모두
   // null로 돌려준다. 선언한 진입점이 없다는 점에서 키가 없는 것과 같으므로 기본
   // 보수 정책으로 되돌린다. 내용이 있는데 mapping이 아닌 문서만 거부한다.
