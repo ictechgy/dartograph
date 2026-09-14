@@ -43,8 +43,10 @@ tool/verify-cli-contract.sh
 dart pub publish --dry-run
 ```
 
-`check-coverage.sh`는 전체 `dart test`와 제품 라인 커버리지 90% 게이트를 실행합니다.
-그 테스트 안의 `test/tool/verify_global_activation_test.dart`가 격리 설치·설치본 CLI 계약을 확인합니다.
+`check-coverage.sh`는 전체 테스트와 제품 라인 커버리지 90% 게이트를 실행합니다.
+일반 테스트 이후 `global_activation` 태그의 격리 설치·설치본 CLI 계약을 순차 실행하고
+두 실행의 커버리지를 합산합니다. 설치된 wrapper의 반복 실행과 analyzer 테스트 사이의
+CPU 경쟁을 줄이며 기존 3분 설치 테스트 제한과 전체 CLI 계약은 유지합니다.
 따라서 CI에 별도 `dart test`와 `verify-global-activation.sh` 실행을 중복 추가하지 않습니다.
 컴파일된 native executable 검증은 `verify-cli-contract.sh`로 별도 유지합니다.
 `check-analyzer-boundary.sh`는 ripgrep(`rg`)을 필요로 합니다 — 로컬에 없으면 exit 2로 실패하며 CI는 설치돼 있습니다.

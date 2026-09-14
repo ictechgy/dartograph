@@ -16,6 +16,7 @@ void main() {
       expect(result.stdout, contains('Global activation contract passed'));
       expect(await packageConfiguration.readAsBytes(), configurationBefore);
     },
+    tags: 'global_activation',
     timeout: const Timeout(Duration(minutes: 3)),
   );
 }
