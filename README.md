@@ -75,6 +75,7 @@ dartograph affected origin/main .
 
 # Flutter bridge facts, cycles, layer rules, metrics, agent skill
 dartograph bridges --format json .
+dartograph bridges --messages --format json .
 dartograph cycles --strict .
 dartograph rules --config layers.yaml --strict .
 dartograph metrics .
@@ -110,8 +111,16 @@ Full arguments, output formats, exit codes, and CI examples live in
   carries MethodChannel provenance, lexical scope, UTF-8 positions, and UTC
   millisecond timestamps. Dynamic channel names remain facts; unattributed or
   malformed invocations, partial parses, and EventChannel/BasicMessageChannel
-  (outside the scope of the current analysis) are counted as limitations rather
-  than read as facts.
+  are counted as limitations rather than read as facts in the default command.
+- `bridges --messages --format json .` is an opt-in development-source producer
+  for BasicMessageChannel `send` calls. It emits bridge-facts v2 with
+  `transport: "basic-message-channel"` and `kind: "message-send"`; it never
+  turns a channel construction into a send or invents a MethodChannel method.
+  Dynamic names retain their source expression. A `channelPrefix` is emitted
+  only when the AST proves a decoded, non-empty leading literal in a string
+  interpolation; it is a candidate prefix, not proof of a complete runtime
+  address or instance identity. This producer is not included in the published
+  `0.8.0` package yet.
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
@@ -146,6 +155,10 @@ Limitations:
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
   functions of those files (a template can be generated with `dartograph init`).
+- Local path dependencies are opt-in graph inputs through `source_packages` in
+  `dartograph.yaml`; each declared package root must be inside the project and
+  contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
+  source vendored under a project without crawling the whole pub cache.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.

@@ -100,6 +100,69 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  CHANGES_FILE="$TEMPORARY_DIRECTORY/changes.json"
+  printf '["lib/a.dart"]' > "$CHANGES_FILE"
+  expect_status 0 "impact changed" impact --changed "$CHANGES_FILE" --format json fixtures/phase5_contract
+  expect_status 0 "impact changed text" impact --changed "$CHANGES_FILE" fixtures/phase5_contract
+  expect_status 0 "impact changed markdown" impact --changed "$CHANGES_FILE" --format markdown fixtures/phase5_contract
+  expect_status 0 "impact changed sarif" impact --changed "$CHANGES_FILE" --format sarif fixtures/phase5_contract
+  expect_status 0 "impact changed github-actions" impact --changed "$CHANGES_FILE" --format github-actions fixtures/phase5_contract
+  expect_status 0 "impact symbol" impact --symbol project:lib/a.dart::a --format json fixtures/phase5_contract
+  expect_status 0 "impact since" impact --since HEAD --format json fixtures/phase5_contract
+  expect_status 64 "impact no seed" impact fixtures/phase5_contract
+  expect_status 64 "impact two seeds" impact --since HEAD --symbol project:lib/a.dart::a fixtures/phase5_contract
+  expect_status 64 "impact unknown format" impact --since HEAD --format xml fixtures/phase5_contract
+  expect_status 64 "impact unknown fail-on" impact --since HEAD --fail-on sometimes fixtures/phase5_contract
+  expect_status 64 "impact duplicate since" impact --since A --since B fixtures/phase5_contract
+  expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
+  expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
+  expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
+  expect_status 0 "runtime report" runtime fixtures/runtime_corpus
+  expect_status 0 "runtime text" runtime --format text fixtures/runtime_corpus
+  expect_status 0 "runtime json" runtime --format json --verify fixtures/runtime_corpus
+  expect_status 0 "runtime markdown" runtime --format markdown fixtures/runtime_corpus
+  expect_status 0 "runtime github-actions" runtime --format github-actions fixtures/runtime_corpus
+  expect_status 0 "runtime sarif" runtime --format sarif fixtures/runtime_corpus
+  expect_status 0 "runtime detect only" runtime --no-verify fixtures/runtime_corpus
+  expect_status 0 "runtime limit" runtime --limit 1 --format json fixtures/runtime_corpus
+  expect_status 0 "runtime env override" runtime --env RUNTIME_CORPUS_TOKEN=present fixtures/runtime_corpus
+  expect_status 0 "runtime dart-define override" runtime --dart-define RUNTIME_CORPUS_BASE_URL=https://example.com fixtures/runtime_corpus
+  expect_status 0 "runtime fail-on none" runtime --fail-on none fixtures/runtime_corpus
+  expect_status 0 "runtime execute entrypoint" runtime --execute bin/corpus_worker.dart fixtures/runtime_corpus
+  EXECUTION_DIR="$TEMPORARY_DIRECTORY/runtime-execution"
+  mkdir -p "$EXECUTION_DIR/bin"
+  cat >"$EXECUTION_DIR/pubspec.yaml" <<'YAML'
+name: runtime_execution_probe
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+YAML
+  cat >"$EXECUTION_DIR/bin/main.dart" <<'DART'
+import 'dart:io';
+void main() => File('executed.txt').writeAsStringSync('executed');
+DART
+  expect_status 0 "runtime execute succeeds through installed binary" runtime --execute bin/main.dart --fail-on low "$EXECUTION_DIR"
+  if [[ ! -f "$EXECUTION_DIR/executed.txt" ]] || [[ "$(cat "$EXECUTION_DIR/executed.txt")" != "executed" ]]; then
+    echo "  FAIL  runtime entrypoint did not produce its execution witness"
+    FAILURES=$((FAILURES + 1))
+  fi
+  expect_status 1 "runtime fail-on medium findings" runtime --fail-on medium fixtures/runtime_corpus
+  expect_status 1 "runtime fail-on high findings" runtime --fail-on high fixtures/runtime_corpus
+  expect_status 64 "runtime missing root" runtime
+  expect_status 64 "runtime unknown format" runtime --format xml fixtures/runtime_corpus
+  expect_status 64 "runtime unknown fail-on" runtime --fail-on sometimes fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate format" runtime --format json --format text fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate verify" runtime --verify --no-verify fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate fail-on" runtime --fail-on none --fail-on high fixtures/runtime_corpus
+  expect_status 64 "runtime env missing value" runtime --env
+  expect_status 64 "runtime env without equals" runtime --env RUNTIME_CORPUS_TOKEN fixtures/runtime_corpus
+  expect_status 64 "runtime dart-define missing value" runtime --dart-define
+  expect_status 64 "runtime empty definition key" runtime --dart-define =value fixtures/runtime_corpus
+  expect_status 64 "runtime zero limit" runtime --limit 0 fixtures/runtime_corpus
+  expect_status 64 "runtime execute missing value" runtime --execute
+  expect_status 64 "runtime execute unknown entrypoint" runtime --execute bin/nope.dart fixtures/runtime_corpus
+  expect_status 64 "runtime two roots" runtime fixtures/phase5_contract fixtures/runtime_corpus
+  expect_status 2 "runtime failure" runtime --format json fixtures/does-not-exist
+  expect_status 64 "mcp with arguments" mcp --help
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"
   expect_status 0 "init" init "$INIT_DIR"

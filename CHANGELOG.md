@@ -2,6 +2,31 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Fixed `runtime --execute` in native executables to launch the Dart SDK on PATH
+  instead of recursively launching dartograph. Installation contracts now check
+  that the entrypoint actually produces an execution witness.
+- Apply the runtime execution deadline to output collection as well as process
+  exit, including when a descendant keeps inherited output pipes open.
+
+- Added opt-in `source_packages` configuration for local path dependency source.
+  Declared package roots must be project-relative, canonical non-symlink directories
+  with `pubspec.yaml` and `lib/`; generated/cache and duplicate roots fail closed.
+  The package `lib/` is included with its existing `package:` identities, while the
+  default analysis scope remains unchanged. Configuration and package contents
+  invalidate the analysis cache.
+
+- Added the development-source-only `bridges --messages --format json` producer
+  for observed Flutter `BasicMessageChannel.send` calls. It emits bridge-facts
+  v2 with `transport: "basic-message-channel"` and `kind: "message-send"`,
+  while keeping channel construction and MethodChannel method facts separate.
+  Dynamic names preserve their source expression; an optional `channelPrefix`
+  is emitted only for an AST-proven decoded, non-empty leading literal in a
+  string interpolation. Prefixes are candidate evidence, not complete runtime
+  address or instance identity, and this producer is not part of published
+  `0.8.0`.
+
 ## 0.8.0
 
 - Added a runnable `example/main.dart` demonstrating the public library API:

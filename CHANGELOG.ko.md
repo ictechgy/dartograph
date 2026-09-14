@@ -2,6 +2,28 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- native executable의 `runtime --execute`가 자기 자신 대신 PATH의 Dart SDK를 실행하도록
+  수정했다. 설치 계약은 entrypoint가 실제 실행 근거 파일을 만드는지도 확인한다.
+- 런타임 실행 제한 시간을 프로세스 종료와 출력 수집에 함께 적용한다. 후손이 상속한
+  출력 파이프를 계속 보유해도 제한 시간에 수집을 중단한다.
+
+- local path dependency source를 선택적으로 포함하는 `source_packages` 설정을
+  추가했다. package root는 프로젝트 상대 경로의 canonical non-symlink 디렉터리이며
+  `pubspec.yaml`과 `lib/`를 가져야 한다. generated/cache·중복 root는 fail-closed로
+  거부하고, 기본 분석 범위는 유지한다. 기존 `package:` identity를 보존하며 설정과
+  package 내용은 분석 캐시를 무효화한다.
+
+- Flutter `BasicMessageChannel.send` 호출을 관측하는 개발 소스 전용
+  `bridges --messages --format json` producer를 추가했다. `transport:
+  "basic-message-channel"`과 `kind: "message-send"`를 담은 bridge-facts v2를
+  내보내며, 채널 생성과 MethodChannel 메서드 fact를 서로 섞지 않는다. 동적 이름은
+  원래 소스 표현식을 유지하고, `channelPrefix`는 AST가 문자열 interpolation의
+  decoded 비어 있지 않은 선행 literal을 증명할 때만 낸다. prefix는 완전한 runtime
+  주소나 instance identity가 아니라 후보 근거이며, 이 producer는 발행된 `0.8.0`에
+  아직 포함되지 않는다.
+
 ## 0.8.0
 
 - 공개 라이브러리 API를 보여주는 실행 가능한 `example/main.dart` 추가 — `CodeGraph`를

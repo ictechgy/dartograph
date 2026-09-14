@@ -25,6 +25,14 @@ If invocation details are unclear, inspect `dartograph --help`.
   lists the libraries changed since that revision and their transitive
   dependents with dependency-path evidence. It observes at library level;
   an unlisted declaration is not proven unaffected.
+- Pre-change impact, deeper: `dartograph impact --since <ref>|--changed <json>|--symbol <id>`
+  reports changed symbols, every symbol that transitively uses them with a
+  shortest usage path, call sites into changed declarations, related test
+  libraries, a risk score with factors, and a `coverage` block of what
+  inspecting changed files alone would miss. Prefer it before an edit.
+- Tool integration: `dartograph mcp` serves Model Context Protocol tools on
+  stdio (`impact_query`, `dependency_query`, `verify_run`) for clients that
+  speak MCP; it reuses the same analysis paths and modifies nothing.
 - Cross-language facts: use `dartograph bridges --format json <package-root>`
   and the project's existing isthmus workflow when the task crosses native code.
 
@@ -40,6 +48,9 @@ Without `dartograph.yaml` `entry_points`, other mains stay conservative roots;
 declaring entry_points narrows retention to the mains it lists. Generated
 sources, conditional imports, dynamic calls and unmatched string routes can
 limit the evidence.
+When generated or vendored Dart source lives in a local path dependency, add
+its package root to `source_packages`; this is opt-in and must stay inside the
+project. Do not crawl an external pub cache or infer package roots.
 
 Reuse evidence for an unchanged snapshot. After an authorized change, run
 validation appropriate to its risk and report the result plus unresolved limits.

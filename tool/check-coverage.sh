@@ -7,9 +7,12 @@ cd "$(dirname "$0")/.."
 
 TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/dartograph-coverage.XXXXXX")"
 trap 'rm -rf "$TEMPORARY_DIRECTORY"' EXIT
-mkdir "$TEMPORARY_DIRECTORY/raw"
+mkdir -p "$TEMPORARY_DIRECTORY/raw/general" "$TEMPORARY_DIRECTORY/raw/activation"
 
-dart test --coverage="$TEMPORARY_DIRECTORY/raw"
+# 설치된 wrapper의 반복 실행이 analyzer 테스트와 CPU를 경쟁하지 않게 한다.
+# 두 단계 모두 통과해야 커버리지를 합산하며 전체 계약 항목을 한 번씩 검사한다.
+dart test --exclude-tags=global_activation --coverage="$TEMPORARY_DIRECTORY/raw/general"
+dart test --tags=global_activation --coverage="$TEMPORARY_DIRECTORY/raw/activation"
 dart run coverage:format_coverage \
   --packages=.dart_tool/package_config.json \
   --report-on=lib \

@@ -25,8 +25,14 @@ dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit 
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
 dartograph compare <before-package-root> <after-package-root>
 dartograph affected <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] <package-root>
+dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
+dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
+dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
+dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] <package-root>
 dartograph cycles --explain <symbol-id> <package-root>
 dartograph rules --config <yaml-file> [--strict] <package-root>
@@ -104,8 +110,15 @@ override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단�
 `--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
-경우에도 `notFound`와 `limitations`를 함께 낸다. `bridges`는 Flutter 채널 사실을
-GRAPH-EXCHANGE v1 JSON으로 낸다. 패키지의 `lib/<package-name>.dart`가 export한 공개 선언과
+경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
+채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다. `bridges --messages`는 개발 소스
+전용 opt-in 경로로, 실제 BasicMessageChannel `send` 호출만 bridge-facts v2
+(`transport: basic-message-channel`, `kind: message-send`)로 낸다. 채널 생성은 send로
+세지 않으며 MethodChannel의 method 필드도 만들지 않는다. 동적 이름은 원래 표현식을
+보존하고, `channelPrefix`는 AST가 증명한 decoded 비어 있지 않은 문자열 interpolation
+선행 literal일 때만 후보 근거로 낸다. prefix는 완전한 runtime 주소·instance identity의
+증명이 아니며, 이 경로는 아직 발행된 0.8.0 패키지에 포함되지 않았다. 패키지의
+`lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 
 `bridges --project <shared-root>`은 모노레포 조인용 공유 루트를 선언한다. 스캔 범위는
@@ -178,6 +191,74 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
 보고 성공은 영향 개수와 무관하게 코드 0이다.
 
+`impact`는 같은 질문을 **수정 전에, 더 깊게** 답한다. `affected`가 라이브러리(파일)
+수준 영향 반경만 내는 것과 달리, `impact`는 변경 씨앗에 사용 간선(`call`·`reference`·
+`inheritance`·`implements`·`mixin`·`override`·`import`·`export`)으로 전이적으로
+의존하는 **심볼**을 최단 사용 경로·깊이와 함께 나열하고, 변경 선언으로 들어오는
+**호출 지점**(파일·줄·열), 변경 라이브러리를 (전이적으로) import하는 **관련 테스트
+라이브러리**, 그리고 팩터별 **위험도**(0–100, `low`/`medium`/`high`)를 함께 낸다.
+사람은 `text`·`markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다.
+
+씨앗은 정확히 하나를 준다: `--since <git-ref>`(Git 변경 파일, `affected`와 같은
+전체 이력·심볼릭 링크 양방향 매칭), `--changed <changes.json>`(프로젝트 상대 경로의
+JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상한), 또는
+`--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
+
+`--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과
+개수·위험도는 제한하지 않고 잘린 수만 `truncated`로 알린다). `--fail-on <level>`은
+전체 위험도가 그 수준 이상이면 종료 코드 1로 만든다(기본 `none`은 항상 0). 출력에는
+`coverage` 블록이 있어 **변경 파일만 확인했을 때 누락됐을** 영향 심볼 수와 목록을
+제시한다 — 사전 점검의 가치를 수치로 남긴다.
+
+`--symbol`이 그래프에 없으면 `known:false`와 종료 코드 64로 구분한다(`query`·
+`dead --explain` 계열과 같다). `impact`는 관측된 의존 도달성이지 삭제 판정이 아니며,
+나열되지 않은 선언이 영향을 받지 않았다는 증명이 아니다.
+
+`runtime`은 정적 import 그래프에 잡히지 않고 **실행 시점에만 드러나는 입력**을 찾고,
+기본으로 이 환경에 대해 판정한다. 카테고리는 다섯이다: 환경변수·dart-define(`env`),
+동적 로딩(`dynamicLoad` — `Isolate.spawnUri`, `Process.run`/`start`,
+`DynamicLibrary.open`, `dart:mirrors`, `Function.apply`), 설정 파일·경로(`config`),
+번들 에셋(`asset` — `pubspec.yaml`의 `flutter.assets` 선언과 `rootBundle`·
+`Image.asset`·`AssetImage`), 외부 URL(`external`). 각 사실은 `present`(제공됨)·
+`defaulted`(기본값으로 충족)·`missing`(이 환경에서 미충족)으로 판정되고, 정적으로
+확정할 수 없거나 프로브할 수 없는 것은 이유와 함께 `unverified`에 남는다. 미충족·
+미판정·외부 자원 수는 위험도(0–100)로 합산되고 `low`/`medium`/`high` 등급이 붙는다.
+`--no-verify`는 판정을 끄고 탐지만 한다(위험도 없음).
+
+`--env KEY=VALUE`·`--dart-define KEY=VALUE`는 반복 지정할 수 있고 같은 키는 마지막
+값이 이긴다. 값 자체는 절대 출력되지 않는다 — "설정되었지만 빈 값"은 미설정과 다른
+관측이므로 빈 값은 유효하고, 키가 비면(`=VALUE`) usage(64)다. 두 채널은 서로를
+충족하지 않는다(dart-define과 프로세스 환경은 다른 입력이다). `--env`를 하나라도 주면
+그 집합만 쓰고 프로세스 환경은 무시하며(hermetic), 주지 않으면 실제 프로세스 환경을
+쓰고 그 사실을 `environment-source` limitation에 남긴다.
+
+`--execute <dart-entrypoint>`는 **임의 코드를 실행한다**: 패키지 루트에서
+PATH의 Dart SDK로 `dart run <entrypoint>`를 띄우고 `--env` 값을 상속 환경 위에 덮어쓴 뒤
+종료 코드와 stderr 요약(4 KiB 상한)을 실행 증거로 남긴다. 실행 실패는 위험 요인
+(`execution-failed`, 30)이 되지만 나머지 보고는 그대로 나온다. 경로처럼 보이는 인자
+(`.dart`로 끝나거나 경로 구분자를 포함)는 파일 존재를 요구하며 없으면 usage(64)다 —
+패키지 실행 파일 이름은 `dart run`이 해석하므로 존재를 요구하지 않는다. 신뢰한
+프로젝트에서만 쓴다. 실행과 출력 수집에는 합쳐서 60초 제한을 적용하고, 제한을 넘으면
+직접 실행한 자식의 종료를 최대 5초 더 확인한다. 부모가 종료돼도 후손이 출력 파이프를
+보유하면 `timedOut`으로 보고하며 파이프 수집을 중단한다. 후손 프로세스 전체를 종료하는
+격리 기능은 제공하지 않는다. AOT 설치본도 `--execute`에는 PATH의 Dart SDK가 필요하다.
+
+`--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다. 사람은 `text`·
+`markdown`, CI는 `github-actions`(`missing` 항목은 위험이 `high`면 `error`, 아니면
+`warning`)·`sarif`를 쓴다. `--limit <n>`은 **보고** 항목 수 상한이다(탐지·판정·위험도는
+제한하지 않는다 — `--limit`이 종료 코드를 바꾸면 게이트가 아니다). 생략한 수는 목록별로
+`truncated`에 남는다. `--fail-on <level>`은 위험 등급이 그 수준 이상이면 종료 코드 1로
+만든다(기본 `none`은 임계를 0으로 두어 항상 0이다). 종료 코드는 0(보고 성공), 1(위험
+등급이 `--fail-on` 임계 이상), 2(분석 실패 — 없는 루트 등), 64(usage 오류, `--execute`
+경로 없음)다.
+
+`runtime`의 판정은 관측이지 실행 가능성 판정이 아니다. `missing`은 그 입력이 필수라는
+뜻이 아니다 — 선택적 읽기와 필수 읽기를 구분하지 않는다. 외부 URL은 프로브하지 않고,
+리플렉션·계산된 이름은 `<computed>`로 남기며, 표준 소스 디렉터리(`lib`·`bin`·`test`·
+`example`·`integration_test`) 밖은 보지 않는다. 상대 경로는 패키지 루트 기준으로
+확인하지만 실제 프로그램은 스크립트 URI나 작업 디렉터리 기준으로 열 수 있다. 탐지·판정
+한계는 보고서의 `limitations`에 모두 실린다.
+
 `rules --config`의 layers.yaml 스키마는 엄격하다. 설정 파일은 1 MiB 이하여야 한다(초과 시
 분석 실패). `layers`는 `name`과 `match`(정점 ID와
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
@@ -213,6 +294,25 @@ rules:
 않으므로 fresh clone 사이에서는 이 문자열의 presence가 달라질 수 있다(내용이 아니라
 환경의 관측이며, findings·간선·노드는 영향받지 않는다).
 
+## MCP 서버
+
+`dartograph mcp`는 stdio로 Model Context Protocol(JSON-RPC 2.0) 서버를 띄운다.
+AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의 분석을 도구
+호출로 쓸 수 있다. stdout에는 JSON-RPC만 쓰고 진단은 stderr로 보낸다. 세 도구 모두
+**읽기 전용**이며 저장소를 수정하지 않는다. 각 도구는 기존 CLI 실행 경로를 그대로
+재사용하므로 출력 스키마와 종료 코드가 CLI와 어긋나지 않는다.
+
+| 도구 | 입력 | 답 |
+|---|---|---|
+| `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
+| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
+| `verify_run` | `packageRoot`, `command`(`dead`\|`cycles`\|`rules`\|`metrics`), `strict`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
+
+도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
+`exitCode: <0|1|2|64>`다. 분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
+`dead`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
+입력 스키마·예시는 [MCP.md](MCP.md)에 있다.
+
 ## 종료 코드
 
 | 코드 | 뜻 |
@@ -230,6 +330,7 @@ rules:
 - uses: dart-lang/setup-dart@v1
 - run: dart pub global activate dartograph 0.8.0
 - run: dartograph dead --format github-actions --since origin/main .
+- run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```
 
 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
@@ -253,6 +354,20 @@ entry_points:
 ```
 
 `entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
+
+로컬 path dependency의 generated Pigeon/Dart source를 그래프에 포함해야 하면 같은 파일에
+`source_packages`를 명시한다.
+
+```yaml
+source_packages:
+  - vendor/shared_preferences_android
+```
+
+각 항목은 프로젝트 안의 중첩 package root여야 하며 `pubspec.yaml`과 `lib/`를 가져야 한다.
+기본 분석 범위는 바뀌지 않고, 설정한 package의 `lib/`만 추가된다. 절대·루트 밖 경로,
+심볼릭 링크, `.dart_tool`·`build`·`.fvm` 경로, 중복 package는 조용히 무시하지 않고 분석
+실패(종료 코드 2)로 알린다. package config가 제공한 `package:` URI와 analyzer element
+identity를 그대로 사용하며, package source와 이 설정은 분석 캐시 키에 포함된다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.
