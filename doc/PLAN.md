@@ -73,3 +73,28 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 | 5 순환 · 규칙 · 지표 | 완료 | 반복형 Tarjan, YAML 규칙, 라이브러리별 Martin 지표 |
 | v0.1.0 릴리스 | 완료 | pub.dev·GitHub Release 공개, 격리 설치, 3개 Flutter 패키지, self findings 0 |
 | v0.1.1 bridge 계약 보강 | 완료 | provenance·scope·UTF-8·밀리초·미해석 limitation과 공개 plugin 왕복 |
+| 0.2.0 ~ 0.8.0 릴리스 | 완료 | 근거 질의 표면 확장·Tier 2~4 흡수·5축 검토. 상세는 [CHANGELOG](../CHANGELOG.md) |
+| 6.1 수정 전 영향 점검 `impact` | 커밋됨(미릴리스) | 브랜치 `feat/impact-precheck`, 커밋 `99e5f3d` |
+| 6.2 에이전트 질의 `mcp` | 커밋됨(미릴리스) | 같은 브랜치, 커밋 `8956c5d`. 도구 3종·stdio JSON-RPC |
+| 6.3 런타임 의존 검증 `runtime` | 커밋 + 미커밋 수정 | 커밋 `ae8fe06`, 결함 3건 수정이 작업 트리에 미커밋 |
+| 6.4 증분 분석 · 검증 원장 | 미착수 | 설계는 [DECISION-incremental.md](DECISION-incremental.md). 실행 환경 확보 후 착수 |
+
+## Phase 6 — 수정 전 영향 점검 · 런타임 · 에이전트 질의 (진행 중)
+
+사용자 요구 4건을 한 Phase로 묶었다. **상세 진행 상황은 루트
+[HANDOFF-PROGRESS.md](../HANDOFF-PROGRESS.md)가 정본**이고, 이 절은 범위만 고정한다.
+
+| 요구 | 명령 | 상태 |
+|---|---|---|
+| 1. 특정 코드 수정 시 영향 사전 점검(사람·AI) | `dartograph impact` | 커밋됨(미릴리스) |
+| 2. AI용 질의 스킬/MCP | `dartograph mcp` | 커밋됨(미릴리스) |
+| 3. 런타임에 드러나는 의존성 검증 | `dartograph runtime` | 커밋 + 미커밋 결함 수정 |
+| 4. CI에서 자동화 가능한 속도(증분) | `--incremental <dir>`(제안) | 미착수 |
+
+- 경쟁·대체재 조사와 차별점·우선순위 백로그: [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md)
+- 증분 분석 설계(캐시 키·무효화·실패 경로·완료 판정): [DECISION-incremental.md](DECISION-incremental.md)
+- 문제 해결 안내: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- 6.1~6.3은 브랜치 `feat/impact-precheck`에 있고 아직 릴리스되지 않았다.
+  다음 릴리스 후보는 **0.9.0**이다(버전 정합·CHANGELOG 두 언어는 CONTRIBUTING의 릴리스 절 참고).
+- 6.4가 끝나기 전까지 요구 4는 부분 충족으로 본다 — CI 게이트는 현재 `--since` 기반
+  전체 분석으로 동작하며, 증분은 속도 개선 항목이다.

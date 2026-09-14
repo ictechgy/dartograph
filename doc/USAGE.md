@@ -227,8 +227,11 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상�
 `--execute <dart-entrypoint>`는 **임의 코드를 실행한다**: 패키지 루트에서
 `dart run <entrypoint>`를 띄우고(60초 상한) `--env` 값을 상속 환경 위에 덮어쓴 뒤
 종료 코드와 stderr 요약(4 KiB 상한)을 실행 증거로 남긴다. 실행 실패는 위험 요인
-(`execution-failed`, 30)이 되지만 나머지 보고는 그대로 나온다. 경로처럼 보이는 인자
-(`.dart`로 끝나거나 경로 구분자를 포함)는 파일 존재를 요구하며 없으면 usage(64)다 —
+(`execution-failed`, 30)이 되지만 나머지 보고는 그대로 나온다. 띄울 dart 실행 파일은
+실행 중인 실행 파일이 dart VM이면 그것을, 아니면(`dart compile exe` 배포본) `DART_SDK`의
+`bin/dart`, `PATH`의 `dart` 순으로 찾는다. 어디에서도 찾지 못하면 실행하지 않고 사유를
+실행 증거(`execution.reason`)에 남긴다 — 종료 코드 0으로 뭉개지 않는다. 경로처럼 보이는
+인자(`.dart`로 끝나거나 경로 구분자를 포함)는 파일 존재를 요구하며 없으면 usage(64)다 —
 패키지 실행 파일 이름은 `dart run`이 해석하므로 존재를 요구하지 않는다. 신뢰한
 프로젝트에서만 쓴다.
 
@@ -243,10 +246,15 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상�
 
 `runtime`의 판정은 관측이지 실행 가능성 판정이 아니다. `missing`은 그 입력이 필수라는
 뜻이 아니다 — 선택적 읽기와 필수 읽기를 구분하지 않는다. 외부 URL은 프로브하지 않고,
-리플렉션·계산된 이름은 `<computed>`로 남기며, 표준 소스 디렉터리(`lib`·`bin`·`test`·
-`example`·`integration_test`) 밖은 보지 않는다. 상대 경로는 패키지 루트 기준으로
-확인하지만 실제 프로그램은 스크립트 URI나 작업 디렉터리 기준으로 열 수 있다. 탐지·판정
-한계는 보고서의 `limitations`에 모두 실린다.
+목적지 자리(`Uri.parse(...)`의 인자이거나 `HttpClient.getUrl`·`postUrl`·`openUrl`,
+`package:http`의 요청 함수, `WebSocket`/`Socket`/`SecureSocket.connect`의 인자)에 쓰인
+http(s) 리터럴만 `external`로 잡는다 — 문자열 비교·검증이나 상수 선언은 목적지가 아니므로
+잡지 않는다. 그 결과 런타임에 조립되거나 설정에서 읽는 목적지는 탐지되지 않는다.
+`DynamicLibrary.open`은 경로로 지정한 대상의 존재를 루트 기준으로 확인하고, 맨 이름은 OS
+로더가 루트 밖에서 찾으므로 미판정이다. 리플렉션·계산된 이름은 `<computed>`로 남기며,
+표준 소스 디렉터리(`lib`·`bin`·`test`·`example`·`integration_test`) 밖은 보지 않는다.
+상대 경로는 패키지 루트 기준으로 확인하지만 실제 프로그램은 스크립트 URI나 작업 디렉터리
+기준으로 열 수 있다. 탐지·판정 한계는 보고서의 `limitations`에 모두 실린다.
 
 `rules --config`의 layers.yaml 스키마는 엄격하다. 설정 파일은 1 MiB 이하여야 한다(초과 시
 분석 실패). `layers`는 `name`과 `match`(정점 ID와
@@ -306,10 +314,10 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 
 | 코드 | 뜻 |
 |---:|---|
-| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
-| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
-| 2 | 패키지를 신뢰할 수 있게 분석하지 못함, 또는 `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다) |
-| 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
+| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공하고, `impact`·`runtime`은 `--fail-on` 기본값(`none`)에서 위험도와 무관하게 성공 |
+| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, `--strict` 분석 명령의 finding, 또는 `impact`·`runtime`의 위험 등급이 `--fail-on` 임계 이상 |
+| 2 | 패키지를 신뢰할 수 있게 분석하지 못함(`impact`·`runtime`의 없는 루트 포함), `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다). `bridges`가 제어 문자가 든 이름·소스 경로를 거부하는 경우도 여기다 |
+| 64 | 잘못된 명령·인자, `query`/`dead --explain`/`cycles --explain`/`rules --explain`/`impact --symbol` 대상이 그래프에 없음, `impact`의 씨앗(`--since`·`--changed`·`--symbol`)이 정확히 하나가 아님, `runtime --execute`의 경로형 인자가 가리키는 파일이 없음, `runtime --env` 키가 빔 |
 
 ## CI 예제
 

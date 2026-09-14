@@ -1,0 +1,71 @@
+name: impact-precheck
+
+# 변경 영향 사전 점검(`dartograph impact`)을 CI에서 돌리는 예시 워크플로다.
+#
+# 기본 트리거를 수동(workflow_dispatch)으로 둔 이유: 이 브랜치의 `impact`/`runtime`
+# 명령은 아직 릴리스 전이고, 병합 즉시 자동 트리거를 켜면 공용 CI가 이유 없이 붉어진다.
+# 명령이 안정되면 아래 `pull_request:` 블록의 주석을 풀어 활성화한다.
+#
+# 증분 분석(`--incremental`)은 아직 구현되지 않았다(HANDOFF-PROGRESS.md P0). 그때까지
+# 캐시 대상은 pub 캐시뿐이다. 증분이 들어오면 분석 캐시 디렉터리를 같은 방식으로 캐시하고
+# `--incremental <dir>`을 넘긴다.
+#
+# 이 저장소는 서드파티 액션을 커밋 SHA로 고정한다. checkout·setup-dart는 기존 ci.yml과
+# 같은 핀을 쓴다. cache·upload-sarif·upload-artifact는 버전 태그로 두었으니 활성화 전에
+# SHA 핀으로 바꾼다.
+
+on:
+  workflow_dispatch:
+  # pull_request:
+  #   branches: [main]
+
+concurrency:
+  group: impact-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+        with:
+          sdk: '3.13.3'
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+      - run: dart pub get
+      - name: Impact (SARIF)
+        run: |
+          dart run dartograph impact \
+            --since origin/${{ github.base_ref || 'main' }} \
+            --format sarif --limit 200 . > impact.sarif
+        continue-on-error: true
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: impact.sarif
+      - name: Impact gate (fail on high)
+        run: |
+          dart run dartograph impact \
+            --since origin/${{ github.base_ref || 'main' }} \
+            --format github-actions --fail-on high .
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: impact-sarif
+          path: impact.sarif
+          if-no-files-found: warn
