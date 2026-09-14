@@ -111,4 +111,135 @@ void main() {
     expect(execution.stderrSummary, endsWith('… (stderr truncated)'));
     expect(execution.stderrSummary.length, lessThan(runtimeStderrLimit + 64));
   });
+
+  group('dart 실행 파일 해석', () {
+    test('실행 중인 실행 파일이 dart VM이면 그대로 쓴다', () {
+      final lookup = resolveDartExecutable(
+        resolvedExecutable: '/sdk/bin/dart',
+        environment: const {},
+        executableAt: (path) => fail('dart VM이면 후보를 탐색하지 않는다: $path'),
+      );
+
+      expect(lookup.found, isTrue);
+      expect(lookup.path, '/sdk/bin/dart');
+      expect(lookup.evidence, 'the running VM');
+      expect(lookup.reason, isNull);
+    });
+
+    test('컴파일 배포본에서는 DART_SDK의 dart를 먼저 쓴다', () {
+      final probed = <String>[];
+      final lookup = resolveDartExecutable(
+        resolvedExecutable: '/opt/dartograph/dartograph',
+        environment: const {'DART_SDK': '/sdk', 'PATH': '/usr/bin'},
+        executableAt: (path) {
+          probed.add(path);
+          return path == p.join('/sdk', 'bin', 'dart');
+        },
+      );
+
+      expect(lookup.path, p.join('/sdk', 'bin', 'dart'));
+      expect(lookup.evidence, 'DART_SDK');
+      // DART_SDK 후보를 먼저 본다(PATH보다 우선이다).
+      expect(probed, [p.join('/sdk', 'bin', 'dart')]);
+    });
+
+    test('DART_SDK 후보를 쓸 수 없으면 PATH에서 찾는다', () {
+      final lookup = resolveDartExecutable(
+        resolvedExecutable: '/opt/dartograph/dartograph',
+        environment: const {
+          'DART_SDK': '/missing-sdk',
+          'PATH': '/usr/bin:/opt/dart/bin',
+        },
+        executableAt: (path) => path == p.join('/opt/dart/bin', 'dart'),
+      );
+
+      expect(lookup.path, p.join('/opt/dart/bin', 'dart'));
+      expect(lookup.evidence, 'PATH');
+    });
+
+    test('Windows에서는 dart.exe를 찾는다', () {
+      final lookup = resolveDartExecutable(
+        resolvedExecutable: r'C:\dartograph\dartograph.exe',
+        environment: const {'DART_SDK': r'C:\sdk'},
+        windows: true,
+        executableAt: (path) => path == p.join(r'C:\sdk', 'bin', 'dart.exe'),
+      );
+
+      expect(lookup.path, p.join(r'C:\sdk', 'bin', 'dart.exe'));
+      expect(lookup.evidence, 'DART_SDK');
+    });
+
+    test('어디에서도 못 찾으면 사유와 함께 실행 파일 없음을 알린다', () {
+      final lookup = resolveDartExecutable(
+        resolvedExecutable: '/opt/dartograph/dartograph',
+        environment: const {'DART_SDK': '/missing-sdk', 'PATH': '/usr/bin'},
+        executableAt: (_) => false,
+      );
+
+      expect(lookup.found, isFalse);
+      expect(lookup.path, isNull);
+      expect(lookup.reason, startsWith('dart-executable-not-found'));
+      // 환경변수 값 자체는 사유에 싣지 않는다(보고서에 값이 따라가지 않게).
+      expect(lookup.reason, isNot(contains('/missing-sdk')));
+    });
+  });
+
+  group('실행 파일을 찾지 못한 실행', () {
+    test('자식을 띄우지 않고 사유를 실행 증거로 남긴다', () async {
+      // 실행됐다면 남을 표식이다. 실행하지 않았다는 것을 부작용으로 확인한다.
+      final entrypoint = script(
+        'probe_writes.dart',
+        "import 'dart:io';\n"
+            "void main() { File('ran.txt').writeAsStringSync('ran'); }\n",
+      );
+      final marker = File(p.join(directory.path, 'ran.txt'));
+
+      final execution = await executeEntrypoint(
+        entrypoint: p.basename(entrypoint.path),
+        rootPath: directory.path,
+        executableLookup: resolveDartExecutable(
+          resolvedExecutable: '/opt/dartograph/dartograph',
+          environment: const {'PATH': ''},
+          executableAt: (_) => false,
+        ),
+      );
+
+      expect(execution.unresolved, isTrue);
+      expect(execution.ok, isFalse);
+      expect(execution.exitCode, isNull);
+      expect(execution.timedOut, isFalse);
+      expect(execution.stderrSummary, isEmpty);
+      expect(
+        execution.unresolvedReason,
+        startsWith('dart-executable-not-found'),
+      );
+      expect(marker.existsSync(), isFalse);
+      // JSON에서도 "실행했는데 종료 코드 0"과 구분된다.
+      expect(execution.toJson(), {
+        'entrypoint': 'probe_writes.dart',
+        'exitCode': null,
+        'ok': false,
+        'reason': execution.unresolvedReason,
+        'stderrSummary': '',
+        'timedOut': false,
+      });
+    });
+
+    test('주입한 해석 결과로 실제 dart를 띄운다', () async {
+      final entrypoint = script(
+        'probe_injected.dart',
+        "import 'dart:io';\nvoid main() { stdout.writeln('injected'); }\n",
+      );
+
+      final execution = await executeEntrypoint(
+        entrypoint: p.basename(entrypoint.path),
+        rootPath: directory.path,
+        executableLookup: resolveDartExecutable(),
+      );
+
+      expect(execution.unresolved, isFalse);
+      expect(execution.exitCode, 0);
+      expect(execution.ok, isTrue);
+    });
+  });
 }

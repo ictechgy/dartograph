@@ -219,13 +219,25 @@ final class RuntimeExecution {
     required this.exitCode,
     required this.timedOut,
     required this.stderrSummary,
-  });
+  }) : unresolvedReason = null;
+
+  /// dart 실행 파일을 해석하지 못해 실행하지 못한 결과를 만든다.
+  ///
+  /// 실행 자체가 없었으므로 종료 코드도 stderr도 없다. 사유만 남겨 "실행했다"는
+  /// 증거와 구분한다.
+  const RuntimeExecution.unresolved({
+    required this.entrypoint,
+    required String reason,
+  }) : exitCode = null,
+       timedOut = false,
+       stderrSummary = '',
+       unresolvedReason = reason;
 
   /// 실행한 진입점이다.
   final String entrypoint;
 
-  /// 자식 프로세스의 종료 코드다.
-  final int exitCode;
+  /// 자식 프로세스의 종료 코드다. 실행하지 못했으면 null이다.
+  final int? exitCode;
 
   /// 제한 시간을 넘겨 종료시켰는지 여부다.
   final bool timedOut;
@@ -233,14 +245,24 @@ final class RuntimeExecution {
   /// 실패 진단의 요약이다(제어문자는 이스케이프된다).
   final String stderrSummary;
 
-  /// 성공적으로 끝났는지 여부다.
-  bool get ok => exitCode == 0 && !timedOut;
+  /// 실행하지 못한 사유다. 실행했으면 null이다.
+  final String? unresolvedReason;
+
+  /// 실행하지 못해 판정 불가인지 여부다.
+  bool get unresolved => unresolvedReason != null;
+
+  /// 성공적으로 끝났는지 여부다. 실행하지 못한 경우는 성공이 아니다.
+  bool get ok => !unresolved && exitCode == 0 && !timedOut;
 
   /// 보고서 JSON 표현이다. 키는 사전순으로 고정한다.
-  Map<String, Object> toJson() => {
+  ///
+  /// 실행하지 못한 경우 `exitCode`는 null이고 `reason`이 붙는다 — 종료 코드가
+  /// 없는 것과 0인 것을 같은 표기로 뭉개지 않는다.
+  Map<String, Object?> toJson() => {
     'entrypoint': entrypoint,
     'exitCode': exitCode,
     'ok': ok,
+    'reason': ?unresolvedReason,
     'stderrSummary': stderrSummary,
     'timedOut': timedOut,
   };

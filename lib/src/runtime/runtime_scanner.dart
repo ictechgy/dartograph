@@ -232,12 +232,18 @@ final class _RuntimeFactVisitor extends RecursiveAstVisitor<void> {
     super.visitInstanceCreationExpression(node);
   }
 
-  /// http(s) 문자열 리터럴을 외부 자원으로 잡는다.
+  /// 원격 목적지 자리에 놓인 http(s) 문자열 리터럴을 외부 자원으로 잡는다.
+  ///
+  /// 문자열이 http(s)로 시작하는지만 보면 `value.startsWith("https://")` 같은
+  /// 비교·검증 코드와 상수 선언이 전부 외부 자원이 된다. 그래서 리터럴이
+  /// 목적지를 받는 자리 — `Uri.parse(...)`의 인자이거나 알려진 네트워크 호출의
+  /// 인자 — 에 있을 때만 보고한다. 런타임에 조립되거나 설정에서 읽는 목적지는
+  /// 잡지 못하며, 그 공백은 `static-endpoints` limitation이 밝힌다.
   @override
   void visitSimpleStringLiteral(SimpleStringLiteral node) {
     final value = node.value;
     if ((value.startsWith('http://') || value.startsWith('https://')) &&
-        !_isIsolateSpawnUriArgument(node)) {
+        _isExternalDestination(node)) {
       _report(
         node,
         kind: RuntimeFactKind.external,
@@ -249,6 +255,47 @@ final class _RuntimeFactVisitor extends RecursiveAstVisitor<void> {
       );
     }
     super.visitSimpleStringLiteral(node);
+  }
+
+  /// 리터럴이 원격 목적지를 받는 인자 자리인지 확인한다.
+  bool _isExternalDestination(SimpleStringLiteral node) {
+    // `Isolate.spawnUri`의 대상은 로컬 프로그램 URI다(uri 채널이 따로 잡는다).
+    if (_isIsolateSpawnUriArgument(node)) return false;
+    final parent = node.parent;
+    if (parent is! ArgumentList) return false;
+    final owner = parent.parent;
+    if (owner is! MethodInvocation) return false;
+    return _isUriParse(owner) || _isNetworkCall(owner);
+  }
+
+  /// [node]가 `Uri.parse(...)` 호출인지 확인한다.
+  bool _isUriParse(MethodInvocation node) {
+    if (node.methodName.name != 'parse') return false;
+    final target = node.target;
+    return target is SimpleIdentifier &&
+        target.name == 'Uri' &&
+        _matchesLibrary(target.element, 'dart:core');
+  }
+
+  /// [node]가 원격 목적지를 인자로 받는 알려진 네트워크 API인지 확인한다.
+  ///
+  /// 해석된 코드는 라이브러리로 확인하고, 해석되지 않은 코드는 이름으로
+  /// 확인한다([_matchesLibrary]와 같은 관용구).
+  bool _isNetworkCall(MethodInvocation node) {
+    final method = node.methodName.name;
+    if (_httpClientRequestMethods.contains(method)) return true;
+    final target = node.target;
+    if (method == 'connect' &&
+        target is SimpleIdentifier &&
+        _connectTargets.contains(target.name)) {
+      return true;
+    }
+    if (!_httpFunctions.contains(method)) return false;
+    // `package:http`의 최상위 함수다(접두사 호출 `http.get(...)` 포함).
+    if (target == null) return true;
+    if (target is SimpleIdentifier && target.name == 'http') return true;
+    final library = node.methodName.element?.library?.uri.toString();
+    return library != null && library.startsWith('package:http/');
   }
 
   void _maybeFromEnvironment(MethodInvocation node) {
@@ -669,6 +716,15 @@ bool _matchesLibraries(Element? element, Set<String> uris) {
 
 /// `HttpClient`가 정의된 SDK 라이브러리다. dart:io는 dart:_http를 재수출한다.
 const _httpLibraries = {'dart:io', 'dart:_http'};
+
+/// `HttpClient`에서 요청을 시작하며 목적지 URI를 인자로 받는 메서드다.
+const _httpClientRequestMethods = {'getUrl', 'postUrl', 'openUrl'};
+
+/// `package:http`가 노출하는 요청 함수다(목적지 URL이 인자다).
+const _httpFunctions = {'get', 'post', 'put', 'delete', 'patch', 'head'};
+
+/// 목적지를 인자로 받는 소켓·웹소켓 연결 대상이다.
+const _connectTargets = {'WebSocket', 'Socket', 'RawSocket', 'SecureSocket'};
 
 /// `pubspec.yaml`의 `flutter.assets` 선언을 에셋 사실로 바꾼다.
 ///

@@ -23,7 +23,8 @@ Future<Process> corpusStart() => Process.start('git', const ['--version']);
 /// 맨 이름 네이티브 라이브러리: OS 로더가 루트 밖에서 찾으므로 미판정이다.
 DynamicLibrary corpusLibrary() => DynamicLibrary.open('libcorpus.so');
 
-/// 경로로 지정한 네이티브 라이브러리: 루트 기준으로 존재를 확인한다.
+/// 경로로 지정한 네이티브 라이브러리: 루트 기준으로 존재를 확인해, 파일이 없어
+/// 미충족으로 판정된다.
 DynamicLibrary corpusLibraryPath() =>
     DynamicLibrary.open('assets/libcorpus.so');
 

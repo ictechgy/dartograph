@@ -226,7 +226,8 @@ abstract final class RuntimeVerifier {
         'reported',
     'external-network: external URLs and HttpClient targets are never probed',
     'native-libraries: a bare native library name is resolved by the OS dynamic '
-        'loader, not by the package root',
+        'loader, not by the package root; a library named by path is checked '
+        'for existence in the package, not for a loadable ABI',
     'optional-reads: a missing path may be optional at runtime; the report does '
         'not distinguish required from optional reads',
     'pubspec-fonts: font declarations in pubspec.yaml are not scanned',
@@ -237,6 +238,9 @@ abstract final class RuntimeVerifier {
         'directory',
     'source-scope: only the standard source directories (lib, bin, test, '
         'example, integration_test) are analyzed',
+    'static-endpoints: only http(s) literals written at a Uri.parse or network '
+        'call site are reported as external; destinations assembled at runtime, '
+        'read from configuration, or passed through variables are not detected',
     'string-interpolation: a key or path built by interpolation is reported as '
         '$runtimeComputedName, not guessed',
   ];
@@ -264,9 +268,12 @@ abstract final class RuntimeVerifier {
       if (!verify)
         'verification-disabled: --no-verify detected facts without judging '
             'them; no presence check and no risk score was produced',
-      if (execution != null)
+      if (execution != null && !execution.unresolved)
         'execute-runs-code: --execute ran the entrypoint as a child process; '
             'the reported exit code is the only containment',
+      if (execution != null && execution.unresolved)
+        'execute-unresolved: --execute ran nothing because the dart executable '
+            'could not be resolved; the reason is reported in execution.reason',
     ];
 
     final judgements = verify
@@ -320,7 +327,8 @@ abstract final class RuntimeVerifier {
       missingCount: missing.length,
       unverifiedCount: unverified.length - externalCount,
       externalCount: externalCount,
-      executionFailed: execution != null && !execution.ok,
+      executionFailed:
+          execution != null && !execution.unresolved && !execution.ok,
     );
 
     // 정렬은 검증기가 한다 — 판정 순서가 탐지 순서와 달라도 출력은 위치순이다.
@@ -498,13 +506,45 @@ abstract final class RuntimeVerifier {
           'external-resource: verification performs no network access',
         );
       case RuntimeFactChannel.nativeLibrary:
-        return _Judgement(
-          fact,
-          RuntimeVerdict.unverifiable,
-          'bare-library-name: the dynamic loader resolves "${fact.name}" '
-          'outside the package root',
-        );
+        return _judgeNativeLibrary(fact, fileSystem);
     }
+  }
+
+  /// `DynamicLibrary.open` 대상을 판정한다.
+  ///
+  /// 경로로 지정한 대상은 패키지 루트(또는 절대경로) 기준으로 존재를 확인한다.
+  /// 경로가 없으면 맨 이름이라 OS 동적 로더가 루트 밖에서 찾으므로 검증기가
+  /// 판정할 수 없다 — 탐지 단계가 붙인 사유를 그대로 쓴다.
+  static _Judgement _judgeNativeLibrary(
+    RuntimeFact fact,
+    RuntimeFileSystem fileSystem,
+  ) {
+    final candidate = fact.path;
+    if (candidate == null) {
+      return _Judgement(
+        fact,
+        RuntimeVerdict.unverifiable,
+        'bare-library-name: the dynamic loader resolves "${fact.name}" '
+        'outside the package root',
+      );
+    }
+    return switch (fileSystem.state(candidate)) {
+      RuntimePathState.file => _Judgement(
+        fact,
+        RuntimeVerdict.present,
+        'native library exists: $candidate',
+      ),
+      RuntimePathState.directory => _Judgement(
+        fact,
+        RuntimeVerdict.missing,
+        'a directory exists at $candidate, not a native library',
+      ),
+      RuntimePathState.missing => _Judgement(
+        fact,
+        RuntimeVerdict.missing,
+        'native library not found: $candidate',
+      ),
+    };
   }
 
   static _Judgement _judgeDartDefine(RuntimeFact fact, RuntimeInputs inputs) {
