@@ -128,14 +128,24 @@ abstract final class RuntimeReporter {
     }
     final execution = report.execution;
     if (execution != null) {
-      output.writeln(
-        'execution: dart run ${_escapeText(execution.entrypoint)} '
-        'exited ${execution.exitCode}'
-        '${execution.timedOut ? ' (timed out)' : ''}',
-      );
-      final summary = execution.stderrSummary.trim();
-      if (summary.isNotEmpty) {
-        output.writeln('  stderr: ${_escapeText(summary)}');
+      final reason = execution.unresolvedReason;
+      if (reason != null) {
+        // 실행 파일을 못 찾아 아무것도 실행하지 않았다. "exitCode 0"처럼
+        // 읽히는 문장을 내지 않는다.
+        output.writeln(
+          'execution: dart run ${_escapeText(execution.entrypoint)} '
+          'not run — ${_escapeText(reason)}',
+        );
+      } else {
+        output.writeln(
+          'execution: dart run ${_escapeText(execution.entrypoint)} '
+          'exited ${execution.exitCode}'
+          '${execution.timedOut ? ' (timed out)' : ''}',
+        );
+        final summary = execution.stderrSummary.trim();
+        if (summary.isNotEmpty) {
+          output.writeln('  stderr: ${_escapeText(summary)}');
+        }
       }
     }
     if (!report.truncated.isEmpty) {
@@ -244,15 +254,23 @@ abstract final class RuntimeReporter {
       output.writeln();
       output.writeln('## Execution');
       output.writeln();
-      output.writeln(
-        '`dart run ${_mdCell(execution.entrypoint)}` exited '
-        '${execution.exitCode}${execution.timedOut ? ' (timed out)' : ''}.',
-      );
-      if (execution.stderrSummary.trim().isNotEmpty) {
-        output.writeln();
-        output.writeln('```text');
-        output.writeln(execution.stderrSummary.trim());
-        output.writeln('```');
+      final reason = execution.unresolvedReason;
+      if (reason != null) {
+        output.writeln(
+          '`dart run ${_mdCell(execution.entrypoint)}` was not run — '
+          '${_mdCell(reason)}.',
+        );
+      } else {
+        output.writeln(
+          '`dart run ${_mdCell(execution.entrypoint)}` exited '
+          '${execution.exitCode}${execution.timedOut ? ' (timed out)' : ''}.',
+        );
+        if (execution.stderrSummary.trim().isNotEmpty) {
+          output.writeln();
+          output.writeln('```text');
+          output.writeln(execution.stderrSummary.trim());
+          output.writeln('```');
+        }
       }
     }
     if (!report.truncated.isEmpty) {
@@ -300,7 +318,13 @@ abstract final class RuntimeReporter {
       );
     }
     final execution = report.execution;
-    if (execution != null && !execution.ok) {
+    if (execution != null && execution.unresolved) {
+      output.writeln(
+        '::warning title=dartograph runtime::dart run '
+        '${_message(execution.entrypoint)} was not run — '
+        '${_message(execution.unresolvedReason!)}',
+      );
+    } else if (execution != null && !execution.ok) {
       output.writeln(
         '::error title=dartograph runtime::dart run '
         '${_message(execution.entrypoint)} exited ${execution.exitCode}',
