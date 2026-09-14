@@ -2,6 +2,73 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.9.0
+
+- 수정 **전에** 영향을 묻는 `dartograph impact` 명령 추가. 씨앗은 정확히 하나를 준다:
+  `--since <git-ref>`(Git 변경 파일, `affected`와 같은 전체 이력 요구·심볼릭 링크 양방향
+  매칭), `--changed <changes.json>`(프로젝트 상대 경로 1–1000개, 1 MiB 이하), 또는
+  `--symbol <symbol-id>`. 보고서는 변경된 라이브러리·심볼, 그들을 전이적으로 사용하는
+  심볼(`call`·`reference`·`inheritance`·`implements`·`mixin`·`override`·`import`·
+  `export`)과 최단 사용 경로·깊이, 변경 선언으로 들어오는 호출 지점(파일·줄·열), 변경
+  집합에 의존하는 테스트 라이브러리, 요인별 위험도(0–100, `low`/`medium`/`high`)를 낸다
+  (`inbound-references`·`impact-depth`·`impact-breadth`·`public-api-surface`·
+  `test-coverage`·`cycle-participation`). `coverage` 블록은 사전 점검이 놓치지 않게 하는
+  범위를 밝힌다 — 직접 변경된 심볼 수, 전이 영향 수, 관련 테스트 수, 그리고 변경 파일만
+  확인했을 때 보이지 않는 심볼 목록 `missedWithoutPrecheck`다. 출력은 `text`·`json`·
+  `markdown`·`github-actions`·`sarif`이고, `--depth`는 전이 탐색을, `--limit`은 보고
+  항목만 제한한다(개수·위험도·종료 코드는 바뀌지 않고 생략한 수는 목록별로 표시된다).
+  `--fail-on <none|low|medium|high>`은 전체 위험도가 임계 이상이면 종료 코드 1로 만든다
+  (기본 `none`은 항상 0). `--symbol` 씨앗이 그래프에 없으면 `known: false`와 종료 코드
+  64로 구분하며, 나열되지 않은 선언이 영향을 받지 않았다고 주장하지 않는다
+
+- `dartograph mcp` 명령 추가 — stdio로 Model Context Protocol 서버를 띄운다(JSON-RPC
+  2.0, protocolVersion `2024-11-05`). `initialize`·`ping`·`tools/list`·`tools/call`과
+  `notifications/*`를 처리하고, 알 수 없는 메서드는 `-32601`, 잘못된 JSON은 `-32700`,
+  잘못된 파라미터는 `-32602`로 답하면서 서버는 계속 동작한다. 도구는 셋이다:
+  `impact_query`(`impact --format json` 문서, `since`/`changed`/`symbol` 중 정확히 하나),
+  `dependency_query`(`query`/`query --batch` 문서, `symbol`/`batch` 중 정확히 하나),
+  `verify_run`(`dead`·`cycles`·`rules`·`metrics`의 원시 출력과 종료 코드, 분석 실패·사용
+  오류는 `isError: true`). 모든 도구는 CLI와 **완전히 같은** `runDartograph` 실행 경로를
+  재사용하므로 결과 스키마와 종료 코드가 `dartograph` 자체와 어긋나지 않는다. stdout에는
+  JSON-RPC만 쓰고 진단은 stderr로 보내며, 도구는 읽기 전용이다 — `changed`·`batch` 배열을
+  위해 쓴 임시 파일은 호출이 끝나면 지운다
+
+- 정적 import 그래프에 잡히지 않는 입력을 찾아 환경에 대해 판정하는 `dartograph runtime`
+  명령 추가. 탐지 사실은 다섯 카테고리다: `env`(환경변수·`--dart-define`),
+  `dynamicLoad`(`Isolate.spawnUri`, `Process.run`/`start`, `DynamicLibrary.open`,
+  `dart:mirrors`, `Function.apply`), `config`(설정 파일·경로), `asset`(`pubspec.yaml`의
+  `flutter.assets` 선언과 `rootBundle`·`Image.asset`·`AssetImage`), `external`(http(s)
+  목적지). 각 사실은 주어진 환경에서 `present`·`defaulted`·`missing`으로 판정되고, 정적으로
+  확정할 수 없거나 프로브할 수 없으면 사유와 함께 `unverified`로 남는다. 미충족·미판정·
+  외부 자원 수는 위험도(0–100, `low`/`medium`/`high`)로 합산된다. `--env KEY=VALUE`·
+  `--dart-define KEY=VALUE`는 반복 지정할 수 있고 같은 키는 마지막 값이 이기며 값 자체는
+  절대 출력되지 않는다. 둘 중 하나라도 주면 판정이 hermetic해져 프로세스 환경을 무시하고
+  `environment-source` limitation으로 남기며, 두 채널은 서로를 충족하지 않는다.
+  `--no-verify`는 판정 없이 탐지만 한다. `--format`은 `text`·`json`·`markdown`·
+  `github-actions`·`sarif`, `--limit`은 보고 항목만 제한하고,
+  `--fail-on <none|low|medium|high>`는 임계 이상에서 종료 코드 1로 만든다.
+  같은 표면의 결함 셋을 수정했다: `--execute`는 `dart run <entrypoint>`를 쓰는데 실행 중인
+  실행 파일을 그대로 띄워 `dart compile exe` 배포본이 dartograph 자신을 다시 실행했다 —
+  이제 dart VM을 실행 중인 실행 파일, `DART_SDK/bin/dart`, `PATH` 순으로 해석하고 모두
+  실패하면 아무것도 실행하지 않고 사유를 남긴다(`execution.reason`, `exitCode: null`).
+  실행하지 못한 것을 성공한 실행으로 뭉개지 않는다. `DynamicLibrary.open`은 경로형 인자만
+  파일 존재로 판정하고 맨 이름은 OS 로더가 패키지 루트 밖에서 찾으므로 미판정으로 남긴다.
+  `external`은 모든 http(s) 리터럴을 잡지 않는다 — 목적지 자리(`Uri.parse(...)`의 인자,
+  `HttpClient.getUrl`·`postUrl`·`openUrl`, `package:http`의 요청 함수,
+  `WebSocket`/`Socket`/`SecureSocket.connect`의 인자)에 있는 리터럴만 보고하므로 문자열
+  비교·검증 코드와 상수 선언이 더 이상 오탐이 아니다
+
+- 새 표면의 문서와 CI: `doc/COMPETITIVE-ANALYSIS.md`에 대체재 지형(미사용 코드 린터,
+  PR에 붙는 영향 분석 도구, affected-only 모노레포 빌드)과 dartograph의 위치, 정직한
+  약점(증분 분석 부재)을 기록했다. `doc/TROUBLESHOOTING.md`는 첫 실행과 CI에서 자주
+  걸리는 지점을 모았고, `doc/DECISION-incremental.md`는 제안된 `--incremental <dir>`
+  파일 단위 사실 캐시 설계를 고정하면서 아직 구현되지 않았고 USAGE 명령 목록에 넣지
+  않는다는 사실을 명시한다. `.github/workflows/impact-precheck.yml`은 `impact`를 SARIF와
+  `--fail-on high` 게이트로 CI에 붙이는 예시이며, 명령이 게시되기 전까지 공용 CI가 이유
+  없이 붉어지지 않도록 `workflow_dispatch`에 머문다. USAGE와 새 `doc/MCP.md`가 명령·플래그·
+  종료 코드 계약을 문서화하고, 생성되는 에이전트 skill이 `impact`·`mcp`를 안내하며,
+  `tool/verify-cli-contract.sh`가 `impact`·`runtime`·`mcp`의 상태 코드를 검사한다
+
 ## 0.8.0
 
 - 공개 라이브러리 API를 보여주는 실행 가능한 `example/main.dart` 추가 — `CodeGraph`를

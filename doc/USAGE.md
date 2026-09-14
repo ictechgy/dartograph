@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.8.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.9.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -325,7 +325,7 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.8.0
+- run: dart pub global activate dartograph 0.9.0
 - run: dartograph dead --format github-actions --since origin/main .
 - run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```

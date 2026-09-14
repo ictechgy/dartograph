@@ -2,6 +2,94 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.9.0
+
+- Added the `dartograph impact` command for pre-change impact analysis. Exactly
+  one seed is required: `--since <git-ref>` (Git changed files, with the same
+  full-history requirement and bidirectional symlink matching as `affected`),
+  `--changed <changes.json>` (1–1000 project-relative paths, 1 MiB), or
+  `--symbol <symbol-id>`. The report names the changed libraries and symbols,
+  every symbol that transitively uses them (`call`, `reference`, `inheritance`,
+  `implements`, `mixin`, `override`, `import`, `export`) with a shortest usage
+  path and depth, the call sites into changed declarations (file, line, column),
+  the test libraries that depend on the changed set, and a risk score (0–100,
+  `low`/`medium`/`high`) with named factors (`inbound-references`,
+  `impact-depth`, `impact-breadth`, `public-api-surface`, `test-coverage`,
+  `cycle-participation`). A `coverage` block states what a precheck keeps from
+  being missed: the directly changed symbol count, the transitively impacted
+  count, related tests, and `missedWithoutPrecheck`, the symbols that stay
+  invisible when only the changed files are inspected. Formats are `text`,
+  `json`, `markdown`, `github-actions`, and `sarif`; `--depth` bounds the
+  transitive walk while `--limit` bounds only what is reported (counts, risk,
+  and exit code are unaffected, and each truncated list says so), and
+  `--fail-on <none|low|medium|high>` exits 1 when the overall risk reaches the
+  threshold (default `none` always exits 0). A `--symbol` seed absent from the
+  graph is answered with `known: false` and exit 64, and the report never claims
+  that an unlisted declaration is unaffected
+
+- Added the `dartograph mcp` command, a Model Context Protocol server over
+  stdio (JSON-RPC 2.0, protocol version `2024-11-05`; `initialize`, `ping`,
+  `tools/list`, `tools/call`, and `notifications/*` are handled, with `-32601`
+  for unknown methods, `-32700` for malformed JSON, and `-32602` for invalid
+  parameters while the server keeps running). Three tools are exposed:
+  `impact_query` (the `impact --format json` document; `since`/`changed`/
+  `symbol`, exactly one), `dependency_query` (`query`/`query --batch`; `symbol`/
+  `batch`, exactly one), and `verify_run` (`dead`/`cycles`/`rules`/`metrics` with
+  the raw output and exit code, `isError: true` for analysis failures and usage
+  errors). Every tool reuses the same `runDartograph` execution path as the CLI,
+  so tool result schemas and exit codes cannot drift from `dartograph` itself.
+  stdout carries only JSON-RPC and diagnostics go to stderr; the tools are
+  read-only, and the temporary files written for `changed`/`batch` arrays are
+  removed when the call returns
+
+- Added the `dartograph runtime` command, which finds inputs the static import
+  graph cannot see and verifies them against an environment. Detected facts fall
+  into five categories: `env` (environment variables and `--dart-define`),
+  `dynamicLoad` (`Isolate.spawnUri`, `Process.run`/`start`,
+  `DynamicLibrary.open`, `dart:mirrors`, `Function.apply`), `config`
+  (configuration files and paths), `asset` (`pubspec.yaml` `flutter.assets`
+  declarations and `rootBundle`/`Image.asset`/`AssetImage`), and `external`
+  (http(s) destinations). Each fact is judged `present`, `defaulted`, or
+  `missing` in the given environment, or left `unverified` with a reason when it
+  cannot be decided statically or probed; unmet, undecided, and external counts
+  sum into a risk score (0–100, `low`/`medium`/`high`). `--env KEY=VALUE` and
+  `--dart-define KEY=VALUE` repeat (last value wins) and never print their
+  values; providing either channel makes verification hermetic — the process
+  environment is ignored and reported as an `environment-source` limitation —
+  and the two channels do not satisfy each other. `--no-verify` detects without
+  judging. `--format` is `text`, `json`, `markdown`, `github-actions`, or
+  `sarif`, `--limit` bounds reported items only, and
+  `--fail-on <none|low|medium|high>` exits 1 at the threshold. Three defects in
+  the same surface are fixed: `--execute` runs `dart run <entrypoint>` and
+  previously launched the running executable, so a `dart compile exe` build
+  re-ran dartograph itself; the dart VM is now resolved from the running
+  executable, then `DART_SDK/bin/dart`, then `PATH`, and when none is found
+  nothing runs and the report records the reason (`execution.reason`,
+  `exitCode: null`) instead of flattening it into a successful run.
+  `DynamicLibrary.open` targets are verified by file existence only for
+  path-shaped arguments; bare names stay unverified because the OS loader
+  resolves them outside the package root. `external` no longer reports every
+  http(s) literal — only literals in destination position (`Uri.parse(...)` or
+  the arguments of known network APIs such as
+  `HttpClient.getUrl`/`postUrl`/`openUrl`, the `package:http` request functions,
+  and `WebSocket`/`Socket`/`SecureSocket.connect`), so string comparisons,
+  validation code, and constants are no longer false positives
+
+- Documentation and CI for the new surfaces: `doc/COMPETITIVE-ANALYSIS.md`
+  records the substitute landscape (unused-code linters, PR-attached impact
+  tools, affected-only monorepo builds), dartograph's position, and the honest
+  weak point — no incremental analysis yet; `doc/TROUBLESHOOTING.md` collects
+  first-run and CI failure modes; `doc/DECISION-incremental.md` fixes the design
+  of the proposed `--incremental <dir>` file-fact cache and states that it is
+  not implemented and deliberately absent from the USAGE command list.
+  `.github/workflows/impact-precheck.yml` shows `impact` wired into CI as SARIF
+  plus a `--fail-on high` gate, and stays on `workflow_dispatch` until the
+  commands are published so the shared CI does not turn red for an unreleased
+  command. USAGE and the new `doc/MCP.md` document the commands, their flags,
+  and the exit-code contract, the generated agent skill points at `impact` and
+  `mcp`, and `tool/verify-cli-contract.sh` now asserts the `impact`, `runtime`,
+  and `mcp` status codes
+
 ## 0.8.0
 
 - Added a runnable `example/main.dart` demonstrating the public library API:
