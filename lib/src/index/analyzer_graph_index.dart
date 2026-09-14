@@ -936,6 +936,7 @@ List<Directory> _readSourcePackages(String root) {
     );
   }
   final packages = <Directory>[];
+  final configuredPackages = _packageConfigRoots(root);
   final packageNames = <String>{};
   final packagePaths = <String>{};
   for (final value in raw) {
@@ -957,7 +958,8 @@ List<Directory> _readSourcePackages(String root) {
     final segments = lexical.split('/');
     if (segments.any(
       (segment) =>
-          segment == '.dart_tool' || segment == 'build' || segment == '.fvm',
+          segment.startsWith('.') ||
+          _ignoredProjectDirectories.contains(segment),
     )) {
       throw FormatException(
         'source_packages cannot use generated or cache paths: $value',
@@ -992,6 +994,12 @@ List<Directory> _readSourcePackages(String root) {
         !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
       throw FormatException('source_packages pubspec name is invalid: $value');
     }
+    final configuredName = configuredPackages[canonical];
+    if (configuredName != name) {
+      throw FormatException(
+        'source_packages root must be resolved in .dart_tool/package_config.json: $value',
+      );
+    }
     if (!packagePaths.add(canonical) || !packageNames.add(name)) {
       throw FormatException(
         'source_packages entries must identify unique packages: $value',
@@ -1000,6 +1008,35 @@ List<Directory> _readSourcePackages(String root) {
     packages.add(Directory(canonical));
   }
   return packages;
+}
+
+/// root package config가 제공하는 local package root와 package: 이름을 읽는다.
+/// source_packages는 이 매핑이 있어야만 analyzer가 실제 package URI/element를
+/// 보존할 수 있으므로, 해석되지 않은 path dependency를 파일로 가장하지 않는다.
+Map<String, String> _packageConfigRoots(String root) {
+  final file = File(p.join(root, '.dart_tool', 'package_config.json'));
+  if (!file.existsSync()) {
+    throw const FormatException(
+      'source_packages requires .dart_tool/package_config.json',
+    );
+  }
+  final document = jsonDecode(readConfigurationSync(file));
+  if (document is! Map || document['packages'] is! List) {
+    throw const FormatException('source_packages package config is invalid');
+  }
+  final result = <String, String>{};
+  for (final value in document['packages'] as List) {
+    if (value is! Map ||
+        value['name'] is! String ||
+        value['rootUri'] is! String) {
+      throw const FormatException('source_packages package config is invalid');
+    }
+    final rootUri = file.parent.uri.resolve(value['rootUri'] as String);
+    if (rootUri.scheme != 'file') continue;
+    final packageRoot = Directory.fromUri(rootUri).resolveSymbolicLinksSync();
+    result[p.normalize(packageRoot)] = value['name'] as String;
+  }
+  return result;
 }
 
 /// 프로젝트 루트의 선택적 `dartograph.yaml`에서 `entry_points`를 읽어
@@ -1493,11 +1530,24 @@ List<String> _dartFilesUnder(
   List<Directory> sourcePackages,
 ) {
   final paths = <String>{};
-  bool inAnalysisScope(String path) =>
-      _isStandardSourcePath(path, root) ||
-      sourcePackages.any(
-        (package) => isPathWithinRoot(path, p.join(package.path, 'lib')),
+  bool inAnalysisScope(String path) {
+    if (_isStandardSourcePath(path, root)) return true;
+    final package = sourcePackages.where(
+      (item) => isPathWithinRoot(path, p.join(item.path, 'lib')),
+    );
+    if (package.isEmpty) return false;
+    try {
+      // Analyzer may report a symlinked file even when filesystem traversal
+      // uses followLinks:false. Keep the opt-in package scope lexical.
+      return p.equals(
+        p.normalize(path),
+        p.normalize(File(path).resolveSymbolicLinksSync()),
       );
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   for (final context in collection.contexts) {
     paths.addAll(
       context.contextRoot.analyzedFiles().where(
