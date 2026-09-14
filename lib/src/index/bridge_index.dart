@@ -521,6 +521,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitIfStatement(IfStatement node) {
     node.expression.accept(this);
+    node.caseClause?.accept(this);
     final condition = _snapshotBasicChannels();
     _restoreBasicChannels(condition);
     node.thenStatement.accept(this);
