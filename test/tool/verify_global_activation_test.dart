@@ -17,6 +17,8 @@ void main() {
       expect(await packageConfiguration.readAsBytes(), configurationBefore);
     },
     tags: 'global_activation',
-    timeout: const Timeout(Duration(minutes: 3)),
+    // 100개 이상의 설치 CLI 호출은 공유 CI에서 각각 SDK 시작 비용을 낸다.
+    // 기능·종료 코드 검사는 모두 유지하고 전체 설치 계약에 별도 예산을 둔다.
+    timeout: const Timeout(Duration(minutes: 8)),
   );
 }
