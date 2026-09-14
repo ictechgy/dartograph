@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+- native executable의 `runtime --execute`가 자기 자신 대신 PATH의 Dart SDK를 실행하도록
+  수정했다. 설치 계약은 entrypoint가 실제 실행 근거 파일을 만드는지도 확인한다.
+- 런타임 실행 제한 시간을 프로세스 종료와 출력 수집에 함께 적용한다. 후손이 상속한
+  출력 파이프를 계속 보유해도 제한 시간에 수집을 중단한다.
+
 - local path dependency source를 선택적으로 포함하는 `source_packages` 설정을
   추가했다. package root는 프로젝트 상대 경로의 canonical non-symlink 디렉터리이며
   `pubspec.yaml`과 `lib/`를 가져야 한다. generated/cache·중복 root는 fail-closed로

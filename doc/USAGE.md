@@ -233,12 +233,15 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상�
 쓰고 그 사실을 `environment-source` limitation에 남긴다.
 
 `--execute <dart-entrypoint>`는 **임의 코드를 실행한다**: 패키지 루트에서
-`dart run <entrypoint>`를 띄우고(60초 상한) `--env` 값을 상속 환경 위에 덮어쓴 뒤
+PATH의 Dart SDK로 `dart run <entrypoint>`를 띄우고 `--env` 값을 상속 환경 위에 덮어쓴 뒤
 종료 코드와 stderr 요약(4 KiB 상한)을 실행 증거로 남긴다. 실행 실패는 위험 요인
 (`execution-failed`, 30)이 되지만 나머지 보고는 그대로 나온다. 경로처럼 보이는 인자
 (`.dart`로 끝나거나 경로 구분자를 포함)는 파일 존재를 요구하며 없으면 usage(64)다 —
 패키지 실행 파일 이름은 `dart run`이 해석하므로 존재를 요구하지 않는다. 신뢰한
-프로젝트에서만 쓴다.
+프로젝트에서만 쓴다. 실행과 출력 수집에는 합쳐서 60초 제한을 적용하고, 제한을 넘으면
+직접 실행한 자식의 종료를 최대 5초 더 확인한다. 부모가 종료돼도 후손이 출력 파이프를
+보유하면 `timedOut`으로 보고하며 파이프 수집을 중단한다. 후손 프로세스 전체를 종료하는
+격리 기능은 제공하지 않는다. AOT 설치본도 `--execute`에는 PATH의 Dart SDK가 필요하다.
 
 `--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다. 사람은 `text`·
 `markdown`, CI는 `github-actions`(`missing` 항목은 위험이 `high`면 `error`, 아니면

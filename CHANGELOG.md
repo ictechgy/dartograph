@@ -4,6 +4,12 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Fixed `runtime --execute` in native executables to launch the Dart SDK on PATH
+  instead of recursively launching dartograph. Installation contracts now check
+  that the entrypoint actually produces an execution witness.
+- Apply the runtime execution deadline to output collection as well as process
+  exit, including when a descendant keeps inherited output pipes open.
+
 - Added opt-in `source_packages` configuration for local path dependency source.
   Declared package roots must be project-relative, canonical non-symlink directories
   with `pubspec.yaml` and `lib/`; generated/cache and duplicate roots fail closed.

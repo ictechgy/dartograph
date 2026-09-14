@@ -26,52 +26,58 @@ Future<RuntimeExecution> executeEntrypoint({
   Duration timeout = runtimeExecutionTimeout,
   String? dartExecutable,
 }) async {
-  final executable = dartExecutable ?? Platform.resolvedExecutable;
+  // AOT의 resolvedExecutable은 dartograph 자체다. --execute는 PATH의 SDK를 사용한다.
+  final executable = dartExecutable ?? 'dart';
   final process = await Process.start(
     executable,
     ['run', entrypoint],
     workingDirectory: rootPath,
     environment: environment,
   );
-  final stdoutDone = process.stdout.drain<void>();
-  final stderrDone = _readBounded(process.stderr, runtimeStderrLimit);
+  final stdoutDone = Completer<void>();
+  final stderrDone = Completer<void>();
+  final bytes = <int>[];
+  var truncated = false;
+  final stdoutSubscription = process.stdout.listen(
+    (_) {},
+    onDone: stdoutDone.complete,
+    onError: stdoutDone.completeError,
+    cancelOnError: true,
+  );
+  final stderrSubscription = process.stderr.listen(
+    (chunk) {
+      final remaining = runtimeStderrLimit - bytes.length;
+      if (chunk.length > remaining) truncated = true;
+      bytes.addAll(chunk.take(remaining));
+    },
+    onDone: stderrDone.complete,
+    onError: stderrDone.completeError,
+    cancelOnError: true,
+  );
   var timedOut = false;
-  int exitCode;
+  int? exitCode;
+  final exited = process.exitCode.then((value) => exitCode = value);
   try {
-    exitCode = await process.exitCode.timeout(timeout);
+    await Future.wait<Object?>([
+      exited,
+      stdoutDone.future,
+      stderrDone.future,
+    ]).timeout(timeout);
   } on TimeoutException {
     timedOut = true;
     process.kill(ProcessSignal.sigkill);
-    exitCode = await process.exitCode;
+    exitCode = await exited.timeout(const Duration(seconds: 5));
+  } finally {
+    if (exitCode == null) process.kill(ProcessSignal.sigkill);
+    // 부모가 끝나도 후손이 파이프를 보유할 수 있다. 제한 시간 뒤에는 EOF를 기다리지 않는다.
+    await stdoutSubscription.cancel();
+    await stderrSubscription.cancel();
   }
-  // 자식이 죽은 뒤에도 파이프에 남은 출력은 읽어야 한다.
-  await stdoutDone;
-  final stderrText = await stderrDone;
+  final stderrText = utf8.decode(bytes, allowMalformed: true);
   return RuntimeExecution(
     entrypoint: entrypoint,
-    exitCode: exitCode,
+    exitCode: exitCode!,
     timedOut: timedOut,
-    stderrSummary: stderrText,
+    stderrSummary: truncated ? '$stderrText\n… (stderr truncated)' : stderrText,
   );
-}
-
-/// [stream]을 [limit] 바이트까지만 모으고 나머지는 버리며 소진한다.
-Future<String> _readBounded(Stream<List<int>> stream, int limit) async {
-  final bytes = <int>[];
-  var truncated = false;
-  await for (final chunk in stream) {
-    if (bytes.length >= limit) {
-      truncated = true;
-      continue;
-    }
-    final remaining = limit - bytes.length;
-    if (chunk.length <= remaining) {
-      bytes.addAll(chunk);
-    } else {
-      bytes.addAll(chunk.sublist(0, remaining));
-      truncated = true;
-    }
-  }
-  final text = utf8.decode(bytes, allowMalformed: true);
-  return truncated ? '$text\n… (stderr truncated)' : text;
 }

@@ -129,6 +129,22 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "runtime dart-define override" runtime --dart-define RUNTIME_CORPUS_BASE_URL=https://example.com fixtures/runtime_corpus
   expect_status 0 "runtime fail-on none" runtime --fail-on none fixtures/runtime_corpus
   expect_status 0 "runtime execute entrypoint" runtime --execute bin/corpus_worker.dart fixtures/runtime_corpus
+  EXECUTION_DIR="$TEMPORARY_DIRECTORY/runtime-execution"
+  mkdir -p "$EXECUTION_DIR/bin"
+  cat >"$EXECUTION_DIR/pubspec.yaml" <<'YAML'
+name: runtime_execution_probe
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+YAML
+  cat >"$EXECUTION_DIR/bin/main.dart" <<'DART'
+import 'dart:io';
+void main() => File('executed.txt').writeAsStringSync('executed');
+DART
+  expect_status 0 "runtime execute succeeds through installed binary" runtime --execute bin/main.dart --fail-on low "$EXECUTION_DIR"
+  if [[ ! -f "$EXECUTION_DIR/executed.txt" ]] || [[ "$(cat "$EXECUTION_DIR/executed.txt")" != "executed" ]]; then
+    echo "  FAIL  runtime entrypoint did not produce its execution witness"
+    FAILURES=$((FAILURES + 1))
+  fi
   expect_status 1 "runtime fail-on medium findings" runtime --fail-on medium fixtures/runtime_corpus
   expect_status 1 "runtime fail-on high findings" runtime --fail-on high fixtures/runtime_corpus
   expect_status 64 "runtime missing root" runtime

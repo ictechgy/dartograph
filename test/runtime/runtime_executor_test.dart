@@ -111,4 +111,36 @@ void main() {
     expect(execution.stderrSummary, endsWith('… (stderr truncated)'));
     expect(execution.stderrSummary.length, lessThan(runtimeStderrLimit + 64));
   });
+
+  test('자식이 끝나도 후손이 출력 파이프를 잡고 있으면 제한 시간에 반환한다', () async {
+    // 프로세스 경계만 검증한다. 짧은 shell 부모가 끝난 뒤 sleep이 두 파이프를 보유한다.
+    script('run', '''
+/bin/sleep 30 &
+printf '%s' "\$!" > "\$1"
+printf 'before exit' >&2
+exit 0
+''');
+    final pidFile = File(p.join(directory.path, 'descendant.pid'));
+    final pending = executeEntrypoint(
+      entrypoint: 'descendant.pid',
+      rootPath: directory.path,
+      dartExecutable: '/bin/sh',
+      timeout: const Duration(milliseconds: 200),
+    );
+    try {
+      final execution = await pending.timeout(const Duration(seconds: 2));
+      expect(execution.exitCode, 0);
+      expect(execution.timedOut, isTrue);
+      expect(execution.ok, isFalse);
+      expect(execution.stderrSummary, 'before exit');
+    } finally {
+      if (await pidFile.exists()) {
+        Process.killPid(
+          int.parse(await pidFile.readAsString()),
+          ProcessSignal.sigkill,
+        );
+      }
+      await pending;
+    }
+  }, skip: Platform.isWindows);
 }
