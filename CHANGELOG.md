@@ -4,6 +4,13 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Added opt-in `source_packages` configuration for local path dependency source.
+  Declared package roots must be project-relative, canonical non-symlink directories
+  with `pubspec.yaml` and `lib/`; generated/cache and duplicate roots fail closed.
+  The package `lib/` is included with its existing `package:` identities, while the
+  default analysis scope remains unchanged. Configuration and package contents
+  invalidate the analysis cache.
+
 - Added the development-source-only `bridges --messages --format json` producer
   for observed Flutter `BasicMessageChannel.send` calls. It emits bridge-facts
   v2 with `transport: "basic-message-channel"` and `kind: "message-send"`,

@@ -48,6 +48,9 @@ Without `dartograph.yaml` `entry_points`, other mains stay conservative roots;
 declaring entry_points narrows retention to the mains it lists. Generated
 sources, conditional imports, dynamic calls and unmatched string routes can
 limit the evidence.
+When generated or vendored Dart source lives in a local path dependency, add
+its package root to `source_packages`; this is opt-in and must stay inside the
+project. Do not crawl an external pub cache or infer package roots.
 
 Reuse evidence for an unchanged snapshot. After an authorized change, run
 validation appropriate to its risk and report the result plus unresolved limits.

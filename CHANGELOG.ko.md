@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+- local path dependency source를 선택적으로 포함하는 `source_packages` 설정을
+  추가했다. package root는 프로젝트 상대 경로의 canonical non-symlink 디렉터리이며
+  `pubspec.yaml`과 `lib/`를 가져야 한다. generated/cache·중복 root는 fail-closed로
+  거부하고, 기본 분석 범위는 유지한다. 기존 `package:` identity를 보존하며 설정과
+  package 내용은 분석 캐시를 무효화한다.
+
 - Flutter `BasicMessageChannel.send` 호출을 관측하는 개발 소스 전용
   `bridges --messages --format json` producer를 추가했다. `transport:
   "basic-message-channel"`과 `kind: "message-send"`를 담은 bridge-facts v2를

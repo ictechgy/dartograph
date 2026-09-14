@@ -71,6 +71,7 @@ final class AnalyzerGraphIndex {
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+    final sourcePackages = _readSourcePackages(root);
     final cache = _cache ?? _defaultFactCache(root);
     final initialCacheKey = cache == null
         ? null
@@ -88,7 +89,7 @@ final class AnalyzerGraphIndex {
     );
     final units = <ResolvedUnitResult>[];
     try {
-      for (final path in _dartFilesUnder(root, collection)) {
+      for (final path in _dartFilesUnder(root, collection, sourcePackages)) {
         final result = await _contextIncluding(
           collection,
           path,
@@ -230,13 +231,14 @@ final class AnalyzerGraphIndex {
 /// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+  final sourcePackages = _readSourcePackages(root);
   final collection = AnalysisContextCollection(
     includedPaths: [root],
     sdkPath: _dartSdkPath(),
   );
   try {
     final units = <ResolvedUnitResult>[];
-    for (final path in _dartFilesUnder(root, collection)) {
+    for (final path in _dartFilesUnder(root, collection, sourcePackages)) {
       final result = await _contextIncluding(
         collection,
         path,
@@ -258,7 +260,7 @@ const _cacheSchemaVersion = 3;
 // 올리지 않았다(직렬화 변경 시에는 위 schemaVersion만 올린다 — isEnumConstant·
 // isLibrary 선례).
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v5-inline-ignore';
+    'dartograph-analysis-$toolVersion-cache-v6-inline-ignore-source-packages';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -915,6 +917,91 @@ bool _isIgnoreDirective(String lexeme) {
 /// 이 밖의 `main`은 원래 mainEntryPoint 루트가 아니므로 설정으로 받지 않는다.
 const _entryPointDirectories = {'bin', 'example', 'lib'};
 
+/// 프로젝트 내부 local package의 `lib/`를 opt-in 분석 대상으로 검증한다.
+/// 기본 분석 범위는 유지하며 명시한 package root만 연다. pubspec 없는 폴더나
+/// symlink/cache 경계는 조용히 따라가지 않는다.
+List<Directory> _readSourcePackages(String root) {
+  final file = File(p.join(root, 'dartograph.yaml'));
+  if (!file.existsSync()) return const [];
+  final document = loadYaml(readConfigurationSync(file));
+  if (document == null) return const [];
+  if (document is! YamlMap) {
+    throw const FormatException('dartograph.yaml must be a YAML mapping');
+  }
+  final raw = document['source_packages'];
+  if (raw == null) return const [];
+  if (raw is! YamlList || raw.isEmpty) {
+    throw const FormatException(
+      'source_packages must be a non-empty list of package roots',
+    );
+  }
+  final packages = <Directory>[];
+  final packageNames = <String>{};
+  final packagePaths = <String>{};
+  for (final value in raw) {
+    if (value is! String || value.trim().isEmpty) {
+      throw const FormatException(
+        'source_packages entries must be non-empty project-relative paths',
+      );
+    }
+    final lexical = p.posix.normalize(
+      value.replaceAll(r'\', p.posix.separator),
+    );
+    if (p.posix.isAbsolute(lexical) ||
+        lexical == '..' ||
+        lexical.startsWith('../')) {
+      throw FormatException(
+        'source_packages must be project-relative paths: $value',
+      );
+    }
+    final segments = lexical.split('/');
+    if (segments.any(
+      (segment) =>
+          segment == '.dart_tool' || segment == 'build' || segment == '.fvm',
+    )) {
+      throw FormatException(
+        'source_packages cannot use generated or cache paths: $value',
+      );
+    }
+    final directory = Directory(p.join(root, lexical));
+    if (!directory.existsSync()) {
+      throw FormatException('source_packages root does not exist: $value');
+    }
+    final absolute = p.normalize(directory.absolute.path);
+    final canonical = p.normalize(directory.resolveSymbolicLinksSync());
+    if (!isPathWithinRoot(canonical, root) || !p.equals(absolute, canonical)) {
+      throw FormatException(
+        'source_packages root must be a non-symlink path inside the project: $value',
+      );
+    }
+    if (p.equals(absolute, p.normalize(root))) {
+      throw FormatException(
+        'source_packages root must be a nested package: $value',
+      );
+    }
+    final pubspec = File(p.join(canonical, 'pubspec.yaml'));
+    final lib = Directory(p.join(canonical, 'lib'));
+    if (!pubspec.existsSync() || !lib.existsSync()) {
+      throw FormatException(
+        'source_packages root must contain pubspec.yaml and lib/: $value',
+      );
+    }
+    final packageDocument = loadYaml(readConfigurationSync(pubspec));
+    final name = packageDocument is YamlMap ? packageDocument['name'] : null;
+    if (name is! String ||
+        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
+      throw FormatException('source_packages pubspec name is invalid: $value');
+    }
+    if (!packagePaths.add(canonical) || !packageNames.add(name)) {
+      throw FormatException(
+        'source_packages entries must identify unique packages: $value',
+      );
+    }
+    packages.add(Directory(canonical));
+  }
+  return packages;
+}
+
 /// 프로젝트 루트의 선택적 `dartograph.yaml`에서 `entry_points`를 읽어
 /// canonical `project:` source ID 집합으로 변환한다.
 ///
@@ -1403,15 +1490,21 @@ bool isPathWithinRoot(String path, String root, {p.Context? context}) {
 List<String> _dartFilesUnder(
   String root,
   AnalysisContextCollection collection,
+  List<Directory> sourcePackages,
 ) {
   final paths = <String>{};
+  bool inAnalysisScope(String path) =>
+      _isStandardSourcePath(path, root) ||
+      sourcePackages.any(
+        (package) => isPathWithinRoot(path, p.join(package.path, 'lib')),
+      );
   for (final context in collection.contexts) {
     paths.addAll(
       context.contextRoot.analyzedFiles().where(
         (path) =>
             path.endsWith('.dart') &&
             isPathWithinRoot(path, root) &&
-            _isStandardSourcePath(path, root),
+            inAnalysisScope(path),
       ),
     );
   }
@@ -1421,7 +1514,7 @@ List<String> _dartFilesUnder(
         .whereType<File>()
         .map((file) => file.path)
         .where(_isGenerated)
-        .where((path) => _isStandardSourcePath(path, root))
+        .where(inAnalysisScope)
         .where(
           (path) => !p
               .split(p.relative(path, from: root))

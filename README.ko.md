@@ -96,6 +96,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - route table과 연결되지 않은 문자열 route는 한계로 보고되며 삭제 근거로 쓰이지 않는다.
 - 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다.
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
+- 프로젝트 안에 vendor한 local path dependency의 generated Pigeon/Dart source는 `dartograph.yaml`의 `source_packages`에 package root를 명시할 때만 그래프에 포함된다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 하며, 전체 pub cache를 순회하지 않는다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.

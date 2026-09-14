@@ -9,4 +9,9 @@ const configurationTemplate = '''
 # to specific application entry points.
 # entry_points:
 #   - lib/main.dart
+
+# Local path dependency package roots whose lib/ sources should be included.
+# Keep this opt-in; the default analysis scope does not crawl vendor packages.
+# source_packages:
+#   - vendor/shared_preferences_android
 ''';

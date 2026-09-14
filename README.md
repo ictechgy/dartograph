@@ -155,6 +155,10 @@ Limitations:
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
   functions of those files (a template can be generated with `dartograph init`).
+- Local path dependencies are opt-in graph inputs through `source_packages` in
+  `dartograph.yaml`; each declared package root must be inside the project and
+  contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
+  source vendored under a project without crawling the whole pub cache.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
