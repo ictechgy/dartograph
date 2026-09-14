@@ -35,6 +35,39 @@ source_packages:
   );
 
   test(
+    'source_packages rejects a package absent from package_config',
+    () async {
+      final package = await _makePackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/pubspec.yaml').writeAsString('''
+name: source_package_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: package.path);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+      await File('${package.path}/dartograph.yaml').writeAsString('''
+source_packages:
+  - vendor/local_bridge
+''');
+      await expectLater(
+        AnalyzerGraphIndex().index(package.path),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('local_bridge'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'source package configuration rejects malformed or unsafe roots',
     () async {
       for (final config in const [
