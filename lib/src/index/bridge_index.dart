@@ -375,9 +375,11 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       if (channel != null) {
         _channelScopes.last[variable.name.lexeme] = channel;
       }
-      final basicChannel = _basicChannelCreatedBy(variable.initializer);
-      if (basicChannel != null) {
-        _basicChannelScopes.last[variable.name.lexeme] = basicChannel;
+      if (variable.isFinal || variable.isConst) {
+        final basicChannel = _basicChannelCreatedBy(variable.initializer);
+        if (basicChannel != null) {
+          _basicChannelScopes.last[variable.name.lexeme] = basicChannel;
+        }
       }
     }
   }
@@ -400,7 +402,16 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitFunctionDeclaration(FunctionDeclaration node) {
     _declare(node.name.lexeme);
-    super.visitFunctionDeclaration(node);
+    final savedBasicChannels = _basicFieldScopes.isNotEmpty
+        ? _snapshotBasicChannels()
+        : null;
+    try {
+      super.visitFunctionDeclaration(node);
+    } finally {
+      if (savedBasicChannels != null) {
+        _restoreBasicChannels(savedBasicChannels);
+      }
+    }
   }
 
   @override
@@ -419,6 +430,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitForStatement(ForStatement node) {
+    final before = _snapshotBasicChannels();
     _pushScope();
     try {
       final parts = node.forLoopParts;
@@ -428,7 +440,22 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       super.visitForStatement(node);
     } finally {
       _popScope();
+      _restoreUnchangedBasicChannels(before);
     }
+  }
+
+  @override
+  void visitWhileStatement(WhileStatement node) {
+    final before = _snapshotBasicChannels();
+    super.visitWhileStatement(node);
+    _restoreUnchangedBasicChannels(before);
+  }
+
+  @override
+  void visitDoStatement(DoStatement node) {
+    final before = _snapshotBasicChannels();
+    super.visitDoStatement(node);
+    _restoreUnchangedBasicChannels(before);
   }
 
   @override
@@ -461,7 +488,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitParameterScope(
       node.parameters,
       () => super.visitFunctionExpression(node),
-      isolateBasicFields: true,
+      isolateBasicChannels: true,
     );
   }
 
@@ -469,8 +496,12 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     FormalParameterList? parameters,
     void Function() visitChildren, {
     bool isolateBasicFields = false,
+    bool isolateBasicChannels = false,
   }) {
     final savedBasicFields = isolateBasicFields ? _snapshotBasicFields() : null;
+    final savedBasicChannels = isolateBasicChannels
+        ? _snapshotBasicChannels()
+        : null;
     _pushScope();
     try {
       for (final parameter in parameters?.parameters ?? const []) {
@@ -481,14 +512,53 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     } finally {
       _popScope();
       if (savedBasicFields != null) _restoreBasicFields(savedBasicFields);
+      if (savedBasicChannels != null) {
+        _restoreBasicChannels(savedBasicChannels);
+      }
     }
   }
 
   @override
   void visitIfStatement(IfStatement node) {
-    final before = _snapshotBasicFields();
-    super.visitIfStatement(node);
-    _restoreUnchangedBasicFields(before);
+    node.expression.accept(this);
+    final condition = _snapshotBasicChannels();
+    _restoreBasicChannels(condition);
+    node.thenStatement.accept(this);
+    final thenState = _snapshotBasicChannels();
+    _restoreBasicChannels(condition);
+    node.elseStatement?.accept(this);
+    final elseState = _snapshotBasicChannels();
+    _joinBasicChannels(thenState, elseState);
+  }
+
+  @override
+  void visitConditionalExpression(ConditionalExpression node) {
+    node.condition.accept(this);
+    final condition = _snapshotBasicChannels();
+    _restoreBasicChannels(condition);
+    node.thenExpression.accept(this);
+    final thenState = _snapshotBasicChannels();
+    _restoreBasicChannels(condition);
+    node.elseExpression.accept(this);
+    final elseState = _snapshotBasicChannels();
+    _joinBasicChannels(thenState, elseState);
+  }
+
+  @override
+  void visitSwitchStatement(SwitchStatement node) {
+    node.expression.accept(this);
+    final condition = _snapshotBasicChannels();
+    final states = <List<Map<String, _BridgeName>>>[condition];
+    for (final member in node.members) {
+      _restoreBasicChannels(condition);
+      member.accept(this);
+      states.add(_snapshotBasicChannels());
+    }
+    _restoreBasicChannels(states.first);
+    for (final state in states.skip(1)) {
+      final current = _snapshotBasicChannels();
+      _joinBasicChannels(current, state);
+    }
   }
 
   @override
@@ -497,11 +567,19 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _recordStringConstant(node);
     final channel = _channelCreatedBy(node.initializer);
     if (channel != null) _channelScopes.last[node.name.lexeme] = channel;
-    final basicChannel = _basicChannelCreatedBy(node.initializer);
-    if (basicChannel != null) {
-      _basicChannelScopes.last[node.name.lexeme] = basicChannel;
+    if (!_isFieldVariable(node) || node.isFinal || node.isConst) {
+      final basicChannel = _basicChannelCreatedBy(node.initializer);
+      if (basicChannel != null) {
+        _basicChannelScopes.last[node.name.lexeme] = basicChannel;
+      }
     }
     super.visitVariableDeclaration(node);
+  }
+
+  bool _isFieldVariable(VariableDeclaration node) {
+    final parent = node.parent;
+    return parent is VariableDeclarationList &&
+        parent.parent is FieldDeclaration;
   }
 
   @override
@@ -833,10 +911,22 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     }
   }
 
-  void _restoreUnchangedBasicFields(List<Map<String, _BridgeName>> before) {
+  List<Map<String, _BridgeName>> _snapshotBasicChannels() => [
+    for (final channels in _basicChannelScopes) Map.of(channels),
+  ];
+
+  void _restoreBasicChannels(List<Map<String, _BridgeName>> saved) {
+    for (var index = 0; index < saved.length; index++) {
+      _basicChannelScopes[index]
+        ..clear()
+        ..addAll(saved[index]);
+    }
+  }
+
+  void _restoreUnchangedBasicChannels(List<Map<String, _BridgeName>> before) {
     for (var index = 0; index < before.length; index++) {
       final previous = before[index];
-      final current = _basicFieldScopes[index];
+      final current = _basicChannelScopes[index];
       final unchanged = <String, _BridgeName>{};
       for (final entry in previous.entries) {
         if (current[entry.key] == entry.value) {
@@ -846,6 +936,25 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       current
         ..clear()
         ..addAll(unchanged);
+    }
+  }
+
+  void _joinBasicChannels(
+    List<Map<String, _BridgeName>> thenState,
+    List<Map<String, _BridgeName>> elseState,
+  ) {
+    for (var index = 0; index < thenState.length; index++) {
+      final thenChannels = thenState[index];
+      final elseChannels = elseState[index];
+      final joined = <String, _BridgeName>{};
+      for (final entry in thenChannels.entries) {
+        if (elseChannels[entry.key] == entry.value) {
+          joined[entry.key] = entry.value;
+        }
+      }
+      _basicChannelScopes[index]
+        ..clear()
+        ..addAll(joined);
     }
   }
 

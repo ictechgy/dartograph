@@ -163,8 +163,14 @@ class ReorderedApi {
 
     final result = indexBridges(root.path, messages: true);
 
-    expect(result.facts.map((fact) => fact['channel']), ['before', 'before']);
-    expect(result.limitations, isEmpty);
+    expect(result.facts, isEmpty);
+    expect(
+      result.limitations,
+      contains(
+        'unresolved-basic-message-sends: 2 send calls have '
+        'no proven BasicMessageChannel receiver',
+      ),
+    );
   });
 
   test(
@@ -191,6 +197,77 @@ class Api {
       final result = indexBridges(root.path, messages: true);
 
       expect(result.facts, isEmpty);
+      expect(
+        result.limitations,
+        contains(startsWith('unresolved-basic-message-sends:')),
+      );
+    },
+  );
+
+  test(
+    'visits conditional branches from the same pre-branch field state',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-messages.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('initial', codec);
+
+  void sendElse(bool condition) {
+    this.channel = BasicMessageChannel<Object?>('before', codec);
+    if (condition) {
+      this.channel = BasicMessageChannel<Object?>('then', codec);
+    } else {
+      channel.send(null);
+    }
+    channel.send(null);
+  }
+}
+''');
+
+      final result = indexBridges(root.path, messages: true);
+
+      expect(result.facts.map((fact) => fact['channel']), ['before']);
+      expect(
+        result.limitations,
+        contains(startsWith('unresolved-basic-message-sends:')),
+      );
+    },
+  );
+
+  test(
+    'keeps local mutable channels precise only along straight-line flow',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-messages.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+final immutable = BasicMessageChannel<Object?>('immutable', codec);
+
+void straightLine() {
+  var local = BasicMessageChannel<Object?>('local', codec);
+  local.send(null);
+}
+
+void branch(bool condition) {
+  var local = BasicMessageChannel<Object?>('before', codec);
+  if (condition) local = BasicMessageChannel<Object?>('after', codec);
+  local.send(null);
+}
+
+void immutableField() => immutable.send(null);
+''');
+
+      final result = indexBridges(root.path, messages: true);
+
+      expect(result.facts.map((fact) => fact['channel']), [
+        'local',
+        'immutable',
+      ]);
       expect(
         result.limitations,
         contains(startsWith('unresolved-basic-message-sends:')),
