@@ -273,6 +273,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   final bool messages;
   final List<Map<String, _BridgeName>> _channelScopes;
   final List<Map<String, _BridgeName>> _basicChannelScopes;
+  final List<Map<String, _BridgeName>> _basicFieldScopes = [];
   final List<Map<String, _BridgeName>> _stringConstantScopes;
   final List<Set<String>> _declaredNameScopes;
   final facts = <Map<String, Object?>>[];
@@ -291,6 +292,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitDeclarationScope(
       () => super.visitClassDeclaration(node),
       () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      ownsBasicFields: true,
     );
   }
 
@@ -299,6 +301,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitDeclarationScope(
       () => super.visitMixinDeclaration(node),
       () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      ownsBasicFields: true,
     );
   }
 
@@ -307,6 +310,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitDeclarationScope(
       () => super.visitEnumDeclaration(node),
       () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      ownsBasicFields: true,
     );
   }
 
@@ -315,6 +319,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitDeclarationScope(
       () => super.visitExtensionDeclaration(node),
       () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      ownsBasicFields: true,
     );
   }
 
@@ -323,14 +328,17 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitDeclarationScope(
       () => super.visitExtensionTypeDeclaration(node),
       () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      ownsBasicFields: true,
     );
   }
 
   void _visitDeclarationScope(
     void Function() visitChildren,
-    void Function() prescan,
-  ) {
+    void Function() prescan, {
+    bool ownsBasicFields = false,
+  }) {
     _pushScope();
+    if (ownsBasicFields) _basicFieldScopes.add(_basicChannelScopes.last);
     try {
       // 본문을 방문하기 전에 멤버 필드의 채널·문자열 상수를 먼저 등록한다.
       // analyzer는 선언을 소스 순서로 방문하므로 `static final _c = MethodChannel(...)`이
@@ -340,6 +348,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       prescan();
       visitChildren();
     } finally {
+      if (ownsBasicFields) _basicFieldScopes.removeLast();
       _popScope();
     }
   }
@@ -434,6 +443,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitParameterScope(
       node.parameters,
       () => super.visitMethodDeclaration(node),
+      isolateBasicFields: true,
     );
   }
 
@@ -442,6 +452,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitParameterScope(
       node.parameters,
       () => super.visitConstructorDeclaration(node),
+      isolateBasicFields: true,
     );
   }
 
@@ -450,13 +461,16 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _visitParameterScope(
       node.parameters,
       () => super.visitFunctionExpression(node),
+      isolateBasicFields: true,
     );
   }
 
   void _visitParameterScope(
     FormalParameterList? parameters,
-    void Function() visitChildren,
-  ) {
+    void Function() visitChildren, {
+    bool isolateBasicFields = false,
+  }) {
+    final savedBasicFields = isolateBasicFields ? _snapshotBasicFields() : null;
     _pushScope();
     try {
       for (final parameter in parameters?.parameters ?? const []) {
@@ -466,7 +480,15 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       visitChildren();
     } finally {
       _popScope();
+      if (savedBasicFields != null) _restoreBasicFields(savedBasicFields);
     }
+  }
+
+  @override
+  void visitIfStatement(IfStatement node) {
+    final before = _snapshotBasicFields();
+    super.visitIfStatement(node);
+    _restoreUnchangedBasicFields(before);
   }
 
   @override
@@ -494,7 +516,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       } else if (messages &&
           left is PropertyAccess &&
           left.target is ThisExpression) {
-        _assignBasicChannel(
+        _assignBasicField(
           left.propertyName.name,
           _basicChannelCreatedBy(node.rightHandSide),
         );
@@ -785,6 +807,45 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
         _basicChannelScopes[index][name] = channel;
       }
       return;
+    }
+  }
+
+  void _assignBasicField(String name, _BridgeName? channel) {
+    if (_basicFieldScopes.isEmpty) return;
+    final fields = _basicFieldScopes.last;
+    if (channel == null) {
+      fields.remove(name);
+    } else {
+      fields[name] = channel;
+    }
+  }
+
+  List<Map<String, _BridgeName>> _snapshotBasicFields() => [
+    for (final fields in _basicFieldScopes) Map.of(fields),
+  ];
+
+  void _restoreBasicFields(List<Map<String, _BridgeName>> saved) {
+    for (var index = 0; index < saved.length; index++) {
+      final fields = _basicFieldScopes[index];
+      fields
+        ..clear()
+        ..addAll(saved[index]);
+    }
+  }
+
+  void _restoreUnchangedBasicFields(List<Map<String, _BridgeName>> before) {
+    for (var index = 0; index < before.length; index++) {
+      final previous = before[index];
+      final current = _basicFieldScopes[index];
+      final unchanged = <String, _BridgeName>{};
+      for (final entry in previous.entries) {
+        if (current[entry.key] == entry.value) {
+          unchanged[entry.key] = entry.value;
+        }
+      }
+      current
+        ..clear()
+        ..addAll(unchanged);
     }
   }
 

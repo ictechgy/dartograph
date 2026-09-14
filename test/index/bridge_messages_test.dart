@@ -109,6 +109,96 @@ class Api {
   });
 
   test(
+    'keeps this field assignment separate from a same-named local channel',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-messages.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('field', codec);
+
+  void send() {
+    this.channel = BasicMessageChannel<Object?>('updated', codec);
+    {
+      final channel = BasicMessageChannel<Object?>('local', codec);
+      channel.send(null);
+    }
+    channel.send(null);
+  }
+}
+''');
+
+      final result = indexBridges(root.path, messages: true);
+
+      expect(result.facts.map((fact) => fact['channel']), ['local', 'updated']);
+      expect(result.limitations, isEmpty);
+    },
+  );
+
+  test('does not leak mutable field state between methods', () async {
+    final root = await Directory.systemTemp.createTemp('bridge-messages.');
+    addTearDown(() => root.delete(recursive: true));
+    await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('before', codec);
+
+  void swap() => this.channel = BasicMessageChannel<Object?>('after', codec);
+  void send() => channel.send(null);
+}
+
+class ReorderedApi {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('before', codec);
+
+  void send() => channel.send(null);
+  void swap() => this.channel = BasicMessageChannel<Object?>('after', codec);
+}
+''');
+
+    final result = indexBridges(root.path, messages: true);
+
+    expect(result.facts.map((fact) => fact['channel']), ['before', 'before']);
+    expect(result.limitations, isEmpty);
+  });
+
+  test(
+    'keeps a field send unresolved after a conditional assignment',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-messages.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('before', codec);
+
+  void send(bool condition) {
+    if (condition) {
+      this.channel = BasicMessageChannel<Object?>('branch', codec);
+    }
+    channel.send(null);
+  }
+}
+''');
+
+      final result = indexBridges(root.path, messages: true);
+
+      expect(result.facts, isEmpty);
+      expect(
+        result.limitations,
+        contains(startsWith('unresolved-basic-message-sends:')),
+      );
+    },
+  );
+
+  test(
     'retains dynamic interpolation and only its decoded leading prefix',
     () async {
       final root = await Directory.systemTemp.createTemp('bridge-messages.');
