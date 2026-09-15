@@ -162,6 +162,18 @@ DART
   expect_status 64 "runtime execute unknown entrypoint" runtime --execute bin/nope.dart fixtures/runtime_corpus
   expect_status 64 "runtime two roots" runtime fixtures/phase5_contract fixtures/runtime_corpus
   expect_status 2 "runtime failure" runtime --format json fixtures/does-not-exist
+  LEDGER_DIR="$TEMPORARY_DIRECTORY/ledger"
+  expect_status 0 "history missing ledger is empty" history --ledger "$LEDGER_DIR"
+  expect_status 64 "history missing ledger option" history
+  expect_status 64 "history unknown format" history --ledger "$LEDGER_DIR" --format sarif
+  expect_status 1 "record a dead run" dead --format json --record "$LEDGER_DIR" fixtures/test_only_corpus
+  expect_status 0 "record a graph run" graph --format json --record "$LEDGER_DIR" fixtures/phase5_contract
+  expect_status 0 "history after record" history --ledger "$LEDGER_DIR"
+  expect_status 0 "history commit filter" history --ledger "$LEDGER_DIR" --commit deadbeef
+  expect_status 0 "history json" history --ledger "$LEDGER_DIR" --format json
+  expect_status 64 "record missing option value" graph --format json --record --level file fixtures/phase5_contract
+  expect_status 64 "record duplicate" dead --format json --record "$LEDGER_DIR" --record "$LEDGER_DIR" fixtures/phase5_contract
+  expect_status 64 "record on non-recordable command" init --record "$LEDGER_DIR" "$TEMPORARY_DIRECTORY/init-record"
   expect_status 64 "mcp with arguments" mcp --help
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"

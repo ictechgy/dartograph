@@ -78,7 +78,7 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 | 6.2 에이전트 질의 `mcp` | 0.9.0 릴리스 | stdio JSON-RPC 도구 3종(impact_query·dependency_query·verify_run) |
 | 6.3 런타임 의존 검증 `runtime` | 0.9.0 릴리스 | 5카테고리 탐지·판정·`--execute` |
 | 6.4 증분 분석 | 구현(미릴리스) | 브랜치 `feat/incremental-analysis` @ `941e595`, `--incremental <dir>` |
-| 6.4 검증 원장 | 미착수 | append-only JSONL. 설계는 [DECISION-incremental.md](DECISION-incremental.md) |
+| 6.4 검증 원장 | 구현(미릴리스) | `--record <dir>`·`history --ledger`. 설계는 [DECISION-ledger.md](DECISION-ledger.md) |
 
 ## Phase 6 — 수정 전 영향 점검 · 런타임 · 에이전트 질의 · 증분
 
@@ -95,5 +95,6 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 - 경쟁·대체재 조사와 차별점: [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md)
 - 증분 설계·측정: [DECISION-incremental.md](DECISION-incremental.md)
 - 문제 해결 안내: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- 요구 4는 아직 부분 충족이다 — 증분은 구현됐지만 검증 원장(실행 이력의
-  append-only 기록)이 남았다.
+- 요구 4의 두 항목(증분 분석·검증 원장)이 모두 구현됐다(미릴리스, 0.10.0 후보).
+  증분 설계는 [DECISION-incremental.md](DECISION-incremental.md), 원장 설계는
+  [DECISION-ledger.md](DECISION-ledger.md).

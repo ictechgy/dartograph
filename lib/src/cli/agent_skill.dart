@@ -33,6 +33,11 @@ If invocation details are unclear, inspect `dartograph --help`.
 - Tool integration: `dartograph mcp` serves Model Context Protocol tools on
   stdio (`impact_query`, `dependency_query`, `verify_run`) for clients that
   speak MCP; it reuses the same analysis paths and modifies nothing.
+- Traceable runs: add `--record <dir>` to an analysis command to append one
+  JSON line per run to `<dir>/ledger.jsonl` (command, exit code, observed Git
+  HEAD, input flags, reported problem ids); existing lines are never rewritten.
+  `dartograph history --ledger <dir> [--commit <sha>]` reads it back.
+  `--env`/`--dart-define` values are never recorded.
 - Cross-language facts: use `dartograph bridges --format json <package-root>`
   and the project's existing isthmus workflow when the task crosses native code.
 

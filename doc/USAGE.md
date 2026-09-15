@@ -15,29 +15,30 @@ dartograph --version
 
 ```text
 dartograph init [--force] [<package-root>]
-dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] <package-root>
-dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] [--incremental <dir>] <package-root>
-dartograph dead --explain <symbol-id> --format json [--incremental <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] <package-root>
-dartograph baseline --write <file> [--incremental <dir>] <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
-dartograph compare [--incremental <dir>] <before-package-root> <after-package-root>
-dartograph affected [--incremental <dir>] <git-ref> <package-root>
-dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] <package-root>
-dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] <package-root>
-dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
+dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
-dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
+dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
-dartograph cycles [--strict] [--incremental <dir>] <package-root>
-dartograph cycles --explain <symbol-id> [--incremental <dir>] <package-root>
-dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] <package-root>
-dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] <package-root>
-dartograph metrics [--strict] [--incremental <dir>] <package-root>
+dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
+dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 ```
 
 `--incremental <dir>`는 분석·색인 명령(graph·dead·query·compare·affected·impact·
@@ -47,6 +48,27 @@ baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실
 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면
 폐쇄가 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
+
+## 검증 원장
+
+`--record <dir>`를 주면 그 실행 하나를 `<dir>/ledger.jsonl`에 한 줄로 덧붙인다.
+각 줄은 도구 버전·UTC 시각·명령·종료 코드·관측한 Git `HEAD`(계산하지 못하면 null)·
+입력 플래그·보고한 문제 식별자를 담는다. `--env`·`--dart-define`은 값이 비밀일 수
+있어 **키만** 남긴다. 파일은 append-only다 — 기존 줄을 다시 쓰거나 지우지 않는다.
+
+`history --ledger <dir> [--commit <sha>] [--format text|json]`가 원장을 읽어
+되돌려준다. `--commit`은 그 SHA의 실행만 고른다. 쓰기가 중단돼 마지막 줄이 잘리면
+읽기가 그 줄을 건너뛰고 `ledger-skipped-lines: N` limitation으로 보고한다(원장은
+고치거나 지우지 않으며, 다음 `--record`는 잘린 줄을 개행으로 닫아 새 줄로 이어 쓴다).
+원장 쓰기 자체가 실패해도 분석 결과와 종료 코드는 그대로이고 stderr에 진단 한 줄만
+남는다. 원장은 도구 버전·시각 같은 관측값을 담으므로 그 자체는 결정적 산출물이
+아니다(제품 출력의 결정성 계약과 무관하다).
+
+명령마다 "문제 식별자"가 다르다 — `dead`는 finding ID, `cycles`는 끊을 후보 간선,
+`rules`는 위반 규칙·간선, `metrics`는 임계 초과 라이브러리, `runtime`은 미충족·미판정
+사실, `impact`는 피영향 심볼이다. 문제를 정의하지 않는 명령(graph·query·compare·
+affected·baseline)은 빈 목록이다.
+
 
 `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다.
 이미 파일이 존재하면 안전을 위해 중단(exit 64)하며, `--force`를 전달하면 덮어쓴다.
@@ -327,8 +349,8 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 |---:|---|
 | 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
 | 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
-| 2 | 패키지를 신뢰할 수 있게 분석하지 못함, 또는 `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다) |
-| 64 | 잘못된 명령·인자, 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
+| 2 | 패키지를 신뢰할 수 있게 분석하지 못함, `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다), 또는 `history`가 원장을 읽지 못함 |
+| 64 | 잘못된 명령·인자(`--record`·`history`의 옵션 오류 포함), 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 
 ## CI 예제
 
