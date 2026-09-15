@@ -310,6 +310,37 @@ void main() {
     expect((document['runs'] as List).single, isA<Map>());
   });
 
+  test('sarif results carry a repository-relative physical location', () async {
+    final changes = changedFile(['lib/a.dart']).path;
+    final sarif = StringBuffer();
+    expect(
+      await run([
+        'impact',
+        '--changed',
+        changes,
+        '--format',
+        'sarif',
+        directory.path,
+      ], output: sarif),
+      0,
+    );
+    final document = jsonDecode(sarif.toString()) as Map<String, Object?>;
+    final runDocument = (document['runs']! as List).single as Map;
+    final results = runDocument['results'] as List;
+    expect(results, isNotEmpty);
+    for (final result in results) {
+      final location = ((result as Map)['locations'] as List).single as Map;
+      final uri =
+          ((location['physicalLocation'] as Map)['artifactLocation']
+                  as Map)['uri']
+              as String;
+      // GitHub code scanning은 package: URI나 절대 경로를 거부한다.
+      expect(uri, isNot(contains('://')));
+      expect(uri, isNot(startsWith('package:')));
+      expect(uri, isNot(startsWith('/')));
+    }
+  });
+
   test('impact output is byte-identical across runs', () async {
     final changes = changedFile(['lib/a.dart']).path;
     Future<String> render() async {
