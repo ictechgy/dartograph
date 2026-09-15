@@ -263,13 +263,13 @@ void main() {
       expect(versioned.stats.reusedFiles, 0);
       _expectSameOutput(versioned.result, full);
 
-      // 항목 하나가 망가져도 그 파일만 다시 해석된다.
+      // 항목 하나의 사실이 망가져도(키는 맞지만 형식이 어긋남) 그 파일만
+      // 다시 해석된다 — 손상된 항목은 캐시 미스와 같은 경로다.
       final decoded = jsonDecode(await cacheFile.readAsString()) as Map;
       final entries = decoded['entries']! as Map;
-      entries['lib/other.dart'] = {
-        'facts': {'library': 7},
-        'key': 'x',
-      };
+      final damaged = (entries['lib/other.dart']! as Map)
+          .cast<String, Object?>();
+      damaged['facts'] = {'library': 7};
       await cacheFile.writeAsString(jsonEncode(decoded));
       final repaired = await _incrementalRun(fixture);
       expect(repaired.stats.resolvedFiles, 1);

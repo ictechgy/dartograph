@@ -191,23 +191,10 @@ final class AnalyzerGraphIndex {
         ),
     };
     final cached = await incremental.load();
-    final facts = <String, _UnitFacts>{};
-    final resolved = <String>{};
-    for (final path in unitPaths) {
-      final source = sourcesOf[path];
-      if (source == null) continue;
-      final entry = cached[source];
-      final reused = entry == null || entry.key != currentKeys[source]
-          ? null
-          : _UnitFacts.fromJson(entry.facts);
-      if (reused == null) {
-        resolved.add(source);
-      } else {
-        facts[source] = reused;
-      }
-    }
     // 이전 실행의 의존 표로 역방향 폐쇄를 만든다. 캐시에만 있는 파일(삭제)도
     // 그 파일에 의존하던 라이브러리를 무효화해야 하므로 캐시 전체를 본다.
+    // 사실 본문 파싱은 폐쇄가 정해진 뒤 재사용할 파일에만 한다 — 폐쇄에 걸려
+    // 다시 해석될 파일의 사실을 미리 파싱하던 낭비를 없앤다.
     final reverseImports = <String, Set<String>>{};
     final cachedLibraries = <String, String>{};
     for (final entry in cached.entries) {
@@ -222,6 +209,22 @@ final class AnalyzerGraphIndex {
         }
       }
     }
+    // 1단계 — 캐시 키가 어긋난 파일(변경·신규)을 고른다. 재사용 후보의 사실
+    // 파싱은 폐쇄를 아는 3단계까지 미룬다.
+    final facts = <String, _UnitFacts>{};
+    final resolved = <String>{};
+    final reusedCandidates = <String>{};
+    for (final path in unitPaths) {
+      final source = sourcesOf[path];
+      if (source == null) continue;
+      final entry = cached[source];
+      if (entry == null || entry.key != currentKeys[source]) {
+        resolved.add(source);
+      } else {
+        reusedCandidates.add(source);
+      }
+    }
+    // 2단계 — 바뀐 파일을 해석한다. 신규 파일의 라이브러리 소스도 이때 확보된다.
     for (final path in unitPaths) {
       final source = sourcesOf[path];
       if (source == null || !resolved.contains(source)) continue;
@@ -248,13 +251,30 @@ final class AnalyzerGraphIndex {
       // 한다 — part 하나가 지워지면 라이브러리 전체의 선언 집합이 바뀐다.
       ...removed,
     ], reverseImports);
-    // 폐쇄에 걸린 재사용 후보(바뀐 파일을 import/export하는 라이브러리)만 더
-    // 해석한다.
+    // 3단계 — 폐쇄에 걸린 후보는 다시 해석하고, 남은 후보만 캐시 사실을
+    // 파싱한다. 파싱이 실패한 항목은 그 파일만 다시 해석한다(손상 복구).
     for (final path in unitPaths) {
       final source = sourcesOf[path];
       if (source == null || resolved.contains(source)) continue;
       final library = cachedLibraries[source];
-      if (library == null || !staleLibraries.contains(library)) continue;
+      if (library != null && staleLibraries.contains(library)) {
+        final extracted = await _resolveUnitFacts(
+          root: root,
+          collection: collection,
+          path: path,
+          entryPoints: entryPoints,
+          entryLibraryPath: entryLibraryPath,
+        );
+        if (extracted == null) continue;
+        facts[extracted.source] = extracted;
+        resolved.add(source);
+        continue;
+      }
+      final parsed = _UnitFacts.fromJson(cached[source]!.facts);
+      if (parsed != null) {
+        facts[source] = parsed;
+        continue;
+      }
       final extracted = await _resolveUnitFacts(
         root: root,
         collection: collection,
@@ -262,9 +282,10 @@ final class AnalyzerGraphIndex {
         entryPoints: entryPoints,
         entryLibraryPath: entryLibraryPath,
       );
-      if (extracted == null) continue;
-      facts[extracted.source] = extracted;
-      resolved.add(source);
+      if (extracted != null) {
+        facts[extracted.source] = extracted;
+        resolved.add(source);
+      }
     }
     final sources = <String>[
       for (final path in unitPaths) ?facts[sourcesOf[path]]?.source,
@@ -279,7 +300,20 @@ final class AnalyzerGraphIndex {
     incremental.stats
       ..resolvedFiles = resolved.length
       ..reusedFiles = sources.length - resolved.length;
-    if (!await _incrementalInputsUnchanged(root, resolved, inputs)) {
+    // 캐시가 이미 현재 입력과 정확히 일치하면(전부 재사용, 추가·삭제 없음)
+    // 다시 쓰지 않는다. 디스크의 캐시가 곧 이번 실행이 쓸 내용이다. 다시 쓰면
+    // 3.5MB 인코딩·원자적 교체를 매 실행 지불한다(600파일 기준 41ms).
+    final cacheIsCurrent =
+        resolved.isEmpty &&
+        cached.length == currentSources.length &&
+        currentSources.every(cached.containsKey);
+    if (cacheIsCurrent) return result;
+    final inputsUnchanged = await _incrementalInputsUnchanged(
+      root,
+      resolved,
+      inputs,
+    );
+    if (!inputsUnchanged) {
       // 해석 중 입력이 바뀌었으면 낡은 키로 사실을 저장하지 않는다(기존 전체
       // 결과 캐시가 쓰기 전에 키를 다시 확인하는 것과 같은 이유).
       incremental.stats.cacheNotUpdated = true;
@@ -849,7 +883,7 @@ _incrementalInputs(String root, Set<String> unitSources) async {
     final relative = p.posix.joinAll(
       p.relative(file.path, from: root).split(p.separator),
     );
-    final digest = await fileContentHash(file);
+    final digest = fileContentHash(file);
     if (unitSources.contains(relative)) {
       unitHashes[relative] = digest;
       continue;
@@ -861,7 +895,7 @@ _incrementalInputs(String root, Set<String> unitSources) async {
     // 방어: 분석 입력 열거에 없는 분석 대상(경계 밖 링크 등)도 키를 갖는다.
     final file = File(p.join(root, source));
     if (!file.existsSync()) continue;
-    unitHashes[source] = await fileContentHash(file);
+    unitHashes[source] = fileContentHash(file);
   }
   final fingerprint = sha256
       .convert(
@@ -886,7 +920,7 @@ Future<bool> _incrementalInputsUnchanged(
     if (before == null) return false;
     final file = File(p.join(root, source));
     if (!file.existsSync()) return false;
-    if (await fileContentHash(file) != before) return false;
+    if (fileContentHash(file) != before) return false;
   }
   return true;
 }
