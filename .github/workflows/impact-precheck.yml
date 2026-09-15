@@ -87,6 +87,9 @@ jobs:
         with:
           sarif_file: impact.sarif
       - name: Impact gate (fail on high)
+        # 게이트는 기본 브랜치(push·수동)에서만 건다. PR에서는 리포트·SARIF만
+        # 남기고 체크를 붉게 만들지 않는다 — 정책에 맞게 조건을 바꾼다.
+        if: github.event_name != 'pull_request'
         run: |
           dart run dartograph impact \
             --since "origin/${{ github.base_ref || 'main' }}" \
