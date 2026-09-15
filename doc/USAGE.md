@@ -15,30 +15,38 @@ dartograph --version
 
 ```text
 dartograph init [--force] [<package-root>]
-dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
-dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
-dartograph dead --explain <symbol-id> --format json <package-root>
-dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
-dartograph baseline --write <file> <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
-dartograph compare <before-package-root> <after-package-root>
-dartograph affected <git-ref> <package-root>
-dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] <package-root>
-dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
-dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
+dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] <package-root>
+dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] [--incremental <dir>] <package-root>
+dartograph dead --explain <symbol-id> --format json [--incremental <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] <package-root>
+dartograph baseline --write <file> [--incremental <dir>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
+dartograph compare [--incremental <dir>] <before-package-root> <after-package-root>
+dartograph affected [--incremental <dir>] <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] <package-root>
+dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
-dartograph cycles [--strict] <package-root>
-dartograph cycles --explain <symbol-id> <package-root>
-dartograph rules --config <yaml-file> [--strict] <package-root>
-dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
-dartograph metrics [--strict] <package-root>
+dartograph cycles [--strict] [--incremental <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--incremental <dir>] <package-root>
+dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] <package-root>
+dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] <package-root>
+dartograph metrics [--strict] [--incremental <dir>] <package-root>
 ```
+
+`--incremental <dir>`는 분석·색인 명령(graph·dead·query·compare·affected·impact·
+baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실 캐시를 두고 다음
+실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시 해석한다. 산출물은
+전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가 다르거나 쓸 수 없으면
+전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
+남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면
+폐쇄가 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
 
 `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다.
 이미 파일이 존재하면 안전을 위해 중단(exit 64)하며, `--force`를 전달하면 덮어쓴다.

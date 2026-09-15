@@ -120,7 +120,9 @@ exitCode: 0
 ## 한계
 
 - 도구는 단일 호출마다 패키지를 다시 인덱싱한다(분석 캐시가 없으면 느리다). 반복
-  질의가 많으면 `dependency_query`의 `batch`나 증분 캐시(`--cache-dir`)를 함께 쓴다.
+  질의가 많으면 `dependency_query`의 `batch`로 왕복을 줄인다. CLI의 파일별 증분
+  캐시(`--incremental <dir>`)는 MCP 도구가 노출하지 않는다 — 호출 사이에 사실을
+  재사용해야 하면 CLI를 직접 쓴다([USAGE.md](USAGE.md)의 `--incremental`).
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.
   동적 디스패치·문자열 route·생성 코드는 근거를 제한할 수 있고, 그 사실은 각 문서의
   `limitations`에 실린다.

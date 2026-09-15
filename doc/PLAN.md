@@ -73,3 +73,27 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 | 5 순환 · 규칙 · 지표 | 완료 | 반복형 Tarjan, YAML 규칙, 라이브러리별 Martin 지표 |
 | v0.1.0 릴리스 | 완료 | pub.dev·GitHub Release 공개, 격리 설치, 3개 Flutter 패키지, self findings 0 |
 | v0.1.1 bridge 계약 보강 | 완료 | provenance·scope·UTF-8·밀리초·미해석 limitation과 공개 plugin 왕복 |
+| 0.2.0 ~ 0.9.0 릴리스 | 완료 | Tier 2~4 흡수·5축 검토·impact/mcp/runtime. 상세는 [CHANGELOG](../CHANGELOG.md) |
+| 6.1 수정 전 영향 점검 `impact` | 0.9.0 릴리스 | `--since`/`--changed`/`--symbol`, 5종 리포터, `--fail-on`, MCP `impact_query` |
+| 6.2 에이전트 질의 `mcp` | 0.9.0 릴리스 | stdio JSON-RPC 도구 3종(impact_query·dependency_query·verify_run) |
+| 6.3 런타임 의존 검증 `runtime` | 0.9.0 릴리스 | 5카테고리 탐지·판정·`--execute` |
+| 6.4 증분 분석 | 구현(미릴리스) | 브랜치 `feat/incremental-analysis` @ `941e595`, `--incremental <dir>` |
+| 6.4 검증 원장 | 미착수 | append-only JSONL. 설계는 [DECISION-incremental.md](DECISION-incremental.md) |
+
+## Phase 6 — 수정 전 영향 점검 · 런타임 · 에이전트 질의 · 증분
+
+사용자 요구 4건을 한 Phase로 묶었다. 상세 진행은 루트
+[HANDOFF-PROGRESS.md](../HANDOFF-PROGRESS.md)가 정본이고 이 절은 범위와 상태만 고정한다.
+
+| 요구 | 명령 | 상태 |
+|---|---|---|
+| 1. 수정 시 영향 사전 점검(사람·AI) | `dartograph impact` | 0.9.0 릴리스 |
+| 2. AI용 질의 스킬/MCP | `dartograph mcp` | 0.9.0 릴리스 |
+| 3. 런타임에 드러나는 의존성 검증 | `dartograph runtime` | 0.9.0 릴리스 |
+| 4. CI에서 자동화 가능한 속도(증분) | `--incremental <dir>` | 구현(미릴리스, 0.10.0 후보) |
+
+- 경쟁·대체재 조사와 차별점: [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md)
+- 증분 설계·측정: [DECISION-incremental.md](DECISION-incremental.md)
+- 문제 해결 안내: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- 요구 4는 아직 부분 충족이다 — 증분은 구현됐지만 검증 원장(실행 이력의
+  append-only 기록)이 남았다.

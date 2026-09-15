@@ -1,6 +1,29 @@
 # Handoff
 
-_Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반영[#80, #82~#87, #90]을 발행, pub.dev 160/160. 릴리스 기준 v0.8.0 → 8d8baa3, main 최신 c64eb84. 게시는 사용자가 호스트에서 실행하고 태그·Release·설치본 검증·점수 확인은 세션에서 수행했다)_
+_Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.8.0 → `v0.8.0` = 8d8baa3. 진행 중 기능과 활성 원장 위치는 아래 4줄 참조)_
+
+- **0.9.0 릴리스 완료**(2026-09-15): pub.dev latest 0.9.0, 태그 `v0.9.0` = `b2aad3a`(PR #95 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.9.0 실측. pub 점수는 pana 지연으로 미확인.
+- 진행 중 기능: 브랜치 `feat/incremental-analysis` @ `941e595`(증분 분석 구현 `00d22fa` + 최적화 `941e595` — 파일별 사실 캐시, `--incremental <dir>` 배선). main은 `b2aad3a`. 문서 정합(USAGE·DECISION-incremental·PLAN·COMPETITIVE-ANALYSIS·MCP) 완료.
+- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.5** — 재개 전 그 절을 먼저 읽는다(릴리스 결과 + 증분 Step A 검증 + 최적화 라운드 완료 + 문서 정합).
+- 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재 브랜치와 다르다.
+
+## 2026-09-14 — 진행 중 기능 브랜치 인계 (programmer 세션)
+
+> 이 절은 아래 0.8.0 제품 이력과 **별개**다. 진행 중인 미릴리스 작업은
+> `feat/impact-precheck` 브랜치에 있고, 활성 원장은 루트의 `HANDOFF-PROGRESS.md`다.
+> 재개 전에 그 문서를 먼저 읽는다.
+
+- 브랜치 `feat/impact-precheck`에 미릴리스 기능 3건이 커밋되어 있다:
+  `impact`(수정 전 영향 사전 점검), `mcp`(MCP 서버), `runtime`(런타임 의존성 검증).
+- 작업 트리에 미커밋 변경 13개(런타임 결함 3건 수정 + 회귀 테스트 1개)가 남아 있다.
+  셸 실행이 가능한 환경에서 **재검증 후 커밋**해야 한다.
+- 2026-09-14 이어받기 세션은 실행 환경(셸)이 없어 검증·구현을 진행하지 못했다. 대신
+  `doc/COMPETITIVE-ANALYSIS.md`, `doc/TROUBLESHOOTING.md`,
+  `.github/workflows/impact-precheck.yml`을 추가하고 원장을 갱신했다.
+  상세는 `HANDOFF-PROGRESS.md` 9절.
+- 남은 P0: 증분 분석 + CI 게이트, 검증 원장(append-only JSONL). 실행 가능 환경에서 재개한다.
+- 이 문서 말미의 "Cartograph 변경 영향 워크플로 계약 알림"은 자매 저장소 알림이며
+  dartograph 제품 이력이 아니다. 되돌리려면 `git checkout -- HANDOFF.md`.
 
 ## Goal
 
@@ -714,4 +737,101 @@ _Last updated: 2026-09-13 (0.8.0 릴리스 완료 — 전체 개선 검토 반�
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md` and applicable `AGENTS.md` files, then continue from: `Verify current Git state. Product 0.8.0 is released (pub.dev latest 0.8.0, score 160/160, ENGLISH README/Changelog, tag v0.8.0 at 8d8baa3 = publish commit, GitHub Release, fresh-cache install verified incl. --version 0.8.0 and the CLI contract; previous releases: 0.7.0 at e1b3202, 0.6.0 at 85c345a, 0.5.0 at 16b18fd, 0.4.1 at 53a4e0f). PRs #80 and #82-#92 shipped Tier 3 'dartograph init' plus the five-axis review: atomic-write hardening closing the skill symlink write-through, RegExp hoists with benchmark hash identity, CLI diagnostics/help contract expansion, USAGE exit-code section restructure, a 1 MiB read cap for repository-provided YAML configs (core/config_source.dart), example/main.dart, and the analyzer range widened to >=14.3.0 <15.0.0 with validated-minor set {3,4} and a weekly analyzer-freshness CI lane (0 unreleased PRs; main at c64eb84). Line coverage is 97.00% across 308 tests. Next steps: Remaining Tier 3 absorption candidates in doc/RESEARCH.md (reporters markdown/codeowners, issue-type filter, MCP server, dartograph.yaml expansion) to be decided on user request. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.5) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.9.0 is released (pub.dev latest 0.9.0, tag v0.9.0 at b2aad3a, GitHub Release, fresh-cache install verified; the pub score has not been re-read). Incremental analysis (per-file fact cache, `--incremental <dir>` across the 11 indexing commands) is implemented and committed on branch `feat/incremental-analysis` (00d22fa, optimized in 941e595) but not yet released; its docs are aligned (USAGE, DECISION-incremental, PLAN, COMPETITIVE-ANALYSIS). Branch gates: `dart analyze` clean, 425 tests, format clean, CLI contract passed, false-positive corpus passed, and the 7-artifact sha256 of incremental vs full analysis identical in all three conditions. Measured speedup (synthetic 600 files): warm 7.5x, leaf 1.9x, imported about 1.0x. Next: the remaining P0 half - the append-only verification ledger (`--record` + `history`), then a 0.10.0 release, then the remaining goals (GitHub Action + PR comment, dartograph.yaml expansion with markdown/codeowners reporters, MCP schema/error/example docs). Follow the next explicit user task.`
+
+
+## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
+
+자매 Cartograph 세션에서 `feature/change-impact-workflow`를 구현·검증 중이다. 기존 사용자 변경을
+유지하며 이 알림만 덧붙였다. **기존 `query` / `symbol-query-batch` v1 출력 계약은 그대로다.**
+
+새 계약은 Cartograph의 `README.md`, `docs/RUNTIME-CONTRACTS.md`, `Sources/CartographKit/ImpactDocument.swift`,
+`AnalysisSnapshotDocument.swift`가 현재 작업 원본이다. 아직 릴리스나 모든 최종 게이트 통과를 주장하지 않는다.
+
+- `impact`: 직접 선택(`selected`)과 타입/익스텐션 확장(`changeScope`)을 구분하고, 소비자 방향의
+  `via` 근거·가능한 프로토콜 dispatch·테스트·런타임 검토·섹션별 절단을 제공한다.
+- `snapshot` / `impact --before`: 현재·과거 그래프를 각각 분석한다. 간선을 합쳐 가짜 경로를 만들지 않는다.
+- `runtime-contracts` / `runtime-observations`: 호출자·대상·시나리오의 **별도 일반 런타임 계약**이다.
+  bridge-facts/external-retentions 형식을 대체하지 않는다. 실행 파일의 raw SHA256, 계획 지문,
+  실제 사용한 그래프·소스/인덱스 신선도를 대조하며 미관측을 삭제 근거로 쓰지 않는다.
+- `serve`: MCP 2026-07-28 및 legacy initialize 방식을 지원한다. query/impact/check의 응답은
+  `{session, result}`이고 `result` 안의 기존 query v1은 보존한다. 공유 출력 예산과 갱신 검증을 적용한다.
+- 생성 스킬에는 impact → 필요한 질의만 batch → 편집/재빌드 → check/runtime 시나리오 순서를 추가한다.
+  새 명령·새 스키마를 해당 자매 도구에 구현된 것으로 복사하지 말고 플랫폼별 지원을 확인할 것.
+
+현재 자매 저장소에서도 동시 작업 중인 변경을 확인했다. 상호 연동 시 최신 스키마와 테스트를 다시
+확인하고, 이 알림의 작업 중 상태를 배포 계약으로 간주하지 말 것.
+
+
+## 2026-09-14 — Cartograph 자동 런타임 발견·수집 후속 계약 알림
+
+Cartograph `feature/change-impact-workflow`의 미출시 후속 구현이다. query v1/기존 보존 의미는
+바꾸지 않았다. `runtime discover`는 supported Swift/IB 연결을 자동 추출하고, impact는
+`automaticRuntime`와 출처(origin automatic)를 제공한다. macOS debug `runtime collect`는
+조회/등록/호출 반환을 별도 사건으로 수집하며, `--trace` impact는 observedRuntime을 분리한다.
+실행 수집은 MCP에 노출하지 않았다. 다섯 번째 read-only MCP 도구는 cartograph_runtime_discover다.
+분석 snapshot v2가 자동 runtime facts/freshness/외부 API anchors를 보존하고 v1의 정보 부재는
+한계로 표시한다. bridge-facts/GRAPH-EXCHANGE 형식은 변경하지 않았다. 자매 도구에 미구현인
+명령을 스킬에 복사하지 말고, 실제 기능이 생기면 의미/한계 표현을 맞춘다.
+
+
+## 2026-09-14 — Cartograph Simulator·publisher 계약 추가 알림
+
+Cartograph 미출시 후속 변경: `notificationSubscription` kind는 NotificationCenter publisher
+**생성**만 뜻하며, lookupOnly/targets[]로 구독·콜백 실행 간선을 만들지 않는다. 기존 closure
+observer 관계는 유지했다. query v1 및 bridge exchange/retention 계약은 바꾸지 않았다.
+`runtime-trace` v1의 선택적 `launch`는 platform/PID 및 Simulator UUID/bundleID를 기록한다.
+launch가 있는 complete trace는 양수PID가 필수이고, 과거 launch 없는 v1도 읽는다.
+Swift 전용 `runtime collect --simulator ... --bundle-id ...`는 설치된 debug 시나리오 앱이
+명시적으로 exit(0)하는 경로다. 일반 GUI 종료/실기기 지원으로 문구를 복사하지 말 것.
+공통 스킬 원칙은 실행 범위와 불완전성을 유지하고, 누락 observer를 lookupOnly로 바꾸어
+성공처럼 보이지 않게 하는 것이다. 정본: ../cartograph/docs/RUNTIME-CONTRACTS.md 및
+../cartograph/docs/WORKFLOW-VALIDATION.md. 이 알림은 이 저장소 기능 구현/배포 주장이 아니다.
+
+
+## 2026-09-14 — Cartograph 관측 구간·framework binding 계약 알림
+
+Cartograph 미출시 후속: `runtime collect --duration`은 macOS/Simulator의 관측 prefix를 봉인한 뒤
+시작한 앱을 정리한다. runtime-trace v2는 collectionComplete=false를 유지하며 evidenceComplete /
+observationWindow를 별도 표시한다. v1 exit 의미는 불변. 구간 봉인을 시나리오 성공이나 미실행
+경로 검증으로 해석하지 않는다. dispatchUncertain 이벤트는 실제 callee 연결을 만들지 않는다.
+정적 kind에 coreDataEntityClass, keyValueRead, keyValueWrite 추가. notificationSubscription은
+지원하는 sink/onReceive 소비까지 compiler가 확인하면 잠재 관계가 된다. 이들은 Swift 한정
+지원 범위이며 자매 도구가 구현했다고 문구만 복사하지 말 것. 기존 query/bridge exchange와
+retention 의미는 불변. 정본은 ../cartograph/docs/RUNTIME-CONTRACTS.md 및 WORKFLOW-VALIDATION.md.
+이 저장소의 코드·서명·배포는 바꾸지 않았고 이 항목은 로컬 계약 인계 알림이다.
+
+
+## 2026-09-14 — Cartograph SDK notification·Core Data 확장 알림
+
+자매 저장소 Cartograph의 `feature/change-impact-workflow`에서 진행한 미릴리스 변경 알림이다.
+이 저장소에 기능을 구현하거나 배포했다는 뜻이 아니다. 기존 query JSON·bridge-facts 교환 형식과
+`dead`/`query` 보존 의미는 그대로다.
+
+- Cartograph의 `impact`/`runtime discover`는 확인된 SDK 알림 신원과 제한된 지역 center/object 신원을
+  추가로 다룬다. 등록·정적 잠재 관계·실행 관측을 계속 구분하며, callback 실행으로 승격하지 않는다.
+- Core Data는 `.xccurrentversion`으로 지정된 포함 모델의 수동 클래스와 검증된 category extension만
+  연결한다. 버전 파일도 `impact --file`/`--since`와 snapshot 전후 비교의 입력이다. 비활성 모델은
+  migration 검토 대상으로 남고, 자동 class 생성·선택 누락/제외·불명확한 신원은 미결이다.
+- runtime 경계의 새 선택적 proof 필드는 Cartograph analysis snapshot v2의 부가 근거다.
+  소비자는 absent 필드를 허용하고, 이를 공통 query/bridge schema 변경으로 취급하지 않는다.
+- 스킬의 `--since` 경로 설명과 runtime 후속 확인 문장을 함께 갱신했다. 자매 도구는 각 언어에서
+  실제 구현·검증된 기능만 안내한다. 기준 문서: `../cartograph/Skills/cartograph/SKILL.md`,
+  `../cartograph/docs/RUNTIME-CONTRACTS.md`, 최신 검증·남은 범위는 `../cartograph/HANDOFF.md`.
+
+
+## 2026-09-14 — Cartograph 런타임 후속 코드 개선 계약 알림
+
+Cartograph feature/change-impact-workflow의 미릴리스 후속 알림이다. 공통 query/bridge-facts
+형식과 dead/query 보존 의미는 변경하지 않았다. 자매 제품 구현·릴리스 상태와 구분한다.
+
+- 알림 불변 alias/분기/defer/취소/직접 for-await와 제한 KVC key path·predicate를 추가했다.
+  keyPathRead/keyPathWrite target은 전체 경로의 의존 property이며 중간 setter 실행 주장이 아니다.
+- 불변 Swift.Dictionary의 named-function factory/router를 compiler 신원으로 연결한다.
+  외부 DI·임의 registry 전체를 지원한다는 뜻이 아니다.
+- prepare-coredata가 모델·main app executable·생성 소스·인덱스의 증거를 만들며,
+  discover/impact/snapshot과 서버 시작 옵션 serve --coredata-build-evidence로 사용한다.
+  MCP 추가 coreDataBuildEvidence 메타데이터는 base session과 별개이며 클라이언트가 경로를 바꾸지 못한다.
+- 모델 상속·요청/context 변경·main 실행 파일의 정의 심볼을 확인한다. 동적 framework-only 클래스는
+  연결 근거가 없어 보수적으로 거부한다. 기준: ../cartograph/docs/RUNTIME-CONTRACTS.md,
+  ../cartograph/Skills/cartograph/SKILL.md. 구현한 언어별 기능만 안내하고 스킬 문구를 맹목 복사하지 않는다.
