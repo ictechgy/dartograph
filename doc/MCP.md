@@ -108,14 +108,118 @@ exitCode: 0
 응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead` finding은 1), 이어서 CLI 출력이
 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
 
-## 오류 처리
+## 도구 스키마 (`tools/list`)
 
-| 상황 | 응답 |
-|---|---|
-| 알 수 없는 도구 | JSON-RPC `-32602` (`Unknown tool: <name>`) |
-| 필수 인자 누락 | 도구 결과 `isError: true`, "Invalid arguments: ..." |
-| 패키지 분석 실패 | 도구 결과 `isError: true`, `exitCode: 2` |
-| 잘못된 JSON | JSON-RPC `-32700`, `id: null` |
+`tools/list`가 돌려주는 입력 스키마의 정본이다(설명 필드는 생략). 세 도구 모두
+`additionalProperties: false`이고 `packageRoot`가 필수다.
+
+```json
+[
+  {
+    "name": "impact_query",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "packageRoot": {"type": "string"},
+        "since": {"type": "string"},
+        "changed": {"type": "array", "items": {"type": "string"}},
+        "symbol": {"type": "string"},
+        "depth": {"type": "integer", "minimum": 1},
+        "limit": {"type": "integer", "minimum": 1}
+      },
+      "required": ["packageRoot"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "dependency_query",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "packageRoot": {"type": "string"},
+        "symbol": {"type": "string"},
+        "batch": {"type": "array", "items": {"type": "string"}},
+        "depth": {"type": "integer", "minimum": 1},
+        "limit": {"type": "integer", "minimum": 1},
+        "baseline": {"type": "string"}
+      },
+      "required": ["packageRoot"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "verify_run",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "packageRoot": {"type": "string"},
+        "command": {"type": "string", "enum": ["dead", "cycles", "rules", "metrics"]},
+        "strict": {"type": "boolean"},
+        "since": {"type": "string"},
+        "baseline": {"type": "string"},
+        "config": {"type": "string"},
+        "format": {"type": "string", "enum": ["text", "json", "markdown", "github-actions", "sarif"]}
+      },
+      "required": ["packageRoot", "command"],
+      "additionalProperties": false
+    }
+  }
+]
+```
+
+## JSON-RPC 오류 코드
+
+| 코드 | 상황 | 응답 `id` |
+|---:|---|---|
+| `-32700` | 줄이 유효한 JSON이 아님 | `null` |
+| `-32600` | 메시지가 객체가 아님, 또는 `id`가 있는데 `method`가 없음 | 메시지의 `id`(없으면 `null`) |
+| `-32601` | 알 수 없는 메서드 | 요청 `id` |
+| `-32602` | `tools/call`의 `params` 누락·비객체, `params.name` 비문자열, 알 수 없는 도구 | 요청 `id` |
+| `-32603` | 도구 실행 중 예상 못 한 예외(진단은 stderr) | 요청 `id` |
+
+`id` 없는 메시지는 알림으로 보고 응답하지 않으며, `method`가 `notifications/`로
+시작하면 항상 무응답이다. 어떤 오류에도 서버는 계속 동작한다.
+
+## 재현 가능한 예시
+
+한 줄이 메시지 하나다. `printf`로 파이프에 흘려 넣으면 그대로 재현된다.
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"ping"}' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/list"}' \
+  | dartograph mcp
+```
+
+`initialize` 응답(`serverInfo.version`은 설치된 도구 버전):
+
+```json
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"dartograph","version":"0.9.0"}}}
+```
+
+성공 호출·인자 오류·도구 오류·메서드 오류·파싱 오류의 응답 형태:
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"impact_query","arguments":{"packageRoot":"/path/to/package","since":"origin/main"}}}
+{"id":4,"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"exitCode: 0\n{...}"}],"isError":false}}
+
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"impact_query","arguments":{"packageRoot":"/path"}}}
+{"id":5,"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"Invalid arguments: provide exactly one of since, changed, or symbol"}],"isError":true}}
+
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"nope","arguments":{}}}
+{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"Unknown tool: nope"}}
+
+{"jsonrpc":"2.0","id":7,"method":"nope"}
+{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"Unknown method: nope"}}
+
+{"jsonrpc":"2.0","id":8,"method":
+{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Invalid JSON"}}
+```
+
+`impact_query`·`dependency_query`의 성공 `text` 본문은 CLI의
+`impact --format json`·`query` 문서와 완전히 같다(첫 줄만 `exitCode: <n>`). `verify_run`은
+명령의 원시 출력을 그대로 내보낸다.
 
 ## 한계
 
