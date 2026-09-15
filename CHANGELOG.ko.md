@@ -2,6 +2,42 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.10.0
+
+- 색인 명령 11개(`graph`·`dead`·`query`·`compare`·`affected`·`impact`·`baseline`·
+  `cycles`·`rules`·`metrics`·`dead --explain`)에 `--incremental <dir>` 추가. 파일 내용
+  해시와 그 파일의 해석 입력을 섞은 키로 파일별 사실을 캐시하고, 다음 실행에서 바뀐
+  파일과 그 파일을 (전이적으로) import·export하는 라이브러리만 다시 해석한다. 산출물은
+  전체 해석과 byte 동일하다(`tool/benchmark_index.dart`가 세 조건에서 7종 sha256을
+  대조한다). 캐시는 최적화지 계약이 아니다 — 캐시가 없거나 손상됐거나 스키마가
+  다르거나 쓸 수 없으면 전체 해석으로 폴백하고 쓰기 실패만 limitation으로 남긴다.
+  프로젝트마다 다른 디렉터리를 쓴다. 합성 600파일 실측: warm(변경 없음) 7.5배,
+  leaf(잎 파일 변경) 1.9배, imported(널리 import되는 파일 변경) 약 1.0배 — 허브 편집은
+  역방향 폐쇄가 거의 전체라 낙관 없이 그대로 기록한다
+
+- 검증 원장 추가. 분석 명령의 `--record <dir>`는 실행 하나를 `<dir>/ledger.jsonl`에 한
+  줄(JSON)로 덧붙인다: 도구 버전·UTC 시각·명령·종료 코드·관측한 Git `HEAD`(계산하지
+  못하면 null)·입력 플래그·보고한 문제 식별자. 파일은 append-only라 기존 줄을 다시 쓰지
+  않는다. `--env`·`--dart-define`은 값이 비밀일 수 있어 키만 남긴다. 쓰기가 중단돼
+  마지막 줄이 잘리면 읽기가 건너뛰고 `ledger-skipped-lines` limitation으로 보고하며,
+  다음 append는 잘린 줄을 개행으로 닫고 새 줄을 쓴다. `dartograph history --ledger <dir>
+  [--commit <sha>] [--format text|json]`가 되읽는다. 원장을 쓰지 못해도 분석 결과와 종료
+  코드는 그대로이고 진단만 stderr로 간다
+
+- `dead --format markdown` 추가 — 다른 형식과 같은 제어문자 정책의 표 리포트이며,
+  finding별·전역 limitation을 함께 낸다
+
+- `dead --format codeowners --codeowners <file>` 추가 — finding 소스 경로의 소유자별로
+  묶는다. CODEOWNERS 형식의 문서화된 부분집합을 구현한다: 마지막 일치 규칙이 이기고
+  `*`·`**`·`?`를 지원하며, `/`가 든 패턴은 프로젝트 루트에 고정되고, 끝의 `/`는
+  디렉터리 규칙, 소유자가 없는 규칙은 앞선 규칙으로 되돌아가지 않고 소유권을 비운다.
+  규칙에 없는 경로는 `(unowned)`로 묶인다
+
+- CI 문서: `impact-precheck` 워크플로 예시가 PR에서 돌아 `impact --format markdown`
+  리포트를 PR 코멘트로 달고(제자리 갱신), 증분 사실 캐시와 검증 원장을 쓰며, SARIF를
+  올리고 high 위험에서 게이트한다. MCP 문서에 `tools/list` 입력 스키마, JSON-RPC 오류
+  코드 표, 재현 요청/응답 예시를 추가했다
+
 ## 0.9.0
 
 - 수정 **전에** 영향을 묻는 `dartograph impact` 명령 추가. 씨앗은 정확히 하나를 준다:

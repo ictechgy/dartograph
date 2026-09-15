@@ -2,6 +2,53 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.10.0
+
+- Added `--incremental <dir>` to the eleven indexing commands (`graph`, `dead`,
+  `query`, `compare`, `affected`, `impact`, `baseline`, `cycles`, `rules`,
+  `metrics`, and `dead --explain`). A per-file fact cache keyed by the file's
+  content hash and its resolution inputs lets a run re-resolve only the changed
+  files and the libraries that transitively import or export them; every other
+  file reuses its cached facts. Artifacts are byte-identical to full analysis
+  (`tool/benchmark_index.dart` compares seven sha256 hashes in three conditions).
+  The cache is an optimization, not a contract: a missing, corrupt, schema-
+  mismatched, or unwritable cache falls back to full analysis and only the write
+  failure is reported as a limitation. Point each project at its own directory.
+  Measured on a synthetic 600-file package: warm (no change) 7.5x, leaf (leaf
+  file changed) 1.9x, imported (widely imported file changed) about 1.0x — a hub
+  edit's reverse closure is nearly the whole graph, so it is reported honestly
+  rather than as a win
+
+- Added a verification ledger. `--record <dir>` on an analysis command appends
+  one JSON line per run to `<dir>/ledger.jsonl` with the tool version, UTC time,
+  command, exit code, observed Git `HEAD` (null when it cannot be computed), the
+  input flags, and the identifiers of the reported problems. The file is
+  append-only: existing lines are never rewritten. `--env` and `--dart-define`
+  values may be secret, so only their keys are recorded. A write interrupted
+  mid-line is skipped on read and reported as a `ledger-skipped-lines`
+  limitation, and the next append closes the truncated line before writing a
+  fresh one. `dartograph history --ledger <dir> [--commit <sha>]
+  [--format text|json]` reads it back. If the ledger cannot be written, the
+  analysis result and exit code are unchanged and only a diagnostic goes to
+  stderr
+
+- Added `dead --format markdown`, a table report with the same control-character
+  policy as the other formats, including per-finding and global limitations
+
+- Added `dead --format codeowners --codeowners <file>`, which groups findings by
+  the owners of their source paths. It implements a documented subset of the
+  CODEOWNERS format: the last matching rule wins, `*`, `**`, and `?` are
+  supported, a pattern containing `/` is anchored to the project root, a trailing
+  `/` makes a directory rule, and a rule with no owners clears ownership instead
+  of falling back. Paths that match no rule are grouped under `(unowned)`
+
+- Documented the CI side: an `impact-precheck` workflow example now runs on pull
+  requests, posts the `impact --format markdown` report as a PR comment (updated
+  in place), caches the incremental facts, records the ledger, uploads SARIF, and
+  gates on high risk. The MCP documentation gained the `tools/list` input
+  schemas, a JSON-RPC error-code table, and reproducible request/response
+  examples
+
 ## 0.9.0
 
 - Added the `dartograph impact` command for pre-change impact analysis. Exactly

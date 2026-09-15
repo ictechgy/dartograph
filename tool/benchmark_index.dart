@@ -9,6 +9,7 @@ import 'package:dartograph/src/analysis/reachability_analyzer.dart';
 import 'package:dartograph/src/export/dead_reporter.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 
 /// 인덱싱·도달성·질의 파이프라인의 A/B 측정 하네스.
@@ -104,19 +105,7 @@ Future<void> main(List<String> arguments) async {
 
     // rules 평가: 매치되지 않는 노드(f06~f09·test)가 전체 패턴을 first-match로
     // 훑으므로 glob 컴파일 비용이 노드 × 패턴만큼 반복되는 경로를 재는다.
-    final ruleSet = LayerRuleSet.parse(
-      'layers:\n'
-      '  - name: a\n'
-      '    match: ["project:lib/f00**", "project:lib/f01**", '
-      '"project:lib/f02**"]\n'
-      '  - name: b\n'
-      '    match: ["project:lib/f03**", "project:lib/f04**", '
-      '"project:lib/f05**"]\n'
-      'rules:\n'
-      '  - name: a-not-b\n'
-      '    from: a\n'
-      '    deny: [b]\n',
-    );
+    final ruleSet = LayerRuleSet.parse(_rulesYaml);
     final rulesMicros = <int>[];
     late List<LayerViolation> violations;
     for (var rep = 0; rep < reps; rep++) {
@@ -124,6 +113,8 @@ Future<void> main(List<String> arguments) async {
       violations = LayerRuleEvaluator(ruleSet).evaluate(snapshot);
       rulesMicros.add(watch.elapsedMicroseconds);
     }
+
+    final incremental = await _incrementalComparison(root, workspace);
 
     print(
       const JsonEncoder.withIndent('  ').convert({
@@ -139,6 +130,7 @@ Future<void> main(List<String> arguments) async {
         'edges': snapshot.edges.length,
         'fileCount': fileCount,
         'graphJsonSha256': _sha(GraphExporter.json(snapshot)),
+        'incremental': incremental,
         'indexRunMicros': runMicros,
         'limitationsSha256': _sha(jsonEncode(result.limitationDetails)),
         'nodes': snapshot.nodes.length,
@@ -263,4 +255,193 @@ final class _ColdCache implements FactCache {
 
   @override
   Future<void> write(String key, String payload) async {}
+}
+
+/// rules 평가에 쓰는 고정 규칙이다(측정 조건이 실행마다 달라지지 않는다).
+const _rulesYaml =
+    'layers:\n'
+    '  - name: a\n'
+    '    match: ["project:lib/f00**", "project:lib/f01**", '
+    '"project:lib/f02**"]\n'
+    '  - name: b\n'
+    '    match: ["project:lib/f03**", "project:lib/f04**", '
+    '"project:lib/f05**"]\n'
+    'rules:\n'
+    '  - name: a-not-b\n'
+    '    from: a\n'
+    '    deny: [b]\n';
+
+/// 증분 분석의 A/B 결과다.
+///
+/// 같은 입력에서 전체 해석과 증분 해석의 산출물 7종 sha256이 모두 같아야 한다 —
+/// 캐시는 속도만 바꾸고 출력은 바꾸지 않는다(`doc/DECISION-incremental.md` 3절).
+/// 조건은 셋이다: 변경 없음(전부 재사용), 널리 import되는 파일 하나 변경,
+/// 아무도 import하지 않는 잎 파일 하나 변경. 합성 패키지의 import가 무작위라
+/// 널리 import되는 파일의 역방향 폐쇄는 사실상 전체가 된다 — 그 값도 그대로
+/// 보고한다(측정 없는 낙관 금지).
+Future<Map<String, Object?>> _incrementalComparison(
+  String root,
+  Directory workspace,
+) async {
+  final cache = IncrementalCache(p.join(workspace.path, 'incremental-facts'));
+  final full = await _measureFull(root);
+  final cold = await _measureIncremental(root, cache);
+  final warm = await _measureIncremental(root, cache);
+  final measurements = <String, _Measurement>{'warm': warm};
+  for (final (label, relative) in [
+    ('imported', 'lib/f0000.dart'),
+    ('leaf', 'lib/main.dart'),
+  ]) {
+    final target = File(p.join(root, relative));
+    await target.writeAsString(
+      '${await target.readAsString()}\n// benchmark change\n',
+    );
+    measurements[label] = await _measureIncremental(root, cache);
+    measurements['$label-full'] = await _measureFull(root);
+  }
+  return {
+    'artifactHashesMatch': {
+      for (final entry in measurements.entries)
+        if (!entry.key.endsWith('-full'))
+          entry.key: _hashesMatch(
+            measurements['${entry.key}-full']?.hashes ?? full.hashes,
+            entry.value.hashes,
+          ),
+    },
+    'artifacts': {
+      'full': full.hashes,
+      for (final entry in measurements.entries)
+        if (!entry.key.endsWith('-full')) entry.key: entry.value.hashes,
+    },
+    'fullMicros': full.micros,
+    'coldMicros': cold.micros,
+    'speedup': {
+      for (final entry in measurements.entries)
+        if (!entry.key.endsWith('-full') && entry.value.micros > 0)
+          entry.key: _speedup(
+            measurements['${entry.key}-full']?.micros ?? full.micros,
+            entry.value.micros,
+          ),
+    },
+    'resolvedFiles': {
+      'cold': cold.resolvedFiles,
+      for (final entry in measurements.entries)
+        if (!entry.key.endsWith('-full')) entry.key: entry.value.resolvedFiles,
+    },
+    'reusedFiles': {
+      'cold': cold.reusedFiles,
+      for (final entry in measurements.entries)
+        if (!entry.key.endsWith('-full')) entry.key: entry.value.reusedFiles,
+    },
+  };
+}
+
+/// 전체 대비 배수다(0으로 나누지 않는다).
+double _speedup(int fullMicros, int incrementalMicros) =>
+    fullMicros / incrementalMicros;
+
+/// 산출물 해시 7종이 모두 같은지 확인한다.
+Map<String, bool> _hashesMatch(
+  Map<String, String> full,
+  Map<String, String> incremental,
+) => {
+  for (final entry in full.entries)
+    entry.key: incremental[entry.key] == entry.value,
+};
+
+/// 한 번의 전체 해석: 산출물 해시와 시간.
+Future<_Measurement> _measureFull(String root) async {
+  final watch = Stopwatch()..start();
+  final result = await AnalyzerGraphIndex(cache: _ColdCache()).index(root);
+  final micros = watch.elapsedMicroseconds;
+  return _Measurement(
+    hashes: _artifactHashes(result),
+    micros: micros,
+    resolvedFiles: result.graph.nodes.length,
+    reusedFiles: 0,
+  );
+}
+
+/// 한 번의 증분 해석: 산출물 해시·시간·재사용 규모.
+Future<_Measurement> _measureIncremental(
+  String root,
+  IncrementalCache cache,
+) async {
+  final watch = Stopwatch()..start();
+  final result = await AnalyzerGraphIndex(
+    cache: _ColdCache(),
+    incremental: cache,
+  ).index(root);
+  final micros = watch.elapsedMicroseconds;
+  return _Measurement(
+    hashes: _artifactHashes(result),
+    micros: micros,
+    resolvedFiles: cache.stats.resolvedFiles,
+    reusedFiles: cache.stats.reusedFiles,
+  );
+}
+
+/// 전체 해석 결과에서 뽑는 산출물 7종의 sha256이다.
+Map<String, String> _artifactHashes(AnalyzerGraphResult result) {
+  final snapshot = result.graph.snapshot();
+  final analysis = ReachabilityAnalyzer().analyze(
+    snapshot,
+    roots: result.retentionRoots,
+    limitations: const [],
+  );
+  final testOnly = ReachabilityAnalyzer().testOnlyDeclarations(
+    snapshot,
+    roots: result.retentionRoots,
+    limitations: const [],
+  );
+  final session = SymbolQuerySession(
+    graph: snapshot,
+    roots: result.retentionRoots,
+    limitations: const [],
+  );
+  final violations = LayerRuleEvaluator(
+    LayerRuleSet.parse(_rulesYaml),
+  ).evaluate(snapshot);
+  final rootIds = result.retentionRoots.keys.toList()..sort();
+  return {
+    'deadJsonSha256': _sha(
+      DeadReporter.render(ReportFormat.json, [
+        ...analysis.deadDeclarations,
+        ...analysis.deadFiles,
+      ]),
+    ),
+    'graphJsonSha256': _sha(GraphExporter.json(snapshot)),
+    'limitationsSha256': _sha(jsonEncode(result.limitationDetails)),
+    'queryBatchSha256': _sha(
+      jsonEncode([
+        for (final request in _queryRequests(snapshot)) session.query(request),
+      ]),
+    ),
+    'retentionSha256': _sha(
+      jsonEncode([
+        for (final id in rootIds) '$id=${result.retentionRoots[id]!.name}',
+      ]),
+    ),
+    'rulesSha256': _sha(
+      jsonEncode(violations.map((violation) => violation.toJson()).toList()),
+    ),
+    'testOnlySha256': _sha(
+      jsonEncode(testOnly.map((finding) => finding.toJson()).toList()),
+    ),
+  };
+}
+
+/// 산출물 해시·시간·재사용 규모를 함께 나르는 측정값이다.
+final class _Measurement {
+  const _Measurement({
+    required this.hashes,
+    required this.micros,
+    required this.resolvedFiles,
+    required this.reusedFiles,
+  });
+
+  final Map<String, String> hashes;
+  final int micros;
+  final int resolvedFiles;
+  final int reusedFiles;
 }

@@ -19,6 +19,7 @@ import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/retention_reason.dart';
 import '../core/tool_info.dart';
+import 'incremental_cache.dart';
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -64,15 +65,24 @@ final class AnalyzerGraphResult {
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
 final class AnalyzerGraphIndex {
   /// 기본 프로젝트 캐시 또는 테스트가 주입한 [cache]를 사용한다.
-  AnalyzerGraphIndex({FactCache? cache}) : _cache = cache;
+  ///
+  /// [incremental]이 주어지면 파일 단위 사실 캐시를 쓰는 증분 경로를 탄다. 이때는
+  /// 전체 결과 캐시를 읽지도 쓰지도 않는다 — 입력 해시를 두 번 계산하지 않고,
+  /// 사실 캐시가 같은 역할을 더 좁은 단위로 한다.
+  AnalyzerGraphIndex({FactCache? cache, IncrementalCache? incremental})
+    : _cache = cache,
+      _incremental = incremental;
 
   final FactCache? _cache;
+  final IncrementalCache? _incremental;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     final sourcePackages = _readSourcePackages(root);
-    final cache = _cache ?? _defaultFactCache(root);
+    final cache = _incremental != null
+        ? null
+        : _cache ?? _defaultFactCache(root);
     final initialCacheKey = cache == null
         ? null
         : await _tryAnalysisCacheKey(root);
@@ -87,130 +97,8 @@ final class AnalyzerGraphIndex {
       includedPaths: [root],
       sdkPath: _dartSdkPath(),
     );
-    final units = <ResolvedUnitResult>[];
     try {
-      for (final path in _dartFilesUnder(root, collection, sourcePackages)) {
-        final result = await _contextIncluding(
-          collection,
-          path,
-        ).currentSession.getResolvedUnit(path);
-        if (result is ResolvedUnitResult) units.add(result);
-      }
-
-      final graph = CodeGraph();
-      final retentionRoots = <String, RetentionReason>{};
-      final entryPoints = _readEntryPoints(root);
-      final mainEntrySources = <String>{};
-      for (final unit in units) {
-        final libraryId = _libraryId(unit.libraryElement.uri, root);
-        if (!graph.containsNode(libraryId)) {
-          graph.addNode(GraphNode(id: libraryId, isLibrary: true));
-        }
-        unit.unit.accept(
-          _DeclarationCollector(
-            graph,
-            root,
-            retentionRoots,
-            entryPoints,
-            mainEntrySources,
-          ),
-        );
-      }
-      final libraries = <String, LibraryElement>{};
-      for (final unit in units) {
-        final libraryId = _libraryId(unit.libraryElement.uri, root);
-        libraries.putIfAbsent(libraryId, () => unit.libraryElement);
-      }
-      final libraryIds = libraries.keys.toList()..sort();
-      for (final libraryId in libraryIds) {
-        final library = libraries[libraryId]!;
-        for (final import in library.firstFragment.libraryImports) {
-          final imported = import.importedLibrary;
-          if (imported == null) continue;
-          final target = _libraryId(imported.uri, root);
-          if (graph.containsNode(target)) {
-            graph.addEdge(
-              GraphEdge(
-                sourceId: libraryId,
-                targetId: target,
-                kind: EdgeKind.import,
-              ),
-            );
-          }
-        }
-        for (final export in library.firstFragment.libraryExports) {
-          final exported = export.exportedLibrary;
-          if (exported == null) continue;
-          final target = _libraryId(exported.uri, root);
-          if (graph.containsNode(target)) {
-            graph.addEdge(
-              GraphEdge(
-                sourceId: libraryId,
-                targetId: target,
-                kind: EdgeKind.export,
-              ),
-            );
-          }
-        }
-      }
-      final pubspecFile = File(p.join(root, 'pubspec.yaml'));
-      final pubspecContent = pubspecFile.existsSync()
-          ? readConfigurationSync(pubspecFile)
-          : null;
-      _addPublicApiRoots(
-        root,
-        libraries,
-        graph,
-        retentionRoots,
-        pubspecContent,
-      );
-      for (final unit in units) {
-        unit.unit.accept(_RelationshipCollector(graph, root));
-      }
-      final limitations = <AnalyzerLimitation>{
-        ..._addPluginRoots(root, graph, retentionRoots, pubspecContent),
-      };
-      final hasConditionalConfiguration = units.any(
-        (unit) => unit.unit.directives.any(
-          (directive) => switch (directive) {
-            ImportDirective() => directive.configurations.isNotEmpty,
-            ExportDirective() => directive.configurations.isNotEmpty,
-            _ => false,
-          },
-        ),
-      );
-      if (hasConditionalConfiguration) {
-        limitations.add(AnalyzerLimitation.conditionalConfiguration);
-      }
-      if (retentionRoots.values.contains(RetentionReason.generatedCode)) {
-        limitations.add(AnalyzerLimitation.generatedCodeRetention);
-      }
-      if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
-        limitations.add(AnalyzerLimitation.testCodeRetention);
-      }
-      final limitationDetails = _agentLimitations(root, units);
-      if (entryPoints != null) {
-        // 설정이 보존 루트를 좁혔다는 사실 자체를 출력에 남긴다. 없으면 PR로
-        // 추가된 dartograph.yaml이 죽은 코드를 조용히 숨겨도 클린 저장소와
-        // 출력상 구별되지 않는다(감사 S5).
-        limitationDetails.add(
-          'entry-points: main retention roots narrowed to ${entryPoints.length} '
-          'declared build target(s)',
-        );
-        final missing = entryPoints.difference(mainEntrySources).toList()
-          ..sort();
-        for (final source in missing) {
-          limitationDetails.add(
-            'configured-entry-point-without-main: ${source.substring('project:'.length)}',
-          );
-        }
-      }
-      final result = AnalyzerGraphResult(
-        graph: graph,
-        limitations: limitations.toList()..sort((a, b) => a.index - b.index),
-        limitationDetails: limitationDetails,
-        retentionRoots: Map.unmodifiable(retentionRoots),
-      );
+      final result = await _analyze(root, collection, sourcePackages);
       if (cache != null &&
           initialCacheKey != null &&
           await _tryAnalysisCacheKey(root) == initialCacheKey) {
@@ -221,6 +109,820 @@ final class AnalyzerGraphIndex {
       await collection.dispose();
     }
   }
+
+  /// 분석 대상 파일의 사실을 모아 그래프를 조립한다.
+  ///
+  /// 증분 캐시가 없으면 모든 대상을 해석한다(기존 경로). 있으면 파일 키를 비교해
+  /// 바뀐 파일과 역방향 import 폐쇄만 다시 해석하고 나머지는 캐시된 사실을 쓴다.
+  /// 두 경로가 같은 조립 함수를 지나므로 같은 사실에서 같은 산출물이 나온다.
+  Future<AnalyzerGraphResult> _analyze(
+    String root,
+    AnalysisContextCollection collection,
+    List<Directory> sourcePackages,
+  ) async {
+    final unitPaths = _dartFilesUnder(root, collection, sourcePackages);
+    final entryPoints = _readEntryPoints(root);
+    final pubspecContent = _readPubspec(root);
+    // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
+    // (잘못된 이름은 조립 단계의 FormatException, 종료 코드 2다).
+    final entryLibraryPath = _entryLibraryPath(root, pubspecContent);
+    final incremental = _incremental;
+    if (incremental == null) {
+      final facts = <String, _UnitFacts>{};
+      final sources = <String>[];
+      for (final path in unitPaths) {
+        final extracted = await _resolveUnitFacts(
+          root: root,
+          collection: collection,
+          path: path,
+          entryPoints: entryPoints,
+          entryLibraryPath: entryLibraryPath,
+        );
+        if (extracted == null) continue;
+        facts[extracted.source] = extracted;
+        sources.add(extracted.source);
+      }
+      return _assembleResult(
+        root: root,
+        sources: sources,
+        facts: facts,
+        entryPoints: entryPoints,
+        pubspecContent: pubspecContent,
+      );
+    }
+    return _analyzeIncrementally(
+      root: root,
+      collection: collection,
+      unitPaths: unitPaths,
+      entryPoints: entryPoints,
+      pubspecContent: pubspecContent,
+      entryLibraryPath: entryLibraryPath,
+      incremental: incremental,
+    );
+  }
+
+  /// 바뀐 파일과 그 역방향 import 폐쇄만 다시 해석하는 경로다.
+  ///
+  /// 캐시는 최적화지 계약이 아니다 — 손상·부재·스키마 불일치·쓰기 실패는 전체
+  /// 해석으로 폴백하고 분석은 정상 수행한다(`doc/DECISION-incremental.md` 5절).
+  Future<AnalyzerGraphResult> _analyzeIncrementally({
+    required String root,
+    required AnalysisContextCollection collection,
+    required List<String> unitPaths,
+    required Set<String>? entryPoints,
+    required String? pubspecContent,
+    required String? entryLibraryPath,
+    required IncrementalCache incremental,
+  }) async {
+    final sourcesOf = <String, String>{
+      for (final path in unitPaths) path: ?_relativeSourcePath(path, root),
+    };
+    final inputs = await _incrementalInputs(root, sourcesOf.values.toSet());
+    final resolutionKey = IncrementalCache.resolutionKey(
+      toolVersion: toolVersion,
+      sdkVersion: Platform.version,
+      configFingerprint: inputs.configFingerprint,
+    );
+    final currentKeys = <String, String>{
+      for (final entry in inputs.unitHashes.entries)
+        entry.key: IncrementalCache.keyFor(
+          resolutionKey: resolutionKey,
+          contentHash: entry.value,
+        ),
+    };
+    final cached = await incremental.load();
+    // 이전 실행의 의존 표로 역방향 폐쇄를 만든다. 캐시에만 있는 파일(삭제)도
+    // 그 파일에 의존하던 라이브러리를 무효화해야 하므로 캐시 전체를 본다.
+    // 사실 본문 파싱은 폐쇄가 정해진 뒤 재사용할 파일에만 한다 — 폐쇄에 걸려
+    // 다시 해석될 파일의 사실을 미리 파싱하던 낭비를 없앤다.
+    final reverseImports = <String, Set<String>>{};
+    final cachedLibraries = <String, String>{};
+    for (final entry in cached.entries) {
+      final library = entry.value.facts['librarySource'];
+      if (library is! String) continue;
+      cachedLibraries[entry.key] = library;
+      final dependencies = entry.value.facts['dependencies'];
+      if (dependencies is! List) continue;
+      for (final dependency in dependencies) {
+        if (dependency is String) {
+          reverseImports.putIfAbsent(dependency, () => <String>{}).add(library);
+        }
+      }
+    }
+    // 1단계 — 캐시 키가 어긋난 파일(변경·신규)을 고른다. 재사용 후보의 사실
+    // 파싱은 폐쇄를 아는 3단계까지 미룬다.
+    final facts = <String, _UnitFacts>{};
+    final resolved = <String>{};
+    final reusedCandidates = <String>{};
+    for (final path in unitPaths) {
+      final source = sourcesOf[path];
+      if (source == null) continue;
+      final entry = cached[source];
+      if (entry == null || entry.key != currentKeys[source]) {
+        resolved.add(source);
+      } else {
+        reusedCandidates.add(source);
+      }
+    }
+    // 2단계 — 바뀐 파일을 해석한다. 신규 파일의 라이브러리 소스도 이때 확보된다.
+    for (final path in unitPaths) {
+      final source = sourcesOf[path];
+      if (source == null || !resolved.contains(source)) continue;
+      final extracted = await _resolveUnitFacts(
+        root: root,
+        collection: collection,
+        path: path,
+        entryPoints: entryPoints,
+        entryLibraryPath: entryLibraryPath,
+      );
+      if (extracted != null) facts[extracted.source] = extracted;
+    }
+    final currentSources = sourcesOf.values.toSet();
+    final seeds = <String>{
+      for (final source in resolved) ?facts[source]?.librarySource,
+    };
+    final removed = <String>[
+      for (final entry in cachedLibraries.entries)
+        if (!currentSources.contains(entry.key)) entry.value,
+    ];
+    final staleLibraries = IncrementalCache.reverseClosure([
+      ...seeds,
+      // 캐시에만 있는 파일이 사라진 경우다. 그 파일의 라이브러리를 다시 해석해야
+      // 한다 — part 하나가 지워지면 라이브러리 전체의 선언 집합이 바뀐다.
+      ...removed,
+    ], reverseImports);
+    // 3단계 — 폐쇄에 걸린 후보는 다시 해석하고, 남은 후보만 캐시 사실을
+    // 파싱한다. 파싱이 실패한 항목은 그 파일만 다시 해석한다(손상 복구).
+    for (final path in unitPaths) {
+      final source = sourcesOf[path];
+      if (source == null || resolved.contains(source)) continue;
+      final library = cachedLibraries[source];
+      if (library != null && staleLibraries.contains(library)) {
+        final extracted = await _resolveUnitFacts(
+          root: root,
+          collection: collection,
+          path: path,
+          entryPoints: entryPoints,
+          entryLibraryPath: entryLibraryPath,
+        );
+        if (extracted == null) continue;
+        facts[extracted.source] = extracted;
+        resolved.add(source);
+        continue;
+      }
+      final parsed = _UnitFacts.fromJson(cached[source]!.facts);
+      if (parsed != null) {
+        facts[source] = parsed;
+        continue;
+      }
+      final extracted = await _resolveUnitFacts(
+        root: root,
+        collection: collection,
+        path: path,
+        entryPoints: entryPoints,
+        entryLibraryPath: entryLibraryPath,
+      );
+      if (extracted != null) {
+        facts[extracted.source] = extracted;
+        resolved.add(source);
+      }
+    }
+    final sources = <String>[
+      for (final path in unitPaths) ?facts[sourcesOf[path]]?.source,
+    ];
+    var result = _assembleResult(
+      root: root,
+      sources: sources,
+      facts: facts,
+      entryPoints: entryPoints,
+      pubspecContent: pubspecContent,
+    );
+    incremental.stats
+      ..resolvedFiles = resolved.length
+      ..reusedFiles = sources.length - resolved.length;
+    // 캐시가 이미 현재 입력과 정확히 일치하면(전부 재사용, 추가·삭제 없음)
+    // 다시 쓰지 않는다. 디스크의 캐시가 곧 이번 실행이 쓸 내용이다. 다시 쓰면
+    // 3.5MB 인코딩·원자적 교체를 매 실행 지불한다(600파일 기준 41ms).
+    final cacheIsCurrent =
+        resolved.isEmpty &&
+        cached.length == currentSources.length &&
+        currentSources.every(cached.containsKey);
+    if (cacheIsCurrent) return result;
+    final inputsUnchanged = await _incrementalInputsUnchanged(
+      root,
+      resolved,
+      inputs,
+    );
+    if (!inputsUnchanged) {
+      // 해석 중 입력이 바뀌었으면 낡은 키로 사실을 저장하지 않는다(기존 전체
+      // 결과 캐시가 쓰기 전에 키를 다시 확인하는 것과 같은 이유).
+      incremental.stats.cacheNotUpdated = true;
+      return result;
+    }
+    final written = await incremental.store({
+      for (final source in sources)
+        source: CachedFacts(
+          key: currentKeys[source]!,
+          facts: facts[source]!.toJson(),
+        ),
+    });
+    if (!written) {
+      incremental.stats.cacheNotUpdated = true;
+      result = AnalyzerGraphResult(
+        graph: result.graph,
+        limitations: result.limitations,
+        limitationDetails: [
+          ...result.limitationDetails,
+          _cacheWriteFailureDetail,
+        ],
+        retentionRoots: result.retentionRoots,
+      );
+    }
+    return result;
+  }
+}
+
+/// 사실 캐시를 갱신하지 못했다는 limitation 문구다.
+///
+/// 디렉터리 경로를 넣지 않는다 — 출력에 사용자 경로를 반향하지 않는다는 기존
+/// 경계를 따른다. 분석 결과 자체는 완전하다.
+const _cacheWriteFailureDetail =
+    'incremental-cache-write-failed: analysis is complete but the fact cache '
+    'was not updated';
+
+/// [path]를 루트 기준 posix 상대 경로로 바꾼다. 루트 밖이면 null이다.
+String? _relativeSourcePath(String path, String root) {
+  final absolute = p.normalize(p.absolute(path));
+  final base = p.normalize(p.absolute(root));
+  if (!isPathWithinRoot(absolute, base)) return null;
+  return p.posix.joinAll(p.relative(absolute, from: base).split(p.separator));
+}
+
+/// 루트의 pubspec 내용이다. 없으면 null이다(공개 API·플러그인 루트 없음).
+String? _readPubspec(String root) {
+  final file = File(p.join(root, 'pubspec.yaml'));
+  return file.existsSync() ? readConfigurationSync(file) : null;
+}
+
+/// 대표 라이브러리(`lib/<패키지 이름>.dart`)의 루트 기준 상대 경로다.
+///
+/// pubspec이 없으면 null이다. 이름이 없거나 패키지 이름 규칙을 어기면
+/// [FormatException]이다 — 기존 `_addPublicApiRoots`와 같은 계약(종료 코드 2)을
+/// 유지해야 하고, 증분 경로도 해석 전에 같은 시점에 실패해야 캐시가 그 실패를
+/// 가리지 않는다.
+String? _entryLibraryPath(String root, String? pubspecContent) {
+  if (pubspecContent == null) return null;
+  final document = loadYaml(pubspecContent);
+  final packageName = document is YamlMap ? document['name'] : null;
+  if (packageName is! String ||
+      !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
+    throw const FormatException('pubspec name must be a valid package name');
+  }
+  return _relativeSourcePath(p.join(root, 'lib', '$packageName.dart'), root);
+}
+
+/// resolved unit 하나에서 그 파일에 국한된 사실을 뽑는다.
+///
+/// 사실 하나하나가 그 파일의 내용과 그 파일이 의존하는 입력(import/export/part
+/// 대상·SDK·설정·도구 버전)의 함수다. 그래서 키가 바뀐 파일과 그 파일을
+/// import/export하는 폐쇄만 다시 해석하면 나머지는 재사용할 수 있다
+/// (`doc/DECISION-incremental.md` 2·4절).
+///
+/// 해석되지 않은 대상은 null이다(기존 경로와 같이 그 파일을 그래프에서 뺀다).
+Future<_UnitFacts?> _resolveUnitFacts({
+  required String root,
+  required AnalysisContextCollection collection,
+  required String path,
+  required Set<String>? entryPoints,
+  required String? entryLibraryPath,
+}) async {
+  final resolved = await _contextIncluding(
+    collection,
+    path,
+  ).currentSession.getResolvedUnit(path);
+  if (resolved is! ResolvedUnitResult) return null;
+  final source = _relativeSourcePath(path, root);
+  if (source == null) return null;
+  final library = resolved.libraryElement;
+  final nodes = CodeGraph();
+  final roots = <String, RetentionReason>{};
+  final mainEntrySources = <String>{};
+  resolved.unit.accept(
+    _DeclarationCollector(nodes, root, roots, entryPoints, mainEntrySources),
+  );
+  final edges = <GraphEdge>[];
+  resolved.unit.accept(_RelationshipCollector(edges, root));
+  final routeTables = <String>{};
+  final routeUses = <String>[];
+  resolved.unit.accept(_RouteCollector(routeTables, routeUses));
+  final unresolved = _UnresolvedInvocationVisitor();
+  resolved.unit.accept(unresolved);
+  return _UnitFacts(
+    source: source,
+    libraryId: _libraryId(library.uri, root),
+    nodes: nodes.snapshot().nodes,
+    edges: edges,
+    roots: roots,
+    mainEntry: mainEntrySources.isNotEmpty,
+    hasErrors: resolved.diagnostics.any(
+      (error) => error.diagnosticCode.severity.name == 'ERROR',
+    ),
+    hasUnresolvedInvocations: unresolved.found,
+    conditionalDirectives: resolved.unit.directives
+        .where(
+          (directive) => switch (directive) {
+            ImportDirective() => directive.configurations.isNotEmpty,
+            ExportDirective() => directive.configurations.isNotEmpty,
+            _ => false,
+          },
+        )
+        .length,
+    routeTables: routeTables.toList(),
+    routeUses: routeUses,
+    dependencies: _libraryDependencies(root, library, resolved).toList()
+      ..sort(),
+    libraryFacts: _libraryFacts(root, library, entryLibraryPath),
+    librarySource: _relativeSourcePath(
+      library.firstFragment.source.fullName,
+      root,
+    ),
+  );
+}
+
+/// 라이브러리가 의존하는 라이브러리의 **소스 경로** 집합이다.
+///
+/// 노드 ID는 package URI일 수 있어(패키지 설정 아래 해석된 라이브러리) 무효화
+/// 단위로 쓰기에 부적합하다. 여기서는 `lib/` 기준 상대 경로로 통일해, 파일이
+/// 바뀌었다는 사실과 라이브러리 의존 관계를 같은 이름 공간에서 비교한다.
+///
+/// 해석에 성공한 import/export와, 파일이 **선언한** 상대 경로 지시문(미해결
+/// 포함), 라이브러리의 part를 함께 센다. 미해결 지시문을 세지 않으면 대상이
+/// 나중에 생기거나 고쳐질 때 그 파일을 참조하는 쪽이 낡은 사실을 재사용한다 —
+/// 지시문 문자열을 같은 규칙으로 정규화해 두면 파일이 나타나는 순간 역방향
+/// 폐쇄가 참조하는 쪽을 무효화한다.
+///
+/// 루트 밖 대상(의존 패키지)은 세지 않는다. 그 내용은 설정 지문이 덮는다.
+Set<String> _libraryDependencies(
+  String root,
+  LibraryElement library,
+  ResolvedUnitResult unit,
+) {
+  final dependencies = <String>{};
+  void addSource(String? fullName) {
+    if (fullName == null) return;
+    final path = _relativeSourcePath(fullName, root);
+    if (path != null) dependencies.add(path);
+  }
+
+  for (final import in library.firstFragment.libraryImports) {
+    addSource(import.importedLibrary?.firstFragment.source.fullName);
+  }
+  for (final export in library.firstFragment.libraryExports) {
+    addSource(export.exportedLibrary?.firstFragment.source.fullName);
+  }
+  final host = _relativeSourcePath(library.firstFragment.source.fullName, root);
+  for (final directive in unit.unit.directives) {
+    if (directive is! UriBasedDirective) continue;
+    final declared = directive.uri.stringValue;
+    if (declared == null || declared.isEmpty) continue;
+    final uri = Uri.tryParse(declared);
+    if (uri == null || uri.scheme.isNotEmpty || uri.path.isEmpty) continue;
+    final source = _relativeSourcePath(
+      p.joinAll([p.dirname(unit.path), ...uri.path.split('/')]),
+      root,
+    );
+    if (source == null || source == host) continue;
+    dependencies.add(source);
+  }
+  // part는 라이브러리 경계 안의 의존이다. part 하나가 바뀌면 라이브러리 전체
+  // (호스트와 나머지 part)를 다시 해석해야 한다.
+  for (final fragment in library.fragments) {
+    addSource(fragment.source.fullName);
+  }
+  if (host != null) dependencies.add(host);
+  return dependencies;
+}
+
+/// 라이브러리 수준 사실(간선 대상·공개 API 후보)을 뽑는다.
+///
+/// 같은 라이브러리의 모든 유닛이 같은 값을 얻는다 — 조립은 유닛 순서로 첫 항목을
+/// 쓰므로 어느 유닛이 제공해도 결과가 같다(part만 있는 파일에서도 라이브러리
+/// 간선을 잃지 않는다).
+_LibraryFacts _libraryFacts(
+  String root,
+  LibraryElement library,
+  String? entryLibraryPath,
+) {
+  final imports = <String>[];
+  for (final import in library.firstFragment.libraryImports) {
+    final target = _libraryId(import.importedLibrary?.uri, root);
+    if (!imports.contains(target)) imports.add(target);
+  }
+  final exports = <String>[];
+  for (final export in library.firstFragment.libraryExports) {
+    final target = _libraryId(export.exportedLibrary?.uri, root);
+    if (!exports.contains(target)) exports.add(target);
+  }
+  final publicApi = <String>[];
+  final entry = entryLibraryPath;
+  if (entry != null &&
+      p.normalize(library.firstFragment.source.fullName) ==
+          p.normalize(p.join(root, entry))) {
+    final exported = library.exportNamespace.definedNames2.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final symbol in exported) {
+      // 비공개 이름은 공개 API가 아니다. 정렬 순서(이름 사전순)를 그대로
+      // 보존해 보존 루트 삽입 순서가 전체 해석과 같게 유지된다.
+      if (symbol.key.startsWith('_')) continue;
+      publicApi.add(
+        _elementId(_graphTarget(symbol.value) ?? symbol.value, root),
+      );
+    }
+  }
+  return _LibraryFacts(
+    imports: imports,
+    exports: exports,
+    publicApi: publicApi,
+  );
+}
+
+/// 한 파일에서 뽑은 사실이다. 캐시에 저장되고 캐시에서 복원된다.
+final class _UnitFacts {
+  const _UnitFacts({
+    required this.source,
+    required this.librarySource,
+    required this.libraryId,
+    required this.nodes,
+    required this.edges,
+    required this.roots,
+    required this.mainEntry,
+    required this.hasErrors,
+    required this.hasUnresolvedInvocations,
+    required this.conditionalDirectives,
+    required this.routeTables,
+    required this.routeUses,
+    required this.dependencies,
+    required this.libraryFacts,
+  });
+
+  /// 루트 기준 posix 상대 경로다(캐시 키).
+  final String source;
+
+  /// 이 유닛이 속한 라이브러리의 **소스 경로**다(part는 호스트 라이브러리).
+  /// 루트 밖이면 null이고, 그때는 무효화 단위로 쓰지 않는다.
+  final String? librarySource;
+
+  /// 이 유닛이 속한 라이브러리 ID다(노드·간선 ID의 근거, package URI 가능).
+  final String libraryId;
+
+  /// 이 유닛이 선언한 정점이다(유닛 안에서 ID는 유일하다).
+  final List<GraphNode> nodes;
+
+  /// 이 유닛의 AST에서 나온 간선 후보다. 양끝 정점 존재 검사는 조립이 한다 —
+  /// 전체 해석과 증분 해석이 같은 전역 정점 집합으로 같은 판정을 내린다.
+  final List<GraphEdge> edges;
+
+  /// 이 유닛이 정한 보존 사유다.
+  final Map<String, RetentionReason> roots;
+
+  /// 표준 디렉터리의 `main` 진입점을 이 유닛에서 관측했는지.
+  final bool mainEntry;
+
+  /// 분석 오류(ERROR 진단)가 있는지.
+  final bool hasErrors;
+
+  /// 미해석 호출이 있는지.
+  final bool hasUnresolvedInvocations;
+
+  /// 조건부 import/export 지시문 수.
+  final int conditionalDirectives;
+
+  /// 이 유닛이 관측한 route table 키와 named route 사용이다.
+  final List<String> routeTables;
+  final List<String> routeUses;
+
+  /// 이 라이브러리가 의존하는 라이브러리의 소스 경로 집합이다.
+  final List<String> dependencies;
+
+  /// 라이브러리 수준 사실이다.
+  final _LibraryFacts libraryFacts;
+
+  /// `project:` source ID다.
+  String get sourceId => 'project:$source';
+
+  /// 캐시 저장 형식이다.
+  Map<String, Object?> toJson() => {
+    'conditional': conditionalDirectives,
+    'dependencies': dependencies,
+    'edges': [for (final edge in edges) _edgeJson(edge)],
+    'errors': hasErrors,
+    'library': libraryId,
+    'libraryFacts': libraryFacts.toJson(),
+    'librarySource': librarySource,
+    'mainEntry': mainEntry,
+    'nodes': [for (final node in nodes) _nodeJson(node)],
+    'roots': {for (final entry in roots.entries) entry.key: entry.value.name},
+    'routes': routeTables,
+    'routeUses': routeUses,
+    'source': source,
+    'unresolved': hasUnresolvedInvocations,
+  };
+
+  /// 캐시 항목을 복원한다. 형식이 어긋나면 null이고 호출자는 그 파일만 다시
+  /// 해석한다 — 캐시 손상이 분석 실패가 되지 않는다.
+  static _UnitFacts? fromJson(Object? value) {
+    try {
+      if (value is! Map) return null;
+      final source = value['source'];
+      final libraryId = value['library'];
+      final nodes = value['nodes'];
+      final edges = value['edges'];
+      final roots = value['roots'];
+      final libraryFacts = _LibraryFacts.fromJson(value['libraryFacts']);
+      if (source is! String ||
+          libraryId is! String ||
+          nodes is! List ||
+          edges is! List ||
+          roots is! Map ||
+          libraryFacts == null) {
+        return null;
+      }
+      return _UnitFacts(
+        source: source,
+        librarySource: value['librarySource'] as String?,
+        libraryId: libraryId,
+        nodes: [
+          for (final node in nodes) _nodeFromJson(node as Map<String, Object?>),
+        ],
+        edges: [
+          for (final edge in edges) _edgeFromJson(edge as Map<String, Object?>),
+        ],
+        roots: {
+          for (final entry in roots.entries)
+            entry.key as String: RetentionReason.values.byName(
+              entry.value as String,
+            ),
+        },
+        mainEntry: value['mainEntry'] == true,
+        hasErrors: value['errors'] == true,
+        hasUnresolvedInvocations: value['unresolved'] == true,
+        conditionalDirectives: value['conditional'] as int? ?? 0,
+        routeTables: [
+          for (final route in value['routes'] as List? ?? const [])
+            route as String,
+        ],
+        routeUses: [
+          for (final route in value['routeUses'] as List? ?? const [])
+            route as String,
+        ],
+        dependencies: [
+          for (final dependency in value['dependencies'] as List? ?? const [])
+            dependency as String,
+        ],
+        libraryFacts: libraryFacts,
+      );
+    } on Object {
+      return null;
+    }
+  }
+}
+
+/// 라이브러리 수준 사실이다. 같은 라이브러리의 모든 유닛이 같은 값을 가진다.
+final class _LibraryFacts {
+  const _LibraryFacts({
+    required this.imports,
+    required this.exports,
+    required this.publicApi,
+  });
+
+  /// 라이브러리 ID로 정규화한 import 대상이다(선언 순서).
+  final List<String> imports;
+
+  /// 라이브러리 ID로 정규화한 export 대상이다(선언 순서).
+  final List<String> exports;
+
+  /// 대표 라이브러리가 공개하는 선언 ID다(이름 사전순, 비공개 제외).
+  final List<String> publicApi;
+
+  Map<String, Object?> toJson() => {
+    'exports': exports,
+    'imports': imports,
+    'publicApi': publicApi,
+  };
+
+  static _LibraryFacts? fromJson(Object? value) {
+    try {
+      if (value is! Map) return null;
+      final imports = value['imports'];
+      final exports = value['exports'];
+      final publicApi = value['publicApi'];
+      if (imports is! List || exports is! List || publicApi is! List) {
+        return null;
+      }
+      return _LibraryFacts(
+        imports: [for (final item in imports) item as String],
+        exports: [for (final item in exports) item as String],
+        publicApi: [for (final item in publicApi) item as String],
+      );
+    } on Object {
+      return null;
+    }
+  }
+}
+
+Map<String, Object?> _nodeJson(GraphNode node) => {
+  'column': ?node.column,
+  'id': node.id,
+  'isAbstract': node.isAbstract,
+  'isEnumConstant': node.isEnumConstant,
+  'isLibrary': node.isLibrary,
+  'isTypeDeclaration': node.isTypeDeclaration,
+  'line': ?node.line,
+  'sourceUri': ?node.sourceUri,
+  'synthesized': node.synthesized,
+};
+
+GraphNode _nodeFromJson(Map<String, Object?> node) => GraphNode(
+  id: node['id']! as String,
+  sourceUri: node['sourceUri'] as String?,
+  line: node['line'] as int?,
+  column: node['column'] as int?,
+  synthesized: node['synthesized']! as bool,
+  isLibrary: node['isLibrary']! as bool,
+  isTypeDeclaration: node['isTypeDeclaration']! as bool,
+  isAbstract: node['isAbstract']! as bool,
+  isEnumConstant: node['isEnumConstant']! as bool,
+);
+
+Map<String, Object?> _edgeJson(GraphEdge edge) => {
+  'kind': edge.kind.name,
+  'source': edge.sourceId,
+  'target': edge.targetId,
+};
+
+GraphEdge _edgeFromJson(Map<String, Object?> edge) => GraphEdge(
+  sourceId: edge['source']! as String,
+  targetId: edge['target']! as String,
+  kind: EdgeKind.values.byName(edge['kind']! as String),
+);
+
+/// 파일별 사실을 하나의 그래프로 조립한다.
+///
+/// 전체 해석과 증분 해석이 같은 함수를 지난다 — 사실이 같으면 산출물도 같다.
+/// 순서가 의미를 갖는 지점(중복 정점의 첫 승리, 보존 사유의 마지막 승리,
+/// 라이브러리·publicApi·plugin 루트의 putIfAbsent)은 원래 유닛 순서를 따른다.
+AnalyzerGraphResult _assembleResult({
+  required String root,
+  required List<String> sources,
+  required Map<String, _UnitFacts> facts,
+  required Set<String>? entryPoints,
+  required String? pubspecContent,
+}) {
+  final graph = CodeGraph();
+  final retentionRoots = <String, RetentionReason>{};
+  final mainEntrySources = <String>{};
+  final libraries = <String, _LibraryFacts>{};
+  for (final source in sources) {
+    final unit = facts[source]!;
+    if (!graph.containsNode(unit.libraryId)) {
+      graph.addNode(GraphNode(id: unit.libraryId, isLibrary: true));
+    }
+    for (final node in unit.nodes) {
+      if (!graph.containsNode(node.id)) graph.addNode(node);
+    }
+    retentionRoots.addAll(unit.roots);
+    if (unit.mainEntry) mainEntrySources.add(unit.sourceId);
+    libraries.putIfAbsent(unit.libraryId, () => unit.libraryFacts);
+  }
+  final libraryIds = libraries.keys.toList()..sort();
+  for (final libraryId in libraryIds) {
+    final library = libraries[libraryId]!;
+    for (final target in library.imports) {
+      if (graph.containsNode(target)) {
+        graph.addEdge(
+          GraphEdge(
+            sourceId: libraryId,
+            targetId: target,
+            kind: EdgeKind.import,
+          ),
+        );
+      }
+    }
+    for (final target in library.exports) {
+      if (graph.containsNode(target)) {
+        graph.addEdge(
+          GraphEdge(
+            sourceId: libraryId,
+            targetId: target,
+            kind: EdgeKind.export,
+          ),
+        );
+      }
+    }
+  }
+  // 대표 라이브러리 판정은 소스 경로로 한다(노드 ID는 package URI일 수 있다).
+  // 후보가 있는 라이브러리는 대표 라이브러리 하나뿐이라 순서는 유닛 순서를 따른다.
+  for (final library in libraries.values) {
+    _addPublicApiRoots(graph, retentionRoots, library.publicApi);
+  }
+  for (final source in sources) {
+    for (final edge in facts[source]!.edges) {
+      if (edge.sourceId != edge.targetId &&
+          graph.containsNode(edge.sourceId) &&
+          graph.containsNode(edge.targetId)) {
+        graph.addEdge(edge);
+      }
+    }
+  }
+  final limitations = <AnalyzerLimitation>{
+    ..._addPluginRoots(root, graph, retentionRoots, pubspecContent),
+  };
+  if (sources.any((source) => facts[source]!.conditionalDirectives > 0)) {
+    limitations.add(AnalyzerLimitation.conditionalConfiguration);
+  }
+  if (retentionRoots.values.contains(RetentionReason.generatedCode)) {
+    limitations.add(AnalyzerLimitation.generatedCodeRetention);
+  }
+  if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
+    limitations.add(AnalyzerLimitation.testCodeRetention);
+  }
+  final limitationDetails = _agentLimitations(root, sources, facts);
+  if (entryPoints != null) {
+    // 설정이 보존 루트를 좁혔다는 사실 자체를 출력에 남긴다. 없으면 PR로
+    // 추가된 dartograph.yaml이 죽은 코드를 조용히 숨겨도 클린 저장소와
+    // 출력상 구별되지 않는다(감사 S5).
+    limitationDetails.add(
+      'entry-points: main retention roots narrowed to ${entryPoints.length} '
+      'declared build target(s)',
+    );
+    final missing = entryPoints.difference(mainEntrySources).toList()..sort();
+    for (final source in missing) {
+      limitationDetails.add(
+        'configured-entry-point-without-main: ${source.substring('project:'.length)}',
+      );
+    }
+  }
+  return AnalyzerGraphResult(
+    graph: graph,
+    limitations: limitations.toList()..sort((a, b) => a.index - b.index),
+    limitationDetails: limitationDetails,
+    retentionRoots: Map.unmodifiable(retentionRoots),
+  );
+}
+
+/// 증분 실행이 쓰는 입력 해시를 한 번의 파일 순회로 모은다.
+///
+/// 단위 파일은 파일별 키의 내용 부분이 되고, 나머지 분석 입력(설정 파일·package
+/// config·의존 패키지 `lib`·표준 디렉터리 밖 `.dart`)은 설정 지문이 된다. 단위
+/// 파일을 지문에 넣으면 파일 하나만 바뀌어도 전체가 무효화되므로 뺀다.
+Future<({Map<String, String> unitHashes, String configFingerprint})>
+_incrementalInputs(String root, Set<String> unitSources) async {
+  final unitHashes = <String, String>{};
+  final inputs = <String>[];
+  for (final file in await _analysisInputFiles(root)) {
+    final relative = p.posix.joinAll(
+      p.relative(file.path, from: root).split(p.separator),
+    );
+    final digest = fileContentHash(file);
+    if (unitSources.contains(relative)) {
+      unitHashes[relative] = digest;
+      continue;
+    }
+    inputs.add('$relative\u0000$digest');
+  }
+  for (final source in unitSources) {
+    if (unitHashes.containsKey(source)) continue;
+    // 방어: 분석 입력 열거에 없는 분석 대상(경계 밖 링크 등)도 키를 갖는다.
+    final file = File(p.join(root, source));
+    if (!file.existsSync()) continue;
+    unitHashes[source] = fileContentHash(file);
+  }
+  final fingerprint = sha256
+      .convert(
+        utf8.encode('$_cacheIdentity\u0000${inputs.join('\u0000')}\u0000'),
+      )
+      .toString();
+  return (unitHashes: unitHashes, configFingerprint: fingerprint);
+}
+
+/// 해석한 파일의 내용이 해석 중에 바뀌지 않았는지 확인한다.
+///
+/// 바뀌었으면 이번 사실은 이미 낡은 키에 묶여 있으므로 캐시를 갱신하지 않는다
+/// (전체 결과 캐시가 쓰기 전에 키를 다시 확인하는 것과 같은 경계다). 다시 읽는
+/// 비용은 이번 실행이 이미 해석한 파일 수에 비례한다.
+Future<bool> _incrementalInputsUnchanged(
+  String root,
+  Set<String> resolvedSources,
+  ({Map<String, String> unitHashes, String configFingerprint}) inputs,
+) async {
+  for (final source in resolvedSources) {
+    final before = inputs.unitHashes[source];
+    if (before == null) return false;
+    final file = File(p.join(root, source));
+    if (!file.existsSync()) return false;
+    if (fileContentHash(file) != before) return false;
+  }
+  return true;
 }
 
 /// [rootPath] 아래 표준 소스 디렉터리의 resolved unit을 결정적 순서로 돌려준다.
@@ -445,30 +1147,10 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
   final snapshot = result.graph.snapshot();
   final rootIds = result.retentionRoots.keys.toList()..sort();
   return jsonEncode({
-    'edges': [
-      for (final edge in snapshot.edges)
-        {
-          'kind': edge.kind.name,
-          'source': edge.sourceId,
-          'target': edge.targetId,
-        },
-    ],
+    'edges': [for (final edge in snapshot.edges) _edgeJson(edge)],
     'limitationDetails': result.limitationDetails,
     'limitations': result.limitations.map((item) => item.name).toList(),
-    'nodes': [
-      for (final node in snapshot.nodes)
-        {
-          'column': ?node.column,
-          'id': node.id,
-          'isAbstract': node.isAbstract,
-          'isEnumConstant': node.isEnumConstant,
-          'isLibrary': node.isLibrary,
-          'isTypeDeclaration': node.isTypeDeclaration,
-          'line': ?node.line,
-          'sourceUri': ?node.sourceUri,
-          'synthesized': node.synthesized,
-        },
-    ],
+    'nodes': [for (final node in snapshot.nodes) _nodeJson(node)],
     'retentionRoots': {
       for (final id in rootIds) id: result.retentionRoots[id]!.name,
     },
@@ -482,30 +1164,10 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
     if (document['schemaVersion'] != _cacheSchemaVersion) return null;
     final graph = CodeGraph();
     for (final value in document['nodes']! as List<Object?>) {
-      final node = (value! as Map).cast<String, Object?>();
-      graph.addNode(
-        GraphNode(
-          id: node['id']! as String,
-          sourceUri: node['sourceUri'] as String?,
-          line: node['line'] as int?,
-          column: node['column'] as int?,
-          synthesized: node['synthesized']! as bool,
-          isLibrary: node['isLibrary']! as bool,
-          isTypeDeclaration: node['isTypeDeclaration']! as bool,
-          isAbstract: node['isAbstract']! as bool,
-          isEnumConstant: node['isEnumConstant']! as bool,
-        ),
-      );
+      graph.addNode(_nodeFromJson((value! as Map).cast<String, Object?>()));
     }
     for (final value in document['edges']! as List<Object?>) {
-      final edge = (value! as Map).cast<String, Object?>();
-      graph.addEdge(
-        GraphEdge(
-          sourceId: edge['source']! as String,
-          targetId: edge['target']! as String,
-          kind: EdgeKind.values.byName(edge['kind']! as String),
-        ),
-      );
+      graph.addEdge(_edgeFromJson((value! as Map).cast<String, Object?>()));
     }
     final encodedRoots = (document['retentionRoots']! as Map)
         .cast<String, Object?>();
@@ -527,44 +1189,29 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
   }
 }
 
-List<String> _agentLimitations(String root, List<ResolvedUnitResult> units) {
+List<String> _agentLimitations(
+  String root,
+  List<String> sources,
+  Map<String, _UnitFacts> facts,
+) {
   final sourceGaps = <String>{};
-  for (final unit in units) {
-    final source = _sourcePathId(unit.path, root);
-    if (unit.diagnostics.any(
-      (error) => error.diagnosticCode.severity.name == 'ERROR',
-    )) {
-      sourceGaps.add('source-analysis-errors: $source');
-    }
-    final visitor = _UnresolvedInvocationVisitor();
-    unit.unit.accept(visitor);
-    if (visitor.found) sourceGaps.add('source-unresolved-invocations: $source');
-    if (unit.unit.directives.any(
-      (directive) => switch (directive) {
-        ImportDirective() => directive.configurations.isNotEmpty,
-        ExportDirective() => directive.configurations.isNotEmpty,
-        _ => false,
-      },
-    )) {
-      sourceGaps.add('source-conditional-configuration: $source');
-    }
-  }
-  final conditionalCount = units.fold<int>(0, (count, unit) {
-    return count +
-        unit.unit.directives
-            .where(
-              (directive) => switch (directive) {
-                ImportDirective() => directive.configurations.isNotEmpty,
-                ExportDirective() => directive.configurations.isNotEmpty,
-                _ => false,
-              },
-            )
-            .length;
-  });
+  var conditionalCount = 0;
   final routeTables = <String>{};
   final routeUses = <String>[];
-  for (final unit in units) {
-    unit.unit.accept(_RouteCollector(routeTables, routeUses));
+  for (final source in sources) {
+    final unit = facts[source]!;
+    if (unit.hasErrors) {
+      sourceGaps.add('source-analysis-errors: ${unit.sourceId}');
+    }
+    if (unit.hasUnresolvedInvocations) {
+      sourceGaps.add('source-unresolved-invocations: ${unit.sourceId}');
+    }
+    if (unit.conditionalDirectives > 0) {
+      sourceGaps.add('source-conditional-configuration: ${unit.sourceId}');
+    }
+    conditionalCount += unit.conditionalDirectives;
+    routeTables.addAll(unit.routeTables);
+    routeUses.addAll(unit.routeUses);
   }
   final unmatchedRoutes = routeUses
       .where((route) => !routeTables.contains(route))
@@ -1165,33 +1812,20 @@ RetentionReason? _retentionReason(
   return null;
 }
 
+/// 대표 라이브러리가 공개하는 선언과 그 멤버를 보존 루트로 삼는다.
+///
+/// 후보 ID는 라이브러리 해석에서 나온다(`_libraryFacts`). 여기서는 전역 정점
+/// 집합으로 존재 여부만 판정한다 — 전체 해석과 증분 해석이 같은 정점 집합을
+/// 보므로 같은 결정을 낸다.
 void _addPublicApiRoots(
-  String root,
-  Map<String, LibraryElement> libraries,
   CodeGraph graph,
   Map<String, RetentionReason> roots,
-  String? pubspecContent,
+  Iterable<String> exportedIds,
 ) {
-  if (pubspecContent == null) return;
-  final document = loadYaml(pubspecContent);
-  final packageName = document is YamlMap ? document['name'] : null;
-  if (packageName is! String ||
-      !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
-    throw const FormatException('pubspec name must be a valid package name');
-  }
-  final entryPath = p.normalize(p.join(root, 'lib', '$packageName.dart'));
-  final entryLibrary = libraries.values.where((library) {
-    return p.normalize(library.firstFragment.source.fullName) == entryPath;
-  }).firstOrNull;
-  if (entryLibrary == null) return;
-  final exported = entryLibrary.exportNamespace.definedNames2.entries.toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
   // export 심볼마다 정렬 뷰를 다시 만들지 않는다 — 노드 ID 목록을 한 번만
   // 뽑아 재사용한다(감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
   final allNodeIds = graph.nodes.keys.toList(growable: false);
-  for (final entry in exported) {
-    if (entry.key.startsWith('_')) continue;
-    final id = _elementId(_graphTarget(entry.value) ?? entry.value, root);
+  for (final id in exportedIds) {
     if (!graph.containsNode(id)) continue;
     roots.putIfAbsent(id, () => RetentionReason.publicApi);
     final memberPrefix = '$id.';
@@ -1255,9 +1889,15 @@ Set<AnalyzerLimitation> _addPluginRoots(
 }
 
 final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
-  _RelationshipCollector(this.graph, this.root);
+  _RelationshipCollector(this.edges, this.root);
 
-  final CodeGraph graph;
+  /// 이 유닛의 AST에서 나온 간선 후보다.
+  ///
+  /// 양끝 정점 존재 여부는 조립 단계가 전역 정점 집합으로 판정한다
+  /// (`_assembleResult`) — 전체 해석과 증분 해석이 같은 판정을 내리고, 캐시된
+  /// 사실이 다른 유닛의 정점 존재 여부에 좌우되지 않는다.
+  final List<GraphEdge> edges;
+
   final String root;
   String? _owner;
 
@@ -1433,10 +2073,8 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
   }
 
   void _add(String source, String target, EdgeKind kind) {
-    if (source != target &&
-        graph.containsNode(source) &&
-        graph.containsNode(target)) {
-      graph.addEdge(GraphEdge(sourceId: source, targetId: target, kind: kind));
+    if (source != target) {
+      edges.add(GraphEdge(sourceId: source, targetId: target, kind: kind));
     }
   }
 }

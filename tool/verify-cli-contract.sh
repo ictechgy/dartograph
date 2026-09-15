@@ -96,6 +96,14 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 1 "dead test-only corpus has a dead declaration" dead --format json fixtures/test_only_corpus
   expect_status 0 "dead report-test-only is info" dead --report-test-only --format json fixtures/test_only_corpus
   expect_status 0 "dead report-test-only text" dead --report-test-only --format text fixtures/test_only_corpus
+  expect_status 1 "dead markdown" dead --format markdown fixtures/phase5_contract
+  expect_status 0 "dead test-only markdown" dead --report-test-only --format markdown fixtures/test_only_corpus
+  CODEOWNERS_FILE="$TEMPORARY_DIRECTORY/CODEOWNERS"
+  printf 'lib/ @lib-team\n' > "$CODEOWNERS_FILE"
+  expect_status 1 "dead codeowners report" dead --format codeowners --codeowners "$CODEOWNERS_FILE" fixtures/test_only_corpus
+  expect_status 64 "dead codeowners without file" dead --format codeowners fixtures/test_only_corpus
+  expect_status 64 "codeowners option without codeowners format" dead --format json --codeowners "$CODEOWNERS_FILE" fixtures/test_only_corpus
+  expect_status 2 "codeowners file missing" dead --format codeowners --codeowners "$TEMPORARY_DIRECTORY/absent" fixtures/test_only_corpus
   expect_status 0 "dead redundant-public is info" dead --report-redundant-public --format json fixtures/test_only_corpus
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
@@ -162,6 +170,18 @@ DART
   expect_status 64 "runtime execute unknown entrypoint" runtime --execute bin/nope.dart fixtures/runtime_corpus
   expect_status 64 "runtime two roots" runtime fixtures/phase5_contract fixtures/runtime_corpus
   expect_status 2 "runtime failure" runtime --format json fixtures/does-not-exist
+  LEDGER_DIR="$TEMPORARY_DIRECTORY/ledger"
+  expect_status 0 "history missing ledger is empty" history --ledger "$LEDGER_DIR"
+  expect_status 64 "history missing ledger option" history
+  expect_status 64 "history unknown format" history --ledger "$LEDGER_DIR" --format sarif
+  expect_status 1 "record a dead run" dead --format json --record "$LEDGER_DIR" fixtures/test_only_corpus
+  expect_status 0 "record a graph run" graph --format json --record "$LEDGER_DIR" fixtures/phase5_contract
+  expect_status 0 "history after record" history --ledger "$LEDGER_DIR"
+  expect_status 0 "history commit filter" history --ledger "$LEDGER_DIR" --commit deadbeef
+  expect_status 0 "history json" history --ledger "$LEDGER_DIR" --format json
+  expect_status 64 "record missing option value" graph --format json --record --level file fixtures/phase5_contract
+  expect_status 64 "record duplicate" dead --format json --record "$LEDGER_DIR" --record "$LEDGER_DIR" fixtures/phase5_contract
+  expect_status 64 "record on non-recordable command" init --record "$LEDGER_DIR" "$TEMPORARY_DIRECTORY/init-record"
   expect_status 64 "mcp with arguments" mcp --help
   INIT_DIR="$TEMPORARY_DIRECTORY/init-test"
   mkdir -p "$INIT_DIR"

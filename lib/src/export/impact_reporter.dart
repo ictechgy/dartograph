@@ -308,40 +308,46 @@ abstract final class ImpactReporter {
 
   static String _sarif(ImpactReport report, List<String> limits) {
     final results = <Map<String, Object>>[
+      // GitHub code scanning은 모든 result에 물리 위치를 요구한다. 프로젝트
+      // 상대 소스가 없는 피영향 심볼은 id가 package: URI라 물리 경로를 발명할
+      // 수 없으므로 SARIF에서 제외하고 그 수를 invocation에 남긴다(다른 형식에는
+      // 그대로 들어간다).
       for (final item in report.impacted)
-        {
-          'level': item.riskLevel == 'high' ? 'warning' : 'note',
-          'locations': [
-            {
-              'physicalLocation': {
-                'artifactLocation': {
-                  'uri': _sarifUri(
-                    item.source == null ? item.id : 'project:${item.source!}',
-                  ),
-                },
-                if (item.line != null)
-                  'region': {
-                    'startColumn': item.column ?? 1,
-                    'startLine': item.line!,
+        if (item.source != null)
+          {
+            'level': item.riskLevel == 'high' ? 'warning' : 'note',
+            'locations': [
+              {
+                'physicalLocation': {
+                  'artifactLocation': {
+                    'uri': _sarifUri('project:${item.source!}'),
                   },
+                  if (item.line != null)
+                    'region': {
+                      'startColumn': item.column ?? 1,
+                      'startLine': item.line!,
+                    },
+                },
               },
+            ],
+            'message': {
+              'text':
+                  '${item.kind} ${item.id} is ${item.depth} usage edge(s) '
+                  'from the changed set (risk ${item.riskLevel})',
             },
-          ],
-          'message': {
-            'text':
-                '${item.kind} ${item.id} is ${item.depth} usage edge(s) '
-                'from the changed set (risk ${item.riskLevel})',
+            'properties': {
+              'depth': item.depth,
+              'id': item.id,
+              'kind': item.kind,
+              'path': item.path,
+              'riskScore': item.riskScore,
+            },
+            'ruleId': 'impact-${item.kind}',
           },
-          'properties': {
-            'depth': item.depth,
-            'id': item.id,
-            'kind': item.kind,
-            'path': item.path,
-            'riskScore': item.riskScore,
-          },
-          'ruleId': 'impact-${item.kind}',
-        },
     ];
+    final withoutLocation = report.impacted
+        .where((item) => item.source == null)
+        .length;
     return '${jsonEncode({
       r'$schema': 'https://json.schemastore.org/sarif-2.1.0.json',
       'runs': [
@@ -349,7 +355,7 @@ abstract final class ImpactReporter {
           'invocations': [
             {
               'executionSuccessful': true,
-              'properties': {'coverage': report.coverage.toJson(), 'limitations': limits, 'risk': report.risk.toJson()},
+              'properties': {'coverage': report.coverage.toJson(), 'limitations': limits, 'resultsWithoutLocation': withoutLocation, 'risk': report.risk.toJson()},
             },
           ],
           'results': results,

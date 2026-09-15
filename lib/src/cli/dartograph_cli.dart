@@ -7,6 +7,7 @@ import 'package:yaml/yaml.dart';
 import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
+import '../analysis/code_owners.dart';
 import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
@@ -16,15 +17,19 @@ import '../analysis/graph_comparison.dart';
 import '../analysis/impact_analyzer.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
+import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
+import '../export/codeowners_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
+import '../export/ledger_reporter.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
+import '../index/incremental_cache.dart';
 import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
 import '../runtime/runtime_scanner.dart';
@@ -99,30 +104,75 @@ Future<int> _dispatch(
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
 ) async {
+  // `--record <dir>`가 있으면 그 명령의 실행을 append-only 원장에 한 줄 남긴다.
+  // 원장 기록은 분석 결과를 뒤집지 않는다 — 쓰기 실패는 stderr 진단으로만
+  // 남기고 명령이 낸 종료 코드를 그대로 돌려준다(증분 캐시 쓰기 실패와 같은 경계).
+  final ledger = _extractLedgerDirectory(arguments, stderrSink);
+  if (ledger == null) return ExitStatus.usage.code;
+  final failedItems = <String>[];
+  final code = await _dispatchCommand(
+    ledger.arguments,
+    stdoutSink,
+    stderrSink,
+    indexPackage,
+    changedFilesSince,
+    now,
+    failedItems,
+  );
+  final directory = ledger.directory;
+  if (directory != null) {
+    await _recordRun(
+      directory,
+      ledger.arguments,
+      code,
+      failedItems,
+      now ?? DateTime.now,
+      stderrSink,
+    );
+  }
+  return code;
+}
+
+Future<int> _dispatchCommand(
+  List<String> arguments,
+  StringSink stdoutSink,
+  StringSink stderrSink,
+  IndexPackage? indexPackage,
+  ChangedFilesSince? changedFilesSince,
+  DateTime Function()? now,
+  List<String> failedItems,
+) async {
   final command = arguments.firstOrNull;
   switch (command) {
     case 'affected':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runAffected(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
         changedFilesSince ?? ChangedFiles.since,
       );
     case 'impact':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runImpact(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
         changedFilesSince ?? ChangedFiles.since,
+        failedItems,
       );
     case 'compare':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return _runCompare(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
       );
     case null:
     case '--help':
@@ -133,33 +183,42 @@ Future<int> _dispatch(
       stdoutSink.writeln('dartograph $toolVersion');
       return ExitStatus.success.code;
     case 'graph':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runGraph(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
       );
     case 'baseline':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runBaseline(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
       );
     case 'dead':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runDead(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
         changedFilesSince ?? ChangedFiles.since,
+        failedItems,
       );
     case 'query':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runQuery(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
       );
     case 'skill':
       return await _runSkill(
@@ -175,30 +234,46 @@ Future<int> _dispatch(
         now ?? DateTime.now,
       );
     case 'cycles':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runCycles(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
+        failedItems,
       );
     case 'rules':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runRules(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
+        failedItems,
       );
     case 'metrics':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
       return await _runMetrics(
-        arguments.skip(1).toList(),
+        indexed.arguments,
         stdoutSink,
         stderrSink,
-        indexPackage ?? AnalyzerGraphIndex().index,
+        indexed.index,
+        failedItems,
       );
     case 'init':
       return await _runInit(arguments.skip(1).toList(), stdoutSink, stderrSink);
     case 'runtime':
       return await _runRuntime(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        failedItems,
+      );
+    case 'history':
+      return await _runHistory(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
@@ -208,6 +283,225 @@ Future<int> _dispatch(
     default:
       stderrSink.write(_help);
       return ExitStatus.usage.code;
+  }
+}
+
+/// 색인을 소비하는 명령의 `--incremental <dir>`를 인자에서 떼어낸 결과다.
+final class _IndexedArguments {
+  const _IndexedArguments(this.arguments, this.index);
+
+  /// 명령이 받는 나머지 인자다(명령 이름은 뺀 상태).
+  final List<String> arguments;
+
+  /// 그 명령이 쓸 색인 함수다. 테스트 주입이 있으면 주입된 함수다.
+  final IndexPackage index;
+}
+
+/// 색인 명령 인자에서 `--incremental <dir>`를 떼어내고 색인 함수를 고른다.
+///
+/// 디렉터리는 호출자가 정한다(없으면 만든다). 옵션 모양의 값·중복·값 누락은
+/// usage(64)다 — 다른 옵션과 같은 규칙이다. 옵션이 없으면 기존 경로 그대로
+/// 기본 색인을 쓴다.
+_IndexedArguments? _indexArguments(
+  List<String> arguments,
+  StringSink error,
+  IndexPackage? injected,
+) {
+  final remaining = arguments.skip(1).toList();
+  String? directory;
+  for (var index = 0; index < remaining.length; index++) {
+    if (remaining[index] != '--incremental') continue;
+    if (directory != null ||
+        index + 1 >= remaining.length ||
+        remaining[index + 1].startsWith('-')) {
+      error.write(_help);
+      return null;
+    }
+    directory = remaining[index + 1];
+    remaining.removeRange(index, index + 2);
+    index--;
+  }
+  if (injected != null) return _IndexedArguments(remaining, injected);
+  final target = directory;
+  return _IndexedArguments(
+    remaining,
+    target == null
+        ? AnalyzerGraphIndex().index
+        : AnalyzerGraphIndex(incremental: IncrementalCache(target)).index,
+  );
+}
+
+/// `--record <dir>`를 받는 명령이다. 문제를 보고하는 검증·분석 명령만 기록한다.
+const _recordableCommands = {
+  'affected',
+  'baseline',
+  'compare',
+  'cycles',
+  'dead',
+  'graph',
+  'impact',
+  'metrics',
+  'query',
+  'rules',
+  'runtime',
+};
+
+/// 원장 기록 요청이다. [directory]가 null이면 `--record`가 없었다는 뜻이다.
+typedef _LedgerRequest = ({List<String> arguments, String? directory});
+
+/// 명령 인자에서 `--record <dir>`를 떼어낸다.
+///
+/// 기록 대상이 아닌 명령의 `--record`는 그대로 두어 그 명령의 사용 오류(64)로
+/// 떨어지게 한다 — 조용히 무시하지 않는다. 대상 명령에서 값 누락·중복·옵션 모양
+/// 값은 usage(64)다(`--incremental`과 같은 규칙). 유효하지 않으면 null이다.
+_LedgerRequest? _extractLedgerDirectory(
+  List<String> arguments,
+  StringSink error,
+) {
+  final command = arguments.firstOrNull;
+  if (command == null || !_recordableCommands.contains(command)) {
+    return (arguments: arguments, directory: null);
+  }
+  final remaining = arguments.skip(1).toList();
+  String? directory;
+  for (var index = 0; index < remaining.length; index++) {
+    if (remaining[index] != '--record') continue;
+    if (directory != null ||
+        index + 1 >= remaining.length ||
+        remaining[index + 1].startsWith('-')) {
+      error.write(_help);
+      return null;
+    }
+    directory = remaining[index + 1];
+    remaining.removeRange(index, index + 2);
+    index--;
+  }
+  return (arguments: [command, ...remaining], directory: directory);
+}
+
+/// 실행 입력 요약을 만든다. 플래그와 그 값(경로 포함)만 담는다.
+///
+/// `--env`·`--dart-define`은 값이 비밀일 수 있으므로 **키만** 남긴다. 반복
+/// 지정은 순서대로 이어 마지막 값만 남기지 않는다(더 보수적이다).
+Map<String, String> _ledgerInputs(List<String> arguments) {
+  final inputs = <String, String>{};
+  for (var index = 0; index < arguments.length; index++) {
+    final token = arguments[index];
+    if (!token.startsWith('--')) continue;
+    final key = token.substring(2);
+    final hasValue =
+        index + 1 < arguments.length && !arguments[index + 1].startsWith('-');
+    final raw = hasValue ? arguments[++index] : 'true';
+    final value = switch (key) {
+      'env' || 'dart-define' => raw.split('=').first,
+      _ => raw,
+    };
+    inputs[key] = inputs.containsKey(key) ? '${inputs[key]},$value' : value;
+  }
+  return inputs;
+}
+
+/// 관측한 Git HEAD SHA다. 계산하지 못하면 null이다(추정값을 넣지 않는다).
+Future<String?> _observeCommit() async {
+  try {
+    final result = await Process.run(
+      'git',
+      const ['rev-parse', 'HEAD'],
+      workingDirectory: Directory.current.path,
+    ).timeout(const Duration(seconds: 5));
+    if (result.exitCode != 0) return null;
+    final value = (result.stdout as String).trim();
+    return RegExp(r'^[0-9a-f]{7,64}$').hasMatch(value) ? value : null;
+  } on Object {
+    return null;
+  }
+}
+
+/// 실행 하나를 원장에 붙인다. 실패해도 분석 결과를 뒤집지 않는다.
+Future<void> _recordRun(
+  String directory,
+  List<String> arguments,
+  int exitCode,
+  List<String> failedItems,
+  DateTime Function() now,
+  StringSink error,
+) async {
+  final command = arguments.firstOrNull ?? '';
+  final entry = LedgerEntry(
+    recordedAt: now().toUtc(),
+    toolVersion: toolVersion,
+    command: command,
+    exitCode: exitCode,
+    commit: await _observeCommit(),
+    inputs: _ledgerInputs(arguments.skip(1).toList()),
+    failedItems: List<String>.unmodifiable(failedItems),
+  );
+  try {
+    await ResultLedger(directory).append(entry);
+  } on Object {
+    // 경로를 반향하지 않는다.
+    error.writeln(
+      'Ledger write failed: analysis is complete but --record was not updated.',
+    );
+  }
+}
+
+/// 검증 원장을 읽어 보고한다.
+Future<int> _runHistory(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  String? ledger;
+  String? commit;
+  HistoryFormat? format;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--ledger' && ledger == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      ledger = arguments[index];
+    } else if (argument == '--commit' && commit == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      commit = arguments[index];
+    } else if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      final parsed = switch (value) {
+        'text' => HistoryFormat.text,
+        'json' => HistoryFormat.json,
+        _ => null,
+      };
+      if (parsed == null) {
+        error.writeln('Unknown report format: $value (expected text or json).');
+        return ExitStatus.usage.code;
+      }
+      format = parsed;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (ledger == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final result = await ResultLedger(ledger).read(commit: commit);
+    output.write(LedgerReporter.render(format ?? HistoryFormat.text, result));
+    return ExitStatus.success.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on Object {
+    return _reportAnalysisFailure(error);
   }
 }
 
@@ -280,6 +574,7 @@ Future<int> _runImpact(
   StringSink error,
   IndexPackage indexPackage,
   ChangedFilesSince changedFilesSince,
+  List<String> failedItems,
 ) async {
   // 씨앗 입력은 --since/--changed/--symbol 중 정확히 하나다. 나머지는 영향
   // 계산 옵션이다. 값이 빠지거나 중복이면 조용히 받아들이지 않고 usage(64)다
@@ -415,6 +710,7 @@ Future<int> _runImpact(
       maxDepth: depthOption,
       limit: limitOption,
     );
+    failedItems.addAll([for (final item in report.impacted) item.id]);
     if (unmappedDartFiles > 0) {
       limitations.add(
         'changed-dart-files-without-library: $unmappedDartFiles changed Dart '
@@ -592,6 +888,7 @@ Future<int> _runCycles(
   StringSink output,
   StringSink error,
   IndexPackage indexPackage,
+  List<String> failedItems,
 ) async {
   var strict = false;
   String? explainId;
@@ -646,6 +943,10 @@ Future<int> _runCycles(
     }
     final cycles = CycleDetector().detect(indexed.graph.snapshot());
     output.write(AnalysisReporter.cycles(cycles, limitations: limitations));
+    failedItems.addAll([
+      for (final cycle in cycles)
+        '${cycle.breakCandidate.from}->${cycle.breakCandidate.to}',
+    ]);
     return strict && cycles.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
@@ -665,6 +966,7 @@ Future<int> _runRules(
   StringSink output,
   StringSink error,
   IndexPackage indexPackage,
+  List<String> failedItems,
 ) async {
   var strict = false;
   String? config;
@@ -737,6 +1039,11 @@ Future<int> _runRules(
       ruleSet,
     ).evaluate(indexed.graph.snapshot());
     output.write(AnalysisReporter.rules(violations, limitations: limitations));
+    failedItems.addAll([
+      for (final violation in violations)
+        '${violation.ruleName}:${violation.edge.sourceId}'
+            '->${violation.edge.targetId}',
+    ]);
     return strict && violations.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
@@ -754,6 +1061,7 @@ Future<int> _runMetrics(
   StringSink output,
   StringSink error,
   IndexPackage indexPackage,
+  List<String> failedItems,
 ) async {
   final parsed = _strictRoot(arguments);
   if (parsed == null) {
@@ -776,6 +1084,10 @@ Future<int> _runMetrics(
     final exceedsTolerance = metrics.any(
       (item) => !item.isolated && item.distance > tolerance,
     );
+    failedItems.addAll([
+      for (final item in metrics)
+        if (!item.isolated && item.distance > tolerance) item.id,
+    ]);
     return parsed.strict && exceedsTolerance
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
@@ -1274,14 +1586,17 @@ Future<int> _runDead(
   StringSink error,
   IndexPackage indexPackage,
   ChangedFilesSince changedFilesSince,
+  List<String> failedItems,
 ) async {
   String? explainId;
   String? baselinePath;
   String? since;
+  String? codeownersPath;
   ReportFormat? reportFormat;
   String? rootPath;
   var reportTestOnly = false;
   var reportRedundantPublic = false;
+  var codeownersFormat = false;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (const {
@@ -1289,6 +1604,7 @@ Future<int> _runDead(
       '--format',
       '--baseline',
       '--since',
+      '--codeowners',
     }.contains(argument)) {
       if (++index >= arguments.length) {
         error.write(_help);
@@ -1302,18 +1618,31 @@ Future<int> _runDead(
           // 위치 인자가 남아 이미 usage(64)로 떨어진다.
           explainId = value;
         case '--format':
-          reportFormat = value == 'github-actions'
-              ? ReportFormat.githubActions
-              : ReportFormat.values
-                    .where((item) => item.name == value)
-                    .firstOrNull;
-          if (reportFormat == null) {
-            error.writeln(
-              'Unknown report format: $value '
-              '(expected text, json, github-actions, or sarif).',
-            );
+          if (value == 'codeowners') {
+            codeownersFormat = true;
+            reportFormat = null;
+          } else {
+            codeownersFormat = false;
+            reportFormat = value == 'github-actions'
+                ? ReportFormat.githubActions
+                : ReportFormat.values
+                      .where((item) => item.name == value)
+                      .firstOrNull;
+            if (reportFormat == null) {
+              error.writeln(
+                'Unknown report format: $value '
+                '(expected text, json, markdown, codeowners, github-actions, '
+                'or sarif).',
+              );
+              return ExitStatus.usage.code;
+            }
+          }
+        case '--codeowners':
+          if (value.startsWith('-')) {
+            error.write(_help);
             return ExitStatus.usage.code;
           }
+          codeownersPath = value;
         case '--baseline':
           // 값이 빠진 호출에서 다음 옵션이 baseline 파일 경로가 되면 안 된다.
           if (value.startsWith('-')) {
@@ -1352,10 +1681,13 @@ Future<int> _runDead(
   // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
   // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
   if (rootPath == null ||
-      reportFormat == null ||
+      (reportFormat == null && !codeownersFormat) ||
+      (codeownersFormat && codeownersPath == null) ||
+      (!codeownersFormat && codeownersPath != null) ||
       (reportTestOnly && reportRedundantPublic) ||
       (explainId != null &&
-          (reportFormat != ReportFormat.json ||
+          (codeownersFormat ||
+              reportFormat != ReportFormat.json ||
               baselinePath != null ||
               since != null ||
               reportTestOnly ||
@@ -1378,6 +1710,9 @@ Future<int> _runDead(
           )
           .explain(explainId);
       output.writeln(jsonEncode(explanation.toJson()));
+      if (explanation.known && !explanation.reachable) {
+        failedItems.add(explainId);
+      }
       return !explanation.known
           ? ExitStatus.usage.code
           : explanation.reachable
@@ -1450,15 +1785,28 @@ Future<int> _runDead(
       reported = filtered.findings;
       suppressedCount = filtered.suppressedCount;
     }
-    output.write(
-      DeadReporter.render(
-        reportFormat,
-        reported,
-        limitations: limitations,
-        suppressedCount: suppressedCount,
-        report: report,
-      ),
-    );
+    if (codeownersFormat) {
+      output.write(
+        CodeownersReporter.render(
+          reported,
+          CodeOwners.parse(await readConfiguration(File(codeownersPath!))),
+          report: report,
+          limitations: limitations,
+          suppressedCount: suppressedCount,
+        ),
+      );
+    } else {
+      output.write(
+        DeadReporter.render(
+          reportFormat!,
+          reported,
+          limitations: limitations,
+          suppressedCount: suppressedCount,
+          report: report,
+        ),
+      );
+    }
+    failedItems.addAll([for (final finding in reported) finding.id]);
     if (reportTestOnly || reportRedundantPublic) {
       return ExitStatus.success.code;
     }
@@ -1714,6 +2062,7 @@ Future<int> _runRuntime(
   List<String> arguments,
   StringSink output,
   StringSink error,
+  List<String> failedItems,
 ) async {
   // 검증은 기본 수행한다(--no-verify로 끈다). --env·--dart-define은 반복
   // 지정할 수 있고 같은 키를 두 번 주면 마지막 값이 이긴다. 그 밖의 옵션은
@@ -1854,6 +2203,10 @@ Future<int> _runRuntime(
       verify: verify,
     );
     output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));
+    failedItems.addAll([
+      for (final item in report.missing) item.fact.id,
+      for (final item in report.unverified) item.fact.id,
+    ]);
     if (threshold > 0 && _runtimeRiskRank(report.risk.level) >= threshold) {
       return ExitStatus.findings.code;
     }
@@ -1981,28 +2334,29 @@ dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
-       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] <package-root>
-       dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] <package-root>
-       dartograph baseline --write <file> <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] <package-root>
-       dartograph compare <before-package-root> <after-package-root>
-       dartograph affected <git-ref> <package-root>
-       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] <package-root>
-       dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] <package-root>
-       dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] <package-root>
+       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+       dartograph impact --since <git-ref> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
-       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] <package-root>
+       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+       dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
-       dartograph cycles [--strict] <package-root>
-       dartograph cycles --explain <symbol-id> <package-root>
-       dartograph rules --config <yaml-file> [--strict] <package-root>
-       dartograph rules --config <yaml-file> --explain <symbol-id> <package-root>
-       dartograph metrics [--strict] <package-root>
+       dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
@@ -2011,6 +2365,12 @@ skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
 
+
+dead --format codeowners groups findings by the owners of their source paths
+using a CODEOWNERS file passed to --codeowners <file>. The last matching rule
+wins; * and ** are supported and a pattern containing "/" is anchored to the
+project root (a subset of the CODEOWNERS format). Findings whose path matches
+no rule are grouped under "(unowned)". The file path is not echoed in errors.
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
 declarations reached only from test code) at info severity, so it never fails
@@ -2056,6 +2416,23 @@ into their libraries, type folds members into top-level declarations, symbol
 as self-loops. graph --collapse <n> (requires --level file) summarizes
 libraries into their first n path segments; folder nodes are aggregates and
 carry no source location.
+
+analyzer를 쓰는 명령(graph, dead, query, compare, affected, impact, baseline,
+cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터리에 파일별 사실
+캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
+해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
+다르거나 쓸 수 없으면 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을
+때만 그 사실을 limitation으로 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다.
+
+The same commands accept --record <dir>, which appends one JSON line per run to
+<dir>/ledger.jsonl: tool version, UTC time, command, exit code, observed Git
+HEAD (when available), the input flags (--env and --dart-define values are
+reduced to their keys), and the identifiers of the reported problems. The file
+is append-only — existing lines are never rewritten. A run whose ledger write
+fails still returns its own exit code and prints a diagnostic on stderr.
+history --ledger <dir> [--commit <sha>] [--format text|json] reads it back; a
+truncated or damaged line is skipped and reported as a ledger-skipped-lines
+limitation instead of failing the read.
 
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".

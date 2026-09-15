@@ -1,23 +1,22 @@
 name: impact-precheck
 
-# 변경 영향 사전 점검(`dartograph impact`)을 CI에서 돌리는 예시 워크플로다.
+# 변경 영향 사전 점검(`dartograph impact`)을 CI에서 돌리고 PR에 리포트를 다는 예시
+# 워크플로다. 사용자는 이 파일을 복사해 저장소에 맞게 조정한다.
 #
-# 기본 트리거를 수동(workflow_dispatch)으로 둔 이유: `impact`/`runtime`은 0.9.0에 릴리스됐지만
-# 병합 즉시 자동 트리거를 켜면 공용 CI가 이유 없이 붉어질 수 있다. 아래 액션을 SHA로 고정한 뒤
-# `pull_request:` 블록의 주석을 풀어 활성화한다.
+# - `--since origin/<base>`로 PR의 변경 파일을 씨앗으로 삼는다. merge-base 계산에
+#   전체 Git 이력이 필요하므로 checkout은 fetch-depth: 0이다.
+# - `--incremental <dir>`로 분석 캐시를 유지하고(actions/cache), `--record <dir>`로
+#   검증 원장을 남긴다. 캐시는 저장소 밖 임시 경로나 워크스페이스 안 숨김
+#   디렉터리를 쓴다 — 이 예시는 워크스페이스 안 `.dartograph-*`를 쓰고 아티팩트로 올린다.
+# - 게이트(`--fail-on high`)는 기본 브랜치에만 건다. PR마다 붉어지면 정책에 맞게
+#   `--fail-on`을 완화하거나 게이트 단계를 조정한다.
 #
-# 증분 분석(`--incremental`)은 아직 구현되지 않았다(HANDOFF-PROGRESS.md P0). 그때까지
-# 캐시 대상은 pub 캐시뿐이다. 증분이 들어오면 분석 캐시 디렉터리를 같은 방식으로 캐시하고
-# `--incremental <dir>`을 넘긴다.
-#
-# 이 저장소는 서드파티 액션을 커밋 SHA로 고정한다. checkout·setup-dart는 기존 ci.yml과
-# 같은 핀을 쓴다. cache·upload-sarif·upload-artifact는 버전 태그로 두었으니 활성화 전에
-# SHA 핀으로 바꾼다.
+# 이 저장소는 서드파티 액션을 커밋 SHA로 고정한다(변경 시 태그 대신 SHA를 갱신).
 
 on:
   workflow_dispatch:
-  # pull_request:
-  #   branches: [main]
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: impact-${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +24,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: write
   security-events: write
 
 jobs:
@@ -39,33 +39,68 @@ jobs:
         with:
           sdk: '3.13.3'
       - name: Cache pub
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
             pub-${{ runner.os }}-
       - run: dart pub get
+      - name: Cache incremental facts
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .dartograph-facts
+          key: dartograph-facts-${{ runner.os }}-${{ github.base_ref }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            dartograph-facts-${{ runner.os }}-${{ github.base_ref }}-
+      - name: Impact report for the PR comment
+        if: github.event_name == 'pull_request'
+        run: |
+          dart run dartograph impact \
+            --since "origin/${{ github.base_ref }}" \
+            --format markdown --limit 200 \
+            --incremental .dartograph-facts \
+            --record .dartograph-ledger \
+            . > impact.md || true
+          if [[ ! -s impact.md ]]; then
+            printf 'dartograph impact produced no report; see the job log.\n' > impact.md
+          fi
+      - name: Post or update the PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body-file impact.md --edit-last \
+            || gh pr comment "${{ github.event.pull_request.number }}" \
+                 --body-file impact.md
       - name: Impact (SARIF)
         run: |
           dart run dartograph impact \
-            --since origin/${{ github.base_ref || 'main' }} \
+            --since "origin/${{ github.base_ref || 'main' }}" \
             --format sarif --limit 200 . > impact.sarif
         continue-on-error: true
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: impact.sarif
       - name: Impact gate (fail on high)
+        # 게이트는 기본 브랜치(push·수동)에서만 건다. PR에서는 리포트·SARIF만
+        # 남기고 체크를 붉게 만들지 않는다 — 정책에 맞게 조건을 바꾼다.
+        if: github.event_name != 'pull_request'
         run: |
           dart run dartograph impact \
-            --since origin/${{ github.base_ref || 'main' }} \
+            --since "origin/${{ github.base_ref || 'main' }}" \
             --format github-actions --fail-on high .
-      - name: Upload artifact
+      - name: Upload report and ledger
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: impact-sarif
-          path: impact.sarif
+          name: impact-report
+          path: |
+            impact.md
+            impact.sarif
+            .dartograph-ledger/ledger.jsonl
           if-no-files-found: warn
