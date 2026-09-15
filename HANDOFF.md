@@ -3,8 +3,8 @@
 _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.8.0 → `v0.8.0` = 8d8baa3. 진행 중 기능과 활성 원장 위치는 아래 4줄 참조)_
 
 - **0.9.0 릴리스 완료**(2026-09-15): pub.dev latest 0.9.0, 태그 `v0.9.0` = `b2aad3a`(PR #95 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.9.0 실측. pub 점수는 pana 지연으로 미확인.
-- 진행 중 기능: 브랜치 `feat/incremental-analysis` @ `74290e5` (증분 분석 `00d22fa`+최적화 `941e595`, 검증 원장 `74290e5`). main은 `b2aad3a`. 문서 정합(USAGE·DECISION-incremental·DECISION-ledger·PLAN·COMPETITIVE-ANALYSIS·MCP) 완료.
-- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.7** — 재개 전 그 절을 먼저 읽는다(릴리스 결과 + 증분 + 원장 구현 + 문서 정합).
+- 진행 중 기능: 브랜치 `feat/incremental-analysis` @ `1036667` (증분 `00d22fa`+최적화 `941e595`, 원장 `74290e5`, 리포터 `605ee01`, CI 예시 `8188e81`, MCP 문서 `1036667`). main은 `b2aad3a`. 미릴리스 누적 중.
+- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.8** — 재개 전 그 절을 먼저 읽는다.
 - 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재 브랜치와 다르다.
 
 ## 2026-09-14 — 진행 중 기능 브랜치 인계 (programmer 세션)
@@ -737,7 +737,7 @@ _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.5) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.9.0 is released (pub.dev latest 0.9.0, tag v0.9.0 at b2aad3a, GitHub Release, fresh-cache install verified; the pub score has not been re-read). Incremental analysis (per-file fact cache, `--incremental <dir>` across the 11 indexing commands) is implemented and committed on branch `feat/incremental-analysis` (00d22fa, optimized in 941e595) but not yet released; its docs are aligned (USAGE, DECISION-incremental, PLAN, COMPETITIVE-ANALYSIS). Branch gates: `dart analyze` clean, 425 tests, format clean, CLI contract passed, false-positive corpus passed, and the 7-artifact sha256 of incremental vs full analysis identical in all three conditions. Measured speedup (synthetic 600 files): warm 7.5x, leaf 1.9x, imported about 1.0x. Next: a 0.10.0 release of incremental analysis and the verification ledger (`--record` + `history`), then the remaining goals (GitHub Action + PR comment, dartograph.yaml expansion with markdown/codeowners reporters, MCP schema/error/example docs). Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.5) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.9.0 is released (pub.dev latest 0.9.0, tag v0.9.0 at b2aad3a, GitHub Release, fresh-cache install verified; the pub score has not been re-read). Incremental analysis (per-file fact cache, `--incremental <dir>` across the 11 indexing commands) is implemented and committed on branch `feat/incremental-analysis` (00d22fa, optimized in 941e595) but not yet released; its docs are aligned (USAGE, DECISION-incremental, PLAN, COMPETITIVE-ANALYSIS). Branch gates: `dart analyze` clean, 425 tests, format clean, CLI contract passed, false-positive corpus passed, and the 7-artifact sha256 of incremental vs full analysis identical in all three conditions. Measured speedup (synthetic 600 files): warm 7.5x, leaf 1.9x, imported about 1.0x. Next: a 0.10.0 release of incremental analysis and the verification ledger (`--record` + `history`), Its PR-comment CI example, `dead --format markdown`/`codeowners`, and the MCP schema/error/example docs are also committed. Next: a 0.10.0 release, then the deferred scope decision on dartograph.yaml expansion (thresholds/include/exclude/retained_*), an issue-type filter, and full CODEOWNERS syntax. Follow the next explicit user task.`
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
