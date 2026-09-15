@@ -7,6 +7,7 @@ import 'package:yaml/yaml.dart';
 import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
+import '../analysis/code_owners.dart';
 import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
@@ -20,6 +21,7 @@ import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
+import '../export/codeowners_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
@@ -1589,10 +1591,12 @@ Future<int> _runDead(
   String? explainId;
   String? baselinePath;
   String? since;
+  String? codeownersPath;
   ReportFormat? reportFormat;
   String? rootPath;
   var reportTestOnly = false;
   var reportRedundantPublic = false;
+  var codeownersFormat = false;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (const {
@@ -1600,6 +1604,7 @@ Future<int> _runDead(
       '--format',
       '--baseline',
       '--since',
+      '--codeowners',
     }.contains(argument)) {
       if (++index >= arguments.length) {
         error.write(_help);
@@ -1613,18 +1618,31 @@ Future<int> _runDead(
           // 위치 인자가 남아 이미 usage(64)로 떨어진다.
           explainId = value;
         case '--format':
-          reportFormat = value == 'github-actions'
-              ? ReportFormat.githubActions
-              : ReportFormat.values
-                    .where((item) => item.name == value)
-                    .firstOrNull;
-          if (reportFormat == null) {
-            error.writeln(
-              'Unknown report format: $value '
-              '(expected text, json, github-actions, or sarif).',
-            );
+          if (value == 'codeowners') {
+            codeownersFormat = true;
+            reportFormat = null;
+          } else {
+            codeownersFormat = false;
+            reportFormat = value == 'github-actions'
+                ? ReportFormat.githubActions
+                : ReportFormat.values
+                      .where((item) => item.name == value)
+                      .firstOrNull;
+            if (reportFormat == null) {
+              error.writeln(
+                'Unknown report format: $value '
+                '(expected text, json, markdown, codeowners, github-actions, '
+                'or sarif).',
+              );
+              return ExitStatus.usage.code;
+            }
+          }
+        case '--codeowners':
+          if (value.startsWith('-')) {
+            error.write(_help);
             return ExitStatus.usage.code;
           }
+          codeownersPath = value;
         case '--baseline':
           // 값이 빠진 호출에서 다음 옵션이 baseline 파일 경로가 되면 안 된다.
           if (value.startsWith('-')) {
@@ -1663,10 +1681,13 @@ Future<int> _runDead(
   // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
   // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
   if (rootPath == null ||
-      reportFormat == null ||
+      (reportFormat == null && !codeownersFormat) ||
+      (codeownersFormat && codeownersPath == null) ||
+      (!codeownersFormat && codeownersPath != null) ||
       (reportTestOnly && reportRedundantPublic) ||
       (explainId != null &&
-          (reportFormat != ReportFormat.json ||
+          (codeownersFormat ||
+              reportFormat != ReportFormat.json ||
               baselinePath != null ||
               since != null ||
               reportTestOnly ||
@@ -1764,15 +1785,27 @@ Future<int> _runDead(
       reported = filtered.findings;
       suppressedCount = filtered.suppressedCount;
     }
-    output.write(
-      DeadReporter.render(
-        reportFormat,
-        reported,
-        limitations: limitations,
-        suppressedCount: suppressedCount,
-        report: report,
-      ),
-    );
+    if (codeownersFormat) {
+      output.write(
+        CodeownersReporter.render(
+          reported,
+          CodeOwners.parse(await readConfiguration(File(codeownersPath!))),
+          report: report,
+          limitations: limitations,
+          suppressedCount: suppressedCount,
+        ),
+      );
+    } else {
+      output.write(
+        DeadReporter.render(
+          reportFormat!,
+          reported,
+          limitations: limitations,
+          suppressedCount: suppressedCount,
+          report: report,
+        ),
+      );
+    }
     failedItems.addAll([for (final finding in reported) finding.id]);
     if (reportTestOnly || reportRedundantPublic) {
       return ExitStatus.success.code;
@@ -2302,9 +2335,9 @@ dartograph — dependency graphs for Dart and Flutter codebases
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -2332,6 +2365,12 @@ skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
 
+
+dead --format codeowners groups findings by the owners of their source paths
+using a CODEOWNERS file passed to --codeowners <file>. The last matching rule
+wins; * and ** are supported and a pattern containing "/" is anchored to the
+project root (a subset of the CODEOWNERS format). Findings whose path matches
+no rule are grouped under "(unowned)". The file path is not echoed in errors.
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
 declarations reached only from test code) at info severity, so it never fails

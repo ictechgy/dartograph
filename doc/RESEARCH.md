@@ -126,10 +126,19 @@ Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `af
   프로젝트 루트에 주석 달린 `dartograph.yaml` 템플릿 생성, 충돌 방어(exit 64),
   `--force` 덮어쓰기, 발견 가능성을 위한 주석 예제(entry_points, layers/rules, thresholds).
 
+구현됨 — Tier 3 잔여 (2026-09-16):
+
+- markdown 리포터 — `dead --format markdown`(impact·runtime과 같은 형식).
+  표와 finding별/전역 limitation을 낸다.
+- codeowners 리포터 — `dead --format codeowners --codeowners <file>`. CODEOWNERS
+  부분집합(마지막 일치 규칙, `*`·`**`·`?`, `/` 고정, 디렉터리 규칙,
+  소유자 없는 규칙은 소유권 버림)으로 소유자별 그룹 + `(unowned)`를 낸다.
+- 검증 원장 — `--record <dir>`·`history --ledger`(P0). 설계는 DECISION-ledger.md.
+
 남은 후보 (미구현 — 범위 결정은 PRD/PLAN에서 한다):
 
-- Tier 3(설정·리포터·에이전트): `dartograph.yaml` 확장(thresholds·include/exclude·retained_*),
-  markdown·codeowners 리포터, issue-type 필터, MCP 서버.
+- `dartograph.yaml` 확장(thresholds·include/exclude·retained_*), issue-type 필터.
+- CODEOWNERS 전체 문법(`!` 부정·문자 클래스·`\` 이스케이프).
 
 Tier 1~2 심사 때 목록에 들지 않은 나머지 강점들은 의도적으로 미채택이다(재도출하지 않는다):
 dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query --depth/--limit`·

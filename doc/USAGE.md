@@ -16,10 +16,10 @@ dartograph --version
 ```text
 dartograph init [--force] [<package-root>]
 dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --format <text|json|github-actions|sarif> [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|github-actions|sarif> [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -114,6 +114,10 @@ affected·baseline)은 빈 목록이다.
 담으면 그 문자열은 그대로 남는다.
 
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
+`--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다 — 사람은 `text`·
+`markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다. `markdown`은 `dead`·
+`dead --report-test-only`·`dead --report-redundant-public` 모두에서 표와 limitation
+목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
 심볼릭 링크 소스는 양방향으로 매치된다 — 링크 파일 자체가 바뀐 경우(링크 경로)와

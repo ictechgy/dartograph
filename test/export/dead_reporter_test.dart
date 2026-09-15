@@ -30,6 +30,30 @@ void main() {
     }
   });
 
+  test('the markdown reporter is a table and escapes pipes', () {
+    final hostile = DeadFinding(
+      id: 'package:app/a.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/a|b.dart',
+      line: 1,
+      column: 2,
+      reason: 'pipe | in reason',
+      retentionRootsChecked: const ['package:app/main.dart::main'],
+      limitations: const ['single configuration'],
+    );
+    final report = DeadReporter.render(ReportFormat.markdown, [hostile]);
+
+    expect(report, startsWith('# dartograph dead report'));
+    expect(report, contains('| warning | declaration |'));
+    expect(report, contains(r'\|'));
+    expect(report, isNot(contains('pipe | in reason')));
+    expect(
+      report,
+      contains('retentionRootsChecked=package:app/main.dart::main'),
+    );
+    expect(report, contains('- `package:app/a.dart::x`: single configuration'));
+  });
+
   test('the default dead report renders at warning severity', () {
     expect(
       DeadReporter.render(ReportFormat.text, [finding]),

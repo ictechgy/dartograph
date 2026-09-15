@@ -10,6 +10,9 @@ enum ReportFormat {
   /// 자동화 소비자를 위한 결정적 JSON이다.
   json,
 
+  /// 사람과 AI가 함께 읽는 Markdown 리포트다(`impact`·`runtime`과 같은 형식).
+  markdown,
+
   /// GitHub Actions workflow command다.
   githubActions,
 
@@ -75,6 +78,12 @@ abstract final class DeadReporter {
       // 기계 판독하게 한다(4형식 무손실 대칭).
       ReportFormat.json =>
         '${jsonEncode({'findings': findings.map((finding) => finding.toJson()).toList(), 'limitations': limits, 'report': report.label, 'suppressedCount': suppressedCount})}\n',
+      ReportFormat.markdown => _markdown(
+        findings,
+        limits,
+        suppressedCount,
+        report,
+      ),
       ReportFormat.githubActions => _githubActions(
         findings,
         limits,
@@ -116,6 +125,58 @@ abstract final class DeadReporter {
     );
     return output.toString();
   }
+
+  /// 사람과 AI가 함께 읽는 Markdown 리포트다.
+  ///
+  /// 표 셀에는 text와 같은 제어문자 정책을 적용하고 파이프를 이스케이프해 표
+  /// 구조를 지킨다. 전역 limitation과 finding별 limitation을 구분해 적는다
+  /// (finding별 것은 어느 finding의 것인지 ID로 귀속한다).
+  static String _markdown(
+    List<DeadFinding> findings,
+    List<String> limits,
+    int suppressed,
+    DeadReport report,
+  ) {
+    final output = StringBuffer();
+    output.writeln('# dartograph ${report.label} report');
+    output.writeln();
+    output.writeln('| Metric | Value |');
+    output.writeln('|---|---:|');
+    output.writeln('| Report | ${report.label} |');
+    output.writeln('| Findings | ${findings.length} |');
+    output.writeln('| Suppressed by baseline | $suppressed |');
+    output.writeln();
+    output.writeln(
+      '| Severity | Kind | Symbol | Location | Reason | Evidence |',
+    );
+    output.writeln('|---|---|---|---|---|---|');
+    for (final finding in findings) {
+      final location = finding.line == null
+          ? '`${_mdCell(_path(finding.source))}`'
+          : '`${_mdCell(_path(finding.source))}:${finding.line}:${finding.column ?? 1}`';
+      output.writeln(
+        '| ${report.severity} | ${_mdCell(finding.kind)} | '
+        '`${_mdCell(finding.id)}` | $location | ${_mdCell(finding.reason)} | '
+        '`retentionRootsChecked=${_mdCell(_roots(finding))}` |',
+      );
+    }
+    output.writeln();
+    output.writeln('## Limitations');
+    output.writeln();
+    for (final finding in findings) {
+      for (final limitation in finding.limitations) {
+        output.writeln('- `${_mdCell(finding.id)}`: ${_mdCell(limitation)}');
+      }
+    }
+    for (final limitation in limits) {
+      output.writeln('- ${_mdCell(limitation)}');
+    }
+    return output.toString();
+  }
+
+  /// Markdown 표 셀: 제어문자를 가시 이스케이프하고 파이프를 이스케이프한다.
+  static String _mdCell(String value) =>
+      _escapeText(value).replaceAll('|', r'\|');
 
   /// text 형식은 `path:line:col: severity: ...` 행 프로토콜이다. 동적 값의
   /// 개행·제어문자는 두 번째 진단줄 위조나 ANSI 주입이 되므로 C0·DEL을 가시
