@@ -313,18 +313,25 @@ abstract final class ImpactReporter {
           'level': item.riskLevel == 'high' ? 'warning' : 'note',
           'locations': [
             {
-              'physicalLocation': {
-                'artifactLocation': {
-                  'uri': _sarifUri(
-                    item.source == null ? item.id : 'project:${item.source!}',
-                  ),
-                },
-                if (item.line != null)
-                  'region': {
-                    'startColumn': item.column ?? 1,
-                    'startLine': item.line!,
+              // 물리 위치는 프로젝트 상대 소스가 있는 심볼에만 붙인다. 소스가
+              // 없으면 id는 package: URI라 GitHub code scanning이 거부한다
+              // ("scheme package did not match file"). 그때는 물리 경로를
+              // 발명하지 않고 논리 위치(id)만 남긴다.
+              if (item.source != null)
+                'physicalLocation': {
+                  'artifactLocation': {
+                    'uri': _sarifUri('project:${item.source!}'),
                   },
-              },
+                  if (item.line != null)
+                    'region': {
+                      'startColumn': item.column ?? 1,
+                      'startLine': item.line!,
+                    },
+                },
+              if (item.source == null)
+                'logicalLocations': [
+                  {'fullyQualifiedName': item.id},
+                ],
             },
           ],
           'message': {
