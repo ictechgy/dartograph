@@ -2,9 +2,9 @@ name: impact-precheck
 
 # 변경 영향 사전 점검(`dartograph impact`)을 CI에서 돌리는 예시 워크플로다.
 #
-# 기본 트리거를 수동(workflow_dispatch)으로 둔 이유: 이 브랜치의 `impact`/`runtime`
-# 명령은 아직 릴리스 전이고, 병합 즉시 자동 트리거를 켜면 공용 CI가 이유 없이 붉어진다.
-# 명령이 안정되면 아래 `pull_request:` 블록의 주석을 풀어 활성화한다.
+# 기본 트리거를 수동(workflow_dispatch)으로 둔 이유: `impact`/`runtime`은 0.9.0에 릴리스됐지만
+# 병합 즉시 자동 트리거를 켜면 공용 CI가 이유 없이 붉어질 수 있다. 아래 액션을 SHA로 고정한 뒤
+# `pull_request:` 블록의 주석을 풀어 활성화한다.
 #
 # 증분 분석(`--incremental`)은 아직 구현되지 않았다(HANDOFF-PROGRESS.md P0). 그때까지
 # 캐시 대상은 pub 캐시뿐이다. 증분이 들어오면 분석 캐시 디렉터리를 같은 방식으로 캐시하고

@@ -119,8 +119,7 @@ Full arguments, output formats, exit codes, and CI examples live in
   Dynamic names retain their source expression. A `channelPrefix` is emitted
   only when the AST proves a decoded, non-empty leading literal in a string
   interpolation; it is a candidate prefix, not proof of a complete runtime
-  address or instance identity. This producer is not included in the published
-  `0.8.0` package yet.
+  address or instance identity. This producer is new in `0.9.0`.
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
