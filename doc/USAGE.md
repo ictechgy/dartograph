@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.8.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.9.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -117,7 +117,7 @@ override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단�
 세지 않으며 MethodChannel의 method 필드도 만들지 않는다. 동적 이름은 원래 표현식을
 보존하고, `channelPrefix`는 AST가 증명한 decoded 비어 있지 않은 문자열 interpolation
 선행 literal일 때만 후보 근거로 낸다. prefix는 완전한 runtime 주소·instance identity의
-증명이 아니며, 이 경로는 아직 발행된 0.8.0 패키지에 포함되지 않았다. 패키지의
+증명이 아니며, 이 경로는 0.9.0에 새로 추가되었다. 패키지의
 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 
@@ -328,7 +328,7 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.8.0
+- run: dart pub global activate dartograph 0.9.0
 - run: dartograph dead --format github-actions --since origin/main .
 - run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```

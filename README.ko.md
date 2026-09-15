@@ -79,7 +79,7 @@ dartograph skill
   바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을
   유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은
   선행 literal을 증명할 때만 내보내며, 완전한 runtime 주소나 instance identity의
-  증명이 아닌 후보 prefix다. 이 producer는 아직 발행된 `0.8.0` 패키지에 포함되지 않는다.
+  증명이 아닌 후보 prefix다. 이 producer는 `0.9.0`에 새로 추가되었다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 실는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).

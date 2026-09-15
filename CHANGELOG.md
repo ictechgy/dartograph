@@ -2,7 +2,70 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
-## Unreleased
+## 0.9.0
+
+- Added the `dartograph impact` command for pre-change impact analysis. Exactly
+  one seed is required: `--since <git-ref>` (Git changed files, with the same
+  full-history requirement and bidirectional symlink matching as `affected`),
+  `--changed <changes.json>` (1–1000 project-relative paths, 1 MiB), or
+  `--symbol <symbol-id>`. The report names the changed libraries and symbols,
+  every symbol that transitively uses them (`call`, `reference`, `inheritance`,
+  `implements`, `mixin`, `override`, `import`, `export`) with a shortest usage
+  path and depth, the call sites into changed declarations (file, line, column),
+  the test libraries that depend on the changed set, and a risk score (0–100,
+  `low`/`medium`/`high`) with named factors (`inbound-references`,
+  `impact-depth`, `impact-breadth`, `public-api-surface`, `test-coverage`,
+  `cycle-participation`). A `coverage` block states what a precheck keeps from
+  being missed: the directly changed symbol count, the transitively impacted
+  count, related tests, and `missedWithoutPrecheck`, the symbols that stay
+  invisible when only the changed files are inspected. Formats are `text`,
+  `json`, `markdown`, `github-actions`, and `sarif`; `--depth` bounds the
+  transitive walk while `--limit` bounds only what is reported (counts, risk,
+  and exit code are unaffected, and each truncated list says so), and
+  `--fail-on <none|low|medium|high>` exits 1 when the overall risk reaches the
+  threshold (default `none` always exits 0). A `--symbol` seed absent from the
+  graph is answered with `known: false` and exit 64, and the report never claims
+  that an unlisted declaration is unaffected
+
+- Added the `dartograph mcp` command, a Model Context Protocol server over
+  stdio (JSON-RPC 2.0, protocol version `2024-11-05`; `initialize`, `ping`,
+  `tools/list`, `tools/call`, and `notifications/*` are handled, with `-32601`
+  for unknown methods, `-32700` for malformed JSON, and `-32602` for invalid
+  parameters while the server keeps running). Three tools are exposed:
+  `impact_query` (the `impact --format json` document; `since`/`changed`/
+  `symbol`, exactly one), `dependency_query` (`query`/`query --batch`; `symbol`/
+  `batch`, exactly one), and `verify_run` (`dead`/`cycles`/`rules`/`metrics` with
+  the raw output and exit code, `isError: true` for analysis failures and usage
+  errors). Every tool reuses the same `runDartograph` execution path as the CLI,
+  so tool result schemas and exit codes cannot drift from `dartograph` itself.
+  stdout carries only JSON-RPC and diagnostics go to stderr; the tools are
+  read-only, and the temporary files written for `changed`/`batch` arrays are
+  removed when the call returns
+
+- Added the `dartograph runtime` command, which finds inputs the static import
+  graph cannot see and verifies them against an environment. Detected facts fall
+  into five categories: `env` (environment variables and `--dart-define`),
+  `dynamicLoad` (`Isolate.spawnUri`, `Process.run`/`start`,
+  `DynamicLibrary.open`, `dart:mirrors`, `Function.apply`), `config`
+  (configuration files and paths), `asset` (`pubspec.yaml` `flutter.assets`
+  declarations and `rootBundle`/`Image.asset`/`AssetImage`), and `external`
+  (http(s) destinations). Each fact is judged `present`, `defaulted`, or
+  `missing` in the given environment, or left `unverified` with a reason when it
+  cannot be decided statically or probed; unmet, undecided, and external counts
+  sum into a risk score (0–100, `low`/`medium`/`high`). Verification is on by
+  default, and `--verify` states it explicitly while `--no-verify` only detects
+  without judging (no risk score). `--env KEY=VALUE` and
+  `--dart-define KEY=VALUE` repeat (last value wins) and never print their
+  values; providing either channel makes verification hermetic — the process
+  environment is ignored and reported as an `environment-source` limitation —
+  and the two channels do not satisfy each other. `--execute <dart-entrypoint>`
+  runs `dart run <entrypoint>` from the package root with the Dart SDK on
+  `PATH`, applies `--env` values over the inherited environment, and records the
+  exit code and a stderr summary as execution evidence; a failed run adds an
+  `execution-failed` risk factor rather than replacing the report. `--format` is
+  `text`, `json`, `markdown`, `github-actions`, or `sarif`, `--limit` bounds
+  reported items only, and `--fail-on <none|low|medium|high>` exits 1 at the
+  threshold
 
 - Fixed `runtime --execute` in native executables to launch the Dart SDK on PATH
   instead of recursively launching dartograph. Installation contracts now check
@@ -24,8 +87,7 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   Dynamic names preserve their source expression; an optional `channelPrefix`
   is emitted only for an AST-proven decoded, non-empty leading literal in a
   string interpolation. Prefixes are candidate evidence, not complete runtime
-  address or instance identity, and this producer is not part of published
-  `0.8.0`.
+  address or instance identity, and this producer is new in `0.9.0`.
 
 ## 0.8.0
 
