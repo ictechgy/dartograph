@@ -27,3 +27,14 @@ asdf-dart.*/
 .env.*
 *.pem
 *-service-account*.json
+
+# 에이전트·하네스 산출물. 제품 소스가 아니다
+/.agents/
+/.openclaw/
+/.opencode/
+/config/
+/HEARTBEAT.md
+/IDENTITY.md
+/SOUL.md
+/TOOLS.md
+/USER.md

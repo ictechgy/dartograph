@@ -26,3 +26,20 @@ pubspec.lock
 auth.json
 credentials.json
 .DS_Store
+
+# 에이전트·하네스 산출물. 제품 소스가 아니다
+.openclaw/
+.opencode/
+.omc/
+.serena/
+.claude/
+config/
+projects/
+asdf-dart.*/
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+HANDOFF-PROGRESS.md
+doc/AGENT-WORKFLOW-AUDIT.md
