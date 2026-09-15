@@ -2,7 +2,55 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
-## Unreleased
+## 0.9.0
+
+- 수정 **전에** 영향을 묻는 `dartograph impact` 명령 추가. 씨앗은 정확히 하나를 준다:
+  `--since <git-ref>`(Git 변경 파일, `affected`와 같은 전체 이력 요구·심볼릭 링크 양방향
+  매칭), `--changed <changes.json>`(프로젝트 상대 경로 1–1000개, 1 MiB 이하), 또는
+  `--symbol <symbol-id>`. 보고서는 변경된 라이브러리·심볼, 그들을 전이적으로 사용하는
+  심볼(`call`·`reference`·`inheritance`·`implements`·`mixin`·`override`·`import`·
+  `export`)과 최단 사용 경로·깊이, 변경 선언으로 들어오는 호출 지점(파일·줄·열), 변경
+  집합에 의존하는 테스트 라이브러리, 요인별 위험도(0–100, `low`/`medium`/`high`)를 낸다
+  (`inbound-references`·`impact-depth`·`impact-breadth`·`public-api-surface`·
+  `test-coverage`·`cycle-participation`). `coverage` 블록은 사전 점검이 놓치지 않게 하는
+  범위를 밝힌다 — 직접 변경된 심볼 수, 전이 영향 수, 관련 테스트 수, 그리고 변경 파일만
+  확인했을 때 보이지 않는 심볼 목록 `missedWithoutPrecheck`다. 출력은 `text`·`json`·
+  `markdown`·`github-actions`·`sarif`이고, `--depth`는 전이 탐색을, `--limit`은 보고
+  항목만 제한한다(개수·위험도·종료 코드는 바뀌지 않고 생략한 수는 목록별로 표시된다).
+  `--fail-on <none|low|medium|high>`은 전체 위험도가 임계 이상이면 종료 코드 1로 만든다
+  (기본 `none`은 항상 0). `--symbol` 씨앗이 그래프에 없으면 `known: false`와 종료 코드
+  64로 구분하며, 나열되지 않은 선언이 영향을 받지 않았다고 주장하지 않는다
+
+- `dartograph mcp` 명령 추가 — stdio로 Model Context Protocol 서버를 띄운다(JSON-RPC
+  2.0, protocolVersion `2024-11-05`). `initialize`·`ping`·`tools/list`·`tools/call`과
+  `notifications/*`를 처리하고, 알 수 없는 메서드는 `-32601`, 잘못된 JSON은 `-32700`,
+  잘못된 파라미터는 `-32602`로 답하면서 서버는 계속 동작한다. 도구는 셋이다:
+  `impact_query`(`impact --format json` 문서, `since`/`changed`/`symbol` 중 정확히 하나),
+  `dependency_query`(`query`/`query --batch` 문서, `symbol`/`batch` 중 정확히 하나),
+  `verify_run`(`dead`·`cycles`·`rules`·`metrics`의 원시 출력과 종료 코드, 분석 실패·사용
+  오류는 `isError: true`). 모든 도구는 CLI와 **완전히 같은** `runDartograph` 실행 경로를
+  재사용하므로 결과 스키마와 종료 코드가 `dartograph` 자체와 어긋나지 않는다. stdout에는
+  JSON-RPC만 쓰고 진단은 stderr로 보내며, 도구는 읽기 전용이다 — `changed`·`batch` 배열을
+  위해 쓴 임시 파일은 호출이 끝나면 지운다
+
+- 정적 import 그래프에 잡히지 않는 입력을 찾아 환경에 대해 판정하는 `dartograph runtime`
+  명령 추가. 탐지 사실은 다섯 카테고리다: `env`(환경변수·`--dart-define`),
+  `dynamicLoad`(`Isolate.spawnUri`, `Process.run`/`start`, `DynamicLibrary.open`,
+  `dart:mirrors`, `Function.apply`), `config`(설정 파일·경로), `asset`(`pubspec.yaml`의
+  `flutter.assets` 선언과 `rootBundle`·`Image.asset`·`AssetImage`), `external`(http(s)
+  목적지). 각 사실은 주어진 환경에서 `present`·`defaulted`·`missing`으로 판정되고, 정적으로
+  확정할 수 없거나 프로브할 수 없으면 사유와 함께 `unverified`로 남는다. 미충족·미판정·
+  외부 자원 수는 위험도(0–100, `low`/`medium`/`high`)로 합산된다. `--env KEY=VALUE`·
+  `--dart-define KEY=VALUE`는 반복 지정할 수 있고 같은 키는 마지막 값이 이기며 값 자체는
+  절대 출력되지 않는다. 둘 중 하나라도 주면 판정이 hermetic해져 프로세스 환경을 무시하고
+  `environment-source` limitation으로 남기며, 두 채널은 서로를 충족하지 않는다.
+  판정은 기본으로 수행하고 `--verify`로 명시할 수 있으며, `--no-verify`는 판정 없이
+  탐지만 한다(위험도 없음). `--execute <dart-entrypoint>`는 패키지 루트에서 PATH의
+  Dart SDK로 `dart run <entrypoint>`를 실행하고 `--env` 값을 상속 환경 위에 덮어쓴 뒤
+  종료 코드와 stderr 요약을 실행 증거로 남긴다. 실행 실패는 보고를 대체하지 않고
+  `execution-failed` 위험 요인이 된다. `--format`은 `text`·`json`·`markdown`·
+  `github-actions`·`sarif`, `--limit`은 보고 항목만 제한하고,
+  `--fail-on <none|low|medium|high>`는 임계 이상에서 종료 코드 1로 만든다.
 
 - native executable의 `runtime --execute`가 자기 자신 대신 PATH의 Dart SDK를 실행하도록
   수정했다. 설치 계약은 entrypoint가 실제 실행 근거 파일을 만드는지도 확인한다.
@@ -21,8 +69,8 @@
   내보내며, 채널 생성과 MethodChannel 메서드 fact를 서로 섞지 않는다. 동적 이름은
   원래 소스 표현식을 유지하고, `channelPrefix`는 AST가 문자열 interpolation의
   decoded 비어 있지 않은 선행 literal을 증명할 때만 낸다. prefix는 완전한 runtime
-  주소나 instance identity가 아니라 후보 근거이며, 이 producer는 발행된 `0.8.0`에
-  아직 포함되지 않는다.
+  주소나 instance identity가 아니라 후보 근거이며, 이 producer는 `0.9.0`에 새로
+  추가되었다.
 
 ## 0.8.0
 
