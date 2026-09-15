@@ -1,11 +1,12 @@
 # Handoff
 
-_Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.8.0 → `v0.8.0` = 8d8baa3. 진행 중 기능과 활성 원장 위치는 아래 4줄 참조)_
+_Last updated: 2026-09-16 (0.10.0 릴리스 완료. 직전 릴리스 기준은 0.9.0 → `v0.9.0` = b2aad3a. 활성 원장은 아래 2줄 참조)_
 
-- **0.9.0 릴리스 완료**(2026-09-15): pub.dev latest 0.9.0, 태그 `v0.9.0` = `b2aad3a`(PR #95 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.9.0 실측. pub 점수는 pana 지연으로 미확인.
-- 진행 중 기능: 브랜치 `feat/incremental-analysis` @ `6f0a2ad`, **PR #96 열림 · CI 4체크 green** (증분`00d22fa`+최적화`941e595`, 원장`74290e5`, 리포터`605ee01`, CI 예시`8188e81`, 문서`1036667`, 릴리스 준비`cf5d08a`, SARIF 수정`6f0a2ad`). main은 `b2aad3a`.
-- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.9** — 재개 전 그 절을 먼저 읽는다(릴리스 결과 + 증분 + 원장 + 리포터 + PR).
-- 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재 브랜치와 다르다.
+- **0.10.0 릴리스 완료**(2026-09-15): pub.dev latest 0.10.0, 태그 `v0.10.0` = `2b3a236`(PR #96 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.10.0 + CLI 계약 passed 실측.
+- 0.10.0 내용: 증분 분석 `--incremental <dir>`(색인 명령 11), 검증 원장 `--record`/`history`, `dead --format markdown`/`codeowners`, PR 코멘트 CI 예시, MCP 문서. CI가 잡은 SARIF 업로드 결함 수정. main = `2b3a236`.
+- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.11** — 재개 전 그 절을 먼저 읽는다.
+- 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재와 다르다.
+
 
 ## 2026-09-14 — 진행 중 기능 브랜치 인계 (programmer 세션)
 
@@ -28,7 +29,12 @@ _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92)**: 5축(성능·보안·구조·기능·
+- **이번 세션(0.10.0 — 증분 분석·검증 원장·리포터·CI/MCP 문서, PR #96)**:
+  P0의 증분 분석(`--incremental <dir>`)과 검증 원장(`--record`/`history`)을 완성하고,
+  `dead --format markdown`·`codeowners` 리포터와 PR 코멘트 CI 예시, MCP 스키마·오류·예시
+  문서를 추가했다. CI가 잡은 SARIF 업로드 결함(`package:` URI·물리 위치 누락)도 수정.
+  0.10.0 발행(사용자 호스트 게시 + 세션의 태그·Release·새 캐시 설치·계약 검증).
+- 이전 세션(0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92): 5축(성능·보안·구조·기능·
   사용성) 전수 검토의 결과를 제품 PR 5건(#82·#83·#84·#87·#90) + 문서 PR 4건(#85·#86·#91·#92)으로
   반영하고 GLM 패킷 리뷰를 통과시켜 머지했다. ① 보안(skill 심볼릭 링크 write-through 차단,
   temp 경화), ② 성능(루프 내 RegExp 컴파일 4곳 hoist + limitationsForSource 메모), ③ 사용성
@@ -42,14 +48,13 @@ _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.
 
 ## Current Status
 
-- 릴리스 기준: **`v0.8.0` → `8d8baa3`** (게시 커밋 = PR #91 merge). pub.dev latest 0.8.0
-  (Readme·Changelog 탭 **영어**)·GitHub Release(tag=v0.8.0) 공개·**점수 160/160**.
-  새 격리 캐시 설치본으로 `--version` 0.8.0·CLI 계약 통과 실측. (이전 0.7.0→`e1b3202`,
-  0.6.0→`85c345a`, 0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`c64eb84`** (PR #92 머지). 열린 제품 PR 없음.
-- **미릴리스 누적 0건** — 5건(#80, #82~#84, #87)과 #90(example + analyzer 14.4.x)이
-  0.8.0으로 발행됐다. #85·#86·#91·#92는 문서 전용.
-- 테스트 308개, 라인 커버리지 **97.00%**(#87 브랜치 기준, #82 97.04%·#83 96.99%·#84 96.94%).
+- 릴리스 기준: **`v0.10.0` → `2b3a236`** (게시 커밋 = PR #96 merge). pub.dev latest 0.10.0·
+  GitHub Release(tag=v0.10.0) 공개. 새 격리 캐시 설치본으로 `--version` 0.10.0·CLI 계약
+  통과 실측. (이전 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`, 0.7.0→`e1b3202`, 0.6.0→`85c345a`,
+  0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
+- main 기준: **`2b3a236`** (PR #96 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 0건** — 증분 분석·검증 원장·리포터·CI/MCP 문서가 0.10.0으로 발행됐다.
+- 테스트 **451개**, 라인 커버리지는 CI의 check-coverage가 게이트한다.
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
   신선한 resolution으로 게이트를 돌린다.
@@ -60,7 +65,26 @@ _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.
 
 ## Completed
 
-### 이번 세션 (0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92)
+### 이번 세션 (0.10.0 — 증분 분석 · 검증 원장 · 리포터 · CI/MCP 문서, PR #96)
+
+- **증분 분석 + 최적화** (`00d22fa`·`941e595`): `--incremental <dir>`를 색인 명령 11개에
+  배선. 파일별 사실 캐시 + 역방향 import 폐쇄 재해석, 7종 sha256이 전체 해석과 세 조건
+  모두 동일. 최적화(동기 해싱·사실 파싱 지연·불변 시 store 생략)로 warm 7.5×, leaf 1.9×,
+  imported ~1.0×(폐쇄가 전체라 정직 기록).
+- **검증 원장** (`74290e5`): `--record <dir>`가 append-only JSONL로 실행을 남기고
+  `history --ledger`가 되읽는다. 잘린 줄 복구, `--env`/`--dart-define` 값 비노출.
+  설계 `doc/DECISION-ledger.md`.
+- **리포터** (`605ee01`): `dead --format markdown`, `dead --format codeowners
+  --codeowners <file>`(CODEOWNERS 부분집합: 마지막 일치·`*`/`**`/`?`·`/` 고정).
+- **CI 예시** (`8188e81`): `impact-precheck`가 PR에서 리포트 코멘트·SARIF·증분 캐시·원장.
+- **MCP 문서** (`1036667`): `tools/list` 스키마·JSON-RPC 오류 코드 표·재현 예시.
+- **CI가 잡은 결함 수정** (`6f0a2ad`): `impact --format sarif`가 GitHub code scanning에서
+  거부되던 `package:` URI·물리 위치 누락을 고쳤다(물리 위치를 만들 수 없는 결과는 제외하고
+  수를 `resultsWithoutLocation`에 남긴다).
+- **0.10.0 발행**: 사용자 호스트 게시 + 태그 `v0.10.0`=`2b3a236`·GitHub Release·새 캐시
+  설치·CLI 계약 검증.
+
+### 이전 세션 (0.8.0 릴리스 + 전체 개선 검토 반영, PR #82~#92)
 
 5축(성능·보안·구조·기능·사용성) 전수 검토를 코드 실측으로 수행(탐색 3병렬 + 핵심 지적 직접
 대조)하고, 결과를 최소 diff PR로 나눠 반영했다. 종결·재도출 금지 항목(P7, bridges 개행, T6,
@@ -737,7 +761,7 @@ _Last updated: 2026-09-16 (0.9.0 릴리스 완료. 직전 릴리스 기준은 0.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.5) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.9.0 is released (pub.dev latest 0.9.0, tag v0.9.0 at b2aad3a, GitHub Release, fresh-cache install verified; the pub score has not been re-read). Incremental analysis (per-file fact cache, `--incremental <dir>` across the 11 indexing commands) is implemented and committed on branch `feat/incremental-analysis` (00d22fa, optimized in 941e595) but not yet released; its docs are aligned (USAGE, DECISION-incremental, PLAN, COMPETITIVE-ANALYSIS). Branch gates: `dart analyze` clean, 425 tests, format clean, CLI contract passed, false-positive corpus passed, and the 7-artifact sha256 of incremental vs full analysis identical in all three conditions. Measured speedup (synthetic 600 files): warm 7.5x, leaf 1.9x, imported about 1.0x. Next: a 0.10.0 release of incremental analysis and the verification ledger (`--record` + `history`), Its PR-comment CI example, `dead --format markdown`/`codeowners`, and the MCP schema/error/example docs are also committed. PR #96 is open with all checks green; 0.10.0 release prep (version consistency, both CHANGELOGs, `.pubignore`) is committed and `dart pub publish --dry-run` reports 0 warnings, but publishing/tagging/Release await an explicit instruction. Next: publish 0.10.0 on approval, then the deferred scope decision on dartograph.yaml expansion (thresholds/include/exclude/retained_*), an issue-type filter, and full CODEOWNERS syntax. Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.11) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.10.0 is released (pub.dev latest 0.10.0, tag v0.10.0 at 2b3a236 = PR #96 merge, GitHub Release, fresh isolated PUB_CACHE install verified incl. --version 0.10.0 and the CLI contract; the pub score has not been re-read). 0.10.0 shipped incremental analysis (`--incremental <dir>`, per-file fact cache), the verification ledger (`--record` + `history`), `dead --format markdown`/`codeowners`, a PR-comment CI example, and MCP schema/error/example docs; a follow-up SARIF fix made `impact --format sarif` acceptable to GitHub code scanning. main is at 2b3a236 with 0 unreleased changes and 451 passing tests. Next: a scope decision on the deferred items (dartograph.yaml expansion with thresholds/include/exclude/retained_*, an issue-type filter, and full CODEOWNERS syntax). Follow the next explicit user task.`
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
