@@ -322,6 +322,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   /// 보조 채널 유니버스가 담는 생성자 타입 이름이다.
   String get _auxChannelType => events ? 'EventChannel' : 'BasicMessageChannel';
+
   /// 유닛 어디에서든 재대입되는 이름 관측. aux 채널의 초기값 신뢰를 게이트한다
   /// — 외부 receiver 대입이 보이면 선언 초기값을 믿지 않고 미해석으로 둔다.
   final _AssignedNames _assignedNames;
@@ -1133,10 +1134,7 @@ class _EnclosingAssignedNames extends RecursiveAstVisitor<void> {
 
   /// `this.x =`와 `this`를 대상으로 한 cascade 절(`this..x =`)의 LHS만
   /// enclosing 필드를 묶는다 — `obj..x =`처럼 다른 객체의 cascade는 외부 쓰기다.
-  static bool _bindsEnclosing(
-    PropertyAccess left,
-    AssignmentExpression node,
-  ) {
+  static bool _bindsEnclosing(PropertyAccess left, AssignmentExpression node) {
     if (left.target is ThisExpression) return true;
     final parent = node.parent;
     return left.target == null &&

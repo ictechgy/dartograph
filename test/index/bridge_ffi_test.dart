@@ -68,8 +68,9 @@ final channel = MethodChannel('battery');
     final result = indexBridges(root.path);
 
     expect(
-      result.limitations
-          .where((limitation) => limitation.startsWith('unscanned-ffi-interop')),
+      result.limitations.where(
+        (limitation) => limitation.startsWith('unscanned-ffi-interop'),
+      ),
       isEmpty,
     );
   });
