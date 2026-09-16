@@ -421,6 +421,27 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 `dead-code-review`·`dependency-audit`·`duplication-review`)도 노출한다 — 입력
 스키마·예시는 [MCP.md](MCP.md)에 있다.
 
+## VS Code 확장
+
+`editors/vscode/`에 빌드 단계 없는 순수 JavaScript 확장이 있다. 설치된
+`dartograph` 실행 파일을 호출해 JSON 보고서를 **Problems** 진단으로 옮긴다 —
+분석기 진단이 아니라 근거·한계를 동반한 그래프 관측이며 삭제 판정은 내리지 않는다.
+
+- `dartograph: Analyze Workspace` — `pubspec.yaml`을 가진 각 워크스페이스 폴더에서
+  `dead`·`deps`·`dup`를 실행한다. dead는 선언 위치에 경고로, deps는
+  `pubspec.yaml` 첫 줄에, dup는 두 위치의 정보성 범위로 표시한다.
+- `dartograph: Check Impact of Current File` — 열린 Dart 파일을
+  `impact --changed`의 입력으로 쓰고 영향받는 선언·관련 테스트를 Problems에
+  표시한다. risk가 high인 대상만 경고다.
+- `dartograph.runOnSave`를 켜면 Dart 파일 저장 직후 디바운스된 재분석이 돈다.
+  기본 `dartograph.args`는 `--incremental .dartograph/cache`로 재실행을 빠르게
+  유지한다. `dartograph.minTokens`·`dartograph.executable`도 설정으로 조정된다.
+- 각 보고서의 `limitations`는 dartograph 출력 채널에 기록한다 — 발견이 없다는
+  사실이 안전의 증명이 되지 않는다.
+
+로컬 사용은 이 디렉터리를 `~/.vscode/extensions/`에 복사하면 되고, 배포용 패키징은
+`vsce package`를 쓴다. 자세한 표는 [editors/vscode/README.md](../editors/vscode/README.md)를 본다.
+
 ## 종료 코드
 
 | 코드 | 뜻 |
