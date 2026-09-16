@@ -3,6 +3,8 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - experiments/**
+    # 독립 pubspec을 가진 중첩 패키지 — 자체 CI 스텝에서 분석한다.
+    - editors/analysis_plugin/**
   errors:
     # public_member_api_docs는 info로 나와 `dart analyze`가 실패하지 않는다.
     # 강제할 규칙만 error로 승격해 CI에서 실제로 잡히게 한다.
