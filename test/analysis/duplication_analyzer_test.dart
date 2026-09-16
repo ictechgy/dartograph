@@ -50,6 +50,24 @@ void main() {
     expect(report.findings, isEmpty);
   });
 
+  test('same-segment back extension never overlaps the two instances', () {
+    // 주기 토큰열 `a b a b a b`: (윈도 2, 윈도 4) 쌍의 뒤쪽 확장이 비겹침
+    // 상한을 넘으면 두 인스턴스가 토큰 2·3에서 겹친다 — 보고하면 안 된다.
+    final report = DuplicationAnalyzer().analyze([
+      segment('project:lib/a.dart', [1, 2, 1, 2, 1, 2]),
+    ], minTokens: 2);
+    for (final finding in report.findings) {
+      final first = finding.instances[0];
+      final second = finding.instances[1];
+      // 두 인스턴스의 토큰 구간(행으로 표현)은 겹치지 않아야 한다.
+      expect(
+        first.endLine < second.startLine || second.endLine < first.startLine,
+        isTrue,
+        reason: 'instances overlap: $first vs $second',
+      );
+    }
+  });
+
   test('non-overlapping same-segment repeat is reported once', () {
     // [1..10] 블록이 30 토큰 뒤에 한 번 더 나타난다.
     final report = DuplicationAnalyzer().analyze([

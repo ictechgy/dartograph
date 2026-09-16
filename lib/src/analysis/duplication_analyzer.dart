@@ -117,9 +117,15 @@ final class DuplicationAnalyzer {
           if (sameSegment && pb.index - pa.index < minTokens) continue;
           final aHashes = windows[pa.segment];
           final bHashes = windows[pb.segment];
+          // 뒤쪽 확장도 비겹침 상한을 지킨다 — 같은 세그먼트에서
+          // back > 거리 - minTokens이면 두 블록이 토큰에서 겹친다.
+          var backLimit = pa.index < pb.index ? pa.index : pb.index;
+          if (sameSegment) {
+            final noOverlap = pb.index - pa.index - minTokens;
+            if (noOverlap < backLimit) backLimit = noOverlap;
+          }
           var back = 0;
-          while (pa.index - back - 1 >= 0 &&
-              pb.index - back - 1 >= 0 &&
+          while (back < backLimit &&
               aHashes[pa.index - back - 1] == bHashes[pb.index - back - 1]) {
             back++;
           }
