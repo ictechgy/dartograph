@@ -846,32 +846,29 @@ thresholds:
     );
   });
 
-  test(
-    'invalid scope config fails instead of silently narrowing',
-    () async {
-      for (final config in const [
-        'include: []\n',
-        'exclude: nope\n',
-        'exclude:\n  - 42\n',
-        'retained_names: {a: b}\n',
-        'retained_files:\n  - \n',
-        'thresholds: []\n',
-        'thresholds: {distance: 0}\n',
-        'thresholds: {complexity: 1.5}\n',
-        'thresholds: {bogus: 1}\n',
-      ]) {
-        final package = await _entryPointPackage();
-        addTearDown(() => package.delete(recursive: true));
-        await File('${package.path}/dartograph.yaml').writeAsString(config);
+  test('invalid scope config fails instead of silently narrowing', () async {
+    for (final config in const [
+      'include: []\n',
+      'exclude: nope\n',
+      'exclude:\n  - 42\n',
+      'retained_names: {a: b}\n',
+      'retained_files:\n  - \n',
+      'thresholds: []\n',
+      'thresholds: {distance: 0}\n',
+      'thresholds: {complexity: 1.5}\n',
+      'thresholds: {bogus: 1}\n',
+    ]) {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/dartograph.yaml').writeAsString(config);
 
-        await expectLater(
-          AnalyzerGraphIndex().index(package.path),
-          throwsA(isA<FormatException>()),
-          reason: 'config: $config',
-        );
-      }
-    },
-  );
+      await expectLater(
+        AnalyzerGraphIndex().index(package.path),
+        throwsA(isA<FormatException>()),
+        reason: 'config: $config',
+      );
+    }
+  });
 
   test('JS interop annotations retain declarations and their members', () async {
     final package = await Directory.systemTemp.createTemp(

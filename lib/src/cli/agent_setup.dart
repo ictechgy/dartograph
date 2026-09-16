@@ -50,11 +50,11 @@ const agentHookCommand =
 
 /// `PostToolUse` 목록에 추가하는 dartograph 훅 항목이다.
 Map<String, Object?> _postToolUseEntry() => <String, Object?>{
-      'matcher': 'Edit|MultiEdit|Write',
-      'hooks': <Object?>[
-        <String, Object?>{'type': 'command', 'command': agentHookCommand},
-      ],
-    };
+  'matcher': 'Edit|MultiEdit|Write',
+  'hooks': <Object?>[
+    <String, Object?>{'type': 'command', 'command': agentHookCommand},
+  ],
+};
 
 /// 인쇄용 Claude Code `hooks` 설정 블록을 결정적 순서로 돌려준다.
 String agentHookConfigJson() =>

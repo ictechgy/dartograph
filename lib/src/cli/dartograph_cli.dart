@@ -1403,12 +1403,9 @@ Future<int> _runSetup(
     error.writeln('Setup failed: $root is not a directory.');
     return ExitStatus.usage.code;
   }
-  final script = File(
-    p.join(root, '.claude', 'hooks', agentHookScriptName),
-  );
+  final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
   // init·skill과 같은 가드다. 링크 자체도 검사해 매달린 링크를 잡는다.
-  if (!force &&
-      (await script.exists() || await Link(script.path).exists())) {
+  if (!force && (await script.exists() || await Link(script.path).exists())) {
     error.writeln(
       '${script.path} already exists. Pass --force to overwrite it.',
     );
@@ -1791,11 +1788,7 @@ Future<int> _runDead(
       }
       switch (argument) {
         case '--kinds':
-          kinds = _parseKinds(
-            value,
-            const {'declaration', 'file'},
-            error,
-          );
+          kinds = _parseKinds(value, const {'declaration', 'file'}, error);
           if (kinds == null) return ExitStatus.usage.code;
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
@@ -2068,16 +2061,12 @@ Future<int> _runDeps(
         error.write(_help);
         return ExitStatus.usage.code;
       }
-      kinds = _parseKinds(
-        arguments[index],
-        const {
-          'unused-dependency',
-          'unused-dev-dependency',
-          'dev-dependency-in-lib',
-          'undeclared-dependency',
-        },
-        error,
-      );
+      kinds = _parseKinds(arguments[index], const {
+        'unused-dependency',
+        'unused-dev-dependency',
+        'dev-dependency-in-lib',
+        'undeclared-dependency',
+      }, error);
       if (kinds == null) return ExitStatus.usage.code;
     } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {
@@ -2130,9 +2119,7 @@ Future<int> _runDeps(
           packageImports: indexed.packageImports,
           toolLike: toolCheck.toolLike,
         )
-        .where(
-          (finding) => kinds == null || kinds.contains(finding.kind),
-        )
+        .where((finding) => kinds == null || kinds.contains(finding.kind))
         .toList();
     final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
     if (scope != null) {
@@ -2197,12 +2184,8 @@ Future<int> _runDeps(
 ) {
   if (includeGlobs.isEmpty && excludeGlobs.isEmpty) return null;
   return (
-    include: [
-      for (final pattern in includeGlobs) PathGlob.compile(pattern)!,
-    ],
-    exclude: [
-      for (final pattern in excludeGlobs) PathGlob.compile(pattern)!,
-    ],
+    include: [for (final pattern in includeGlobs) PathGlob.compile(pattern)!],
+    exclude: [for (final pattern in excludeGlobs) PathGlob.compile(pattern)!],
   );
 }
 
@@ -2224,16 +2207,10 @@ bool _inScope(
 ///
 /// 모르는 종류·빈 항목은 조용히 아무 발견도 내지 않는 필터가 되므로 유효
 /// 종류 목록과 함께 usage 오류로 거부한다.
-Set<String>? _parseKinds(
-  String value,
-  Set<String> valid,
-  StringSink error,
-) {
+Set<String>? _parseKinds(String value, Set<String> valid, StringSink error) {
   final kinds = value.split(',').map((item) => item.trim()).toSet();
   if (kinds.isEmpty || kinds.any((item) => item.isEmpty)) {
-    error.writeln(
-      'Invalid --kinds: $value (expected comma-separated kinds).',
-    );
+    error.writeln('Invalid --kinds: $value (expected comma-separated kinds).');
     return null;
   }
   final unknown = kinds.difference(valid).toList()..sort();
@@ -2265,11 +2242,7 @@ Future<int> _runDup(
         error.write(_help);
         return ExitStatus.usage.code;
       }
-      kinds = _parseKinds(
-        arguments[index],
-        const {'duplicate-block'},
-        error,
-      );
+      kinds = _parseKinds(arguments[index], const {'duplicate-block'}, error);
       if (kinds == null) return ExitStatus.usage.code;
     } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {

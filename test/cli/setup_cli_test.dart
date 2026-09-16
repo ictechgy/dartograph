@@ -9,11 +9,7 @@ void main() {
   test('setup without --install prints the generated artifacts', () async {
     final output = StringBuffer();
     final error = StringBuffer();
-    final status = await runDartograph(
-      ['setup'],
-      output: output,
-      error: error,
-    );
+    final status = await runDartograph(['setup'], output: output, error: error);
 
     expect(status, ExitStatus.success.code);
     expect(error.toString(), isEmpty);
@@ -38,9 +34,7 @@ void main() {
     );
 
     expect(status, ExitStatus.success.code);
-    final script = File(
-      '${temporary.path}/.claude/hooks/dartograph-impact.sh',
-    );
+    final script = File('${temporary.path}/.claude/hooks/dartograph-impact.sh');
     expect(script.existsSync(), isTrue);
     expect(script.readAsStringSync(), contains('dartograph impact'));
 
@@ -54,15 +48,10 @@ void main() {
     final postToolUse =
         (settings['hooks'] as Map<String, Object?>)['PostToolUse'] as List;
     expect(postToolUse, hasLength(1));
-    expect(
-      jsonEncode(postToolUse.first),
-      contains('dartograph-impact.sh'),
-    );
+    expect(jsonEncode(postToolUse.first), contains('dartograph-impact.sh'));
 
     final mcp =
-        jsonDecode(
-              File('${temporary.path}/.mcp.json').readAsStringSync(),
-            )
+        jsonDecode(File('${temporary.path}/.mcp.json').readAsStringSync())
             as Map<String, Object?>;
     expect(
       (mcp['mcpServers'] as Map<String, Object?>)['dartograph'],
@@ -80,12 +69,12 @@ void main() {
     addTearDown(() => temporary.delete(recursive: true));
 
     Directory('${temporary.path}/.claude').createSync();
-    File('${temporary.path}/.claude/settings.json').writeAsStringSync(
-      '{"env": {"KEEP": "1"}, "hooks": {"PreToolUse": []}}',
-    );
-    File('${temporary.path}/.mcp.json').writeAsStringSync(
-      '{"mcpServers": {"other": {"command": "other-tool"}}}',
-    );
+    File(
+      '${temporary.path}/.claude/settings.json',
+    ).writeAsStringSync('{"env": {"KEEP": "1"}, "hooks": {"PreToolUse": []}}');
+    File(
+      '${temporary.path}/.mcp.json',
+    ).writeAsStringSync('{"mcpServers": {"other": {"command": "other-tool"}}}');
 
     final status = await runDartograph(
       ['setup', '--install', temporary.path],
@@ -107,35 +96,37 @@ void main() {
     expect(hooks['PostToolUse'], hasLength(1));
 
     final mcp =
-        jsonDecode(
-              File('${temporary.path}/.mcp.json').readAsStringSync(),
-            )
+        jsonDecode(File('${temporary.path}/.mcp.json').readAsStringSync())
             as Map<String, Object?>;
     final servers = mcp['mcpServers'] as Map<String, Object?>;
     expect(servers.keys, unorderedEquals(['other', 'dartograph']));
   });
 
-  test('setup --install fails without --force when the script exists', () async {
-    final temporary = await Directory.systemTemp.createTemp(
-      'dartograph-setup-',
-    );
-    addTearDown(() => temporary.delete(recursive: true));
+  test(
+    'setup --install fails without --force when the script exists',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
 
-    final script = File(
-      '${temporary.path}/.claude/hooks/dartograph-impact.sh',
-    )..createSync(recursive: true);
-    script.writeAsStringSync('custom hook');
+      final script = File(
+        '${temporary.path}/.claude/hooks/dartograph-impact.sh',
+      )..createSync(recursive: true);
+      script.writeAsStringSync('custom hook');
 
-    final error = StringBuffer();
-    final status = await runDartograph(
-      ['setup', '--install', temporary.path],
-      error: error,
-    );
+      final error = StringBuffer();
+      final status = await runDartograph([
+        'setup',
+        '--install',
+        temporary.path,
+      ], error: error);
 
-    expect(status, ExitStatus.usage.code);
-    expect(error.toString(), contains('Pass --force'));
-    expect(script.readAsStringSync(), 'custom hook');
-  });
+      expect(status, ExitStatus.usage.code);
+      expect(error.toString(), contains('Pass --force'));
+      expect(script.readAsStringSync(), 'custom hook');
+    },
+  );
 
   test('setup --force replaces a symlink at the script path itself', () async {
     final temporary = await Directory.systemTemp.createTemp(
@@ -145,9 +136,8 @@ void main() {
 
     final outside = File('${temporary.path}/outside.sh')
       ..writeAsStringSync('precious');
-    final link = Link(
-      '${temporary.path}/.claude/hooks/dartograph-impact.sh',
-    )..createSync(outside.path, recursive: true);
+    final link = Link('${temporary.path}/.claude/hooks/dartograph-impact.sh')
+      ..createSync(outside.path, recursive: true);
 
     final status = await runDartograph(
       ['setup', '--install', temporary.path, '--force'],
@@ -173,10 +163,11 @@ void main() {
         ..writeAsStringSync('{not json');
 
       final error = StringBuffer();
-      final status = await runDartograph(
-        ['setup', '--install', temporary.path],
-        error: error,
-      );
+      final status = await runDartograph([
+        'setup',
+        '--install',
+        temporary.path,
+      ], error: error);
 
       expect(status, ExitStatus.failure.code);
       expect(error.toString(), contains('Setup failed'));
@@ -196,10 +187,11 @@ void main() {
       final settings = File('${temporary.path}/.claude/settings.json')
         ..writeAsStringSync('{"hooks": "oops"}');
 
-      final status = await runDartograph(
-        ['setup', '--install', temporary.path],
-        error: StringBuffer(),
-      );
+      final status = await runDartograph([
+        'setup',
+        '--install',
+        temporary.path,
+      ], error: StringBuffer());
 
       expect(status, ExitStatus.failure.code);
       expect(settings.readAsStringSync(), '{"hooks": "oops"}');
@@ -216,10 +208,7 @@ void main() {
     expect(status1, ExitStatus.usage.code);
 
     final error2 = StringBuffer();
-    final status2 = await runDartograph([
-      'setup',
-      '--install',
-    ], error: error2);
+    final status2 = await runDartograph(['setup', '--install'], error: error2);
     expect(status2, ExitStatus.usage.code);
 
     final error3 = StringBuffer();

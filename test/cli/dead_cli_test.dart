@@ -179,15 +179,18 @@ void main() {
       ExitStatus.findings.code,
     );
 
-    final fileKinds = (jsonDecode(filesOnly.toString())
-            as Map<String, Object?>)['findings']! as List<Object?>;
+    final fileKinds =
+        (jsonDecode(filesOnly.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
     expect(fileKinds, isNotEmpty);
     expect(
       fileKinds.cast<Map<String, Object?>>().map((f) => f['kind']).toSet(),
       {'file'},
     );
-    final declarationKinds = (jsonDecode(declarationsOnly.toString())
-            as Map<String, Object?>)['findings']! as List<Object?>;
+    final declarationKinds =
+        (jsonDecode(declarationsOnly.toString())
+                as Map<String, Object?>)['findings']!
+            as List<Object?>;
     expect(declarationKinds, isNotEmpty);
     expect(
       declarationKinds
@@ -254,8 +257,9 @@ void main() {
       ], output: full),
       ExitStatus.findings.code,
     );
-    final fullFindings = (jsonDecode(full.toString())
-            as Map<String, Object?>)['findings']! as List<Object?>;
+    final fullFindings =
+        (jsonDecode(full.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
     expect(
       fullFindings.join(' '),
       contains('closed_app_fixture/public_api.dart'),
@@ -272,8 +276,7 @@ exclude:
       'json',
       fixture.path,
     ], output: excluded);
-    final excludedDoc =
-        jsonDecode(excluded.toString()) as Map<String, Object?>;
+    final excludedDoc = jsonDecode(excluded.toString()) as Map<String, Object?>;
     // 발견의 id·source에 public_api.dart가 남지 않는다 — 다른 발견의 근거
     // (retentionRootsChecked)에 이름이 나타나는 것은 정당한 증거다.
     final excludedIds = [
@@ -303,8 +306,8 @@ include:
     ], output: included);
     expect(includedStatus, ExitStatus.success.code);
     expect(
-      (jsonDecode(included.toString())
-              as Map<String, Object?>)['findings']! as List<Object?>,
+      (jsonDecode(included.toString()) as Map<String, Object?>)['findings']!
+          as List<Object?>,
       isEmpty,
     );
   });

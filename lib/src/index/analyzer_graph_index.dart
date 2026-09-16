@@ -1655,8 +1655,8 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
       ],
       metricsComplexityThreshold:
           document['metricsComplexityThreshold'] as int?,
-      metricsDistanceThreshold:
-          (document['metricsDistanceThreshold'] as num?)?.toDouble(),
+      metricsDistanceThreshold: (document['metricsDistanceThreshold'] as num?)
+          ?.toDouble(),
       tokenSegments: [
         for (final value in document['tokenSegments']! as List<Object?>)
           TokenSegment(

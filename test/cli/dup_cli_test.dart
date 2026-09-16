@@ -135,8 +135,9 @@ void main() {
     ], output: output);
 
     expect(status, ExitStatus.findings.code);
-    final findings = (jsonDecode(output.toString())
-            as Map<String, Object?>)['findings']! as List<Object?>;
+    final findings =
+        (jsonDecode(output.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
     expect(findings, hasLength(1));
   });
 }

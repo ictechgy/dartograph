@@ -42,9 +42,11 @@ final class PathGlob {
   static bool _endsWithUnescapedSlash(String body) {
     if (!body.endsWith('/')) return false;
     var backslashes = 0;
-    for (var index = body.length - 2;
-        index >= 0 && body[index] == r'\';
-        index--) {
+    for (
+      var index = body.length - 2;
+      index >= 0 && body[index] == r'\';
+      index--
+    ) {
       backslashes++;
     }
     return backslashes.isEven;

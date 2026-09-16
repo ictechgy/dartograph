@@ -89,8 +89,9 @@ void main() {
     ], output: output);
 
     expect(status, ExitStatus.findings.code);
-    final findings = (jsonDecode(output.toString())
-            as Map<String, Object?>)['findings']! as List<Object?>;
+    final findings =
+        (jsonDecode(output.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
     expect(
       findings.cast<Map<String, Object?>>().map((f) => f['kind']).toSet(),
       {'undeclared-dependency'},
@@ -116,10 +117,12 @@ void main() {
 
     final error = StringBuffer();
     expect(
-      await runDartograph(
-        ['deps', '--kinds', 'unused', 'unused'],
-        error: error,
-      ),
+      await runDartograph([
+        'deps',
+        '--kinds',
+        'unused',
+        'unused',
+      ], error: error),
       ExitStatus.usage.code,
     );
     expect(error.toString(), contains('Unknown --kinds'));
