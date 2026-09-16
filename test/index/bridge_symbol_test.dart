@@ -38,6 +38,19 @@ class Camera {
       expect(invocation['channel'], 'camera');
       expect(invocation['method'], 'takePhoto');
     }
+    // 스캔 범위는 유지하되 루트 밖 대상을 따라간 링크는 limitation에 남는다 —
+    // 경계 밖 파일 내용이 사실로 흘러든 것이 출력에서 보인다.
+    final escapes = result.limitations
+        .where((s) => s.startsWith('symlink-escape:'))
+        .toList();
+    expect(escapes, [
+      'symlink-escape: channel.dart resolves outside the scanned root; '
+          'its contents contribute bridge facts',
+      'symlink-escape: linked resolves outside the scanned root; '
+          'its contents contribute bridge facts',
+      'symlink-escape: linked/self resolves outside the scanned root; '
+          'its contents contribute bridge facts',
+    ]);
   });
 
   test(

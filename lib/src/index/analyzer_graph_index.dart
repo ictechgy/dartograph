@@ -22,6 +22,9 @@ import '../core/retention_reason.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'incremental_cache.dart';
+import 'project_files.dart';
+
+export 'project_files.dart' show isPathWithinRoot;
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -142,9 +145,16 @@ final class AnalyzerGraphIndex {
     final cache = _incremental != null
         ? null
         : _cache ?? _defaultFactCache(root);
+    // 루트 밖을 가리키는 링크도 분석 입력으로 따라간다 — 그 사실을 결과
+    // limitation에 남겨 저장소가 경계 밖 파일을 읽게 한 것이 출력에 드러난다.
+    final linkEscapes = <String>{};
     final initialCacheKey = cache == null
         ? null
-        : await _tryAnalysisCacheKey(root);
+        : await _tryAnalysisCacheKey(root, linkEscapes);
+    if (cache == null && _incremental == null) {
+      // 캐시가 전혀 없는 경로는 입력 열거가 안 돌아 여기서 탈출 링크를 기록한다.
+      await _analysisInputFiles(root, linkEscapes: linkEscapes);
+    }
     if (cache != null && initialCacheKey != null) {
       final cached = await _readCachedAnalysis(cache, initialCacheKey);
       if (cached != null &&
@@ -157,7 +167,12 @@ final class AnalyzerGraphIndex {
       sdkPath: _dartSdkPath(),
     );
     try {
-      final result = await _analyze(root, collection, sourcePackages);
+      final result = await _analyze(
+        root,
+        collection,
+        sourcePackages,
+        linkEscapes: linkEscapes,
+      );
       if (cache != null &&
           initialCacheKey != null &&
           await _tryAnalysisCacheKey(root) == initialCacheKey) {
@@ -177,8 +192,9 @@ final class AnalyzerGraphIndex {
   Future<AnalyzerGraphResult> _analyze(
     String root,
     AnalysisContextCollection collection,
-    List<Directory> sourcePackages,
-  ) async {
+    List<Directory> sourcePackages, {
+    Set<String>? linkEscapes,
+  }) async {
     final unitPaths = _dartFilesUnder(root, collection, sourcePackages);
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
@@ -209,6 +225,7 @@ final class AnalyzerGraphIndex {
         entryPoints: entryPoints,
         pubspecContent: pubspecContent,
         scope: scope,
+        linkEscapes: linkEscapes,
       );
     }
     return _analyzeIncrementally(
@@ -220,6 +237,7 @@ final class AnalyzerGraphIndex {
       entryLibraryPath: entryLibraryPath,
       incremental: incremental,
       scope: scope,
+      linkEscapes: linkEscapes,
     );
   }
 
@@ -236,11 +254,16 @@ final class AnalyzerGraphIndex {
     required String? entryLibraryPath,
     required IncrementalCache incremental,
     required _ScopeConfig scope,
+    Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
       for (final path in unitPaths) path: ?_relativeSourcePath(path, root),
     };
-    final inputs = await _incrementalInputs(root, sourcesOf.values.toSet());
+    final inputs = await _incrementalInputs(
+      root,
+      sourcesOf.values.toSet(),
+      linkEscapes: linkEscapes,
+    );
     final resolutionKey = IncrementalCache.resolutionKey(
       toolVersion: toolVersion,
       sdkVersion: Platform.version,
@@ -360,6 +383,7 @@ final class AnalyzerGraphIndex {
       entryPoints: entryPoints,
       pubspecContent: pubspecContent,
       scope: scope,
+      linkEscapes: linkEscapes,
     );
     incremental.stats
       ..resolvedFiles = resolved.length
@@ -1005,6 +1029,7 @@ AnalyzerGraphResult _assembleResult({
   required Set<String>? entryPoints,
   required String? pubspecContent,
   required _ScopeConfig scope,
+  Set<String>? linkEscapes,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1134,6 +1159,16 @@ AnalyzerGraphResult _assembleResult({
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
       '${scope.unknownKeys.join(', ')}',
     );
+  }
+  if (linkEscapes != null && linkEscapes.isNotEmpty) {
+    // 링크 경로만 남긴다(링크는 항상 경계 안) — 탈출한 대상의 절대 경로를
+    // 출력에 반향하지 않는다(_cacheWriteFailureDetail과 같은 경계).
+    for (final escape in linkEscapes.toList()..sort()) {
+      limitationDetails.add(
+        'symlink-escape: $escape resolves outside its package root; its '
+        'contents are analyzed as project sources',
+      );
+    }
   }
   return AnalyzerGraphResult(
     graph: graph,
@@ -1291,10 +1326,17 @@ bool _addBuildRunnerRoots(
 /// config·의존 패키지 `lib`·표준 디렉터리 밖 `.dart`)은 설정 지문이 된다. 단위
 /// 파일을 지문에 넣으면 파일 하나만 바뀌어도 전체가 무효화되므로 뺀다.
 Future<({Map<String, String> unitHashes, String configFingerprint})>
-_incrementalInputs(String root, Set<String> unitSources) async {
+_incrementalInputs(
+  String root,
+  Set<String> unitSources, {
+  Set<String>? linkEscapes,
+}) async {
   final unitHashes = <String, String>{};
   final inputs = <String>[];
-  for (final file in await _analysisInputFiles(root)) {
+  for (final file in await _analysisInputFiles(
+    root,
+    linkEscapes: linkEscapes,
+  )) {
     final relative = p.posix.joinAll(
       p.relative(file.path, from: root).split(p.separator),
     );
@@ -1346,8 +1388,15 @@ Future<bool> _incrementalInputsUnchanged(
 /// 파일 열거·SDK 탐색·컨텍스트 선택 규칙을 공유해, 그래프와 다른 사실이 서로
 /// 다른 파일 집합을 보지 않게 한다. 그래프 캐시는 그래프 전용이므로 여기서는
 /// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
-Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
+Future<List<ResolvedUnitResult>> resolveProjectUnits(
+  String rootPath, {
+  Set<String>? linkEscapes,
+}) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+  if (linkEscapes != null) {
+    // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록을 따로 한다.
+    await _analysisInputFiles(root, linkEscapes: linkEscapes);
+  }
   final sourcePackages = _readSourcePackages(root);
   final collection = AnalysisContextCollection(
     includedPaths: [root],
@@ -1387,16 +1436,22 @@ const _cacheSchemaVersion = 6;
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v12-if-element-complexity';
 
-Future<String?> _tryAnalysisCacheKey(String root) async {
+Future<String?> _tryAnalysisCacheKey(
+  String root, [
+  Set<String>? linkEscapes,
+]) async {
   try {
-    return await _analysisCacheKey(root);
+    return await _analysisCacheKey(root, linkEscapes: linkEscapes);
   } on Object {
     return null;
   }
 }
 
-Future<String> _analysisCacheKey(String root) async {
-  final files = await _analysisInputFiles(root);
+Future<String> _analysisCacheKey(
+  String root, {
+  Set<String>? linkEscapes,
+}) async {
+  final files = await _analysisInputFiles(root, linkEscapes: linkEscapes);
   late Digest digest;
   final digestSink = ChunkedConversionSink<Digest>.withCallback(
     (digests) => digest = digests.single,
@@ -1422,16 +1477,24 @@ Future<String> _analysisCacheKey(String root) async {
   return digest.toString();
 }
 
-Future<List<File>> _analysisInputFiles(String root) async {
+Future<List<File>> _analysisInputFiles(
+  String root, {
+  Set<String>? linkEscapes,
+}) async {
   final files = <String, File>{};
 
   void addFile(File file) {
     if (file.existsSync()) files[p.normalize(file.absolute.path)] = file;
   }
 
-  void addDirectory(Directory directory) {
+  void addDirectory(Directory directory, String boundary, String displayBase) {
     if (!directory.existsSync()) return;
-    for (final file in _projectFiles(directory)) {
+    for (final file in _projectFiles(
+      directory,
+      boundary: boundary,
+      displayBase: displayBase,
+      linkEscapes: linkEscapes,
+    )) {
       if (file.path.endsWith('.dart') ||
           p.basename(file.path) == 'analysis_options.yaml') {
         addFile(file);
@@ -1463,7 +1526,14 @@ Future<List<File>> _analysisInputFiles(String root) async {
       addFile(File(p.join(dependencyRoot.path, 'pubspec.yaml')));
       addFile(File(p.join(dependencyRoot.path, 'analysis_options.yaml')));
       final library = Directory(p.join(dependencyRoot.path, 'lib'));
-      addDirectory(library.existsSync() ? await _resolved(library) : library);
+      // 프로젝트 안 의존(중첩 패키지·path dep)은 프로젝트 루트가 경계다.
+      // 바깥 의존(pub-cache 등)의 링크는 그 패키지 루트를 경계로 본다.
+      final inside = isPathWithinRoot(dependencyRoot.path, root);
+      addDirectory(
+        library.existsSync() ? await _resolved(library) : library,
+        inside ? root : dependencyRoot.path,
+        inside ? '' : '${p.basename(dependencyRoot.path)}/',
+      );
     }
   }
 
@@ -1483,6 +1553,8 @@ Future<List<File>> _analysisInputFiles(String root) async {
   for (final file in _projectFiles(
     Directory(root),
     skipHiddenDirectories: true,
+    boundary: root,
+    linkEscapes: linkEscapes,
   )) {
     final base = p.basename(file.path);
     if (file.path.endsWith('.dart') || base == 'analysis_options.yaml') {
@@ -1790,79 +1862,16 @@ int _staleGeneratedCount(String root) {
 Iterable<File> _projectFiles(
   Directory directory, {
   bool skipHiddenDirectories = false,
-}) => _projectFilesIn(
+  String? boundary,
+  String displayBase = '',
+  Set<String>? linkEscapes,
+}) => indexProjectFiles(
   directory,
-  <String>{},
   skipHiddenDirectories: skipHiddenDirectories,
+  boundary: boundary,
+  displayBase: displayBase,
+  linkEscapes: linkEscapes,
 );
-
-/// [directory] 아래의 파일을 심볼릭 링크까지 따라가며 돌려준다.
-///
-/// `followLinks: false` 목록에서 심볼릭 링크는 `Link`로 나와 `File`·`Directory`
-/// 분기에 걸리지 않는다. 그런데 analyzer는 링크 경로를 그대로 분석 대상에
-/// 넣으므로, 링크를 빠뜨리면 링크된 소스가 그래프에는 있고 캐시 키에는 없어
-/// 대상을 수정해도 낡은 사실이 재사용된다.
-///
-/// [visitedLinkTargets]는 이미 따라간 디렉터리 링크의 실제 경로다. 링크 순환에서
-/// 무한 재귀하지 않도록 같은 대상은 한 번만 순회한다. 링크 자체의 경로로 재귀해
-/// analyzer가 사용하는 경로와 같은 모양을 유지한다.
-Iterable<File> _projectFilesIn(
-  Directory directory,
-  Set<String> visitedLinkTargets, {
-  bool skipHiddenDirectories = false,
-}) sync* {
-  for (final entity in directory.listSync(followLinks: false)) {
-    if (entity is Directory) {
-      if (_isSkippedDirectory(entity.path, skipHiddenDirectories)) {
-        continue;
-      }
-      yield* _projectFilesIn(
-        entity,
-        visitedLinkTargets,
-        skipHiddenDirectories: skipHiddenDirectories,
-      );
-    } else if (entity is File) {
-      yield entity;
-    } else if (entity is Link) {
-      // typeSync는 링크를 따라가므로 끊어진 링크는 notFound가 되어 제외된다.
-      final type = FileSystemEntity.typeSync(entity.path);
-      if (type == FileSystemEntityType.file) {
-        yield File(entity.path);
-      } else if (type == FileSystemEntityType.directory &&
-          !_isSkippedDirectory(entity.path, skipHiddenDirectories)) {
-        final target = _resolvedLinkTarget(entity);
-        if (target != null && visitedLinkTargets.add(target)) {
-          yield* _projectFilesIn(
-            Directory(entity.path),
-            visitedLinkTargets,
-            skipHiddenDirectories: skipHiddenDirectories,
-          );
-        }
-      }
-    }
-  }
-}
-
-bool _isSkippedDirectory(String path, bool skipHiddenDirectories) {
-  final name = p.basename(path);
-  return _ignoredProjectDirectories.contains(name) ||
-      (skipHiddenDirectories && name.startsWith('.'));
-}
-
-/// 디렉터리 링크의 실제 경로를 돌려주고, 해석에 실패하면 null을 돌려준다.
-///
-/// [FileSystemEntity.typeSync]로 종류를 확인한 뒤 실제 경로를 해석하기까지의
-/// 사이에 외부 프로세스가 대상을 지우면 [FileSystemException]이 난다. 그 경우
-/// 인덱싱 전체를 실패시키지 않고 그 링크만 건너뛴다.
-String? _resolvedLinkTarget(Link link) {
-  try {
-    return link.resolveSymbolicLinksSync();
-  } on FileSystemException {
-    return null;
-  }
-}
-
-const _ignoredProjectDirectories = {'.dart_tool', '.git', 'build'};
 const _namedNavigationMethods = {
   'popAndPushNamed',
   'pushNamed',
@@ -2214,8 +2223,7 @@ List<Directory> _readSourcePackages(String root) {
     final segments = lexical.split('/');
     if (segments.any(
       (segment) =>
-          segment.startsWith('.') ||
-          _ignoredProjectDirectories.contains(segment),
+          segment.startsWith('.') || indexExcludedDirectories.contains(segment),
     )) {
       throw FormatException(
         'source_packages cannot use generated or cache paths: $value',
@@ -3001,15 +3009,6 @@ String projectIdForPath(String path, String root, {p.Context? context}) {
   }
   final relativePath = paths.relative(absolutePath, from: absoluteRoot);
   return 'project:${p.url.joinAll(paths.split(relativePath))}';
-}
-
-/// [path]가 [root] 자체이거나 그 아래인지 플랫폼 구분자에 맞춰 확인한다.
-bool isPathWithinRoot(String path, String root, {p.Context? context}) {
-  final paths = context ?? p.context;
-  final absolutePath = paths.normalize(paths.absolute(path));
-  final absoluteRoot = paths.normalize(paths.absolute(root));
-  return paths.equals(absolutePath, absoluteRoot) ||
-      paths.isWithin(absoluteRoot, absolutePath);
 }
 
 List<String> _dartFilesUnder(

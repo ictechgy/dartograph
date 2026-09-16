@@ -217,6 +217,40 @@ void main() {
     expect(cache.writeCount, 2);
   });
 
+  test('links escaping the package root are recorded as limitations', () async {
+    final workspace = await Directory.systemTemp.createTemp(
+      'dartograph-link-escape.',
+    );
+    addTearDown(() => workspace.delete(recursive: true));
+    final outside = Directory('${workspace.path}/outside');
+    final root = Directory('${workspace.path}/package');
+    await outside.create();
+    await root.create();
+    await File('${root.path}/pubspec.yaml').writeAsString('''
+name: escape_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${root.path}/lib').create();
+    await File('${outside.path}/thing.dart').writeAsString('class Alpha {}\n');
+    await Link('${root.path}/lib/linked').create('../../outside');
+    await File('${root.path}/lib/main.dart').writeAsString('void main() {}\n');
+
+    final result = await AnalyzerGraphIndex(
+      cache: _MemoryFactCache(),
+    ).index(root.path);
+
+    // 외부 대상의 내용은 프로젝트 ID의 노드로 올라가지 않지만, 경계를 넘은
+    // 사실 자체는 limitation에 드러난다.
+    expect(
+      result.limitationDetails,
+      contains(
+        'symlink-escape: lib/linked resolves outside its package root; its '
+        'contents are analyzed as project sources',
+      ),
+    );
+  });
+
   test('linked directory contents invalidate analyzer facts', () async {
     final root = await Directory.systemTemp.createTemp(
       'dartograph-symlink-dir-cache.',

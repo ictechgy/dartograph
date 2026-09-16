@@ -2733,7 +2733,12 @@ Future<int> _runRuntime(
         return ExitStatus.usage.code;
       }
     }
-    final facts = await RuntimeScanner().scan(rootPath);
+    // 루트 밖 링크의 내용이 사실로 흘러드는 것을 limitation으로 드러낸다.
+    final linkEscapes = <String>{};
+    final facts = await RuntimeScanner().scan(
+      rootPath,
+      linkEscapes: linkEscapes,
+    );
     RuntimeExecution? execution;
     if (entrypoint != null) {
       // --env를 주었으면 그 값으로 실제 실행해 본다(상속 환경 위에 덮어쓴다).
@@ -2750,6 +2755,11 @@ Future<int> _runRuntime(
       execution: execution,
       limit: limitOption,
       verify: verify,
+      extraLimitations: [
+        for (final escape in linkEscapes.toList()..sort())
+          'symlink-escape: $escape resolves outside its package root; its '
+              'contents are scanned as project sources',
+      ],
     );
     output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));
     failedItems.addAll([
