@@ -325,7 +325,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   void visitClassDeclaration(ClassDeclaration node) {
     _visitDeclarationScope(
       () => super.visitClassDeclaration(node),
-      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      () => _prescanFields(node.body.members),
       ownsAuxFields: true,
     );
   }
@@ -334,7 +334,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   void visitMixinDeclaration(MixinDeclaration node) {
     _visitDeclarationScope(
       () => super.visitMixinDeclaration(node),
-      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      () => _prescanFields(node.body.members),
       ownsAuxFields: true,
     );
   }
@@ -343,7 +343,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   void visitEnumDeclaration(EnumDeclaration node) {
     _visitDeclarationScope(
       () => super.visitEnumDeclaration(node),
-      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      () => _prescanFields(node.body.members),
       ownsAuxFields: true,
     );
   }
@@ -352,7 +352,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   void visitExtensionDeclaration(ExtensionDeclaration node) {
     _visitDeclarationScope(
       () => super.visitExtensionDeclaration(node),
-      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      () => _prescanFields(node.body.members),
       ownsAuxFields: true,
     );
   }
@@ -361,7 +361,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   void visitExtensionTypeDeclaration(ExtensionTypeDeclaration node) {
     _visitDeclarationScope(
       () => super.visitExtensionTypeDeclaration(node),
-      () => _prescanFields(node.body.members.whereType<FieldDeclaration>()),
+      () => _prescanFields(node.body.members),
       ownsAuxFields: true,
     );
   }
@@ -395,24 +395,38 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   /// (최상위 스코프의 2패스와 대칭). 본문 방문 중 [visitVariableDeclaration]가
   /// 같은 변수를 다시 방문하지만 등록은 멱등이라 결과가 달라지지 않는다.
   /// 초기화 표현식은 조회만 하므로 부작용이 없다.
-  void _prescanFields(Iterable<FieldDeclaration> fields) {
+  ///
+  /// mutable 필드의 선언 초기값은 클래스 본문 어디에서든 `this.x =`나 `x =`로
+  /// 재대입될 수 있어 그대로는 믿지 못한다. 본문 전체를 먼저 훑어 재대입되는
+  /// 이름을 모으고(final/const는 애초에 불가), 한 번도 재대입되지 않는 필드만
+  /// 초기값으로 등록한다. MethodChannel 채널은 기존처럼 재대입 여부와 무관하게
+  /// 초기값을 등록한다(v1 의미 유지).
+  void _prescanFields(List<ClassMember> members) {
     final variables = <VariableDeclaration>[];
-    for (final field in fields) {
+    final declaredFields = <String>{};
+    for (final field in members.whereType<FieldDeclaration>()) {
       for (final variable in field.fields.variables) {
         _declare(variable.name.lexeme);
         _recordStringConstant(variable);
         variables.add(variable);
+        declaredFields.add(variable.name.lexeme);
       }
+    }
+    final reassignments = _ReassignedFieldNames(declaredFields);
+    for (final member in members) {
+      member.accept(reassignments);
     }
     for (final variable in variables) {
       final channel = _channelCreatedBy(variable.initializer);
       if (channel != null) {
         _channelScopes.last[variable.name.lexeme] = channel;
       }
-      if (variable.isFinal || variable.isConst) {
-        final basicChannel = _auxChannelCreatedBy(variable.initializer);
-        if (basicChannel != null) {
-          _auxChannelScopes.last[variable.name.lexeme] = basicChannel;
+      if (variable.isFinal ||
+          variable.isConst ||
+          !reassignments.names.contains(variable.name.lexeme)) {
+        final auxChannel = _auxChannelCreatedBy(variable.initializer);
+        if (auxChannel != null) {
+          _auxChannelScopes.last[variable.name.lexeme] = auxChannel;
         }
       }
     }
@@ -1059,6 +1073,35 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       _stringConstantScopes[index].remove(name);
       return;
     }
+  }
+}
+
+/// 클래스 본문을 순수 구문으로 훑어 `this.x =`(또는 같은 이름의 bare `x =`)로
+/// 재대입되는 필드 이름을 모은다. mutable 필드의 선언 초기값을 aux 채널로 신뢰할지
+/// 결정하는 prescan 보조다 — 재대입이 한 번이라도 보이면 그 이름을 모아서 초기값
+/// 등록을 막는다(미해석으로 떨어지는 방향이라 사실을 억제할 뿐 잘못된 사실을
+/// 만들지는 않는다). 지역 변수에 가려진 bare 이름도 보수적으로 재대입으로 친다.
+class _ReassignedFieldNames extends RecursiveAstVisitor<void> {
+  _ReassignedFieldNames(this.fieldNames);
+
+  final Set<String> fieldNames;
+  final Set<String> names = {};
+
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    final left = node.leftHandSide;
+    if (left is SimpleIdentifier && fieldNames.contains(left.name)) {
+      names.add(left.name);
+    } else if (left is PropertyAccess &&
+        left.target is ThisExpression &&
+        fieldNames.contains(left.propertyName.name)) {
+      names.add(left.propertyName.name);
+    } else if (left is PrefixedIdentifier &&
+        left.prefix.name == 'this' &&
+        fieldNames.contains(left.identifier.name)) {
+      names.add(left.identifier.name);
+    }
+    super.visitAssignmentExpression(node);
   }
 }
 

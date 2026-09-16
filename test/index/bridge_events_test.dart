@@ -103,6 +103,42 @@ void listen() {
     );
   });
 
+  test(
+    'resolves a mutable EventChannel field that is never reassigned',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-events.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/events.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  EventChannel channel = const EventChannel('charging');
+  void listen() {
+    channel.receiveBroadcastStream();
+  }
+}
+
+class Swapped {
+  EventChannel channel = const EventChannel('before');
+  void swap() => this.channel = EventChannel('after');
+  void listen() {
+    channel.receiveBroadcastStream();
+  }
+}
+''');
+
+      final result = indexBridges(root.path, events: true);
+
+      expect(result.facts, hasLength(1));
+      expect(result.facts.single['channel'], 'charging');
+      expect(result.facts.single['kind'], 'stream-listen');
+      expect(
+        result.limitations,
+        contains(startsWith('unresolved-stream-listens: 1')),
+      );
+    },
+  );
+
   test('messages and events are separate documents', () async {
     final root = await Directory.systemTemp.createTemp('bridge-events.');
     addTearDown(() => root.delete(recursive: true));

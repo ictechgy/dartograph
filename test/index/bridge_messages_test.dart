@@ -173,6 +173,26 @@ class ReorderedApi {
     );
   });
 
+  test('resolves a mutable field that is never reassigned', () async {
+    final root = await Directory.systemTemp.createTemp('bridge-messages.');
+    addTearDown(() => root.delete(recursive: true));
+    await File('${root.path}/messages.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Api {
+  BasicMessageChannel<Object?> channel =
+      BasicMessageChannel<Object?>('stable', codec);
+  void send() => channel.send(null);
+}
+''');
+
+    final result = indexBridges(root.path, messages: true);
+
+    expect(result.facts, hasLength(1));
+    expect(result.facts.single['channel'], 'stable');
+    expect(result.facts.single['kind'], 'message-send');
+  });
+
   test(
     'keeps a field send unresolved after a conditional assignment',
     () async {
