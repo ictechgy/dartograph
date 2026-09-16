@@ -27,9 +27,9 @@ void main() {
       'unused-dependency:unused',
       'unused-dev-dependency:unused_dev',
     ]);
-    expect(byKey['dev-dependency-in-lib:dev_in_lib']!.sources, [
-      'project:lib/a.dart',
-    ], reason: 'test/ 안 참조는 발견 근거가 아니다');
+    // test/ 안 참조는 발견 근거가 아니다.
+    final devInLibSources = byKey['dev-dependency-in-lib:dev_in_lib']!.sources;
+    expect(devInLibSources, ['project:lib/a.dart']);
     expect(byKey['undeclared-dependency:ghost']!.sources, [
       'project:lib/b.dart',
     ]);
