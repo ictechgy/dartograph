@@ -306,6 +306,15 @@ void main() {
           'kinds': [1],
         },
       }),
+      // 쉼표를 포함한 항목은 join(',')을 거치며 두 kind로 새어 나간다.
+      request(63, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': ['file,declaration'],
+        },
+      }),
     ]);
 
     expect(
@@ -323,6 +332,65 @@ void main() {
       );
     }
   });
+
+  test(
+    'tool calls reject non-string argv values instead of interpolating',
+    () async {
+      final responses = await exchange([
+        // impact_query: since·symbol에 문자열이 아닌 값이 오면 argv로
+        // 문자열화하지 않고 거부한다.
+        request(70, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {'packageRoot': directory.path, 'since': 5},
+        }),
+        request(71, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'symbol': <String, Object?>{'x': 1},
+          },
+        }),
+        // verify_run: baseline·config도 같은 기준이다.
+        request(72, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'baseline': 7,
+          },
+        }),
+        request(73, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'config': <Object?>[],
+          },
+        }),
+        // prompts/get: minTokens가 정수로 해석되지 않으면 인자 오류다.
+        request(74, 'prompts/get', {
+          'name': 'duplication-review',
+          'arguments': {'packageRoot': directory.path, 'minTokens': 'abc'},
+        }),
+        request(75, 'prompts/get', {
+          'name': 'duplication-review',
+          'arguments': {'packageRoot': directory.path, 'minTokens': 1},
+        }),
+      ]);
+
+      for (final response in responses.sublist(0, 4)) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        expect(
+          ((result['content'] as List).single as Map)['text'],
+          contains('must be a non-empty string'),
+        );
+      }
+      for (final response in responses.sublist(4)) {
+        expect((response['error'] as Map)['code'], -32602);
+      }
+    },
+  );
 
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([

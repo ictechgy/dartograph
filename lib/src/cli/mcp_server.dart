@@ -134,6 +134,10 @@ Future<int> runMcpServer({
           );
           continue;
         }
+        if (!_promptDefinitions.any((prompt) => prompt['name'] == name)) {
+          _writeError(output, id, _invalidParams, 'Unknown prompt: $name');
+          continue;
+        }
         final prompt = _getPrompt(
           name,
           params['arguments'] is Map<String, Object?>
@@ -141,7 +145,13 @@ Future<int> runMcpServer({
               : const <String, Object?>{},
         );
         if (prompt == null) {
-          _writeError(output, id, _invalidParams, 'Unknown prompt: $name');
+          _writeError(
+            output,
+            id,
+            _invalidParams,
+            'prompt arguments require a non-empty packageRoot; minTokens '
+            'must be an integer >= 2 when given',
+          );
           continue;
         }
         _writeResult(output, id, prompt);
@@ -444,10 +454,17 @@ List<Map<String, Object?>> get _promptDefinitions => [
   },
 ];
 
-/// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·필수 인자 누락은 null이다.
+/// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·누락 packageRoot·잘못된
+/// minTokens는 null이다 — 호출자가 이름과 인자 오류를 구분해 보고한다.
 Map<String, Object?>? _getPrompt(String name, Map<String, Object?> arguments) {
   final packageRoot = arguments['packageRoot'];
   if (packageRoot is! String || packageRoot.trim().isEmpty) return null;
+  final minTokens = arguments['minTokens'];
+  if (minTokens != null) {
+    // 프롬프트 인자는 문자열로 올 수 있다 — 정수로 해석 가능하고 ≥2면 받는다.
+    final parsed = minTokens is int ? minTokens : int.tryParse('$minTokens');
+    if (parsed == null || parsed < 2) return null;
+  }
   final text = switch (name) {
     'impact-precheck' => _impactPrompt(packageRoot, arguments['since']),
     'dead-code-review' => _deadPrompt(packageRoot, arguments['closedApp']),
@@ -585,7 +602,11 @@ Future<Map<String, Object?>> _impactTool({
   final scratch = <Directory>[];
   try {
     if (arguments['since'] != null) {
-      args.addAll(['--since', '${arguments['since']}']);
+      final since = arguments['since'];
+      if (since is! String || since.trim().isEmpty) {
+        return _toolError('since must be a non-empty string');
+      }
+      args.addAll(['--since', since]);
     } else if (arguments['changed'] != null) {
       final changed = arguments['changed'];
       if (changed is! List || changed.isEmpty || changed.length > 1000) {
@@ -601,7 +622,11 @@ Future<Map<String, Object?>> _impactTool({
       );
       args.addAll(['--changed', file.path]);
     } else {
-      args.addAll(['--symbol', '${arguments['symbol']}']);
+      final symbol = arguments['symbol'];
+      if (symbol is! String || symbol.trim().isEmpty) {
+        return _toolError('symbol must be a non-empty string');
+      }
+      args.addAll(['--symbol', symbol]);
     }
     final depth = _positiveInt(arguments['depth']);
     if (depth != null) args.addAll(['--depth', '$depth']);
@@ -716,9 +741,19 @@ Future<Map<String, Object?>> _verifyTool({
     args.addAll(['--since', since]);
   }
   final baseline = arguments['baseline'];
-  if (baseline != null) args.addAll(['--baseline', '$baseline']);
+  if (baseline != null) {
+    if (baseline is! String || baseline.trim().isEmpty) {
+      return _toolError('baseline must be a non-empty string');
+    }
+    args.addAll(['--baseline', baseline]);
+  }
   final config = arguments['config'];
-  if (config != null) args.addAll(['--config', '$config']);
+  if (config != null) {
+    if (config is! String || config.trim().isEmpty) {
+      return _toolError('config must be a non-empty string');
+    }
+    args.addAll(['--config', config]);
+  }
   final minTokens = arguments['minTokens'];
   if (minTokens != null) {
     // closed-app과 같은 이유로 의도 없는 인자를 조용히 무시하지 않는다.
@@ -738,8 +773,13 @@ Future<Map<String, Object?>> _verifyTool({
     }
     if (kinds is! List ||
         kinds.isEmpty ||
-        kinds.any((item) => item is! String || item.trim().isEmpty)) {
-      return _toolError('kinds must be a non-empty list of strings');
+        kinds.any(
+          (item) =>
+              item is! String || item.trim().isEmpty || item.contains(','),
+        )) {
+      return _toolError(
+        'kinds must be a non-empty list of strings without commas',
+      );
     }
     args.addAll(['--kinds', kinds.join(',')]);
   }

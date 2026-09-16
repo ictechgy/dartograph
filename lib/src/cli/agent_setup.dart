@@ -20,7 +20,16 @@ case "$file" in
 esac
 
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
-rel="${file#"$root"/}"
+case "$file" in
+  "$root"/*) rel="${file#"$root"/}" ;;
+  /*)
+    # 다른 프로젝트 아래 파일은 이 프로젝트 그래프의 분석 대상이 아니다.
+    printf 'dartograph: %s is outside %s; impact check skipped\n' \
+      "$file" "$root" >&2
+    exit 0
+    ;;
+  *) rel="$file" ;;
+esac
 
 tmp=$(mktemp "${TMPDIR:-/tmp}/dartograph-changes.XXXXXX") || exit 0
 printf '["%s"]\n' "$rel" >"$tmp"
@@ -91,11 +100,12 @@ Map<String, Object?> _decodeObject(String? existing) {
 /// [FormatException]을 던져 호출자가 파일을 보존하게 한다.
 String? mergeClaudeSettings(String? existing) {
   final settings = _decodeObject(existing);
-  final hooks = settings.putIfAbsent('hooks', () => <String, Object?>{});
+  // null은 비어 있는 값으로 본다 — 명시적으로 지운 키를 오류로 거부하지 않는다.
+  final hooks = settings['hooks'] ??= <String, Object?>{};
   if (hooks is! Map<String, Object?>) {
     throw const FormatException('"hooks" is not a JSON object');
   }
-  final postToolUse = hooks.putIfAbsent('PostToolUse', () => <Object?>[]);
+  final postToolUse = hooks['PostToolUse'] ??= <Object?>[];
   if (postToolUse is! List<Object?>) {
     throw const FormatException('"hooks.PostToolUse" is not a JSON array');
   }
@@ -116,7 +126,7 @@ String? mergeClaudeSettings(String? existing) {
 /// JSON은 [FormatException]을 던진다.
 String? mergeMcpConfig(String? existing, {required bool force}) {
   final config = _decodeObject(existing);
-  final servers = config.putIfAbsent('mcpServers', () => <String, Object?>{});
+  final servers = config['mcpServers'] ??= <String, Object?>{};
   if (servers is! Map<String, Object?>) {
     throw const FormatException('"mcpServers" is not a JSON object');
   }

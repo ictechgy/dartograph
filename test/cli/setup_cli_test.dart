@@ -221,6 +221,32 @@ void main() {
     expect(error3.toString(), contains('not a directory'));
   });
 
+  test('hook script skips out-of-project edits with a visible note', () async {
+    if (Platform.isWindows) return; // 훅은 POSIX 셸 스크립트다.
+    final temporary = await Directory.systemTemp.createTemp('dartograph-hook-');
+    addTearDown(() => temporary.delete(recursive: true));
+    final script = File('${temporary.path}/hook.sh')
+      ..writeAsStringSync(agentHookScript);
+    final project = Directory('${temporary.path}/proj')..createSync();
+
+    final process = await Process.start(
+      'sh',
+      [script.path],
+      environment: {'CLAUDE_PROJECT_DIR': project.path},
+    );
+    process.stdin.writeln('{"tool_input": {"file_path": "/elsewhere/x.dart"}}');
+    await process.stdin.close();
+    final stderr = await process.stderr.transform(utf8.decoder).join();
+    expect(await process.exitCode, 0);
+    expect(stderr, contains('outside'));
+  });
+
+  test('mergeClaudeSettings treats null keys as empty', () {
+    // 명시적으로 지운 "hooks": null이나 "PostToolUse": null은 거부하지 않는다.
+    expect(mergeClaudeSettings('{"hooks": null}'), isNotNull);
+    expect(mergeClaudeSettings('{"hooks": {"PostToolUse": null}}'), isNotNull);
+  });
+
   test('mergeClaudeSettings is idempotent for an existing dartograph hook', () {
     final once = mergeClaudeSettings(null);
     expect(mergeClaudeSettings(once), isNull);
