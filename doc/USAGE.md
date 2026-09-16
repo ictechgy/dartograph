@@ -54,6 +54,7 @@ dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
+dartograph bridges --events --format json [--project <shared-root>] <package-root>
 dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
@@ -221,7 +222,13 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 세지 않으며 MethodChannel의 method 필드도 만들지 않는다. 동적 이름은 원래 표현식을
 보존하고, `channelPrefix`는 AST가 증명한 decoded 비어 있지 않은 문자열 interpolation
 선행 literal일 때만 후보 근거로 낸다. prefix는 완전한 runtime 주소·instance identity의
-증명이 아니며, 이 경로는 0.9.0에 새로 추가되었다. 패키지의
+증명이 아니며, 이 경로는 0.9.0에 새로 추가되었다.
+`bridges --events`는 같은 opt-in 형태로 EventChannel `receiveBroadcastStream`
+호출만 bridge-facts v2(`transport: event-channel`, `kind: stream-listen`)로 낸다.
+임의의 `.listen()`이나 EventChannel로 입증되지 않은 수신자에서 stream 사실을
+추론하지 않고, 미귀속 호출은 `unresolved-stream-listens`로 센다. `--messages`와
+`--events`는 서로 다른 transport 문서라 함께 쓸 수 없고(usage 64), 두 문서가
+필요하면 두 번 실행한다. 패키지의
 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 

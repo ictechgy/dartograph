@@ -2,6 +2,16 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- `bridges --events` 추가. EventChannel `receiveBroadcastStream` 수신 호출을
+  bridge-facts v2(`transport: event-channel`, `kind: stream-listen`)로 내는
+  opt-in producer 경로다. 수신자가 `EventChannel` 생성으로 입증된 호출만 사실이
+  되고, 임의의 `.listen()`이나 미입증 수신자는 `unresolved-stream-listens`로
+  센다. 동적 채널 이름은 `dynamic-event-channel-names` 아래 literal
+  `channelPrefix`를 보존한다. `--messages`와 `--events`는 서로 다른 transport
+  문서라 함께 쓸 수 없고, 기본 `bridges` 출력은 v1 MethodChannel 사실 그대로다.
+
 ## 0.11.0
 
 - `dartograph deps` 추가. 선언된 `dependencies`/`dev_dependencies`/`dependency_overrides`와

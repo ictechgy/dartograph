@@ -1524,6 +1524,7 @@ Future<int> _runBridges(
   // `--depth`와 같은 규칙). 중복·값 빠짐·옵션 모양 값은 usage(64)다.
   String? projectOption;
   var messagesOption = false;
+  var eventsOption = false;
   final positional = <String>[];
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -1533,6 +1534,14 @@ Future<int> _runBridges(
         return ExitStatus.usage.code;
       }
       messagesOption = true;
+      continue;
+    }
+    if (argument == '--events') {
+      if (eventsOption) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      eventsOption = true;
       continue;
     }
     if (argument != '--project') {
@@ -1560,6 +1569,12 @@ Future<int> _runBridges(
       positional[0] != '--format' ||
       positional[1] != 'json' ||
       (rootIndex == 2 && positional[2].startsWith('-'))) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  // 문서 하나는 transport 하나다. 두 플래그를 같이 받으면 한 문서에
+  // 두 transport가 섞이므로 isthmus처럼 각각 실행하게 앞에서 거부한다.
+  if (messagesOption && eventsOption) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -1598,6 +1613,7 @@ Future<int> _runBridges(
       root,
       projectRootPath: project == root ? null : project,
       messages: messagesOption,
+      events: eventsOption,
     );
     output.write(
       exportBridgeFacts(
@@ -1605,8 +1621,10 @@ Future<int> _runBridges(
         generatedAt: now(),
         facts: indexed.facts,
         limitations: [...indexed.limitations, ...projectLimitations],
-        version: messagesOption ? 2 : 1,
-        transport: messagesOption ? 'basic-message-channel' : null,
+        version: (messagesOption || eventsOption) ? 2 : 1,
+        transport: messagesOption
+            ? 'basic-message-channel'
+            : (eventsOption ? 'event-channel' : null),
       ),
     );
     return ExitStatus.success.code;
@@ -2886,6 +2904,7 @@ Usage: dartograph [--help] [--version]
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
+       dartograph bridges --events --format json [--project <shared-root>] <package-root>
        dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
@@ -2974,8 +2993,10 @@ declaration references reachable too — use a baseline to suppress a single
 finding, including file findings.
 
 bridges --messages emits opt-in BasicMessageChannel send facts as bridge-facts
-version 2 with transport basic-message-channel. The default bridges command
-keeps the version 1 MethodChannel output.
+version 2 with transport basic-message-channel. bridges --events emits
+EventChannel receiveBroadcastStream listen facts as version 2 with transport
+event-channel; the two flags are separate documents and do not combine. The
+default bridges command keeps the version 1 MethodChannel output.
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become

@@ -17,13 +17,15 @@ String exportBridgeFacts({
 }) {
   final validVersionTransport =
       version == 1 && transport == null ||
-      version == 2 && transport == 'basic-message-channel';
+      version == 2 &&
+          (transport == 'basic-message-channel' ||
+              transport == 'event-channel');
   if (!validVersionTransport) {
     throw ArgumentError.value(
       version,
       'version',
       'version 1 requires no transport; version 2 requires '
-          'basic-message-channel transport',
+          'basic-message-channel or event-channel transport',
     );
   }
   final document = <String, Object?>{
