@@ -176,6 +176,20 @@ void parse(String raw) {
       expect(parse.detail, 'Uri.parse(<computed>)');
     });
 
+    test('동명의 사용자 정의 DynamicLibrary는 네이티브 사실로 보지 않는다', () async {
+      // 해석된 선언은 dart:ffi가 아니므로 이름만으로 네이티브 로드로 잡지 않는다.
+      final facts = await scan({
+        'lib/shim.dart': '''class DynamicLibrary {
+  DynamicLibrary.open(String name);
+}
+
+final wrapped = DynamicLibrary.open('libfake.so');
+''',
+      });
+
+      expect(ofKind(facts, RuntimeFactKind.dynamicLoad), isEmpty);
+    });
+
     test('dart:mirrors import를 리플렉션 사실로 남긴다', () async {
       final facts = await scan({
         'lib/mirrors.dart': '''import 'dart:mirrors';
@@ -318,33 +332,66 @@ void use() {
   });
 
   group('external', () {
-    test('URL 리터럴과 HttpClient를 외부 자원으로 남긴다', () async {
+    test('목적지 자리의 URL 리터럴과 HttpClient를 외부 자원으로 남긴다', () async {
       final facts = await scan({
         'lib/external.dart': '''import 'dart:io';
+import 'package:http/http.dart' as http;
 
 const String endpoint = 'https://example.com/api';
+
 final Uri health = Uri.parse('http://127.0.0.1:8080/health');
 Uri unknown(String raw) => Uri.parse(raw);
+
+Future<void> fetch(HttpClient client) async {
+  await client.getUrl(Uri.parse('https://example.com/status'));
+  await http.post('https://example.com/events', body: '{}');
+  await Socket.connect('https://example.com:443');
+}
 
 HttpClient client() => HttpClient();
 ''',
       });
       final external = ofKind(facts, RuntimeFactKind.external);
-      expect(external, hasLength(3));
+      expect(external.map((fact) => fact.name), [
+        'http://127.0.0.1:8080/health',
+        'https://example.com/status',
+        'https://example.com/events',
+        'https://example.com:443',
+        'HttpClient',
+      ]);
 
-      final endpoint = named(external, 'https://example.com/api');
-      expect(endpoint.channel, RuntimeFactChannel.externalUrl);
-      expect(endpoint.detail, 'string literal "https://example.com/api"');
-      expect(endpoint.line, 3);
-
-      // Uri.parse 리터럴은 문자열 리터럴 규칙이 잡는다(중복 보고 없음).
+      // Uri.parse 리터럴은 목적지를 파싱하는 자리다.
       final health = named(external, 'http://127.0.0.1:8080/health');
+      expect(health.channel, RuntimeFactChannel.externalUrl);
       expect(health.detail, 'Uri.parse("http://127.0.0.1:8080/health")');
+      expect(
+        health.unverifiableReason,
+        startsWith('external-resource: verification performs no network'),
+      );
+
+      expect(
+        named(external, 'https://example.com/status').detail,
+        'Uri.parse("https://example.com/status")',
+      );
+      // 알려진 네트워크 호출의 목적지 인자다.
+      expect(
+        named(external, 'https://example.com/events').detail,
+        'http.post("https://example.com/events")',
+      );
+      expect(
+        named(external, 'https://example.com:443').detail,
+        'Socket.connect("https://example.com:443")',
+      );
+
+      // 목적지를 받지 않는 상수 선언만으로는 외부 자원이 아니다.
+      expect(
+        external.where((fact) => fact.name == 'https://example.com/api'),
+        isEmpty,
+      );
 
       // HttpClient는 dart:io가 재수출하는 dart:_http 선언이다.
       final client = named(external, 'HttpClient');
       expect(client.detail, 'HttpClient()');
-      expect(client.line, 7);
       expect(client.unverifiableReason, startsWith('http-client'));
 
       // http가 아닌 URI는 외부 자원이 아니라 dynamicLoad의 계산된 대상이다.
@@ -353,6 +400,74 @@ HttpClient client() => HttpClient();
         runtimeComputedName,
       );
       expect(computed.detail, 'Uri.parse(<computed>)');
+    });
+
+    test('비교·검증·상수 선언은 외부 자원으로 잡지 않는다', () async {
+      // 예전 규칙은 문자열이 http(s)로 시작하기만 하면 외부 자원으로 보고해
+      // 이 코드를 전부 오탐했다.
+      final facts = await scan({
+        'lib/compare.dart': '''const String schema =
+    'https://json.schemastore.org/sarif-2.1.0.json';
+
+bool isRemote(String value) =>
+    value.startsWith('http://') || value.startsWith('https://');
+
+bool mentions(String text) => text.contains('https://example.com/api');
+
+String describe() => 'see https://example.com/docs for details';
+''',
+      });
+
+      expect(ofKind(facts, RuntimeFactKind.external), isEmpty);
+    });
+
+    test('해석된 동명 API는 네트워크 호출로 보지 않는다', () async {
+      // 예전 규칙은 메서드·수신자 이름만으로 외부 자원을 보고해 사용자 정의
+      // get·getUrl·connect의 문자열 인자까지 오탐했다.
+      final facts = await scan({
+        'lib/local.dart': '''class Client {
+  Future<void> getUrl(Uri uri) async {}
+  void get(String url) {}
+}
+
+class Bus {
+  void connect(String url) {}
+}
+
+void get(String url) {}
+
+void run(Client client, Bus bus) {
+  client.getUrl(Uri.parse('https://example.com/resolved'));
+  client.get('https://example.com/direct');
+  bus.connect('https://example.com/bus');
+  get('https://example.com/top');
+}
+''',
+      });
+
+      // Uri.parse의 리터럴만 외부 자원이다 — 동명 API의 문자열 인자는 아니다.
+      expect(ofKind(facts, RuntimeFactKind.external).map((fact) => fact.name), [
+        'https://example.com/resolved',
+      ]);
+    });
+
+    test('spawnUri 대상은 uri 채널이 잡고 외부 자원으로 중복 보고하지 않는다', () async {
+      final facts = await scan({
+        'lib/spawn.dart': '''import 'dart:isolate';
+
+Future<void> spawn() async {
+  await Isolate.spawnUri(
+      Uri.parse('https://example.com/worker.dart'), const [], null);
+}
+''',
+      });
+
+      expect(ofKind(facts, RuntimeFactKind.external), isEmpty);
+      final spawn = named(
+        ofKind(facts, RuntimeFactKind.dynamicLoad),
+        'https://example.com/worker.dart',
+      );
+      expect(spawn.channel, RuntimeFactChannel.uri);
     });
   });
 

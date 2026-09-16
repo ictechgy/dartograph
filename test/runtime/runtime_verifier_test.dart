@@ -421,6 +421,61 @@ void main() {
     });
   });
 
+  group('네이티브 라이브러리 판정', () {
+    RuntimeFact library(String name, {String? path}) => _fact(
+      kind: RuntimeFactKind.dynamicLoad,
+      channel: RuntimeFactChannel.nativeLibrary,
+      name: name,
+      path: path,
+    );
+
+    test('경로로 지정한 라이브러리는 존재를 확인해 present·missing을 가른다', () {
+      final report = _analyze(
+        [
+          library('assets/libcorpus.so', path: 'assets/libcorpus.so'),
+          library('lib/absent.so', path: 'lib/absent.so'),
+          library('/opt/lib/libz.so', path: '/opt/lib/libz.so'),
+        ],
+        fileSystem: _MemoryFileSystem(
+          states: {
+            'assets/libcorpus.so': RuntimePathState.file,
+            '/opt/lib/libz.so': RuntimePathState.directory,
+          },
+        ),
+      );
+
+      expect(report.present.map((item) => item.fact.name), [
+        'assets/libcorpus.so',
+      ]);
+      expect(
+        report.present.single.evidence,
+        'native library exists: assets/libcorpus.so',
+      );
+      final reasons = {
+        for (final item in report.missing) item.fact.name: item.evidence,
+      };
+      expect(
+        reasons['lib/absent.so'],
+        'native library not found: lib/absent.so',
+      );
+      expect(
+        reasons['/opt/lib/libz.so'],
+        'a directory exists at /opt/lib/libz.so, not a native library',
+      );
+      // 경로가 있으면 판정할 수 있으므로 미판정으로 남기지 않는다.
+      expect(report.unverified, isEmpty);
+    });
+
+    test('맨 이름은 경로가 없어 미판정으로 남긴다', () {
+      final report = _analyze([library('libcorpus.so')]);
+
+      expect(report.present, isEmpty);
+      expect(report.missing, isEmpty);
+      expect(report.unverified.single.fact.name, 'libcorpus.so');
+      expect(report.unverified.single.reason, startsWith('bare-library-name'));
+    });
+  });
+
   group('위험도', () {
     List<RuntimeFact> missingFacts(int count) => [
       for (var index = 0; index < count; index++)
@@ -584,6 +639,25 @@ void main() {
       expect(executed.limitations.toSet().length, executed.limitations.length);
       final sorted = [...executed.limitations]..sort();
       expect(executed.limitations, sorted);
+
+      // 실행 파일을 못 찾아 아무것도 실행하지 않은 경우는 "실행 실패"가 아니다.
+      final unresolved = _analyze(
+        const [],
+        execution: const RuntimeExecution.unresolved(
+          entrypoint: 'bin/probe.dart',
+          reason: 'dart-executable-not-found: no dart executable',
+        ),
+      );
+      expect(
+        unresolved.limitations,
+        contains(startsWith('execute-unresolved')),
+      );
+      expect(
+        unresolved.limitations,
+        isNot(contains(startsWith('execute-runs-code'))),
+      );
+      expect(unresolved.risk.factors, isEmpty);
+      expect(unresolved.execution!.unresolvedReason, isNotEmpty);
     });
   });
 }
