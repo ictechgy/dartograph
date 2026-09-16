@@ -14,10 +14,11 @@ dartograph mcp
 
 - transport: stdio. stdin으로 개행 구분 JSON-RPC 2.0 메시지를 읽고, stdout으로
   응답만 쓴다. 사람용 로그는 stderr로 간다.
-- protocolVersion: `2024-11-05`. `initialize`·`ping`·`tools/list`·`tools/call`과
+- protocolVersion: `2024-11-05`. `initialize`·`ping`·`tools/list`·`tools/call`·
+  `resources/list`·`resources/read`·`prompts/list`·`prompts/get`과
   `notifications/*`를 처리한다.
-- 알 수 없는 메서드는 `-32601`, 잘못된 JSON은 `-32700`, 잘못된 파라미터는 `-32602`로
-  답하고 서버는 계속 동작한다.
+- 알 수 없는 메서드는 `-32601`, 잘못된 JSON은 `-32700`, 잘못된 파라미터는 `-32602`,
+  알 수 없는 리소스 URI는 `-32002`로 답하고 서버는 계속 동작한다.
 - 도구는 **읽기 전용**이다. 저장소를 수정하지 않으며 `changed`·`batch` 배열은 OS 임시
   디렉터리에 잠깐 쓰고 호출이 끝나면 지운다.
 
@@ -98,15 +99,55 @@ exitCode: 0
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `packageRoot` | string | ✔ | 분석할 패키지 루트 |
-| `command` | enum | ✔ | `dead`·`cycles`·`rules`·`metrics` |
+| `command` | enum | ✔ | `dead`·`deps`·`cycles`·`rules`·`metrics` |
 | `strict` | boolean | | `cycles`·`rules`·`metrics`에서 finding을 코드 1로 |
+| `closedApp` | boolean | | `dead` 전용: `--closed-app`(공개 API 미보존, 독립 앱 전용) |
 | `since` | string | | `dead --since` |
 | `baseline` | string | | `dead --baseline` |
 | `config` | string | | `rules --config`의 layers.yaml |
-| `format` | enum | | `dead` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
+| `format` | enum | | `dead`·`deps` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
 
-응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead` finding은 1), 이어서 CLI 출력이
-온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
+`closedApp: true`를 `dead`가 아닌 명령에 주면 인자 오류로 거절한다 — 다른 명령에서는
+의도 없이 무시되는 플래그를 받지 않는다.
+
+응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead`·`deps` finding은 1), 이어서
+CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
+
+## 리소스 (`resources/list`·`resources/read`)
+
+프로젝트별 동적 상태가 아니라 **호출 사이에 바뀌지 않는 정적 문서**를 노출한다.
+프로젝트의 그래프·발견은 도구 호출이 답한다.
+
+| URI | mimeType | 내용 |
+|---|---|---|
+| `dartograph://usage` | `text/plain` | CLI 계약 전문 — `dartograph --help` 출력과 같은 문서 |
+| `dartograph://skill` | `text/markdown` | 에이전트 스킬 문서 — `dartograph skill` 출력 |
+| `dartograph://config` | `text/yaml` | 주석 달린 `dartograph.yaml` 템플릿 — `dartograph init` 출력 |
+
+```json
+{"jsonrpc":"2.0","id":9,"method":"resources/read","params":{"uri":"dartograph://usage"}}
+{"id":9,"jsonrpc":"2.0","result":{"contents":[{"uri":"dartograph://usage","mimeType":"text/plain","text":"dartograph — …"}]}}
+```
+
+모르는 URI는 `-32002`로 답한다. 응답의 `contents[].uri`는 요청 URI를 그대로 반향한다.
+
+## 프롬프트 (`prompts/list`·`prompts/get`)
+
+에이전트가 자주 쓰는 작업 흐름을 user 메시지 하나로 렌더링한다. 프롬프트 본문은
+호출할 도구와 결과 해석 순서를 적은 안내문이다 — 서버가 도구를 대신 호출하지 않는다.
+
+| 이름 | 인자 | 안내하는 흐름 |
+|---|---|---|
+| `impact-precheck` | `packageRoot`(필수), `since` | 수정 전 `impact_query` 호출 → impacted·callSites·risk 해석 |
+| `dead-code-review` | `packageRoot`(필수), `closedApp` | `verify_run dead` → `dependency_query`로 근거 확인 → limitations 점검 |
+| `dependency-audit` | `packageRoot`(필수) | `verify_run deps` → 네 종류 finding 해석 |
+
+```json
+{"jsonrpc":"2.0","id":10,"method":"prompts/get","params":{"name":"impact-precheck","arguments":{"packageRoot":"/path/to/package","since":"origin/main"}}}
+{"id":10,"jsonrpc":"2.0","result":{"description":"Pre-check what an edit affects …","messages":[{"role":"user","content":{"type":"text","text":"Pre-check the impact …"}}]}}
+```
+
+모르는 이름·필수 인자(`packageRoot`) 누락은 `-32602`다.
 
 ## 도구 스키마 (`tools/list`)
 
@@ -153,8 +194,9 @@ exitCode: 0
       "type": "object",
       "properties": {
         "packageRoot": {"type": "string"},
-        "command": {"type": "string", "enum": ["dead", "cycles", "rules", "metrics"]},
+        "command": {"type": "string", "enum": ["dead", "deps", "cycles", "rules", "metrics"]},
         "strict": {"type": "boolean"},
+        "closedApp": {"type": "boolean"},
         "since": {"type": "string"},
         "baseline": {"type": "string"},
         "config": {"type": "string"},
@@ -174,7 +216,8 @@ exitCode: 0
 | `-32700` | 줄이 유효한 JSON이 아님 | `null` |
 | `-32600` | 메시지가 객체가 아님, 또는 `id`가 있는데 `method`가 없음 | 메시지의 `id`(없으면 `null`) |
 | `-32601` | 알 수 없는 메서드 | 요청 `id` |
-| `-32602` | `tools/call`의 `params` 누락·비객체, `params.name` 비문자열, 알 수 없는 도구 | 요청 `id` |
+| `-32602` | `tools/call`·`resources/read`·`prompts/get`의 `params` 누락·비객체, 비문자열 `name`/`uri`, 알 수 없는 도구·프롬프트, 필수 인자 누락 | 요청 `id` |
+| `-32002` | 알 수 없는 리소스 URI | 요청 `id` |
 | `-32603` | 도구 실행 중 예상 못 한 예외(진단은 stderr) | 요청 `id` |
 
 `id` 없는 메시지는 알림으로 보고 응답하지 않으며, `method`가 `notifications/`로
@@ -195,7 +238,7 @@ printf '%s\n' \
 `initialize` 응답(`serverInfo.version`은 설치된 도구 버전):
 
 ```json
-{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"dartograph","version":"0.9.0"}}}
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{},"resources":{},"prompts":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"dartograph","version":"0.10.0"}}}
 ```
 
 성공 호출·인자 오류·도구 오류·메서드 오류·파싱 오류의 응답 형태:

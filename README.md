@@ -65,6 +65,10 @@ dartograph baseline --write .dartograph-baseline.json .
 dartograph dead --format github-actions \
   --baseline .dartograph-baseline.json --since origin/main .
 
+# standalone apps: drop public-API retention; audit pubspec hygiene
+dartograph dead --closed-app .
+dartograph deps .
+
 # symbol queries
 dartograph query ApiClient --baseline .dartograph-baseline.json .
 dartograph query --batch requests.json .
@@ -130,6 +134,19 @@ Full arguments, output formats, exit codes, and CI examples live in
   `isolated` for entries with no couplings at all) at the reported tolerance.
 - `init` writes a commented `dartograph.yaml` configuration template to the
   project root (pass `--force` to overwrite an existing configuration).
+- `deps` audits pubspec hygiene: dependencies declared but never imported,
+  dev dependencies used from `lib/` or never imported, and `package:` imports
+  with no declaration. Tool-contract dependencies — `executables`,
+  `build.yaml` builders, `analysis_options` includes/plugins — count as used,
+  and runtime/generated/asset references stay explicit limitations. Findings
+  are a review list, never a deletion instruction.
+- `dead --closed-app` turns off public-API retention for standalone apps
+  (Flutter apps, CLI executables) — declarations unreachable from `main` are
+  reported even when `lib/<package>.dart` exports them. Pair it with
+  `baseline --write --closed-app`, and never run it on a published library.
+- `dartograph mcp` also exposes MCP resources (`dartograph://usage`, `skill`,
+  `config`) and prompts (`impact-precheck`, `dead-code-review`,
+  `dependency-audit`) alongside the three query/verify tools.
 
 A `// dartograph:ignore` line comment suppresses dead reporting for the
 declaration it heads (retained as `retentionReason: inlineIgnore`) — a decision
