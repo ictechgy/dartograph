@@ -257,8 +257,48 @@ void main() {
     );
     await inside.stdin.close();
     final insideStderr = await inside.stderr.transform(utf8.decoder).join();
-    expect(await inside.exitCode, 0);
+    // dartograph를 못 찾으면(exit 127) 게이트는 조용히 통과하지 않고
+    // 실패를 보고한다.
+    expect(await inside.exitCode, 2);
     expect(insideStderr, isNot(contains('outside')));
+    expect(insideStderr, contains('could not run'));
+  });
+
+  test('hook fails closed when the tool input cannot be parsed', () async {
+    if (Platform.isWindows) return; // 훅은 POSIX 셸 스크립트다.
+    final temporary = await Directory.systemTemp.createTemp('dartograph-hook-');
+    addTearDown(() => temporary.delete(recursive: true));
+    final script = File('${temporary.path}/hook.sh')
+      ..writeAsStringSync(agentHookScript);
+    final project = Directory('${temporary.path}/proj')..createSync();
+
+    Future<({int code, String err})> runHook(String line) async {
+      final process = await Process.start(
+        '/bin/sh',
+        [script.path],
+        environment: {
+          'CLAUDE_PROJECT_DIR': project.path,
+          'PATH': '${temporary.path}/empty-bin:/usr/bin:/bin',
+        },
+      );
+      process.stdin.writeln(line);
+      await process.stdin.close();
+      final err = await process.stderr.transform(utf8.decoder).join();
+      return (code: await process.exitCode, err: err);
+    }
+
+    // 깨진 JSON은 file_path를 해석할 수 없다 — 게이트를 통과시키지 않는다.
+    final malformed = await runHook('{"tool_input": {"file_path": ');
+    expect(malformed.code, 2);
+    expect(malformed.err, contains('could not be parsed'));
+
+    // 이스케이프된 따옴표가 들어간 경로는 파서가 정확히 해석한다 —
+    // sed가 잘라낸 경로로 조용히 스킵되지 않는다.
+    final escaped = await runHook(
+      '{"tool_input": {"file_path": "${project.path}/lib/weird\\"q.dart"}}',
+    );
+    expect(escaped.code, 2); // dartograph 부재 → 실패 보고(게이트는 동작했다)
+    expect(escaped.err, isNot(contains('skipped')));
   });
 
   test('mergeClaudeSettings treats null keys as empty', () {

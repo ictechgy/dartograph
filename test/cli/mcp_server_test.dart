@@ -69,6 +69,7 @@ void main() {
         scratch.add(created);
         return created;
       },
+      allowedRootBase: Directory.systemTemp.path,
     );
     expect(status, 0);
     return output
@@ -525,7 +526,7 @@ void main() {
     },
   );
 
-  test('verify_run reports an analysis failure as an error', () async {
+  test('verify_run rejects a packageRoot that does not exist', () async {
     final responses = await exchange([
       request(8, 'tools/call', {
         'name': verifyToolName,
@@ -536,10 +537,11 @@ void main() {
       }),
     ]);
 
+    // 존재하지 않는 루트는 하위 명령 실패로 이어지기 전에 인자 오류로 거부된다.
     final result = responses.single['result'] as Map<String, Object?>;
     expect(result['isError'], isTrue);
     final text = ((result['content'] as List).single as Map)['text'] as String;
-    expect(text, startsWith('exitCode: 2'));
+    expect(text, contains('existing directory'));
   });
 
   test('verify_run rejects an invalid command', () async {
@@ -557,6 +559,76 @@ void main() {
       contains('command must be one of'),
     );
   });
+
+  test(
+    'tools/call rejects a packageRoot outside the server boundary',
+    () async {
+      final output = StringBuffer();
+      final boundary = await Directory.systemTemp.createTemp('mcp-boundary.');
+      addTearDown(() => boundary.delete(recursive: true));
+      await runMcpServer(
+        input: Stream.fromIterable([
+          jsonEncode(
+            request(60, 'tools/call', {
+              'name': dependencyToolName,
+              // directory는 경계 밖의 임시 디렉터리다.
+              'arguments': {'packageRoot': directory.path, 'symbol': 'Foo'},
+            }),
+          ),
+          jsonEncode(request(61, 'ping')),
+        ]),
+        output: output,
+        error: diagnostics,
+        indexPackage: (_) async => indexed,
+        allowedRootBase: boundary.path,
+      );
+
+      final responses = output
+          .toString()
+          .trim()
+          .split('\n')
+          .map((line) => jsonDecode(line) as Map<String, Object?>)
+          .toList();
+      final tool = responses[0]['result'] as Map<String, Object?>;
+      expect(tool['isError'], isTrue);
+      expect(
+        ((tool['content'] as List).single as Map)['text'],
+        contains('within the server working directory'),
+      );
+      // 경계 위반 요청 이후에도 서버는 계속 응답한다.
+      expect(responses[1]['result'], <String, Object?>{});
+    },
+  );
+
+  test(
+    'oversized lines are rejected and the connection stays usable',
+    () async {
+      final output = StringBuffer();
+      final oversized = utf8.encode(
+        '{"jsonrpc":"2.0","id":1,"method":"ping","padding":"${'x' * 4096}"}\n',
+      );
+      final ping = utf8.encode('{"jsonrpc":"2.0","id":2,"method":"ping"}\n');
+      await runMcpServer(
+        input: Stream<List<int>>.fromIterable([
+          oversized,
+          ping,
+        ]).transform(boundedUtf8Lines(1024)),
+        output: output,
+        error: diagnostics,
+        indexPackage: (_) async => indexed,
+      );
+
+      final responses = output
+          .toString()
+          .trim()
+          .split('\n')
+          .map((line) => jsonDecode(line) as Map<String, Object?>)
+          .toList();
+      // 상한에서 잘린 메시지는 파싱 불가라 Invalid JSON으로 답한다.
+      expect((responses[0]['error'] as Map)['code'], -32700);
+      expect(responses[1]['result'], <String, Object?>{});
+    },
+  );
 
   test('protocol errors are answered without crashing the server', () async {
     final output = StringBuffer();
