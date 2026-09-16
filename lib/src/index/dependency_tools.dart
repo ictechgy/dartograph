@@ -109,8 +109,15 @@ Set<String> _analysisOptionPackages(String root) {
   }
   if (document is! YamlMap) return const {};
   final names = <String>{};
-  final include = document['include'];
-  if (include is String && include.startsWith('package:')) {
+  // include는 단일 URI 또는 URI 목록 둘 다 허용된다 — lint 세트 패키지는
+  // `package:` import 없이 도구 계약으로만 쓰인다.
+  final includes = switch (document['include']) {
+    String single => [single],
+    YamlList list => list.whereType<String>().toList(),
+    _ => const <String>[],
+  };
+  for (final include in includes) {
+    if (!include.startsWith('package:')) continue;
     final uri = Uri.tryParse(include);
     if (uri != null && uri.pathSegments.isNotEmpty) {
       names.add(uri.pathSegments.first);

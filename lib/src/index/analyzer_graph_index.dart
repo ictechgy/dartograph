@@ -1067,17 +1067,32 @@ bool _addBuildRunnerRoots(
     for (final entry in section.entries) {
       final value = entry.value;
       if (value is! YamlMap) continue;
+      // 컬렉션 리터럴의 if-else는 else가 안쪽 if에 붙어 목록·단일 분기가
+      // 어긋난다 — 명령형으로 분리한다.
+      final rawFactories = listValue
+          ? value['builder_factories']
+          : value['builder_factory'];
+      final factories = <String>[
+        if (rawFactories is YamlList)
+          ...rawFactories.whereType<String>()
+        else if (rawFactories is String)
+          rawFactories,
+      ];
+      if (factories.isEmpty) continue;
       final libraryId = libraryIdOf(value['import']);
-      if (listValue) {
-        final factories = value['builder_factories'];
-        if (factories is YamlList) {
-          for (final factory in factories) {
-            if (factory is String) addFactory(libraryId, factory);
-          }
-        }
-      } else {
-        final factory = value['builder_factory'];
-        if (factory is String) addFactory(libraryId, factory);
+      if (libraryId == null) {
+        // import를 해석하지 못했는데 factory가 선언돼 있으면 조용히 넘기지
+        // 않는다 — 실제로 보존되지 않은 빌더 루트는 한계로 남긴다.
+        final rawImport = value['import'];
+        limitationDetails.add(
+          'build-yaml-import-unresolved: ${entry.key} declares builder '
+          'factories but its import (${rawImport ?? 'missing'}) could not '
+          'be interpreted',
+        );
+        continue;
+      }
+      for (final factory in factories) {
+        addFactory(libraryId, factory);
       }
     }
   }
@@ -1179,9 +1194,10 @@ const _cacheSchemaVersion = 4;
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
 // deps 감사 입력으로 쓰는 새 추출)과 build.yaml·인터롭 annotation 보존 루트로
-// 추출 의미가 바뀌어 다시 올린다.
+// 추출 의미가 바뀌어 다시 올린다. @anonymous 인식과 build.yaml 미해석 import
+// 한계 기록(v8)으로 다시 올린다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v7-package-refs-binding-roots';
+    'dartograph-analysis-$toolVersion-cache-v8-anonymous-binding-import-gaps';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -2110,10 +2126,13 @@ bool _isExternalBinding(String name, String? annotationLibrary) {
   return false;
 }
 
+// `anonymous`는 `const _Anonymous anonymous`로 선언된 상수라 작성명·요소명 모두
+// 'anonymous'다 — 클래스 이름(JSAnonymous·_Anonymous)이 아니라 적힌 이름을 본다.
 const _jsBindingAnnotations = {
   'JS',
   'JSAnonymous',
   'JSExport',
+  'anonymous',
   'staticInterop',
 };
 
