@@ -456,6 +456,42 @@ void main() {
     );
   });
 
+  test('project-scheme file nodes are reported as dead files', () {
+    // package_config이 없는 프로젝트는 자기 라이브러리를 project: ID로 둔다 —
+    // dead-file 검사가 package:만 보면 이 파일 발견이 조용히 사라진다.
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/orphan.dart::dead',
+          sourceUri: 'project:lib/orphan.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:lib/main.dart'))
+      ..addNode(GraphNode(id: 'project:lib/orphan.dart'));
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'project:lib/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+    );
+
+    expect(
+      result.deadFiles.map((finding) => finding.id),
+      contains('project:lib/orphan.dart'),
+    );
+    expect(
+      result.deadDeclarations.map((finding) => finding.id),
+      contains('project:lib/orphan.dart::dead'),
+    );
+  });
+
   test('a percent-encoded library id keeps its file-level limitation', () {
     final graph = CodeGraph()
       ..addNode(GraphNode(id: 'package:app/main.dart'))

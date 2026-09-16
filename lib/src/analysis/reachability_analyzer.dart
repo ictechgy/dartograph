@@ -507,9 +507,14 @@ final class ReachabilityAnalyzer {
         }
       }
     }
+    // package_config이 없으면 자기 패키지 라이브러리도 project: ID로 들어온다 —
+    // 두 스킴 모두 파일 후보다(위의 도달 가능 라이브러리 시드와 같은 기준).
     final files = graph.nodes
         .where((node) => !node.id.contains('::'))
-        .where((node) => node.id.startsWith('package:'))
+        .where(
+          (node) =>
+              node.id.startsWith('package:') || node.id.startsWith('project:'),
+        )
         .where((node) => !libraryPaths.containsKey(node.id))
         .map((node) {
           final source = _librarySource(node.id);
@@ -749,13 +754,24 @@ List<String> limitationsForSource(List<String> limitations, String source) =>
 
 String _librarySource(String id) {
   final uri = Uri.parse(id);
-  final separator = uri.path.indexOf('/');
-  final encoded = separator < 0 ? uri.path : uri.path.substring(separator + 1);
+  // package:<name>/<path>는 패키지명 세그먼트를 건너뛰고 lib/ 아래로 매핑하지만,
+  // project:는 이미 프로젝트 상대 경로다 — 첫 세그먼트를 패키지명으로 깎으면
+  // test/가 lib/로 손상된다.
+  final String encoded;
+  final String prefix;
+  if (uri.scheme == 'package') {
+    final separator = uri.path.indexOf('/');
+    encoded = separator < 0 ? uri.path : uri.path.substring(separator + 1);
+    prefix = 'project:lib/';
+  } else {
+    encoded = uri.path;
+    prefix = 'project:';
+  }
   // Uri.path는 퍼센트 인코딩을 유지한다(%20 등). analyzer가 실제 파일 경로에서 만든
   // source 한계 ID는 디코딩된 경로를 쓰므로, 같은 모양으로 디코딩해야
   // limitationsForSource의 endsWith 매칭이 성립해 그 파일의 한계가 finding에서
   // 조용히 사라지지 않는다.
-  return 'project:lib/${Uri.decodeComponent(encoded)}';
+  return '$prefix${Uri.decodeComponent(encoded)}';
 }
 
 final class _PathStep {

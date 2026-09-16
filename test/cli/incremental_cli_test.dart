@@ -74,7 +74,8 @@ void main() {
     expect(leading.status, 0, reason: leading.error);
     expect(leading.output, plain.output);
 
-    // dead도 같은 색인 경로를 쓴다.
+    // dead도 같은 색인 경로를 쓴다. package_config이 없어 lib/app.dart 배럴은
+    // project: ID로 dead-file 발견이 된다 — findings는 종료 1이다.
     final dead = await _run([
       'dead',
       '--incremental',
@@ -83,7 +84,8 @@ void main() {
       'json',
       root.path,
     ]);
-    expect(dead.status, 0, reason: dead.error);
+    expect(dead.status, 1, reason: dead.error);
+    expect(dead.output, contains('project:lib/app.dart'));
   });
 
   test('incremental option errors are usage errors', () async {
