@@ -20,6 +20,8 @@ case "$file" in
 esac
 
 root="${CLAUDE_PROJECT_DIR:-$PWD}"
+# 끝의 슬래시를 벗겨 "$root"/* 패턴이 항상 프로젝트 안 경로에 맞게 한다.
+while [ "$root" != / ] && [ "${root%/}" != "$root" ]; do root="${root%/}"; done
 case "$file" in
   "$root"/*) rel="${file#"$root"/}" ;;
   /*)

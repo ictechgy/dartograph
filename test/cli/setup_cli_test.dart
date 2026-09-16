@@ -239,6 +239,26 @@ void main() {
     final stderr = await process.stderr.transform(utf8.decoder).join();
     expect(await process.exitCode, 0);
     expect(stderr, contains('outside'));
+
+    // CLAUDE_PROJECT_DIR 끝의 슬래시가 있어도 프로젝트 안 파일은 skip되지
+    // 않는다 — PATH를 비워 dartograph 호출이 어디서도 실패하게 두고, 밖
+    // 판정 문구가 안 나오는 것으로 안쪽 분기 진입을 확인한다.
+    final inside = await Process.start(
+      '/bin/sh',
+      [script.path],
+      environment: {
+        'CLAUDE_PROJECT_DIR': '${project.path}/',
+        // sed·mktemp은 쓸 수 있지만 dartograph은 못 찾는 PATH다.
+        'PATH': '${temporary.path}/empty-bin:/usr/bin:/bin',
+      },
+    );
+    inside.stdin.writeln(
+      '{"tool_input": {"file_path": "${project.path}/lib/x.dart"}}',
+    );
+    await inside.stdin.close();
+    final insideStderr = await inside.stderr.transform(utf8.decoder).join();
+    expect(await inside.exitCode, 0);
+    expect(insideStderr, isNot(contains('outside')));
   });
 
   test('mergeClaudeSettings treats null keys as empty', () {
@@ -258,6 +278,10 @@ void main() {
         ((jsonDecode(withOther!) as Map)['hooks'] as Map)['PostToolUse']
             as List;
     expect(postToolUse, hasLength(2));
+  });
+
+  test('mergeMcpConfig treats a null mcpServers key as empty', () {
+    expect(mergeMcpConfig('{"mcpServers": null}', force: false), isNotNull);
   });
 
   test('mergeMcpConfig skips an existing dartograph entry without force', () {

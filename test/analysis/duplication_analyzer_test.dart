@@ -56,6 +56,8 @@ void main() {
     final report = DuplicationAnalyzer().analyze([
       segment('project:lib/a.dart', [1, 2, 1, 2, 1, 2]),
     ], minTokens: 2);
+    // 공백이 아닌 발견이어야 검사가 헛돌지 않는다.
+    expect(report.findings, isNotEmpty);
     for (final finding in report.findings) {
       final first = finding.instances[0];
       final second = finding.instances[1];
@@ -66,6 +68,20 @@ void main() {
         reason: 'instances overlap: $first vs $second',
       );
     }
+  });
+
+  test('back extension up to the boundary still reports adjacent blocks', () {
+    // [9,1,2] 블록 두 개가 붙어 있다. (윈도 1, 윈도 4) 쌍은 back=1까지
+    // 허용돼 [0..3)·[3..6)의 인접 블록을 만든다 — 상한이 확장을 과도하게
+    // 막으면 이 발견이 사라진다.
+    final report = DuplicationAnalyzer().analyze([
+      segment('project:lib/a.dart', [9, 1, 2, 9, 1, 2]),
+    ], minTokens: 2);
+    expect(report.findings, hasLength(1));
+    final finding = report.findings.single;
+    expect(finding.tokenCount, 3);
+    expect(finding.instances[0].endLine, 3);
+    expect(finding.instances[1].startLine, 4);
   });
 
   test('non-overlapping same-segment repeat is reported once', () {

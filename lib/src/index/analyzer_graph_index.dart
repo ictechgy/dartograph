@@ -1383,8 +1383,9 @@ const _cacheSchemaVersion = 6;
 // 한계 기록(v8)으로 다시 올린다. 복잡도 추출 시작(v9)으로 다시 올린다.
 // dup 입력용 정규화 토큰 추출(v10)로 다시 올린다. retained_names/retained_files
 // 설정 보존 루트(v11)로 다시 올린다 — 같은 dartograph.yaml 내용의 해석이 바뀐다.
+// 복잡도 카운터가 컬렉션 if 요소까지 세기 시작해(v12) 같은 소스의 점수가 바뀐다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v11-configured-retention';
+    'dartograph-analysis-$toolVersion-cache-v12-if-element-complexity';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
