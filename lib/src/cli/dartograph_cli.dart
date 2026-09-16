@@ -2709,8 +2709,10 @@ file (a symlink at that path is replaced as a link, never followed).
 
 dead --format codeowners groups findings by the owners of their source paths
 using a CODEOWNERS file passed to --codeowners <file>. The last matching rule
-wins; * and ** are supported and a pattern containing "/" is anchored to the
-project root (a subset of the CODEOWNERS format). Findings whose path matches
+wins; *, **, ?, bracket character classes ([a-c], [!x]), and backslash escapes
+are supported, a pattern containing "/" is anchored to the project root, and a
+leading "!" exempts the match from ownership (the GitLab extension — GitHub
+CODEOWNERS does not support "!"). Findings whose path matches
 no rule are grouped under "(unowned)". The file path is not echoed in errors.
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
