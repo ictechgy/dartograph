@@ -132,9 +132,12 @@ final class PathGlob {
         buffer.write(RegExp.escape(body[index + 1]));
         index += 2;
       } else {
-        // 첫 위치의 리터럴 `]`는 이스케이프해 정규식이 닫히지 않게 한다.
+        // 첫 위치의 리터럴 `]`와 말미의 외로운 `\`는 이스케이프해 정규식이
+        // 깨지지 않게 한다(정상적인 _classEnd 경로에서는 도달하지 않는다).
         if (character == ']' && first) {
           buffer.write(r'\]');
+        } else if (character == r'\' && index + 1 == body.length) {
+          buffer.write(r'\\');
         } else {
           buffer.write(character);
         }
