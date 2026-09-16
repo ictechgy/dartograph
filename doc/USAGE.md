@@ -423,9 +423,11 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 
 ## VS Code 확장
 
-`editors/vscode/`에 빌드 단계 없는 순수 JavaScript 확장이 있다. 설치된
-`dartograph` 실행 파일을 호출해 JSON 보고서를 **Problems** 진단으로 옮긴다 —
-분석기 진단이 아니라 근거·한계를 동반한 그래프 관측이며 삭제 판정은 내리지 않는다.
+`editors/vscode/`의 VS Code 확장은 마켓플레이스에 게시돼 있다 — Extensions
+뷰에서 **dartograph**를 검색해 설치하고 CLI(`dart pub global activate dartograph`)가
+PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON 보고서를 **Problems**
+진단으로 옮긴다 — 분석기 진단이 아니라 근거·한계를 동반한 그래프 관측이며
+삭제 판정은 내리지 않는다.
 
 - `dartograph: Analyze Workspace` — `pubspec.yaml`을 가진 각 워크스페이스 폴더에서
   `dead`·`deps`·`dup`를 실행한다. dead는 선언 위치에 경고로, deps는
@@ -439,8 +441,9 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 - 각 보고서의 `limitations`는 dartograph 출력 채널에 기록한다 — 발견이 없다는
   사실이 안전의 증명이 되지 않는다.
 
-로컬 사용은 이 디렉터리를 `~/.vscode/extensions/`에 복사하면 되고, 배포용 패키징은
-`vsce package`를 쓴다. 자세한 표는 [editors/vscode/README.md](../editors/vscode/README.md)를 본다.
+개발 중인 사본은 이 디렉터리를 `~/.vscode/extensions/`에 복사해 시험할 수 있고,
+배포용 패키징은 `vsce package`를 쓴다. 자세한 표는
+[editors/vscode/README.md](../editors/vscode/README.md)를 본다.
 
 ## 종료 코드
 
