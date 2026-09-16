@@ -161,6 +161,7 @@ final class ReachabilityResult {
     required Map<String, String> libraryWitnesses,
     required Set<String> nodeIds,
     required Set<String> reachableEnumConstants,
+    required Map<String, String> sealedSubtypeParents,
     required Map<String, RetentionReason> roots,
     required this.limitations,
   }) : _paths = paths,
@@ -168,6 +169,7 @@ final class ReachabilityResult {
        _libraryWitnesses = libraryWitnesses,
        _nodeIds = nodeIds,
        _reachableEnumConstants = reachableEnumConstants,
+       _sealedSubtypeParents = sealedSubtypeParents,
        _roots = roots;
 
   /// 정렬된 도달 선언 ID다.
@@ -184,6 +186,7 @@ final class ReachabilityResult {
   final Map<String, String> _libraryWitnesses;
   final Set<String> _nodeIds;
   final Set<String> _reachableEnumConstants;
+  final Map<String, String> _sealedSubtypeParents;
   final Map<String, RetentionReason> _roots;
 
   /// 전체 결과에 적용되는 분석 한계다.
@@ -305,6 +308,23 @@ final class ReachabilityResult {
           witness: container,
         );
       }
+      // sealed 타입의 직접 서브타입은 도달 가능한 상위로 보존된다.
+      // deadDeclarations도 같은 근거로 제외하므로 상반된 결론이 되지 않는다.
+      final sealedParent = _sealedSubtypeParents[id];
+      if (sealedParent != null) {
+        final parentExplanation = explain(sealedParent);
+        return ReachabilityExplanation(
+          id: id,
+          reachable: true,
+          reason: 'retained as a subtype of a reachable sealed type',
+          rootsChecked: const [],
+          path: parentExplanation.path,
+          evidence: parentExplanation.evidence,
+          retentionReason: null,
+          limitations: limitations,
+          witness: sealedParent,
+        );
+      }
       return ReachabilityExplanation(
         id: id,
         reachable: false,
@@ -402,11 +422,43 @@ final class ReachabilityAnalyzer {
         reachableEnumConstants.add(node.id);
       }
     }
+    // sealed 타입이 도달 가능하면 직접 서브타입도 보존한다. sealed는 같은
+    // 라이브러리의 서브타입만 허용하므로 도달 가능한 sealed 타입으로 들어오는
+    // inheritance·implements·mixin 간선의 source가 곧 디스패치 대상이다 —
+    // switch의 exhaustive 매칭처럼 사용 참조 없이 런타임에 호출된다(undead의
+    // sealed 계층 보존과 같은 계약). 서브타입이 다시 sealed면 전이한다.
+    final nodesById = {for (final node in graph.nodes) node.id: node};
+    final sealedSubtypeParents = <String, String>{};
+    final sealedQueue = <String>[
+      for (final node in graph.nodes)
+        if (node.isSealed && paths.containsKey(node.id)) node.id,
+    ];
+    for (var index = 0; index < sealedQueue.length; index++) {
+      final parent = sealedQueue[index];
+      for (final edge in graph.edges) {
+        if (edge.targetId != parent ||
+            edge.sourceId == parent ||
+            !edge.sourceId.contains('::') ||
+            sealedSubtypeParents.containsKey(edge.sourceId)) {
+          continue;
+        }
+        switch (edge.kind) {
+          case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
+            sealedSubtypeParents[edge.sourceId] = parent;
+            final subtype = nodesById[edge.sourceId];
+            if (subtype != null && subtype.isSealed) {
+              sealedQueue.add(edge.sourceId);
+            }
+          default:
+        }
+      }
+    }
     final declarations = graph.nodes
         .where((node) => node.id.contains('::'))
         .where((node) => !paths.containsKey(node.id))
         .where((node) => !reachableContainers.contains(node.id))
         .where((node) => !reachableEnumConstants.contains(node.id))
+        .where((node) => !sealedSubtypeParents.containsKey(node.id))
         .map((node) {
           final source = node.sourceUri ?? node.id.split('::').first;
           return DeadFinding(
@@ -481,6 +533,7 @@ final class ReachabilityAnalyzer {
       libraryWitnesses: libraryWitnesses,
       nodeIds: nodeIds,
       reachableEnumConstants: reachableEnumConstants,
+      sealedSubtypeParents: sealedSubtypeParents,
       roots: sortedRoots,
       limitations: List.unmodifiable(limitations),
     );
