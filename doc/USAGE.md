@@ -9,6 +9,23 @@ dart pub global activate dartograph
 dartograph --version
 ```
 
+Dart 3.11 이상은 `dart install`로도 설치할 수 있다. pub.dev 지정자는
+`dart install dartograph`이고, 소스 체크아웃에서는 절대 경로 지정자가
+동작한다(상대 `path` 지정자는 SDK 헬퍼 패키지 제약으로 실패한다 —
+2026-09 Dart 3.13.3 실측):
+
+```bash
+dart install dartograph            # pub.dev 릴리스
+dart install 'dartograph@{path: /absolute/path/to/dartograph}'
+```
+
+`dart install`은 실행 파일을 AOT 컴파일해
+`~/Library/Application Support/Dart/install/bin`(macOS 기준)에 놓는다.
+실측: 설치본 `dartograph --version` → `dartograph 0.10.0`, 소스
+체크아웃 대상 `dead --kinds file` → 발견 보고·종료 1 (2026-09,
+Dart 3.13.3/macOS arm64). `pub get`을 실행하지 않은 패키지 분석 등
+Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
+
 저장소 소스에서 실행할 때는 `dartograph` 대신 `dart run dartograph`를 쓴다.
 
 ## 명령

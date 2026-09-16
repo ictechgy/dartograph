@@ -80,8 +80,11 @@
   dartograph는 패키지 하나를 분석하고 `--project`/workspace 감지는 `bridges`에만 있다.
 - **런타임 검증의 신호 대 잡음.** 자기 저장소 기준 `config` 탐지의 다수가 CLI 인자 경로라
   신호가 약하다. 오탐을 줄이는 보수적 판정이 계속 필요하다(`--execute`·미판정 사유).
-- **`dart install` 미검증.** pubspec의 `executables` 덕에 Dart 3.10+의 AOT 설치 경로가
-  열려 있을 것으로 보이지만 실측하지 않았다. ciach는 이를 명시 지원한다.
+- **`dart install` 실측 완료(2026-09, Dart 3.13.3/macOS arm64).**
+  `dart install 'dartograph@{path: <절대경로>}'`가 AOT 바이너리를 생성·설치하고,
+  설치본 `--version`→`dartograph 0.10.0`, `dead --kinds file`→발견·종료 1을 확인했다.
+  상대 `path` 지정자(`{path: .}`)는 SDK 헬퍼 패키지 이름 제약으로 실패한다.
+  문서는 doc/USAGE.md 설치 절 참조.
 
 ## 5. 출처
 
@@ -135,8 +138,8 @@
 | P1 | 보존 정밀도: build_runner·JS/FFI·sealed | undead framework adapters | build.yaml 팩토리 루트, `externalBinding` 보존, sealed 하위 전이 구제 | 구현(미릴리스 — `RetentionReason.buildRunner`·`externalBinding`, `GraphNode.isSealed`, analyzer 14 `ClassBody` 순회 수정) |
 | P2 | 0.9.0 릴리스 패키징 | 오픈소스 배포 | 태그·CHANGELOG·`pub publish --dry-run` 통과 | 완료(게시 0.9.0, 태그 v0.9.0 = b2aad3a) |
 | P2 | 다음 릴리스(0.10.0) 패키징 | 증분 발행 | 태그·CHANGELOG·dry-run | 완료(게시 0.10.0, 태그 v0.10.0 = 2b3a236) |
-| P2 | 중복 코드 탐지 | dallow·DCM·fallow | 토큰/AST 수준 duplication + limitation | 미착수 — 제품 계약(근거 질의)과의 적합성 검토부터 |
-| P2 | 함수 수준 순환 복잡도 | dallow·DCM·dart_sentinel | `metrics`에 함수 복잡도 추가 | 미착수 |
-| P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 미착수 |
+| P2 | 중복 코드 탐지 | dallow·DCM·fallow | 토큰/AST 수준 duplication + limitation | 구현(미릴리스 — `dup` 명령·토큰 shingle 기반 duplicate-block finding·`--min-tokens`·MCP `verify_run`, 리뷰 후보일 뿐 삭제 지시 아님) |
+| P2 | 함수 수준 순환 복잡도 | dallow·DCM·dart_sentinel | `metrics`에 함수 복잡도 추가 | 구현(미릴리스 — `metrics` complexity·hotSpots 섹션, `thresholds.complexity` 게이트) |
+| P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 완료(미릴리스 — AOT 설치·`--version`·`dead` 실측, USAGE·README 설치 절 갱신, 상대 path 제약 기록) |
 | P3 | Claude Code hooks·툴별 AI 설정 생성 | dart_sentinel `setup-hooks`·`generate-ai-config` | MCP 호출 없이 강제되는 훅 스크립트 | 미착수 |
 | P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 미착수 — CLI·MCP 중심 선택과 상충, 별도 결정 필요 |

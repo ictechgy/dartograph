@@ -42,6 +42,8 @@ Dart SDK 3.11 or later.
 
 ```bash
 dart pub global activate dartograph
+# or, on Dart 3.11+, an AOT-compiled install:
+dart install dartograph
 dartograph --version
 ```
 
