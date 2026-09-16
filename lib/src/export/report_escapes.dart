@@ -6,8 +6,9 @@ import 'dart:convert';
 /// 본다. 동적 값의 제어문자·파이프·경로 손상이 진단줄을 위조하지 못하게 한다.
 abstract final class ReportEscapes {
   /// text 형식은 `path:line:col: severity: ...` 행 프로토콜이다. 동적 값의
-  /// 개행·제어문자는 두 번째 진단줄 위조나 ANSI 주입이 되므로 C0·DEL을 가시
-  /// 이스케이프로 바꾼다(정상 경로는 바이트 불변).
+  /// 개행·제어문자는 두 번째 진단줄 위조나 ANSI 주입이 되므로 githubEncode와
+  /// 같은 집합(C0·DEL·C1, U+2028·2029, bidi 제어)을 가시 이스케이프로 바꾼다
+  /// (정상 경로는 바이트 불변).
   static String escapeText(String value) {
     if (!value.runes.any(_isControlRune)) return value;
     final output = StringBuffer();
@@ -24,17 +25,47 @@ abstract final class ReportEscapes {
         case 0x09:
           output.write(r'\t');
         default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
+          output.write(
+            rune <= 0xff
+                ? '\\x${rune.toRadixString(16).padLeft(2, '0')}'
+                : '\\u{${rune.toRadixString(16)}}',
+          );
       }
     }
     return output.toString();
   }
 
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
+  static bool _isControlRune(int rune) =>
+      rune < 0x20 || // C0
+      rune == 0x7f || // DEL
+      (rune >= 0x80 && rune <= 0x9f) || // C1
+      rune == 0x2028 ||
+      rune == 0x2029 || // 줄·단락 분리
+      (rune >= 0x202a && rune <= 0x202e) || // bidi 제어
+      (rune >= 0x2066 && rune <= 0x2069); // bidi 격리
 
   /// Markdown 표 셀: 제어문자를 가시 이스케이프하고 파이프를 이스케이프한다.
   static String mdCell(String value) =>
       escapeText(value).replaceAll('|', r'\|');
+
+  /// Markdown code span으로 감싼다. 내용에 백틱이 있으면 구분자를 더 긴
+  /// 백틱 run으로 늘린다 — span 안에서는 `\`` 이스케이프가 literal이라 쓸 수
+  /// 없고, 내용이 백틱으로 시작·끝나면 공백 패딩이 필요하다(CommonMark).
+  static String mdCode(String value) {
+    final cell = mdCell(value);
+    var longest = 0;
+    for (final match in RegExp('`+').allMatches(cell)) {
+      if (match.end - match.start > longest) {
+        longest = match.end - match.start;
+      }
+    }
+    if (longest == 0) return '`$cell`';
+    final fence = '`' * (longest + 1);
+    final padded = cell.startsWith('`') || cell.endsWith('`')
+        ? ' $cell '
+        : cell;
+    return '$fence$padded$fence';
+  }
 
   /// source ID에서 `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
   ///

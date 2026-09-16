@@ -68,12 +68,11 @@ abstract final class DependencyReporter {
           ? '—'
           : finding.sources
                 .map(ReportEscapes.sourcePath)
-                .map(ReportEscapes.mdCell)
-                .map((source) => '`$source`')
+                .map(ReportEscapes.mdCode)
                 .join(', ');
       output.writeln(
         '| warning | ${ReportEscapes.mdCell(finding.kind)} | '
-        '`${ReportEscapes.mdCell(finding.name)}` | '
+        '${ReportEscapes.mdCode(finding.name)} | '
         '${ReportEscapes.mdCell(finding.reason)} | $evidence |',
       );
     }

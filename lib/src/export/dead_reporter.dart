@@ -157,12 +157,12 @@ abstract final class DeadReporter {
     output.writeln('|---|---|---|---|---|---|');
     for (final finding in findings) {
       final location = finding.line == null
-          ? '`${ReportEscapes.mdCell(ReportEscapes.sourcePath(finding.source))}`'
-          : '`${ReportEscapes.mdCell(ReportEscapes.sourcePath(finding.source))}:${finding.line}:${finding.column ?? 1}`';
+          ? ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))
+          : '${ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))}:${finding.line}:${finding.column ?? 1}';
       output.writeln(
         '| ${report.severity} | ${ReportEscapes.mdCell(finding.kind)} | '
-        '`${ReportEscapes.mdCell(finding.id)}` | $location | ${ReportEscapes.mdCell(finding.reason)} | '
-        '`retentionRootsChecked=${ReportEscapes.mdCell(_roots(finding))}` |',
+        '${ReportEscapes.mdCode(finding.id)} | $location | ${ReportEscapes.mdCell(finding.reason)} | '
+        '${ReportEscapes.mdCode('retentionRootsChecked=${_roots(finding)}')} |',
       );
     }
     output.writeln();
@@ -171,7 +171,7 @@ abstract final class DeadReporter {
     for (final finding in findings) {
       for (final limitation in finding.limitations) {
         output.writeln(
-          '- `${ReportEscapes.mdCell(finding.id)}`: ${ReportEscapes.mdCell(limitation)}',
+          '- ${ReportEscapes.mdCode(finding.id)}: ${ReportEscapes.mdCell(limitation)}',
         );
       }
     }
