@@ -30,5 +30,7 @@ void main() {
           .toList();
       expect(productFindings, isEmpty);
     },
+    // 저장소 전체 자기 분석이라 느린 CI 러너에서 기본 30초를 넘을 수 있다.
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 }
