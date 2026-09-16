@@ -2,6 +2,18 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Added `bridges --events`, an opt-in producer path that emits EventChannel
+  `receiveBroadcastStream` listens as bridge-facts version 2 with
+  `transport: event-channel` and `kind: stream-listen`. Only calls whose
+  receiver is proven to be an `EventChannel` construction produce facts —
+  arbitrary `.listen()` calls and unproven receivers are counted as
+  `unresolved-stream-listens`, and dynamic channel names keep their literal
+  `channelPrefix` under `dynamic-event-channel-names`. `--messages` and
+  `--events` are separate transport documents and do not combine; the default
+  `bridges` output keeps version 1 MethodChannel facts unchanged.
+
 ## 0.11.0
 
 - Added `dartograph deps`, a pubspec hygiene audit that contrasts declared

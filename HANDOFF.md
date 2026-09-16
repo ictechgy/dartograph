@@ -1,6 +1,19 @@
 # Handoff
 
-_Last updated: 2026-09-16 (0.10.0 릴리스 완료. 직전 릴리스 기준은 0.9.0 → `v0.9.0` = b2aad3a. 활성 원장은 아래 2줄 참조)_
+_Last updated: 2026-09-17 (PR #103 발행 — `feature/bridge-events` EventChannel·FFI·mutable 재대입. GLM 반영 완료, 머지 대기)_
+
+## 2026-09-17 — `feature/bridge-events` → PR #103 (OPEN)
+
+- 브랜치 4커밋: `65a24c2` EventChannel producer(`receiveBroadcastStream`→`stream-listen`, `--events` v2 문서),
+  `489a151` mutable 필드 초기값 해석, `b583c2a` FFI/JNI 파일 `unscanned-ffi-interop` 한계,
+  `b6075aa` GLM 반영 — 생성자 초기자·`this.x`·cascade·외부 대입·최상위 재대입 전 형태 감지
+  (enclosing 귀속과 외부 쓰기 분리로 같은 이름 무관 필드 과억제 방지).
+- `dart analyze` 무이슈, `dart test` 531개 전부 통과.
+- 후속 메모: `receiveBroadcastStream()`이 반환 스트림의 실제 수신과 무관하게 사실을 낸다 —
+  "경계 요청" 의미인지 "리스너 부착"인지 fact 계약 의도를 확인할 것(GLM 보류 지적).
+- 활성 원장 `HANDOFF-PROGRESS.md`는 다른 세션 소유다 — 그쪽 갱신과 충돌하지 않는다.
+
+---
 
 - **0.10.0 릴리스 완료**(2026-09-15): pub.dev latest 0.10.0, 태그 `v0.10.0` = `2b3a236`(PR #96 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.10.0 + CLI 계약 passed 실측.
 - 0.10.0 내용: 증분 분석 `--incremental <dir>`(색인 명령 11), 검증 원장 `--record`/`history`, `dead --format markdown`/`codeowners`, PR 코멘트 CI 예시, MCP 문서. CI가 잡은 SARIF 업로드 결함 수정. main = `2b3a236`.
