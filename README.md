@@ -79,13 +79,23 @@ dartograph query --batch requests.json .
 dartograph compare ../before-checkout ../after-checkout
 dartograph affected origin/main .
 
-# Flutter bridge facts, cycles, layer rules, metrics, agent skill
-dartograph bridges --format json .
-dartograph bridges --messages --format json .
+# change impact pre-check & runtime-only dependencies
+dartograph impact --changed lib/api.dart .
+dartograph runtime .
+
+# duplicate code, cycles, layer rules, metrics
+dartograph dup .
 dartograph cycles --strict .
 dartograph rules --config layers.yaml --strict .
 dartograph metrics .
+
+# Flutter bridge facts, agent skill & setup, MCP server
+dartograph bridges --format json .
+dartograph bridges --messages --format json .
+dartograph bridges --events --format json .
 dartograph skill
+dartograph setup --install .
+dartograph mcp
 ```
 
 Full arguments, output formats, exit codes, and CI examples live in
@@ -118,14 +128,25 @@ Full arguments, output formats, exit codes, and CI examples live in
   millisecond timestamps. Dynamic channel names remain facts; unattributed or
   malformed invocations, partial parses, and EventChannel/BasicMessageChannel
   are counted as limitations rather than read as facts in the default command.
-- `bridges --messages --format json .` is an opt-in development-source producer
-  for BasicMessageChannel `send` calls. It emits bridge-facts v2 with
-  `transport: "basic-message-channel"` and `kind: "message-send"`; it never
-  turns a channel construction into a send or invents a MethodChannel method.
-  Dynamic names retain their source expression. A `channelPrefix` is emitted
-  only when the AST proves a decoded, non-empty leading literal in a string
+- `bridges --messages` and `bridges --events` are opt-in development-source
+  producers for BasicMessageChannel `send` calls and EventChannel
+  `receiveBroadcastStream` listens. They emit bridge-facts v2 with
+  `transport: "basic-message-channel"`/`"event-channel"`; they never turn a
+  channel construction into a send or invent a MethodChannel method. Dynamic
+  names retain their source expression. A `channelPrefix` is emitted only when
+  the AST proves a decoded, non-empty leading literal in a string
   interpolation; it is a candidate prefix, not proof of a complete runtime
-  address or instance identity. This producer is new in `0.9.0`.
+  address or instance identity. `--messages` and `--events` are mutually
+  exclusive.
+- `impact` reports which declarations and tests a change touches before it
+  lands — from `--changed <file>`/`--symbol <id>`/`--since <ref>` — with the
+  dependency paths as evidence. `runtime` finds inputs that only appear at run
+  time (environment/dart-define reads, dynamic loads, config paths, assets,
+  external URLs) and judges them against the current environment; `--execute`
+  runs an entrypoint and records exit code and stderr as execution evidence.
+- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns, and
+  `--record <dir>`/`history` keep an append-only ledger of run inputs,
+  versions, and results.
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
@@ -162,7 +183,11 @@ Full arguments, output formats, exit codes, and CI examples live in
   [marketplace](https://marketplace.visualstudio.com/items?itemName=ictechgy.dartograph)
   (source: `editors/vscode/`): it runs the CLI and surfaces
   `dead`/`deps`/`dup`/`impact` JSON findings as Problems diagnostics —
-  evidence and limitations included, never a deletion verdict.
+  evidence and limitations included, never a deletion verdict. The
+  [`dartograph_analysis_plugin`](https://pub.dev/packages/dartograph_analysis_plugin)
+  package brings `dead`/`dup` findings into `dart analyze` and IDE analysis
+  servers as `dartograph_dead_code`/`dartograph_duplicate_block` diagnostics
+  with a `dartograph:ignore` quick fix.
 
 A `// dartograph:ignore` line comment suppresses dead reporting for the
 declaration it heads (retained as `retentionReason: inlineIgnore`) — a decision
@@ -221,6 +246,9 @@ Repository design documents are written in Korean.
 | [`doc/RESEARCH.md`](doc/RESEARCH.md) | Confirmed facts, unconfirmed claims, sources |
 | [`doc/DECISION-analyzer.md`](doc/DECISION-analyzer.md) | Analyzer version, vertex IDs, generated code, caching decisions |
 | [`doc/USAGE.md`](doc/USAGE.md) | Install, commands, exit codes, CI usage |
+| [`doc/MCP.md`](doc/MCP.md) | MCP tools, resources, prompts, error codes |
+| [`doc/TROUBLESHOOTING.md`](doc/TROUBLESHOOTING.md) | Common failure modes and fixes |
+| [`doc/COMPETITIVE-ANALYSIS.md`](doc/COMPETITIVE-ANALYSIS.md) | Alternatives survey and the shipped gap list |
 
 ## Contributing and security
 
