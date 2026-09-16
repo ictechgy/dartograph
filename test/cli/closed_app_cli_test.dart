@@ -92,6 +92,30 @@ void main() {
   });
 
   test(
+    'duplicate valued options are usage errors, not silent last-wins',
+    () async {
+      for (final repeated in const [
+        ['--format', 'json', '--format', 'text'],
+        ['--baseline', 'a.json', '--baseline', 'b.json'],
+        ['--since', 'HEAD~1', '--since', 'HEAD~2'],
+        ['--codeowners', 'A', '--codeowners', 'B'],
+        ['--explain', 'x', '--explain', 'y'],
+      ]) {
+        final output = StringBuffer();
+        expect(
+          await runDartograph(
+            ['dead', ...repeated, fixtureDirectory.path],
+            output: output,
+            error: StringBuffer(),
+          ),
+          ExitStatus.usage.code,
+          reason: 'repeated: $repeated',
+        );
+      }
+    },
+  );
+
+  test(
     'baseline written with --closed-app suppresses closed-app findings',
     () async {
       final baselineFile = File(

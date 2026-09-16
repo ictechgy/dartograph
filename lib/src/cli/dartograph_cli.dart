@@ -713,7 +713,14 @@ Future<int> _runImpact(
       changedSources.addAll(matched.matchedSources);
       unmappedDartFiles = matched.unmappedDartFiles;
     } else if (changedFile != null) {
-      changedSources.addAll(await _readChangedEntries(changedFile));
+      try {
+        changedSources.addAll(await _readChangedEntries(changedFile));
+      } on FileSystemException {
+        // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
+        // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
+        error.writeln('Changed list could not be read: $changedFile');
+        return ExitStatus.usage.code;
+      }
     } else {
       changedSymbols.add(symbol!);
     }
@@ -1626,6 +1633,20 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
+      // valued 옵션 중복은 boolean 플래그와 같은 기준으로 거부한다 — 조용한
+      // last-win은 사용자가 지정한 의도를 침묵 속에 바꾼다.
+      final alreadySet = switch (argument) {
+        '--explain' => explainId != null,
+        '--format' => reportFormat != null || codeownersFormat,
+        '--baseline' => baselinePath != null,
+        '--since' => since != null,
+        '--codeowners' => codeownersPath != null,
+        _ => false,
+      };
+      if (alreadySet) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
       switch (argument) {
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
