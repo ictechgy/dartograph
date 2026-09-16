@@ -2,6 +2,56 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## 0.11.0
+
+- Added `dartograph deps`, a pubspec hygiene audit that contrasts declared
+  `dependencies`/`dev_dependencies`/`dependency_overrides` against the observed
+  `package:` imports and exports. It reports four finding kinds —
+  `unused-dependency`, `unused-dev-dependency`, `dev-dependency-in-lib`, and
+  `undeclared-dependency` — in five formats (text, json, markdown,
+  github-actions, sarif) and exits 1 when findings exist. Tool-contract
+  dependencies (`executables`, `build.yaml` builders, `analysis_options`
+  includes/plugins) count as used with package_config-backed evidence, while
+  runtime/generated/asset references stay explicit limitations. Findings are a
+  review list, never a deletion instruction.
+- Added `dead --closed-app` and `baseline --write --closed-app`. The flag drops
+  the public-API retention root for standalone apps (Flutter apps, CLI
+  executables), so declarations unreachable from `main` are reported even when
+  `lib/<package>.dart` exports them. Reports carry a `closed-app-analysis`
+  limitation; combining it with `--report-redundant-public` is a usage error
+  (64). Never run it on a published library.
+- The MCP server now answers `resources/list`·`resources/read` and
+  `prompts/list`·`prompts/get` alongside `tools/*`, declaring them in
+  `initialize` capabilities. Three static resources (`dartograph://usage`,
+  `dartograph://skill`, `dartograph://config` — same bodies as the CLI help,
+  generated skill, and config template) and three prompts
+  (`impact-precheck`, `dead-code-review`, `dependency-audit`) are exposed;
+  unknown resource URIs answer `-32002`. `verify_run` accepts the `deps`
+  command and a `closedApp` flag, which is rejected on non-`dead` commands so a
+  silently ignored flag is never accepted.
+- `dead` now rescues sealed hierarchies: a reachable sealed declaration keeps
+  its direct and transitive subtypes alive the way enum constants are, read
+  from the new `GraphNode.isSealed` marker.
+- The index additionally collects package-manifest facts (declared
+  dependencies, dev dependencies, dependency overrides, and `package:`
+  directive imports per package), preserves `build.yaml` builder factories as
+  `buildRunner` roots, and preserves `@JS`/`@staticInterop`/FFI annotation
+  targets as `externalBinding` roots. The fact-cache schema moved to v4 and the
+  index identity to v7.
+- Fixed a real analyzer-14 regression where `ClassBody` nodes sat between
+  members and declarations and stopped ancestor traversal, losing existing
+  retention evidence — the walk now skips non-`Declaration` nodes up to the
+  `CompilationUnit`.
+- Fixed the index to recognize `include:` lists, `@anonymous` directives, and
+  unresolved `build.yaml` imports; project-scheme dead files are now reported
+  with unmangled sources.
+- CLI rejects duplicate `dead` options and classifies unreadable `--changed`
+  input as a usage error instead of an analysis failure.
+- Reporters now escape C1 and bidi controls and fence markdown code spans
+  safely; the escaping policy is shared through `report_escapes.dart`.
+- MCP silences notification-shaped request messages and honors `closedApp`
+  values given as strings.
+
 ## 0.10.0
 
 - Added `--incremental <dir>` to the eleven indexing commands (`graph`, `dead`,
