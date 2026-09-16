@@ -49,8 +49,10 @@ madge(JS). 아래 "dartograph 현황"은 본 저장소 소스에서 직접 확�
 external-retentions는 계약상 dartograph 범위가 아님이 확정됐다(아래 "흡수 후보와 결과" 참조).
 Tier 2 후보 4건도 모두 구현·머지됐다(2026-09-08 후반 세션): `affected`(PR #31),
 `graph --format html`(PR #32), `graph --level`+`--collapse`(PR #33, module 제외 —
-단일 패키지 분석이라 해당 없음), 인라인 ignore 주석(PR #34). 아래 현황 목록은
-리서치 시점의 기록으로 남긴다.
+단일 패키지 분석이라 해당 없음), 인라인 ignore 주석(PR #34). `init`·markdown·
+codeowners 리포터와 `dartograph.yaml` 확장(include/exclude·retained_names·
+retained_files·thresholds), issue-type 필터(`--kinds`), CODEOWNERS 전체 문법도
+이후 구현됐다(0.9.0~미릴리스). 아래 현황 목록은 리서치 시점의 기록으로 남긴다.
 
 - `query`는 이웃 깊이가 `depth: 1`로 고정되고 `truncated`가 항상 false다
   (`lib/src/analysis/symbol_query.dart`). `--depth`·`--limit` 인자가 없다.

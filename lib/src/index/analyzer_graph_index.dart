@@ -17,7 +17,9 @@ import '../core/code_graph.dart';
 import '../core/fact_cache.dart';
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
+import '../core/path_glob.dart';
 import '../core/retention_reason.dart';
+import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'incremental_cache.dart';
 
@@ -52,6 +54,12 @@ final class AnalyzerGraphResult {
     this.declaredDevDependencies = const [],
     this.declaredDependencyOverrides = const [],
     this.packageImports = const {},
+    this.complexity = const {},
+    this.tokenSegments = const [],
+    this.includeGlobs = const [],
+    this.excludeGlobs = const [],
+    this.metricsDistanceThreshold,
+    this.metricsComplexityThreshold,
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -82,6 +90,35 @@ final class AnalyzerGraphResult {
   /// 이름을 참조하는 소스 ID(`project:…`) 목록(각 목록 정렬). 미해결 지시문도
   /// 선언된 URI 기준으로 센다 — 미해결을 건너뛰면 미선언 의존 신호가 사라진다.
   final Map<String, List<String>> packageImports;
+
+  /// 본문이 있는 실행 선언의 순환 복잡도다(선언 ID → 점수).
+  ///
+  /// 점수 의미는 `_ComplexityVisitor` 문서를 따른다. 본문 없는 선언
+  /// (abstract·external·시그니처)은 키가 없다.
+  final Map<String, int> complexity;
+
+  /// `dup` 중복 탐지의 입력이 되는 정규화 토큰 세그먼트다.
+  ///
+  /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
+  /// 기계 산출물의 반복은 검토 신호가 아니다.
+  final List<TokenSegment> tokenSegments;
+
+  /// `dartograph.yaml`의 `include` glob이다. 비어 있으면 모든 소스가 범위다.
+  ///
+  /// 발견 보고 범위만 좁힌다 — 그래프·의존 관측은 그대로다. 매칭은 소스 ID의
+  /// 스킴(`project:`·`package:`)을 뗀 경로에 [PathGlob] 문법을 적용한다.
+  final List<String> includeGlobs;
+
+  /// `dartograph.yaml`의 `exclude` glob이다. [includeGlobs]보다 뒤에 적용한다.
+  final List<String> excludeGlobs;
+
+  /// `dartograph.yaml` `thresholds.distance`다 — `metrics --strict`의
+  /// |D'| 허용치를 바꾼다(기본 0.3). 미설정이면 null이다.
+  final double? metricsDistanceThreshold;
+
+  /// `dartograph.yaml` `thresholds.complexity`다 — `metrics --strict`가
+  /// 실패로 바꾸는 최대 순환 복잡도다. 미설정이면 null이다.
+  final int? metricsComplexityThreshold;
 }
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
@@ -144,6 +181,7 @@ final class AnalyzerGraphIndex {
   ) async {
     final unitPaths = _dartFilesUnder(root, collection, sourcePackages);
     final entryPoints = _readEntryPoints(root);
+    final scope = _readScopeConfig(root);
     final pubspecContent = _readPubspec(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
     // (잘못된 이름은 조립 단계의 FormatException, 종료 코드 2다).
@@ -170,6 +208,7 @@ final class AnalyzerGraphIndex {
         facts: facts,
         entryPoints: entryPoints,
         pubspecContent: pubspecContent,
+        scope: scope,
       );
     }
     return _analyzeIncrementally(
@@ -180,6 +219,7 @@ final class AnalyzerGraphIndex {
       pubspecContent: pubspecContent,
       entryLibraryPath: entryLibraryPath,
       incremental: incremental,
+      scope: scope,
     );
   }
 
@@ -195,6 +235,7 @@ final class AnalyzerGraphIndex {
     required String? pubspecContent,
     required String? entryLibraryPath,
     required IncrementalCache incremental,
+    required _ScopeConfig scope,
   }) async {
     final sourcesOf = <String, String>{
       for (final path in unitPaths) path: ?_relativeSourcePath(path, root),
@@ -318,6 +359,7 @@ final class AnalyzerGraphIndex {
       facts: facts,
       entryPoints: entryPoints,
       pubspecContent: pubspecContent,
+      scope: scope,
     );
     incremental.stats
       ..resolvedFiles = resolved.length
@@ -363,6 +405,12 @@ final class AnalyzerGraphIndex {
         declaredDevDependencies: result.declaredDevDependencies,
         declaredDependencyOverrides: result.declaredDependencyOverrides,
         packageImports: result.packageImports,
+        complexity: result.complexity,
+        tokenSegments: result.tokenSegments,
+        includeGlobs: result.includeGlobs,
+        excludeGlobs: result.excludeGlobs,
+        metricsDistanceThreshold: result.metricsDistanceThreshold,
+        metricsComplexityThreshold: result.metricsComplexityThreshold,
       );
     }
     return result;
@@ -434,8 +482,16 @@ Future<_UnitFacts?> _resolveUnitFacts({
   final nodes = CodeGraph();
   final roots = <String, RetentionReason>{};
   final mainEntrySources = <String>{};
+  final complexity = <String, int>{};
   resolved.unit.accept(
-    _DeclarationCollector(nodes, root, roots, entryPoints, mainEntrySources),
+    _DeclarationCollector(
+      nodes,
+      root,
+      roots,
+      entryPoints,
+      mainEntrySources,
+      complexity,
+    ),
   );
   final edges = <GraphEdge>[];
   resolved.unit.accept(_RelationshipCollector(edges, root));
@@ -469,6 +525,12 @@ Future<_UnitFacts?> _resolveUnitFacts({
     dependencies: _libraryDependencies(root, library, resolved).toList()
       ..sort(),
     packageReferences: _packageReferences(resolved.unit),
+    complexity: complexity,
+    tokenSegments: _tokenSegments(
+      resolved.unit,
+      source,
+      generated: _isGenerated(resolved.path),
+    ),
     libraryFacts: _libraryFacts(root, library, entryLibraryPath),
     librarySource: _relativeSourcePath(
       library.firstFragment.source.fullName,
@@ -564,6 +626,65 @@ List<String> _packageReferences(CompilationUnit unit) {
   return names.toList()..sort();
 }
 
+/// 최상위 선언마다 정규화 토큰 열을 뽑는다(`dup`의 입력 사실).
+///
+/// 토큰 범위는 `firstTokenAfterCommentAndMetadata`부터 선언 끝까지다 —
+/// 주석은 토큰 사슬에 없고 annotation·doc comment는 제외되어, 주석만 다른
+/// 복사본도 같은 열을 만든다. 지시문은 선언 범위 밖이라 자연스럽게 빠진다.
+/// 생성 파일의 반복은 검토 신호가 아니므로 비교 대상에서 뺀다.
+List<TokenSegment> _tokenSegments(
+  CompilationUnit unit,
+  String source, {
+  required bool generated,
+}) {
+  if (generated) return const [];
+  final segments = <TokenSegment>[];
+  for (final declaration in unit.declarations) {
+    final codes = <int>[];
+    final lines = <int>[];
+    var token = declaration.firstTokenAfterCommentAndMetadata;
+    final end = declaration.end;
+    while (!token.isEof && token.offset < end) {
+      codes.add(_tokenCode(token));
+      lines.add(unit.lineInfo.getLocation(token.offset).lineNumber);
+      token = token.next!;
+    }
+    segments.add(
+      TokenSegment(source: 'project:$source', codes: codes, lines: lines),
+    );
+  }
+  return segments;
+}
+
+/// 토큰을 구조 버킷 해시로 정규화한다.
+///
+/// 식별자와 리터럴은 이름·값을 버려 이름만 바꾼 복붙도 같은 코드다. 키워드·
+/// 연산자·문자열 보간 경계(`$`·`${`…`}`)는 어휘를 유지해 제어 흐름 차이를
+/// 구별한다.
+int _tokenCode(Token token) {
+  final type = token.type;
+  final bucket = switch (type) {
+    TokenType.IDENTIFIER => 'I',
+    TokenType.INT ||
+    TokenType.DOUBLE ||
+    TokenType.HEXADECIMAL ||
+    TokenType.STRING => 'L',
+    _ => token.lexeme,
+  };
+  return _fnv1a(bucket);
+}
+
+/// 결정적인 FNV-1a 해시다(63bit). `Object.hash`는 isolate 시드로 실행마다
+/// 달라져 캐시·출력 결정성을 깨므로 직접 구현한다.
+int _fnv1a(String text) {
+  var hash = 0xcbf29ce484222325;
+  for (final unit in text.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+  }
+  return hash;
+}
+
 /// 라이브러리 수준 사실(간선 대상·공개 API 후보)을 뽑는다.
 ///
 /// 같은 라이브러리의 모든 유닛이 같은 값을 얻는다 — 조립은 유닛 순서로 첫 항목을
@@ -625,6 +746,8 @@ final class _UnitFacts {
     required this.dependencies,
     required this.libraryFacts,
     required this.packageReferences,
+    required this.complexity,
+    required this.tokenSegments,
   });
 
   /// 루트 기준 posix 상대 경로다(캐시 키).
@@ -674,11 +797,18 @@ final class _UnitFacts {
   /// 해석 결과가 아니라 선언 텍스트가 근거다.
   final List<String> packageReferences;
 
+  /// 이 유닛이 선언한 실행 선언의 순환 복잡도다(선언 ID → 점수).
+  final Map<String, int> complexity;
+
+  /// 이 유닛의 최상위 선언별 정규화 토큰 세그먼트다(생성 파일은 빈 목록).
+  final List<TokenSegment> tokenSegments;
+
   /// `project:` source ID다.
   String get sourceId => 'project:$source';
 
   /// 캐시 저장 형식이다.
   Map<String, Object?> toJson() => {
+    'complexity': complexity,
     'conditional': conditionalDirectives,
     'dependencies': dependencies,
     'edges': [for (final edge in edges) _edgeJson(edge)],
@@ -693,6 +823,10 @@ final class _UnitFacts {
     'routes': routeTables,
     'routeUses': routeUses,
     'source': source,
+    'tokens': [
+      for (final segment in tokenSegments)
+        {'c': segment.codes, 'l': segment.lines},
+    ],
     'unresolved': hasUnresolvedInvocations,
   };
 
@@ -750,6 +884,25 @@ final class _UnitFacts {
         packageReferences: [
           for (final name in value['packageReferences'] as List? ?? const [])
             name as String,
+        ],
+        complexity: {
+          for (final entry in (value['complexity'] as Map? ?? const {}).entries)
+            entry.key as String: entry.value as int,
+        },
+        tokenSegments: [
+          for (final segment in value['tokens'] as List? ?? const [])
+            if (segment is Map)
+              TokenSegment(
+                source: 'project:$source',
+                codes: [
+                  for (final code in segment['c'] as List? ?? const [])
+                    code as int,
+                ],
+                lines: [
+                  for (final line in segment['l'] as List? ?? const [])
+                    line as int,
+                ],
+              ),
         ],
         libraryFacts: libraryFacts,
       );
@@ -851,6 +1004,7 @@ AnalyzerGraphResult _assembleResult({
   required Map<String, _UnitFacts> facts,
   required Set<String>? entryPoints,
   required String? pubspecContent,
+  required _ScopeConfig scope,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -937,8 +1091,12 @@ AnalyzerGraphResult _assembleResult({
   }
   final manifest = _manifestFacts(pubspecContent);
   final packageImports = <String, List<String>>{};
+  final complexity = <String, int>{};
+  final tokenSegments = <TokenSegment>[];
   for (final source in sources) {
     final unit = facts[source]!;
+    complexity.addAll(unit.complexity);
+    tokenSegments.addAll(unit.tokenSegments);
     for (final name in unit.packageReferences) {
       packageImports.putIfAbsent(name, () => []).add(unit.sourceId);
     }
@@ -958,6 +1116,25 @@ AnalyzerGraphResult _assembleResult({
       );
     }
   }
+  // 설정 파일이 추가한 보존도 출력에 남긴다 — entry_points 한계 기록과 같은
+  // 이유로, 설정이 조용히 죽은 코드를 숨기면 클린 저장소와 구별되지 않는다.
+  final configuredRoots = _addConfiguredRetentionRoots(
+    graph,
+    retentionRoots,
+    scope,
+  );
+  if (configuredRoots > 0) {
+    limitationDetails.add(
+      'retention-config: $configuredRoots declaration(s) retained by '
+      'dartograph.yaml retained_names/retained_files',
+    );
+  }
+  if (scope.unknownKeys.isNotEmpty) {
+    limitationDetails.add(
+      'config-unknown-keys: dartograph.yaml has unrecognized keys: '
+      '${scope.unknownKeys.join(', ')}',
+    );
+  }
   return AnalyzerGraphResult(
     graph: graph,
     limitations: limitations.toList()..sort((a, b) => a.index - b.index),
@@ -968,6 +1145,12 @@ AnalyzerGraphResult _assembleResult({
     declaredDevDependencies: manifest.devDependencies,
     declaredDependencyOverrides: manifest.dependencyOverrides,
     packageImports: Map.unmodifiable(packageImports),
+    complexity: Map.unmodifiable(complexity),
+    includeGlobs: List.unmodifiable(scope.includeGlobs),
+    excludeGlobs: List.unmodifiable(scope.excludeGlobs),
+    metricsDistanceThreshold: scope.distanceThreshold,
+    metricsComplexityThreshold: scope.complexityThreshold,
+    tokenSegments: List.unmodifiable(tokenSegments),
   );
 }
 
@@ -1189,15 +1372,20 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
 // 노드 직렬화에 isLibrary를 추가할 때도 같다(v3). isSealed와 deps 감사 필드
 // (packageImports·manifest) 추가로 v4가 됐다 — 추출 의미 변화 없이 필드만 늘었다.
-const _cacheSchemaVersion = 4;
+// 선언별 순환 복잡도 필드 추가로 v5다 — 역시 형식만 바뀐다.
+// include/exclude·thresholds 필드 추가로 v6다 — 역시 형식만 바뀐다.
+const _cacheSchemaVersion = 6;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
 // deps 감사 입력으로 쓰는 새 추출)과 build.yaml·인터롭 annotation 보존 루트로
 // 추출 의미가 바뀌어 다시 올린다. @anonymous 인식과 build.yaml 미해석 import
-// 한계 기록(v8)으로 다시 올린다.
+// 한계 기록(v8)으로 다시 올린다. 복잡도 추출 시작(v9)으로 다시 올린다.
+// dup 입력용 정규화 토큰 추출(v10)로 다시 올린다. retained_names/retained_files
+// 설정 보존 루트(v11)로 다시 올린다 — 같은 dartograph.yaml 내용의 해석이 바뀐다.
+// 복잡도 카운터가 컬렉션 if 요소까지 세기 시작해(v12) 같은 소스의 점수가 바뀐다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v8-anonymous-binding-import-gaps';
+    'dartograph-analysis-$toolVersion-cache-v12-if-element-complexity';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -1389,6 +1577,15 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'limitationDetails': result.limitationDetails,
     'limitations': result.limitations.map((item) => item.name).toList(),
     'nodes': [for (final node in snapshot.nodes) _nodeJson(node)],
+    'complexity': result.complexity,
+    'excludeGlobs': result.excludeGlobs,
+    'includeGlobs': result.includeGlobs,
+    'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
+    'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
+    'tokenSegments': [
+      for (final segment in result.tokenSegments)
+        {'c': segment.codes, 'l': segment.lines, 's': segment.source},
+    ],
     'packageImports': result.packageImports,
     'packageName': ?result.packageName,
     'retentionRoots': {
@@ -1448,6 +1645,36 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
               source! as String,
           ],
       },
+      complexity: {
+        for (final entry
+            in (document['complexity']! as Map).cast<String, Object?>().entries)
+          entry.key: entry.value! as int,
+      },
+      excludeGlobs: [
+        for (final value in document['excludeGlobs']! as List<Object?>)
+          value! as String,
+      ],
+      includeGlobs: [
+        for (final value in document['includeGlobs']! as List<Object?>)
+          value! as String,
+      ],
+      metricsComplexityThreshold:
+          document['metricsComplexityThreshold'] as int?,
+      metricsDistanceThreshold: (document['metricsDistanceThreshold'] as num?)
+          ?.toDouble(),
+      tokenSegments: [
+        for (final value in document['tokenSegments']! as List<Object?>)
+          TokenSegment(
+            source: (value! as Map)['s']! as String,
+            codes: [
+              for (final code in (value as Map)['c']! as List<Object?>)
+                code! as int,
+            ],
+            lines: [
+              for (final line in value['l']! as List<Object?>) line! as int,
+            ],
+          ),
+      ],
     );
   } on Object {
     return null;
@@ -1685,11 +1912,15 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
     this.retentionRoots,
     this.entryPoints,
     this.mainEntrySources,
+    this.complexity,
   );
 
   final CodeGraph graph;
   final String root;
   final Map<String, RetentionReason> retentionRoots;
+
+  /// 본문이 있는 실행 선언의 순환 복잡도다(선언 ID → 점수).
+  final Map<String, int> complexity;
 
   /// null이면 `lib/`·`bin/`·`example/`의 모든 main을 보수적으로 보존한다.
   /// 값이 있으면 나열된 진입점 파일의 main만 보존 루트로 삼는다.
@@ -1741,6 +1972,23 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
       // (mainEntrySources)이 건너뛰어지지 않게 한다.
       if (_hasIgnoreClaim(node, _ignoreClaimsFor(unit))) {
         retentionRoots[id] = RetentionReason.inlineIgnore;
+      }
+      final body = switch (node) {
+        FunctionDeclaration declaration => declaration.functionExpression.body,
+        MethodDeclaration declaration => declaration.body,
+        ConstructorDeclaration declaration => declaration.body,
+        // 람다 초기값은 자기 정점이 없으므로 변수 선언의 복잡도에 귀속한다.
+        VariableDeclaration declaration => switch (declaration.initializer) {
+          FunctionExpression initializer => initializer.body,
+          _ => null,
+        },
+        _ => null,
+      };
+      // abstract·시그니처 선언의 EmptyFunctionBody는 분기 대상이 아니다.
+      if (body != null && body is! EmptyFunctionBody) {
+        final counter = _ComplexityVisitor();
+        body.accept(counter);
+        complexity[id] = counter.score;
       }
     }
     super.visitDeclaration(node);
@@ -1807,6 +2055,101 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
       claims.contains(node.offset) ||
       claims.contains(node.firstTokenAfterCommentAndMetadata.offset) ||
       (node.metadata.isNotEmpty && claims.contains(node.metadata.first.offset));
+}
+
+/// 선언 본문 하나의 순환 복잡도를 센다.
+///
+/// 기본값 1에 분기 지점마다 1을 더한다: `if`·`for`(컬렉션 리터럴의 if·for
+/// 요소 포함)·`while`·`do`·switch/switch-expression의 각 `case` 라벨·`catch`/
+/// `on`·조건부 `?:`·`&&`·`||`·`??`·`??=`. `default` 라벨은 새 분기가 아니라
+/// 세지 않는다. 람다·지역 함수 같은 중첩 본문의 분기는 감싸는 이름 있는 선언에
+/// 귀속한다 — 지역 함수는 그래프 정점이 아니라 따로 보고할 대상이 없다.
+final class _ComplexityVisitor extends RecursiveAstVisitor<void> {
+  /// 분기점을 더한 점수다. 분기 없는 본문은 1이다.
+  int score = 1;
+
+  @override
+  void visitIfStatement(IfStatement node) {
+    score++;
+    super.visitIfStatement(node);
+  }
+
+  @override
+  void visitForStatement(ForStatement node) {
+    score++;
+    super.visitForStatement(node);
+  }
+
+  @override
+  void visitForElement(ForElement node) {
+    score++;
+    super.visitForElement(node);
+  }
+
+  @override
+  void visitIfElement(IfElement node) {
+    score++;
+    super.visitIfElement(node);
+  }
+
+  @override
+  void visitWhileStatement(WhileStatement node) {
+    score++;
+    super.visitWhileStatement(node);
+  }
+
+  @override
+  void visitDoStatement(DoStatement node) {
+    score++;
+    super.visitDoStatement(node);
+  }
+
+  @override
+  void visitSwitchCase(SwitchCase node) {
+    score++;
+    super.visitSwitchCase(node);
+  }
+
+  @override
+  void visitSwitchPatternCase(SwitchPatternCase node) {
+    score++;
+    super.visitSwitchPatternCase(node);
+  }
+
+  @override
+  void visitSwitchExpressionCase(SwitchExpressionCase node) {
+    score++;
+    super.visitSwitchExpressionCase(node);
+  }
+
+  @override
+  void visitCatchClause(CatchClause node) {
+    score++;
+    super.visitCatchClause(node);
+  }
+
+  @override
+  void visitConditionalExpression(ConditionalExpression node) {
+    score++;
+    super.visitConditionalExpression(node);
+  }
+
+  @override
+  void visitBinaryExpression(BinaryExpression node) {
+    const decisionOperators = {
+      TokenType.AMPERSAND_AMPERSAND,
+      TokenType.BAR_BAR,
+      TokenType.QUESTION_QUESTION,
+    };
+    if (decisionOperators.contains(node.operator.type)) score++;
+    super.visitBinaryExpression(node);
+  }
+
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    if (node.operator.type == TokenType.QUESTION_QUESTION_EQ) score++;
+    super.visitAssignmentExpression(node);
+  }
 }
 
 /// `dartograph:ignore`로 시작하는 줄 주석 지시문이다.
@@ -2023,6 +2366,173 @@ String _entryPointSourceId(String root, String entry) {
     );
   }
   return id;
+}
+
+/// `dartograph.yaml`의 보고 범위·보존·임계 설정이다.
+///
+/// `entry_points`·`source_packages`와 달리 이 키들은 analyzer 해석 대상을
+/// 바꾸지 않는다 — include/exclude는 발견 보고를 좁히고, retained_*는 보존
+/// 루트를 추가하고, thresholds는 metrics 게이트를 바꾼다.
+final class _ScopeConfig {
+  const _ScopeConfig({
+    this.includeGlobs = const [],
+    this.excludeGlobs = const [],
+    this.retainedNameGlobs = const [],
+    this.retainedFileGlobs = const [],
+    this.distanceThreshold,
+    this.complexityThreshold,
+    this.unknownKeys = const [],
+  });
+
+  final List<String> includeGlobs;
+  final List<String> excludeGlobs;
+  final List<String> retainedNameGlobs;
+  final List<String> retainedFileGlobs;
+  final double? distanceThreshold;
+  final int? complexityThreshold;
+
+  /// 알려진 키가 아닌 최상위 키다 — 오타가 조용히 무시되지 않게 한계로 남긴다.
+  final List<String> unknownKeys;
+}
+
+/// `dartograph.yaml`이 알아보는 최상위 키다.
+const _knownConfigKeys = {
+  'entry_points',
+  'source_packages',
+  'include',
+  'exclude',
+  'retained_names',
+  'retained_files',
+  'thresholds',
+};
+
+/// `dartograph.yaml`에서 보고 범위·보존·임계 키를 읽는다.
+///
+/// `_readEntryPoints`와 같은 검증 철학을 따른다 — 잘못된 타입·빈 목록·빈
+/// 문자열·컴파일되지 않는 glob은 조용히 무시하지 않고 [FormatException]으로
+/// 실패시킨다(종료 코드 2). 키가 없으면 빈 설정을 돌려준다.
+_ScopeConfig _readScopeConfig(String root) {
+  final file = File(p.join(root, 'dartograph.yaml'));
+  if (!file.existsSync()) return const _ScopeConfig();
+  final document = loadYaml(readConfigurationSync(file));
+  if (document == null) return const _ScopeConfig();
+  if (document is! YamlMap) {
+    throw const FormatException('dartograph.yaml must be a YAML mapping');
+  }
+  final unknown = [
+    for (final key in document.keys)
+      if (key is! String || !_knownConfigKeys.contains(key)) '$key',
+  ]..sort();
+  List<String> globList(String key) {
+    final raw = document[key];
+    if (raw == null) return const [];
+    if (raw is! YamlList || raw.isEmpty) {
+      throw FormatException('$key must be a non-empty list of glob patterns');
+    }
+    final globs = <String>[];
+    for (final value in raw) {
+      if (value is! String || value.trim().isEmpty) {
+        throw FormatException('$key entries must be non-empty glob strings');
+      }
+      final pattern = value.trim();
+      if (PathGlob.compile(pattern) == null) {
+        throw FormatException('$key glob does not compile: $value');
+      }
+      globs.add(pattern);
+    }
+    return globs;
+  }
+
+  double? distance;
+  int? complexity;
+  final rawThresholds = document['thresholds'];
+  if (rawThresholds != null) {
+    if (rawThresholds is! YamlMap) {
+      throw const FormatException(
+        'thresholds must be a mapping of metric names to limits',
+      );
+    }
+    for (final entry in rawThresholds.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      switch (key) {
+        case 'distance':
+          if (value is! num || value <= 0) {
+            throw FormatException(
+              'thresholds.distance must be a positive number: $value',
+            );
+          }
+          distance = value.toDouble();
+        case 'complexity':
+          if (value is! int || value < 1) {
+            throw FormatException(
+              'thresholds.complexity must be a positive integer: $value',
+            );
+          }
+          complexity = value;
+        default:
+          throw FormatException(
+            'thresholds key must be distance or complexity: $key',
+          );
+      }
+    }
+  }
+  return _ScopeConfig(
+    includeGlobs: globList('include'),
+    excludeGlobs: globList('exclude'),
+    retainedNameGlobs: globList('retained_names'),
+    retainedFileGlobs: globList('retained_files'),
+    distanceThreshold: distance,
+    complexityThreshold: complexity,
+    unknownKeys: unknown,
+  );
+}
+
+/// 소스 ID에서 스킴(`project:`·`package:`)을 떼고 glob 매칭용 경로를 얻는다.
+String _sourceGlobPath(String source) {
+  final scheme = source.indexOf(':');
+  return scheme < 0 ? source : source.substring(scheme + 1);
+}
+
+/// `retained_files`·`retained_names` glob을 보존 루트로 적용한다.
+///
+/// glob은 파일마다가 아니라 한 번만 컴파일한다. 이름 glob은 선언 ID의
+/// `::` 뒤 부분(`Class.member` 포함)과 파일 glob은 스킴을 뗀 소스 경로에
+/// 맞춘다. 라이브러리 노드는 선언이 아니므로 이름 매칭에서 빠진다.
+int _addConfiguredRetentionRoots(
+  CodeGraph graph,
+  Map<String, RetentionReason> roots,
+  _ScopeConfig scope,
+) {
+  if (scope.retainedNameGlobs.isEmpty && scope.retainedFileGlobs.isEmpty) {
+    return 0;
+  }
+  final nameMatchers = <RegExp>[
+    for (final pattern in scope.retainedNameGlobs) PathGlob.compile(pattern)!,
+  ];
+  final fileMatchers = <RegExp>[
+    for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
+  ];
+  var added = 0;
+  for (final node in graph.snapshot().nodes) {
+    if (node.isLibrary) continue;
+    final id = node.id;
+    final separator = id.indexOf('::');
+    if (separator < 0) continue;
+    var retain = fileMatchers.any(
+      (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+    );
+    if (!retain) {
+      final name = id.substring(separator + 2);
+      retain = nameMatchers.any((matcher) => matcher.hasMatch(name));
+    }
+    // 기존 보존 루트를 덮지 않는다 — 더 강한 근거(진입점·annotation)가 우선이다.
+    if (retain && !roots.containsKey(id)) {
+      roots[id] = RetentionReason.configuredRetention;
+      added++;
+    }
+  }
+  return added;
 }
 
 RetentionReason? _retentionReason(

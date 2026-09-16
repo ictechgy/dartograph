@@ -165,8 +165,12 @@ void main() {
         'name': 'dependency-audit',
         'arguments': {'packageRoot': directory.path},
       }),
-      request(34, 'prompts/get', {'name': 'nope', 'arguments': {}}),
-      request(35, 'prompts/get', {
+      request(34, 'prompts/get', {
+        'name': 'duplication-review',
+        'arguments': {'packageRoot': directory.path, 'minTokens': '40'},
+      }),
+      request(35, 'prompts/get', {'name': 'nope', 'arguments': {}}),
+      request(36, 'prompts/get', {
         'name': 'impact-precheck',
         'arguments': <String, Object?>{},
       }),
@@ -178,6 +182,7 @@ void main() {
       'impact-precheck',
       'dead-code-review',
       'dependency-audit',
+      'duplication-review',
     ]);
 
     String textOf(Map<String, Object?> response) =>
@@ -191,8 +196,10 @@ void main() {
     expect(textOf(responses[1]), contains(directory.path));
     expect(textOf(responses[2]), contains('closedApp true'));
     expect(textOf(responses[3]), contains('command "deps"'));
-    expect((responses[4]['error'] as Map)['code'], -32602);
+    expect(textOf(responses[4]), contains('command "dup"'));
+    expect(textOf(responses[4]), contains('minTokens 40'));
     expect((responses[5]['error'] as Map)['code'], -32602);
+    expect((responses[6]['error'] as Map)['code'], -32602);
   });
 
   test('verify_run rejects closedApp for non-dead commands', () async {
@@ -225,6 +232,165 @@ void main() {
       );
     }
   });
+
+  test(
+    'verify_run validates minTokens for dup and rejects it elsewhere',
+    () async {
+      final responses = await exchange([
+        request(50, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dup',
+            'minTokens': 12,
+          },
+        }),
+        request(51, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'minTokens': 12,
+          },
+        }),
+        request(52, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dup',
+            'minTokens': 1,
+          },
+        }),
+      ]);
+
+      // 첫 호출은 CLI에 `--min-tokens 12`로 전달된다(실행 여부와 무관하게
+      // 인자 검증을 통과한다는 것을 나머지 케이스의 오류와 대조해 본다).
+      final passed = responses[0]['result'] as Map<String, Object?>;
+      expect(passed.containsKey('isError'), isTrue);
+      for (final response in responses.sublist(1)) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        expect(
+          ((result['content'] as List).single as Map)['text'],
+          contains('minTokens'),
+        );
+      }
+    },
+  );
+
+  test('verify_run validates kinds and forwards them to the CLI', () async {
+    final responses = await exchange([
+      // cycles는 kinds를 받지 않는다.
+      request(60, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'kinds': ['file'],
+        },
+      }),
+      // 빈 목록과 비문자열 항목은 거부한다.
+      request(61, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': <String>[],
+        },
+      }),
+      request(62, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': [1],
+        },
+      }),
+      // 쉼표를 포함한 항목은 join(',')을 거치며 두 kind로 새어 나간다.
+      request(63, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': ['file,declaration'],
+        },
+      }),
+    ]);
+
+    expect(
+      ((responses[0]['result'] as Map)['content'] as List)
+          .cast<Map>()
+          .single['text'],
+      contains('kinds is only valid for command dead, deps, or dup'),
+    );
+    for (final response in responses.sublist(1)) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      expect(
+        ((result['content'] as List).single as Map)['text'],
+        contains('kinds must be a non-empty list of strings'),
+      );
+    }
+  });
+
+  test(
+    'tool calls reject non-string argv values instead of interpolating',
+    () async {
+      final responses = await exchange([
+        // impact_query: since·symbol에 문자열이 아닌 값이 오면 argv로
+        // 문자열화하지 않고 거부한다.
+        request(70, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {'packageRoot': directory.path, 'since': 5},
+        }),
+        request(71, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'symbol': <String, Object?>{'x': 1},
+          },
+        }),
+        // verify_run: baseline·config도 같은 기준이다.
+        request(72, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'baseline': 7,
+          },
+        }),
+        request(73, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'config': <Object?>[],
+          },
+        }),
+        // prompts/get: minTokens가 정수로 해석되지 않으면 인자 오류다.
+        request(74, 'prompts/get', {
+          'name': 'duplication-review',
+          'arguments': {'packageRoot': directory.path, 'minTokens': 'abc'},
+        }),
+        request(75, 'prompts/get', {
+          'name': 'duplication-review',
+          'arguments': {'packageRoot': directory.path, 'minTokens': 1},
+        }),
+      ]);
+
+      for (final response in responses.sublist(0, 4)) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        expect(
+          ((result['content'] as List).single as Map)['text'],
+          contains('must be a non-empty string'),
+        );
+      }
+      for (final response in responses.sublist(4)) {
+        expect((response['error'] as Map)['code'], -32602);
+      }
+    },
+  );
 
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([

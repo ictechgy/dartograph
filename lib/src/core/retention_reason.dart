@@ -30,4 +30,8 @@ enum RetentionReason {
 
   /// build.yaml이 선언한 builder factory를 build_runner가 이름으로 호출한다.
   buildRunner,
+
+  /// `dartograph.yaml`의 `retained_names`/`retained_files`가 이름·파일 glob으로
+  /// 명시한 보존 루트다 — 인라인 `dartograph:ignore`의 설정 파일 판이다.
+  configuredRetention,
 }

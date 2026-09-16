@@ -52,4 +52,45 @@ lib/example.dart @special
     expect(CodeOwners.parse('# just a comment\n\n').rules, isEmpty);
     expect(CodeOwners.parse('/ @root\n').rules, isEmpty);
   });
+
+  test('bracket character classes match one character', () {
+    final owners = CodeOwners.parse('''
+lib/[a-c].dart @abc
+lib/[!x].txt @txt-neg
+lib/file[0-9].dart @digits
+''');
+    expect(owners.ownersOf('lib/b.dart'), ['@abc']);
+    expect(owners.ownersOf('lib/z.txt'), ['@txt-neg']);
+    // `!` 부정 클래스는 x를 제외한다 — 매치 규칙이 없어 소유자 없음이다.
+    expect(owners.ownersOf('lib/x.txt'), isEmpty);
+    expect(owners.ownersOf('lib/d.dart'), isEmpty);
+    expect(owners.ownersOf('lib/file7.dart'), ['@digits']);
+    expect(owners.ownersOf('lib/filex.dart'), isEmpty);
+  });
+
+  test('backslash escapes the next character literally', () {
+    final owners = CodeOwners.parse('''
+lib/\\#hash.dart @hash
+lib/file\\?.dart @literal-q
+''');
+    expect(owners.ownersOf('lib/#hash.dart'), ['@hash']);
+    expect(owners.ownersOf('lib/file?.dart'), ['@literal-q']);
+    // `?`가 이스케이프됐으므로 한 글자 와일드카드로는 매치하지 않는다.
+    expect(owners.ownersOf('lib/file1.dart'), isEmpty);
+  });
+
+  test('a leading ! negates ownership for the match', () {
+    final owners = CodeOwners.parse('''
+*.dart @dart-team
+!generated.dart
+''');
+    expect(owners.ownersOf('lib/a.dart'), ['@dart-team']);
+    // 부정 규칙이 마지막 일치라 소유자 없음이다 — 이전 규칙으로 돌아가지 않는다.
+    expect(owners.ownersOf('lib/generated.dart'), isEmpty);
+  });
+
+  test('escaped \\! is a literal bang, not a negation', () {
+    final owners = CodeOwners.parse('lib/\\!bang.dart @bang');
+    expect(owners.ownersOf('lib/!bang.dart'), ['@bang']);
+  });
 }

@@ -6,6 +6,7 @@ import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:test/test.dart';
 
 void main() {
+  late Directory repositoryRoot;
   late Directory corpusDirectory;
 
   setUpAll(() async {
@@ -15,7 +16,7 @@ void main() {
     if (libraryUri == null) {
       throw StateError('Could not resolve the dartograph package root.');
     }
-    final repositoryRoot = File.fromUri(libraryUri).parent.parent;
+    repositoryRoot = File.fromUri(libraryUri).parent.parent;
     corpusDirectory = await Directory.systemTemp.createTemp(
       'dartograph-corpus.',
     );
@@ -150,6 +151,166 @@ void main() {
       );
     },
   );
+
+  test('dead --kinds narrows the reported finding kinds', () async {
+    final filesOnly = StringBuffer();
+    final declarationsOnly = StringBuffer();
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'file',
+        corpusDirectory.path,
+      ], output: filesOnly),
+      ExitStatus.findings.code,
+    );
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'declaration',
+        corpusDirectory.path,
+      ], output: declarationsOnly),
+      ExitStatus.findings.code,
+    );
+
+    final fileKinds =
+        (jsonDecode(filesOnly.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
+    expect(fileKinds, isNotEmpty);
+    expect(
+      fileKinds.cast<Map<String, Object?>>().map((f) => f['kind']).toSet(),
+      {'file'},
+    );
+    final declarationKinds =
+        (jsonDecode(declarationsOnly.toString())
+                as Map<String, Object?>)['findings']!
+            as List<Object?>;
+    expect(declarationKinds, isNotEmpty);
+    expect(
+      declarationKinds
+          .cast<Map<String, Object?>>()
+          .map((f) => f['kind'])
+          .toSet(),
+      {'declaration'},
+    );
+  });
+
+  test('dead rejects unknown kinds and --kinds with --explain', () async {
+    final error = StringBuffer();
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'bogus',
+        'unused',
+      ], error: error),
+      ExitStatus.usage.code,
+    );
+    expect(error.toString(), contains('Unknown --kinds'));
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--explain',
+        'some::id',
+        '--format',
+        'json',
+        '--kinds',
+        'file',
+        'unused',
+      ]),
+      ExitStatus.usage.code,
+    );
+  });
+
+  test('dead honors dartograph.yaml include/exclude globs', () async {
+    final fixture = await Directory.systemTemp.createTemp('dartograph-scope.');
+    addTearDown(() => fixture.delete(recursive: true));
+    await _copyCorpus(
+      Directory('${repositoryRoot.path}/fixtures/closed_app'),
+      fixture,
+    );
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: fixture.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    // public_api.dart는 어떤 내부 참조도 없어 dead-file로 보고된다.
+    final full = StringBuffer();
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        fixture.path,
+      ], output: full),
+      ExitStatus.findings.code,
+    );
+    final fullFindings =
+        (jsonDecode(full.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
+    expect(
+      fullFindings.join(' '),
+      contains('closed_app_fixture/public_api.dart'),
+    );
+
+    await File('${fixture.path}/dartograph.yaml').writeAsString('''
+exclude:
+  - 'closed_app_fixture/public_api.dart'
+''');
+    final excluded = StringBuffer();
+    await runDartograph([
+      'dead',
+      '--format',
+      'json',
+      fixture.path,
+    ], output: excluded);
+    final excludedDoc = jsonDecode(excluded.toString()) as Map<String, Object?>;
+    // 발견의 id·source에 public_api.dart가 남지 않는다 — 다른 발견의 근거
+    // (retentionRootsChecked)에 이름이 나타나는 것은 정당한 증거다.
+    final excludedIds = [
+      for (final finding
+          in (excludedDoc['findings']! as List<Object?>)
+              .cast<Map<String, Object?>>())
+        '${finding['id']} ${finding['source']}',
+    ].join(' ');
+    expect(excludedIds, isNot(contains('public_api.dart')));
+    expect(
+      (excludedDoc['limitations']! as List<Object?>).join(' '),
+      contains('include-exclude:'),
+    );
+
+    // include는 지정한 범위 밖 발견을 전부 거른다 — used.dart 밖의
+    // 발견이 사라지므로 종료 코드가 0이 된다.
+    await File('${fixture.path}/dartograph.yaml').writeAsString('''
+include:
+  - 'closed_app_fixture/used.dart'
+''');
+    final included = StringBuffer();
+    final includedStatus = await runDartograph([
+      'dead',
+      '--format',
+      'json',
+      fixture.path,
+    ], output: included);
+    expect(includedStatus, ExitStatus.success.code);
+    expect(
+      (jsonDecode(included.toString()) as Map<String, Object?>)['findings']!
+          as List<Object?>,
+      isEmpty,
+    );
+  });
 }
 
 Future<void> _copyCorpus(Directory source, Directory destination) async {

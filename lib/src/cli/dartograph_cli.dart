@@ -9,6 +9,7 @@ import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/code_owners.dart';
 import '../analysis/dependency_audit.dart';
+import '../analysis/duplication_analyzer.dart';
 import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
@@ -18,6 +19,7 @@ import '../analysis/graph_comparison.dart';
 import '../analysis/impact_analyzer.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
+import '../core/path_glob.dart';
 import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
@@ -25,6 +27,7 @@ import '../export/analysis_reporter.dart';
 import '../export/codeowners_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/dependency_reporter.dart';
+import '../export/duplication_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
 import '../export/ledger_reporter.dart';
@@ -37,6 +40,7 @@ import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
 import '../runtime/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
+import 'agent_setup.dart';
 import 'agent_skill.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
@@ -224,6 +228,16 @@ Future<int> _dispatchCommand(
         indexed.index,
         failedItems,
       );
+    case 'dup':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
+      return await _runDup(
+        indexed.arguments,
+        stdoutSink,
+        stderrSink,
+        indexed.index,
+        failedItems,
+      );
     case 'query':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
       if (indexed == null) return ExitStatus.usage.code;
@@ -235,6 +249,12 @@ Future<int> _dispatchCommand(
       );
     case 'skill':
       return await _runSkill(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+      );
+    case 'setup':
+      return await _runSetup(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
@@ -352,6 +372,7 @@ const _recordableCommands = {
   'cycles',
   'dead',
   'deps',
+  'dup',
   'graph',
   'impact',
   'metrics',
@@ -1091,15 +1112,27 @@ Future<int> _runMetrics(
   }
   try {
     final indexed = await indexPackage(parsed.root);
-    final metrics = ArchitectureMetricsCalculator().calculate(
-      indexed.graph.snapshot(),
-    );
-    const tolerance = 0.3;
+    final snapshot = indexed.graph.snapshot();
+    final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
+    // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의
+    // 복잡도 상한을 정한다 — 설정 파일이 게이트를 바꾼다는 사실은 한계에 남긴다.
+    final tolerance = indexed.metricsDistanceThreshold ?? 0.3;
+    final complexityLimit = indexed.metricsComplexityThreshold;
+    final limitations = _limitations(indexed);
+    if (indexed.metricsDistanceThreshold != null || complexityLimit != null) {
+      limitations.add(
+        'thresholds: dartograph.yaml overrides metrics gates '
+        '(distance ≤ $tolerance'
+        '${complexityLimit == null ? '' : ', complexity ≤ $complexityLimit'})',
+      );
+    }
     output.write(
       AnalysisReporter.metrics(
         metrics,
-        limitations: _limitations(indexed),
+        limitations: limitations,
         tolerance: tolerance,
+        complexity: indexed.complexity,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
       ),
     );
     final exceedsTolerance = metrics.any(
@@ -1109,7 +1142,16 @@ Future<int> _runMetrics(
       for (final item in metrics)
         if (!item.isolated && item.distance > tolerance) item.id,
     ]);
-    return parsed.strict && exceedsTolerance
+    var exceedsComplexity = false;
+    if (complexityLimit != null) {
+      for (final entry in indexed.complexity.entries) {
+        if (entry.value > complexityLimit) {
+          exceedsComplexity = true;
+          failedItems.add(entry.key);
+        }
+      }
+    }
+    return parsed.strict && (exceedsTolerance || exceedsComplexity)
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
   } on FileSystemException {
@@ -1315,6 +1357,100 @@ Future<int> _runSkill(
     error.writeln(
       'Skill installation failed: check the destination permissions.',
     );
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `dartograph setup` — Claude Code 훅·프로젝트 MCP 설정을 생성한다.
+///
+/// 인쇄 경로는 세 결과물을 검토용으로 보여주고, `--install`은 훅 스크립트를
+/// `.claude/hooks/`에 쓰고 `.claude/settings.json`·`.mcp.json`에 병합한다.
+/// 기존 파일은 절대 통째로 덮어쓰지 않는다 — 병합할 수 없는 기존 설정은
+/// 그대로 두고 실패한다. 유료 서비스·로그인·텔레메트리 의존은 없다.
+Future<int> _runSetup(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  bool force = false;
+  String? installRoot;
+  for (var i = 0; i < arguments.length; i++) {
+    final argument = arguments[i];
+    if (argument == '--force' && !force) {
+      force = true;
+    } else if (argument == '--install' &&
+        installRoot == null &&
+        i + 1 < arguments.length &&
+        !arguments[i + 1].startsWith('-')) {
+      installRoot = arguments[++i];
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (installRoot == null) {
+    output
+      ..writeln('# .claude/hooks/$agentHookScriptName')
+      ..write(agentHookScript)
+      ..writeln('# .claude/settings.json — merge this block')
+      ..writeln(agentHookConfigJson())
+      ..writeln('# .mcp.json')
+      ..writeln(agentMcpConfigJson());
+    return ExitStatus.success.code;
+  }
+  final root = installRoot;
+  if (!Directory(root).existsSync()) {
+    error.writeln('Setup failed: $root is not a directory.');
+    return ExitStatus.usage.code;
+  }
+  final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
+  // init·skill과 같은 가드다. 링크 자체도 검사해 매달린 링크를 잡는다.
+  if (!force && (await script.exists() || await Link(script.path).exists())) {
+    error.writeln(
+      '${script.path} already exists. Pass --force to overwrite it.',
+    );
+    return ExitStatus.usage.code;
+  }
+  final settings = File(p.join(root, '.claude', 'settings.json'));
+  final mcpConfig = File(p.join(root, '.mcp.json'));
+  try {
+    // 설정 파일은 통째로 쓰지 않고 기존 내용 위에 dartograph 항목만 병합한다.
+    // 깨진 JSON·예상 밖 타입이면 FormatException으로 빠진다 — 병합을 먼저
+    // 계산해 한쪽만 쓰이는 부분 설치를 피한다.
+    final mergedSettings = mergeClaudeSettings(
+      await settings.exists() ? await settings.readAsString() : null,
+    );
+    final mergedMcp = mergeMcpConfig(
+      await mcpConfig.exists() ? await mcpConfig.readAsString() : null,
+      force: force,
+    );
+
+    await Directory(script.parent.path).create(recursive: true);
+    AtomicWrite.stringSync(script, agentHookScript);
+    if (!Platform.isWindows) {
+      await Process.run('chmod', ['+x', script.path]);
+    }
+    output.writeln('Installed hook script at ${script.path}.');
+
+    if (mergedSettings == null) {
+      output.writeln('${settings.path} already registers the dartograph hook.');
+    } else {
+      AtomicWrite.stringSync(settings, mergedSettings);
+      output.writeln('Registered the impact hook in ${settings.path}.');
+    }
+
+    if (mergedMcp == null) {
+      output.writeln('${mcpConfig.path} already registers dartograph mcp.');
+    } else {
+      AtomicWrite.stringSync(mcpConfig, mergedMcp);
+      output.writeln('Registered the MCP server in ${mcpConfig.path}.');
+    }
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
   }
 }
@@ -1613,6 +1749,7 @@ Future<int> _runDead(
   String? baselinePath;
   String? since;
   String? codeownersPath;
+  Set<String>? kinds;
   ReportFormat? reportFormat;
   String? rootPath;
   var reportTestOnly = false;
@@ -1627,6 +1764,7 @@ Future<int> _runDead(
       '--baseline',
       '--since',
       '--codeowners',
+      '--kinds',
     }.contains(argument)) {
       if (++index >= arguments.length) {
         error.write(_help);
@@ -1641,6 +1779,7 @@ Future<int> _runDead(
         '--baseline' => baselinePath != null,
         '--since' => since != null,
         '--codeowners' => codeownersPath != null,
+        '--kinds' => kinds != null,
         _ => false,
       };
       if (alreadySet) {
@@ -1648,6 +1787,9 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       switch (argument) {
+        case '--kinds':
+          kinds = _parseKinds(value, const {'declaration', 'file'}, error);
+          if (kinds == null) return ExitStatus.usage.code;
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
           // 있으므로 대시 가드를 적용하지 않는다. 값이 빠진 오타는 뒤따르는
@@ -1735,6 +1877,7 @@ Future<int> _runDead(
               reportFormat != ReportFormat.json ||
               baselinePath != null ||
               since != null ||
+              kinds != null ||
               reportTestOnly ||
               reportRedundantPublic)) ||
       ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
@@ -1805,6 +1948,23 @@ Future<int> _runDead(
         });
     }
     var reported = findings;
+    // kind 필터는 보고 대상 선택이다 — baseline 억제·--since 범위 좁히기와
+    // 조합해도 발견 지문은 바뀌지 않는다.
+    if (kinds != null) {
+      reported = reported
+          .where((finding) => kinds!.contains(finding.kind))
+          .toList();
+    }
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      reported = reported
+          .where((finding) => _inScope(scope, finding.source))
+          .toList();
+    }
     if (since != null) {
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
@@ -1892,10 +2052,23 @@ Future<int> _runDeps(
   List<String> failedItems,
 ) async {
   ReportFormat? format;
+  Set<String>? kinds;
   String? rootPath;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument == '--format' && format == null) {
+    if (argument == '--kinds' && kinds == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      kinds = _parseKinds(arguments[index], const {
+        'unused-dependency',
+        'unused-dev-dependency',
+        'dev-dependency-in-lib',
+        'undeclared-dependency',
+      }, error);
+      if (kinds == null) return ExitStatus.usage.code;
+    } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {
         error.write(_help);
         return ExitStatus.usage.code;
@@ -1937,14 +2110,47 @@ Future<int> _runDeps(
       'only; runtime loading, generated-code, and asset references are '
       'invisible to this audit',
     );
-    final findings = DependencyAudit().audit(
-      packageName: indexed.packageName,
-      dependencies: indexed.declaredDependencies,
-      devDependencies: indexed.declaredDevDependencies,
-      dependencyOverrides: indexed.declaredDependencyOverrides,
-      packageImports: indexed.packageImports,
-      toolLike: toolCheck.toolLike,
-    );
+    var findings = DependencyAudit()
+        .audit(
+          packageName: indexed.packageName,
+          dependencies: indexed.declaredDependencies,
+          devDependencies: indexed.declaredDevDependencies,
+          dependencyOverrides: indexed.declaredDependencyOverrides,
+          packageImports: indexed.packageImports,
+          toolLike: toolCheck.toolLike,
+        )
+        .where((finding) => kinds == null || kinds.contains(finding.kind))
+        .toList();
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      // 소스를 싣는 발견은 근거 경로를 범위로 좁힌다 — 근거가 전부 빠진
+      // 발견은 관측 자체가 사라진 것이라 본다. 패키지 수준 발견
+      // (unused-dependency류, sources 없음)은 경로를 모르니 그대로 둔다.
+      final scoped = <DependencyFinding>[];
+      for (final finding in findings) {
+        if (finding.sources.isEmpty) {
+          scoped.add(finding);
+          continue;
+        }
+        final sources = finding.sources
+            .where((source) => _inScope(scope, source))
+            .toList();
+        if (sources.isEmpty) continue;
+        scoped.add(
+          DependencyFinding(
+            name: finding.name,
+            kind: finding.kind,
+            reason: finding.reason,
+            sources: sources,
+          ),
+        );
+      }
+      findings = scoped;
+    }
     output.write(
       DependencyReporter.render(
         format ?? ReportFormat.text,
@@ -1954,6 +2160,182 @@ Future<int> _runDeps(
     );
     failedItems.addAll([
       for (final finding in findings) 'deps:${finding.kind}:${finding.name}',
+    ]);
+    return findings.isEmpty
+        ? ExitStatus.success.code
+        : ExitStatus.findings.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
+/// `dartograph.yaml`의 include/exclude glob을 한 번 컴파일해 둔다.
+///
+/// 반환값이 null이면 설정이 없다는 뜻이다 — 매칭 비용도 한계 문구도 없다.
+({List<RegExp> include, List<RegExp> exclude})? _scopeMatchers(
+  List<String> includeGlobs,
+  List<String> excludeGlobs,
+) {
+  if (includeGlobs.isEmpty && excludeGlobs.isEmpty) return null;
+  return (
+    include: [for (final pattern in includeGlobs) PathGlob.compile(pattern)!],
+    exclude: [for (final pattern in excludeGlobs) PathGlob.compile(pattern)!],
+  );
+}
+
+/// [source]가 include/exclude 범위 안인지 본다. 매칭은 소스 ID의 스킴을 뗀다.
+bool _inScope(
+  ({List<RegExp> include, List<RegExp> exclude}) scope,
+  String source,
+) {
+  final separator = source.indexOf(':');
+  final path = separator < 0 ? source : source.substring(separator + 1);
+  if (scope.include.isNotEmpty &&
+      !scope.include.any((matcher) => matcher.hasMatch(path))) {
+    return false;
+  }
+  return !scope.exclude.any((matcher) => matcher.hasMatch(path));
+}
+
+/// `--kinds <csv>`를 발견 종류 집합으로 파싱한다.
+///
+/// 모르는 종류·빈 항목은 조용히 아무 발견도 내지 않는 필터가 되므로 유효
+/// 종류 목록과 함께 usage 오류로 거부한다.
+Set<String>? _parseKinds(String value, Set<String> valid, StringSink error) {
+  final kinds = value.split(',').map((item) => item.trim()).toSet();
+  if (kinds.isEmpty || kinds.any((item) => item.isEmpty)) {
+    error.writeln('Invalid --kinds: $value (expected comma-separated kinds).');
+    return null;
+  }
+  final unknown = kinds.difference(valid).toList()..sort();
+  if (unknown.isNotEmpty) {
+    error.writeln(
+      'Unknown --kinds: ${unknown.join(', ')} '
+      '(expected ${valid.toList()..sort()}).',
+    );
+    return null;
+  }
+  return kinds;
+}
+
+Future<int> _runDup(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+  List<String> failedItems,
+) async {
+  ReportFormat? format;
+  int? minTokens;
+  Set<String>? kinds;
+  String? rootPath;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--kinds' && kinds == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      kinds = _parseKinds(arguments[index], const {'duplicate-block'}, error);
+      if (kinds == null) return ExitStatus.usage.code;
+    } else if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      format = ReportFormat.values
+          .where((item) => item.name == value)
+          .firstOrNull;
+      if (format == null) {
+        error.writeln(
+          'Unknown report format: $value '
+          '(expected text, json, markdown, github-actions, or sarif).',
+        );
+        return ExitStatus.usage.code;
+      }
+    } else if (argument == '--min-tokens' && minTokens == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = int.tryParse(arguments[index]);
+      if (value == null || value < 2) {
+        error.writeln(
+          'Invalid --min-tokens: ${arguments[index]} (expected an integer ≥ 2).',
+        );
+        return ExitStatus.usage.code;
+      }
+      minTokens = value;
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (rootPath == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  final window = minTokens ?? 50;
+  try {
+    final indexed = await indexPackage(rootPath);
+    final limitations = _limitations(indexed);
+    limitations.add(
+      'duplication-scope: matching is token-structural within analyzed '
+      'sources; generated files are excluded and semantic equivalence is '
+      'not required — findings are review candidates, not merge advice',
+    );
+    final report = DuplicationAnalyzer().analyze(
+      indexed.tokenSegments,
+      minTokens: window,
+    );
+    limitations.addAll(report.limitations);
+    var findings = kinds == null
+        ? report.findings
+        : report.findings
+              .where((finding) => kinds!.contains(finding.kind))
+              .toList();
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      // 인스턴스를 범위로 좁힌다 — 한 위치만 남으면 쌍이 성립하지 않는다.
+      final scoped = <DuplicationFinding>[];
+      for (final finding in findings) {
+        final instances = finding.instances
+            .where((instance) => _inScope(scope, instance.source))
+            .toList();
+        if (instances.length < 2) continue;
+        scoped.add(
+          DuplicationFinding(
+            tokenCount: finding.tokenCount,
+            instances: instances,
+          ),
+        );
+      }
+      findings = scoped;
+    }
+    output.write(
+      DuplicationReporter.render(
+        format ?? ReportFormat.text,
+        findings,
+        limitations: limitations,
+        minTokens: window,
+      ),
+    );
+    failedItems.addAll([
+      for (final finding in findings)
+        'dup:${finding.instances.first.source}:${finding.instances.first.startLine}',
     ]);
     return findings.isEmpty
         ? ExitStatus.success.code
@@ -2484,10 +2866,11 @@ dartograph — dependency graphs for Dart and Flutter codebases
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -2497,6 +2880,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
+       dartograph setup [--install <package-root> [--force]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
@@ -2515,11 +2899,25 @@ skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
 
+setup prints or installs Claude Code integration without MCP calls: with no
+options it prints the PostToolUse hook script, the settings.json hook block,
+and the .mcp.json document for review. --install writes
+<package-root>/.claude/hooks/dartograph-impact.sh, merges the hook into
+<package-root>/.claude/settings.json, and merges the dartograph MCP server
+into <package-root>/.mcp.json. Existing keys are preserved; settings whose
+hooks are not the expected JSON shape, or invalid JSON, fail instead of being
+overwritten. --force overwrites the generated script and replaces an existing
+dartograph MCP entry. The hook runs `dartograph impact --changed` after Dart
+file edits and requires dartograph on PATH; no paid service, login, or
+telemetry is involved.
+
 
 dead --format codeowners groups findings by the owners of their source paths
 using a CODEOWNERS file passed to --codeowners <file>. The last matching rule
-wins; * and ** are supported and a pattern containing "/" is anchored to the
-project root (a subset of the CODEOWNERS format). Findings whose path matches
+wins; *, **, ?, bracket character classes ([a-c], [!x]), and backslash escapes
+are supported, a pattern containing "/" is anchored to the project root, and a
+leading "!" exempts the match from ownership (the GitLab extension — GitHub
+CODEOWNERS does not support "!"). Findings whose path matches
 no rule are grouped under "(unowned)". The file path is not echoed in errors.
 dead --explain requires --format json and does not combine with --baseline or
 --since. dead --report-test-only answers a different question (production
@@ -2535,12 +2933,25 @@ instruction. Pass the same --closed-app to baseline --write so the recorded
 fingerprints match. --closed-app does not combine with
 --report-redundant-public, whose premise is public-API retention.
 
+dartograph.yaml also accepts include/exclude globs that narrow which sources
+produce dead, deps, and dup findings (matched against the source path without
+its project:/package: scheme; the graph is unchanged), retained_names and
+retained_files globs that keep declarations alive like dartograph:ignore
+comments, and thresholds (distance, complexity) that metrics --strict gates
+on. Every active config narrowing is reported as a limitation.
+
 deps audits pubspec hygiene: declared dependencies no source imports
 (unused-dependency, unused-dev-dependency), dev_dependencies referenced from
 lib/ (dev-dependency-in-lib), and package: imports nothing declares
 (undeclared-dependency). Packages with a confirmed tool contract — executables,
 build.yaml builders, analysis_options include/plugins — count as used.
 Findings are review candidates with evidence, not deletion instructions.
+
+--kinds <csv> restricts which finding kinds dead, deps, and dup report:
+dead takes declaration,file; deps takes the four kinds above; dup takes
+duplicate-block. Unknown kinds are usage errors. Filtering narrows the
+report — baselines, fingerprints, and exit-code semantics are unchanged.
+
 cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.
@@ -2581,7 +2992,7 @@ as self-loops. graph --collapse <n> (requires --level file) summarizes
 libraries into their first n path segments; folder nodes are aggregates and
 carry no source location.
 
-analyzer를 쓰는 명령(graph, dead, deps, query, compare, affected, impact,
+analyzer를 쓰는 명령(graph, dead, deps, dup, query, compare, affected, impact,
 baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터리에 파일별 사실
 캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
@@ -2615,7 +3026,7 @@ verdict; an unlisted declaration is not proven unaffected.
 mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
 clients. It exposes three read-only tools over the existing CLI paths:
 impact_query (the impact pre-check), dependency_query (query/--batch), and
-verify_run (dead, deps, cycles, rules, metrics with exit code and raw
+verify_run (dead, deps, dup, cycles, rules, metrics with exit code and raw
 output; closedApp selects dead --closed-app). It also serves three static
 resources (dartograph://usage, dartograph://skill, dartograph://config) and
 three prompts (impact-precheck, dead-code-review, dependency-audit) that

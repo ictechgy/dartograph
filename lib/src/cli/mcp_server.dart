@@ -134,6 +134,10 @@ Future<int> runMcpServer({
           );
           continue;
         }
+        if (!_promptDefinitions.any((prompt) => prompt['name'] == name)) {
+          _writeError(output, id, _invalidParams, 'Unknown prompt: $name');
+          continue;
+        }
         final prompt = _getPrompt(
           name,
           params['arguments'] is Map<String, Object?>
@@ -141,7 +145,13 @@ Future<int> runMcpServer({
               : const <String, Object?>{},
         );
         if (prompt == null) {
-          _writeError(output, id, _invalidParams, 'Unknown prompt: $name');
+          _writeError(
+            output,
+            id,
+            _invalidParams,
+            'prompt arguments require a non-empty packageRoot; minTokens '
+            'must be an integer >= 2 when given',
+          );
           continue;
         }
         _writeResult(output, id, prompt);
@@ -278,9 +288,19 @@ List<Map<String, Object?>> get _toolDefinitions => [
         },
         'command': {
           'type': 'string',
-          'enum': ['dead', 'deps', 'cycles', 'rules', 'metrics'],
+          'enum': ['dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'],
         },
         'strict': {'type': 'boolean'},
+        'minTokens': {
+          'type': 'integer',
+          'description': 'For dup only: minimum duplicated token window.',
+        },
+        'kinds': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'description':
+              'For dead, deps, or dup: report only these finding kinds.',
+        },
         'closedApp': {
           'type': 'boolean',
           'description':
@@ -411,12 +431,40 @@ List<Map<String, Object?>> get _promptDefinitions => [
       },
     ],
   },
+  {
+    'name': 'duplication-review',
+    'description':
+        'Review duplicated code blocks as consolidation candidates. '
+        'Findings are token-structural matches, not proof of semantic '
+        'equivalence.',
+    'arguments': [
+      {
+        'name': 'packageRoot',
+        'description': 'Package root directory to analyze.',
+        'required': true,
+      },
+      {
+        'name': 'minTokens',
+        'description':
+            'Minimum duplicated token window (integer ≥ 2; omit for the '
+            'CLI default).',
+        'required': false,
+      },
+    ],
+  },
 ];
 
-/// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·필수 인자 누락은 null이다.
+/// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·누락 packageRoot·잘못된
+/// minTokens는 null이다 — 호출자가 이름과 인자 오류를 구분해 보고한다.
 Map<String, Object?>? _getPrompt(String name, Map<String, Object?> arguments) {
   final packageRoot = arguments['packageRoot'];
   if (packageRoot is! String || packageRoot.trim().isEmpty) return null;
+  final minTokens = arguments['minTokens'];
+  if (minTokens != null) {
+    // 프롬프트 인자는 문자열로 올 수 있다 — 정수로 해석 가능하고 ≥2면 받는다.
+    final parsed = minTokens is int ? minTokens : int.tryParse('$minTokens');
+    if (parsed == null || parsed < 2) return null;
+  }
   final text = switch (name) {
     'impact-precheck' => _impactPrompt(packageRoot, arguments['since']),
     'dead-code-review' => _deadPrompt(packageRoot, arguments['closedApp']),
@@ -432,6 +480,17 @@ Map<String, Object?>? _getPrompt(String name, Map<String, Object?> arguments) {
           'means an import resolves through no declared section.\n'
           '3. Treat findings as review candidates — runtime loading and '
           'generated-code references are invisible to this audit.',
+    'duplication-review' =>
+      'Review duplicated code blocks in the package at "$packageRoot".\n\n'
+          '1. Call verify_run with command "dup", format "json", and '
+          'packageRoot "$packageRoot"'
+          '${arguments['minTokens'] != null ? ', minTokens ${arguments['minTokens']}' : ''}.\n'
+          '2. For each duplicate-block finding, open the listed instances and '
+          'decide whether the match is accidental parallelism or a real '
+          'consolidation candidate.\n'
+          '3. Findings are token-structural matches — semantic equivalence is '
+          'not verified, generated sources are excluded, and nothing here is '
+          'a deletion or merge instruction.',
     _ => null,
   };
   if (text == null) return null;
@@ -543,7 +602,11 @@ Future<Map<String, Object?>> _impactTool({
   final scratch = <Directory>[];
   try {
     if (arguments['since'] != null) {
-      args.addAll(['--since', '${arguments['since']}']);
+      final since = arguments['since'];
+      if (since is! String || since.trim().isEmpty) {
+        return _toolError('since must be a non-empty string');
+      }
+      args.addAll(['--since', since]);
     } else if (arguments['changed'] != null) {
       final changed = arguments['changed'];
       if (changed is! List || changed.isEmpty || changed.length > 1000) {
@@ -559,7 +622,11 @@ Future<Map<String, Object?>> _impactTool({
       );
       args.addAll(['--changed', file.path]);
     } else {
-      args.addAll(['--symbol', '${arguments['symbol']}']);
+      final symbol = arguments['symbol'];
+      if (symbol is! String || symbol.trim().isEmpty) {
+        return _toolError('symbol must be a non-empty string');
+      }
+      args.addAll(['--symbol', symbol]);
     }
     final depth = _positiveInt(arguments['depth']);
     if (depth != null) args.addAll(['--depth', '$depth']);
@@ -646,7 +713,7 @@ Future<Map<String, Object?>> _verifyTool({
   required ChangedFilesSince? changedFilesSince,
 }) async {
   final command = arguments['command'];
-  const commands = {'dead', 'deps', 'cycles', 'rules', 'metrics'};
+  const commands = {'dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'};
   if (command is! String || !commands.contains(command)) {
     return _toolError('command must be one of ${commands.join(', ')}');
   }
@@ -674,12 +741,52 @@ Future<Map<String, Object?>> _verifyTool({
     args.addAll(['--since', since]);
   }
   final baseline = arguments['baseline'];
-  if (baseline != null) args.addAll(['--baseline', '$baseline']);
+  if (baseline != null) {
+    if (baseline is! String || baseline.trim().isEmpty) {
+      return _toolError('baseline must be a non-empty string');
+    }
+    args.addAll(['--baseline', baseline]);
+  }
   final config = arguments['config'];
-  if (config != null) args.addAll(['--config', '$config']);
+  if (config != null) {
+    if (config is! String || config.trim().isEmpty) {
+      return _toolError('config must be a non-empty string');
+    }
+    args.addAll(['--config', config]);
+  }
+  final minTokens = arguments['minTokens'];
+  if (minTokens != null) {
+    // closed-app과 같은 이유로 의도 없는 인자를 조용히 무시하지 않는다.
+    if (command != 'dup') {
+      return _toolError('minTokens is only valid for command dup');
+    }
+    if (minTokens is! int || minTokens < 2) {
+      return _toolError('minTokens must be an integer ≥ 2');
+    }
+    args.addAll(['--min-tokens', '$minTokens']);
+  }
+  final kinds = arguments['kinds'];
+  if (kinds != null) {
+    // minTokens와 같은 이유로 의도 없는 인자를 조용히 무시하지 않는다.
+    if (command != 'dead' && command != 'deps' && command != 'dup') {
+      return _toolError('kinds is only valid for command dead, deps, or dup');
+    }
+    if (kinds is! List ||
+        kinds.isEmpty ||
+        kinds.any(
+          (item) =>
+              item is! String || item.trim().isEmpty || item.contains(','),
+        )) {
+      return _toolError(
+        'kinds must be a non-empty list of strings without commas',
+      );
+    }
+    args.addAll(['--kinds', kinds.join(',')]);
+  }
   // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
-  // `dead`·`deps`만 text·json·markdown·github-actions·sarif를 받는다.
-  if (format != null && (command == 'dead' || command == 'deps')) {
+  // `dead`·`deps`·`dup`만 text·json·markdown·github-actions·sarif를 받는다.
+  if (format != null &&
+      (command == 'dead' || command == 'deps' || command == 'dup')) {
     args.addAll(['--format', '$format']);
   }
   args.add(root);

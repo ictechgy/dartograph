@@ -99,16 +99,19 @@ exitCode: 0
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `packageRoot` | string | ✔ | 분석할 패키지 루트 |
-| `command` | enum | ✔ | `dead`·`deps`·`cycles`·`rules`·`metrics` |
+| `command` | enum | ✔ | `dead`·`deps`·`dup`·`cycles`·`rules`·`metrics` |
 | `strict` | boolean | | `cycles`·`rules`·`metrics`에서 finding을 코드 1로 |
+| `minTokens` | integer | | `dup` 전용: 중복 토큰 창 하한(≥ 2) |
+| `kinds` | string[] | | `dead`·`deps`·`dup` 전용: 보고할 finding 종류만 남김 |
 | `closedApp` | boolean | | `dead` 전용: `--closed-app`(공개 API 미보존, 독립 앱 전용) |
 | `since` | string | | `dead --since` |
 | `baseline` | string | | `dead --baseline` |
 | `config` | string | | `rules --config`의 layers.yaml |
-| `format` | enum | | `dead`·`deps` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
+| `format` | enum | | `dead`·`deps`·`dup` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
 
 `closedApp: true`를 `dead`가 아닌 명령에 주면 인자 오류로 거절한다 — 다른 명령에서는
-의도 없이 무시되는 플래그를 받지 않는다.
+의도 없이 무시되는 플래그를 받지 않는다. `minTokens`는 `dup` 전용, `kinds`는
+`dead`·`deps`·`dup` 전용으로 같은 규칙이다.
 
 응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead`·`deps` finding은 1), 이어서
 CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
@@ -141,6 +144,7 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
 | `impact-precheck` | `packageRoot`(필수), `since` | 수정 전 `impact_query` 호출 → impacted·callSites·risk 해석 |
 | `dead-code-review` | `packageRoot`(필수), `closedApp` | `verify_run dead` → `dependency_query`로 근거 확인 → limitations 점검 |
 | `dependency-audit` | `packageRoot`(필수) | `verify_run deps` → 네 종류 finding 해석 |
+| `duplication-review` | `packageRoot`(필수), `minTokens` | `verify_run dup` → 인스턴스 확인 → 병합 후보 판단 |
 
 ```json
 {"jsonrpc":"2.0","id":10,"method":"prompts/get","params":{"name":"impact-precheck","arguments":{"packageRoot":"/path/to/package","since":"origin/main"}}}

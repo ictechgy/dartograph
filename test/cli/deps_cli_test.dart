@@ -75,6 +75,59 @@ void main() {
     );
   });
 
+  test('deps --kinds narrows the reported finding kinds', () async {
+    final fixture = await copyFixture('dependency_audit');
+    final output = StringBuffer();
+
+    final status = await runDartograph([
+      'deps',
+      '--format',
+      'json',
+      '--kinds',
+      'undeclared-dependency',
+      fixture.path,
+    ], output: output);
+
+    expect(status, ExitStatus.findings.code);
+    final findings =
+        (jsonDecode(output.toString()) as Map<String, Object?>)['findings']!
+            as List<Object?>;
+    expect(
+      findings.cast<Map<String, Object?>>().map((f) => f['kind']).toSet(),
+      {'undeclared-dependency'},
+    );
+
+    final twoKinds = StringBuffer();
+    expect(
+      await runDartograph([
+        'deps',
+        '--format',
+        'json',
+        '--kinds',
+        'unused-dependency,undeclared-dependency',
+        fixture.path,
+      ], output: twoKinds),
+      ExitStatus.findings.code,
+    );
+    expect(
+      (jsonDecode(twoKinds.toString()) as Map<String, Object?>)['findings']!
+          as List<Object?>,
+      hasLength(2),
+    );
+
+    final error = StringBuffer();
+    expect(
+      await runDartograph([
+        'deps',
+        '--kinds',
+        'unused',
+        'unused',
+      ], error: error),
+      ExitStatus.usage.code,
+    );
+    expect(error.toString(), contains('Unknown --kinds'));
+  });
+
   test('deps exits 0 on a clean manifest and rejects bad usage', () async {
     final fixture = await copyFixture('closed_app');
     final output = StringBuffer();

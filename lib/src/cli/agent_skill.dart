@@ -34,15 +34,23 @@ If invocation details are unclear, inspect `dartograph --help`.
   dependencies against observed `package:` imports — unused, unused dev,
   dev-from-lib, undeclared. Tool contracts (executables, build.yaml,
   analysis_options) count as used; findings are a review list, not deletions.
+- Duplicated blocks: `dartograph dup <package-root>` reports token-structural
+  matches as review candidates only — never a merge or deletion instruction.
+- Finding kinds: `dead`, `deps`, and `dup` accept `--kinds <csv>` to narrow
+  which finding kinds are reported; graph and fingerprints are unchanged.
 - Standalone apps: `dartograph dead --closed-app <package-root>` drops
   public-API retention so unreachable exported declarations are reported.
   Pair baselines with `baseline --write --closed-app`. Never use it on a
   published library — its public API has consumers the graph cannot see.
 - Tool integration: `dartograph mcp` serves Model Context Protocol tools on
-  stdio (`impact_query`, `dependency_query`, `verify_run` including `deps`
-  and `closedApp`) plus `dartograph://usage|skill|config` resources and
-  `impact-precheck`/`dead-code-review`/`dependency-audit` prompts; it reuses
-  the same analysis paths and modifies nothing.
+  stdio (`impact_query`, `dependency_query`, `verify_run` including `deps`,
+  `dup`, and `closedApp`) plus `dartograph://usage|skill|config` resources and
+  `impact-precheck`/`dead-code-review`/`dependency-audit`/`duplication-review`
+  prompts; it reuses the same analysis paths and modifies nothing.
+- Claude Code wiring: `dartograph setup` prints (or `--install <root>`
+  installs) a PostToolUse impact hook and the project `.mcp.json` entry.
+  It merges into existing config, never overwrites other keys, and involves
+  no paid service, login, or telemetry.
 - Traceable runs: add `--record <dir>` to an analysis command to append one
   JSON line per run to `<dir>/ledger.jsonl` (command, exit code, observed Git
   HEAD, input flags, reported problem ids); existing lines are never rewritten.

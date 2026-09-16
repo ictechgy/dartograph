@@ -765,6 +765,111 @@ entry_points:
     },
   );
 
+  test(
+    'retained_names and retained_files add configured retention roots',
+    () async {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/dartograph.yaml').writeAsString('''
+retained_names:
+  - 'develop*'
+retained_files:
+  - 'lib/no_main.dart'
+''');
+
+      final result = await AnalyzerGraphIndex().index(package.path);
+
+      // 파일 glob이 맞은 no_main.dart의 Helper는 보존 루트다.
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('::Helper'))
+            .value,
+        RetentionReason.configuredRetention,
+      );
+      // 이름 glob이 맞은 development도 보존 루트다 — 같은 파일의 main이
+      // 이미 mainEntryPoint라 덮지 않는다.
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('::development'))
+            .value,
+        RetentionReason.configuredRetention,
+      );
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('main_dev.dart::main'))
+            .value,
+        RetentionReason.mainEntryPoint,
+      );
+      // 설정이 보존 루트를 늘렸다는 사실이 한계로 남는다.
+      expect(
+        result.limitationDetails,
+        anyElement(startsWith('retention-config:')),
+      );
+    },
+  );
+
+  test('include/exclude and thresholds surface on the index result', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/dartograph.yaml').writeAsString('''
+include:
+  - 'lib/**'
+exclude:
+  - 'lib/gen/**'
+thresholds:
+  distance: 0.5
+  complexity: 10
+''');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(result.includeGlobs, ['lib/**']);
+    expect(result.excludeGlobs, ['lib/gen/**']);
+    expect(result.metricsDistanceThreshold, 0.5);
+    expect(result.metricsComplexityThreshold, 10);
+  });
+
+  test('unknown dartograph.yaml keys surface as a limitation', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File(
+      '${package.path}/dartograph.yaml',
+    ).writeAsString('entry_points:\n  - lib/main.dart\ntypos_key: 1\n');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(
+      result.limitationDetails,
+      contains(
+        'config-unknown-keys: dartograph.yaml has unrecognized keys: typos_key',
+      ),
+    );
+  });
+
+  test('invalid scope config fails instead of silently narrowing', () async {
+    for (final config in const [
+      'include: []\n',
+      'exclude: nope\n',
+      'exclude:\n  - 42\n',
+      'retained_names: {a: b}\n',
+      'retained_files:\n  - \n',
+      'thresholds: []\n',
+      'thresholds: {distance: 0}\n',
+      'thresholds: {complexity: 1.5}\n',
+      'thresholds: {bogus: 1}\n',
+    ]) {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/dartograph.yaml').writeAsString(config);
+
+      await expectLater(
+        AnalyzerGraphIndex().index(package.path),
+        throwsA(isA<FormatException>()),
+        reason: 'config: $config',
+      );
+    }
+  });
+
   test('JS interop annotations retain declarations and their members', () async {
     final package = await Directory.systemTemp.createTemp(
       'dartograph-js-interop.',
@@ -996,6 +1101,78 @@ void entry() {}
     // 잃지 않는다.
     expect(result.packageImports.keys, containsAll(['meta', 'never_declared']));
     expect(result.packageImports['meta'], ['project:lib/main.dart']);
+  });
+
+  test('declaration bodies yield cyclomatic complexity facts', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-complexity.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: complexity_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${package.path}/lib').create();
+    // decide의 기대 점수를 손으로 센다: 기본 1 +
+    // ?? 1 + ??= 1 + if(&&) 2 + if(||) 2 + for 1 + 컬렉션 for 1 +
+    // 컬렉션 if 1 + while 1 + do 1 + switch case 2(default 제외) +
+    // switch-expression case 2 + ?: 1 + on 1 + 중첩 람다의 if 1 = 19
+    await File('${package.path}/lib/main.dart').writeAsString('''
+int decide(int? x) {
+  final y = x ?? 0;
+  var z = y;
+  z ??= 1;
+  if (y > 0 && z > 0) {}
+  if (y > 1 || z > 1) {}
+  for (var i = 0; i < 3; i++) {}
+  final list = [for (var i = 0; i < 2; i++) i, if (y > 0) y];
+  while (z > 10) {
+    z--;
+  }
+  do {
+    z--;
+  } while (z > 5);
+  switch (y) {
+    case 1:
+      break;
+    case 2:
+      break;
+    default:
+      break;
+  }
+  final s = switch (y) { 0 => 'a', _ => 'b' };
+  final t = y > 3 ? 1 : 0;
+  try {
+    throw StateError('x');
+  } on StateError {}
+  final f = () {
+    if (y > 9) return 1;
+    return 0;
+  };
+  return f() + s.length + t + list.length;
+}
+
+int trivial() => 0;
+
+abstract class Empty {
+  void noBody();
+}
+''');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    const prefix = 'package:complexity_fixture/main.dart::';
+    expect(result.complexity['${prefix}decide'], 19);
+    expect(result.complexity['${prefix}trivial'], 1);
+    // 본문이 없는 선언은 점수를 내지 않는다.
+    expect(result.complexity.containsKey('${prefix}Empty.noBody'), isFalse);
   });
 }
 

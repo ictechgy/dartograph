@@ -86,7 +86,8 @@ final class IncrementalCache {
 
   /// 캐시 스키마 버전이다. 사실 JSON의 형식을 바꾸면 올린다 — 올리면 전부
   /// 미스가 되어 다음 실행이 전체 재해석으로 복구한다.
-  static const schemaVersion = 1;
+  /// v2: `_UnitFacts.complexity` 필드 추가.
+  static const schemaVersion = 2;
 
   static const _fileName = 'facts.json';
 
