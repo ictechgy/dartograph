@@ -117,6 +117,29 @@ void main() {
     );
   });
 
+  test('three-way duplicates break ties on the second instance', () {
+    // 같은 블록이 세 파일에 있으면 [f,g]·[f,h]는 첫 인스턴스가 같다 —
+    // 둘째 인스턴스까지 비교해 실행과 무관한 순서를 보장해야 한다.
+    final block = [for (var i = 1; i <= 12; i++) i];
+    final report = DuplicationAnalyzer().analyze([
+      segment('project:lib/f.dart', block),
+      segment('project:lib/h.dart', block),
+      segment('project:lib/g.dart', block),
+    ], minTokens: 10);
+
+    expect(report.findings, hasLength(3));
+    expect(
+      report.findings
+          .map((finding) => finding.instances.map((i) => i.source).toList())
+          .toList(),
+      [
+        ['project:lib/f.dart', 'project:lib/g.dart'],
+        ['project:lib/f.dart', 'project:lib/h.dart'],
+        ['project:lib/g.dart', 'project:lib/h.dart'],
+      ],
+    );
+  });
+
   test('findings sort by token count then first location', () {
     final long = [for (var i = 1; i <= 20; i++) i];
     final short = [for (var i = 100; i <= 110; i++) i];

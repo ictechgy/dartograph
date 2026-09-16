@@ -885,6 +885,99 @@ void main() {
     },
   );
 
+  test('redundant public skips structurally retained declarations', () {
+    // sealed 서브타입은 사용 간선 없이 exhaustive 디스패치로 보존되고,
+    // 컨테이너는 도달 가능한 멤버로 보존된다 — 둘 다 "내부 전용"이 아니라
+    // 미관측이므로 가시성 축소 권고 대상이 아니다.
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::root',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/b.dart::Base',
+          sourceUri: 'project:lib/b.dart',
+          isTypeDeclaration: true,
+          isSealed: true,
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/b.dart::Sub',
+          sourceUri: 'project:lib/b.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/c.dart::Holder',
+          sourceUri: 'project:lib/c.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/c.dart::Holder.run',
+          sourceUri: 'project:lib/c.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Internal',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/b.dart::Base',
+          kind: EdgeKind.reference,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/c.dart::Holder.run',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/a.dart::root',
+          targetId: 'project:lib/a.dart::Internal',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        // Sub는 Base를 구현한다 — Sub로 향하는 사용 간선은 없다.
+        const GraphEdge(
+          sourceId: 'project:lib/b.dart::Sub',
+          targetId: 'project:lib/b.dart::Base',
+          kind: EdgeKind.inheritance,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:lib/c.dart::Holder',
+          targetId: 'project:lib/c.dart::Holder.run',
+          kind: EdgeKind.member,
+        ),
+      );
+
+    final findings = ReachabilityAnalyzer().redundantPublicDeclarations(
+      graph.snapshot(),
+      roots: const {'project:lib/a.dart::root': RetentionReason.mainEntryPoint},
+    );
+
+    // Sub(sealed 디스패치 보존)·Holder(도달 멤버 보존)는 제외되고 진짜
+    // 내부 전용 공개 선언만 남는다.
+    expect(findings.map((finding) => finding.id), [
+      'project:lib/a.dart::Internal',
+    ]);
+  });
+
   test('redundant public skips private containers and operators', () {
     final graph = CodeGraph()
       ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))

@@ -202,6 +202,15 @@ final class ReachabilityResult {
   bool isReachable(String id) =>
       (_reachableIdSet ??= reachableIds.toSet()).contains(id);
 
+  /// [id]가 사용 간선 없이 구조적으로만 보존된 선언인지 돌려준다 — 도달 가능한
+  /// sealed 상위의 서브타입·도달 가능한 멤버의 컨테이너·도달 enum의 상수다.
+  /// 이런 선언은 직접 참조가 관측되지 않아도 살아 있으므로(런타임 디스패치·
+  /// 멤버 경유 사용) 가시성 축소 권고의 근거가 될 수 없다.
+  bool isStructurallyRetained(String id) =>
+      _sealedSubtypeParents.containsKey(id) ||
+      _reachableEnumConstants.contains(id) ||
+      reachableMemberOf(id) != null;
+
   /// [id]를 보존하는 도달 가능한 멤버 중 첫 번째다(O(1), 최초 1회 색인 구축).
   ///
   /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다 — dot-접두
@@ -689,6 +698,10 @@ final class ReachabilityAnalyzer {
           _operatorSymbolPattern.hasMatch(member)) {
         continue;
       }
+      // 사용 간선 없이 구조적으로만 보존된 선언(sealed 서브타입·도달 멤버의
+      // 컨테이너)은 관측 참조가 없을 수 있다 — "내부 전용"이 아니라 미관측이므로
+      // 좁히라는 권고가 되면 안 된다(exhaustive switch·외부 멤버 접근이 깨진다).
+      if (result.isStructurallyRetained(id)) continue;
       final ownLibrary = id.substring(0, separator);
       final incoming = sourceLibraries[id] ?? const <String>[];
       if (incoming.any((library) => library != ownLibrary)) continue;
