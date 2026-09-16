@@ -51,8 +51,7 @@ void main() {
             as Map<String, Object?>;
     expect(json['report'], 'dup');
     expect(json['minTokens'], 40);
-    final first =
-        (json['findings']! as List).single as Map<String, Object?>;
+    final first = (json['findings']! as List).single as Map<String, Object?>;
     expect(first['kind'], 'duplicate-block');
 
     final sarif =
@@ -67,14 +66,10 @@ void main() {
             as Map<String, Object?>;
     expect(sarif['version'], '2.1.0');
     final results =
-        ((sarif['runs']! as List).single
-                as Map<String, Object?>)['results']!
+        ((sarif['runs']! as List).single as Map<String, Object?>)['results']!
             as List;
     expect(results, hasLength(1));
-    expect(
-      (results.single as Map)['ruleId'],
-      'dup-duplicate-block',
-    );
+    expect((results.single as Map)['ruleId'], 'dup-duplicate-block');
   });
 
   test('github-actions escapes workflow syntax in messages', () {
