@@ -764,6 +764,239 @@ entry_points:
       }
     },
   );
+
+  test('JS interop annotations retain declarations and their members', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-js-interop.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: js_interop_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${package.path}/lib').create();
+    await File('${package.path}/lib/interop.dart').writeAsString('''
+import 'dart:js_interop';
+
+@JS('windowBridge')
+external void bridge();
+
+@staticInterop
+class DomHandle {
+  external factory DomHandle();
+}
+
+extension DomHandleApi on DomHandle {
+  external void close();
+}
+
+// `anonymous`는 `const _Anonymous anonymous`로 선언된 상수다 — 작성명이
+// 'anonymous'라 클래스명(JSAnonymous·_Anonymous)이 아닌 이 이름을 인식해야 한다.
+@anonymous
+@staticInterop
+class JsOptions {
+  external factory JsOptions({String label});
+}
+''');
+    // 같은 이름의 사용자 annotation은 binding이 아니다 — 같은 라이브러리에
+    // 두면 import를 섀도잉하므로 별도 파일에 둔다.
+    await File('${package.path}/lib/fake.dart').writeAsString('''
+class JS {
+  const JS(String name);
+}
+
+@JS('fake')
+void notBound() {}
+''');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(
+      result.retentionRoots['package:js_interop_fixture/interop.dart::bridge'],
+      RetentionReason.externalBinding,
+    );
+    expect(
+      result
+          .retentionRoots['package:js_interop_fixture/interop.dart::DomHandle'],
+      RetentionReason.externalBinding,
+    );
+    // binding annotation이 붙은 타입의 멤버는 외부 런타임이 호출한다.
+    expect(
+      result
+          .retentionRoots['package:js_interop_fixture/interop.dart::DomHandleApi.close'],
+      RetentionReason.externalBinding,
+    );
+    // @anonymous도 binding이다 — 상수 이름 'anonymous'로 인식한다.
+    expect(
+      result
+          .retentionRoots['package:js_interop_fixture/interop.dart::JsOptions'],
+      RetentionReason.externalBinding,
+    );
+    // 이름만 같은 annotation은 실제 라이브러리 신원이 다르므로 보존하지 않는다.
+    expect(
+      result.retentionRoots.keys.where((id) => id.endsWith('::notBound')),
+      isEmpty,
+    );
+  });
+
+  test('build.yaml builder factories become retention roots', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-build-runner.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: builder_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${package.path}/lib').create();
+    await File('${package.path}/lib/builder.dart').writeAsString('''
+Object fixtureBuilder(Object options) => options;
+Object unrelated() => Object();
+''');
+    await File('${package.path}/build.yaml').writeAsString('''
+builders:
+  fixture_builder:
+    import: 'package:builder_fixture/builder.dart'
+    builder_factories: ['fixtureBuilder']
+    build_extensions:
+      '.dart': ['.fixture.dart']
+    build_to: source
+    auto_apply: dependents
+''');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(
+      result
+          .retentionRoots['package:builder_fixture/builder.dart::fixtureBuilder'],
+      RetentionReason.buildRunner,
+    );
+    expect(
+      result.retentionRoots.keys.where((id) => id.endsWith('::unrelated')),
+      isEmpty,
+    );
+  });
+
+  test(
+    'build.yaml entries with uninterpretable imports leave limitations',
+    () async {
+      final package = await Directory.systemTemp.createTemp(
+        'dartograph-build-runner-bad-import.',
+      );
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/pubspec.yaml').writeAsString('''
+name: bad_import_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory('${package.path}/lib').create();
+      await File('${package.path}/lib/builder.dart').writeAsString('''
+Object fixtureBuilder(Object options) => options;
+''');
+      // `src/` 상대 경로는 lib/ 접두가 없어 라이브러리 ID로 해석되지 않는다 —
+      // 보존 실패를 조용히 넘기지 않고 한계로 남겨야 한다.
+      await File('${package.path}/build.yaml').writeAsString('''
+builders:
+  broken_builder:
+    import: 'src/generator.dart'
+    builder_factories: ['fixtureBuilder']
+    build_extensions:
+      '.dart': ['.fixture.dart']
+    build_to: source
+post_process_builders:
+  missing_import:
+    builder_factory: fixtureBuilder
+    build_extensions:
+      '.dart': ['.post.dart']
+''');
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: package.path);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+      final result = await AnalyzerGraphIndex().index(package.path);
+
+      expect(
+        result.retentionRoots.keys.where(
+          (id) => id.endsWith('::fixtureBuilder'),
+        ),
+        isEmpty,
+      );
+      expect(
+        result.limitationDetails.where(
+          (item) =>
+              item.startsWith('build-yaml-import-unresolved: broken_builder'),
+        ),
+        hasLength(1),
+      );
+      expect(
+        result.limitationDetails.where(
+          (item) =>
+              item.startsWith('build-yaml-import-unresolved: missing_import'),
+        ),
+        hasLength(1),
+      );
+    },
+  );
+
+  test('manifest facts and package imports feed the deps audit', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-manifest.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: manifest_fixture
+environment:
+  sdk: ^3.11.0
+dependencies:
+  meta: ^1.17.0
+dev_dependencies:
+  lints: ^6.0.0
+dependency_overrides:
+  meta: ^1.17.0
+''');
+    await Directory('${package.path}/lib').create();
+    await File('${package.path}/lib/main.dart').writeAsString('''
+import 'package:meta/meta.dart';
+import 'package:never_declared/never_declared.dart';
+
+@visibleForTesting
+void entry() {}
+''');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(result.packageName, 'manifest_fixture');
+    expect(result.declaredDependencies, ['meta']);
+    expect(result.declaredDevDependencies, ['lints']);
+    expect(result.declaredDependencyOverrides, ['meta']);
+    // 미해결 package: 지시문도 선언된 URI 기준으로 센다 — 미선언 신호를
+    // 잃지 않는다.
+    expect(result.packageImports.keys, containsAll(['meta', 'never_declared']));
+    expect(result.packageImports['meta'], ['project:lib/main.dart']);
+  });
 }
 
 /// 여러 디렉터리의 main과 검증 케이스를 갖춘 임시 패키지를 만든다.

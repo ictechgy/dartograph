@@ -101,9 +101,145 @@ void main() {
       final info = result['serverInfo'] as Map<String, Object?>;
       expect(info['name'], 'dartograph');
       expect(info['version'], isNotEmpty);
-      expect(result['capabilities'], {'tools': <String, Object?>{}});
+      expect(result['capabilities'], {
+        'tools': <String, Object?>{},
+        'resources': <String, Object?>{},
+        'prompts': <String, Object?>{},
+      });
     },
   );
+
+  test(
+    'resources/list and resources/read serve the static documents',
+    () async {
+      final responses = await exchange([
+        request(20, 'resources/list'),
+        request(21, 'resources/read', {'uri': 'dartograph://usage'}),
+        request(22, 'resources/read', {'uri': 'dartograph://skill'}),
+        request(23, 'resources/read', {'uri': 'dartograph://config'}),
+        request(24, 'resources/read', {'uri': 'dartograph://missing'}),
+      ]);
+
+      final listed = ((responses[0]['result'] as Map)['resources'] as List)
+          .cast<Map<String, Object?>>();
+      expect(listed.map((r) => r['uri']).toList(), [
+        'dartograph://usage',
+        'dartograph://skill',
+        'dartograph://config',
+      ]);
+
+      final usage = ((responses[1]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(usage['mimeType'], 'text/plain');
+      expect(usage['text'] as String, contains('dartograph deps'));
+
+      final skill = ((responses[2]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(skill['mimeType'], 'text/markdown');
+      expect(skill['text'] as String, contains('dartograph'));
+
+      final config = ((responses[3]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(config['mimeType'], 'text/yaml');
+      expect(config['text'] as String, contains('entry_points'));
+
+      expect((responses[4]['error'] as Map)['code'], -32002);
+    },
+  );
+
+  test('prompts/list and prompts/get render workflow prompts', () async {
+    final responses = await exchange([
+      request(30, 'prompts/list'),
+      request(31, 'prompts/get', {
+        'name': 'impact-precheck',
+        'arguments': {'packageRoot': directory.path, 'since': 'HEAD'},
+      }),
+      request(32, 'prompts/get', {
+        'name': 'dead-code-review',
+        'arguments': {'packageRoot': directory.path, 'closedApp': 'true'},
+      }),
+      request(33, 'prompts/get', {
+        'name': 'dependency-audit',
+        'arguments': {'packageRoot': directory.path},
+      }),
+      request(34, 'prompts/get', {'name': 'nope', 'arguments': {}}),
+      request(35, 'prompts/get', {
+        'name': 'impact-precheck',
+        'arguments': <String, Object?>{},
+      }),
+    ]);
+
+    final listed = ((responses[0]['result'] as Map)['prompts'] as List)
+        .cast<Map<String, Object?>>();
+    expect(listed.map((p) => p['name']).toList(), [
+      'impact-precheck',
+      'dead-code-review',
+      'dependency-audit',
+    ]);
+
+    String textOf(Map<String, Object?> response) =>
+        ((((response['result'] as Map)['messages'] as List)
+                    .cast<Map<String, Object?>>()
+                    .single)['content']
+                as Map)['text']
+            as String;
+
+    expect(textOf(responses[1]), contains('since "HEAD"'));
+    expect(textOf(responses[1]), contains(directory.path));
+    expect(textOf(responses[2]), contains('closedApp true'));
+    expect(textOf(responses[3]), contains('command "deps"'));
+    expect((responses[4]['error'] as Map)['code'], -32602);
+    expect((responses[5]['error'] as Map)['code'], -32602);
+  });
+
+  test('verify_run rejects closedApp for non-dead commands', () async {
+    final responses = await exchange([
+      request(40, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'closedApp': true,
+        },
+      }),
+      // 문자열 'true'도 불리언과 같이 해석한다 — 프롬프트 인자 해석과 같은 기준.
+      request(41, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'closedApp': 'true',
+        },
+      }),
+    ]);
+
+    for (final response in responses) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      expect(
+        ((result['content'] as List).single as Map)['text'],
+        contains('closedApp is only valid for command dead'),
+      );
+    }
+  });
+
+  test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
+    final responses = await exchange([
+      // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.
+      {'jsonrpc': '2.0', 'method': 'ping'},
+      {'jsonrpc': '2.0', 'method': 'no/such_method'},
+      // 응답 형태(result) 메시지도 마찬가지다.
+      {'jsonrpc': '2.0', 'id': 7, 'result': <String, Object?>{}},
+      // 유효 요청 하나로 응답이 실제로 흐르는지 대조한다.
+      request(42, 'ping'),
+    ]);
+
+    expect(responses.single['id'], 42);
+    expect(responses.single, isNot(contains('error')));
+  });
 
   test('tools/list exposes the three read-only tools with schemas', () async {
     final responses = await exchange([request(2, 'tools/list')]);

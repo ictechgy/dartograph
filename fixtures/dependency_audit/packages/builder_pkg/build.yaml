@@ -1,0 +1,8 @@
+builders:
+  fixture_builder:
+    import: 'package:builder_pkg/builder.dart'
+    builder_factories: ['fixtureBuilder']
+    build_extensions:
+      '.dart': ['.fixture.dart']
+    build_to: source
+    auto_apply: dependents

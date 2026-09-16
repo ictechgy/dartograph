@@ -48,6 +48,10 @@ dartograph baseline --write .dartograph-baseline.json .
 dartograph dead --format github-actions \
   --baseline .dartograph-baseline.json --since origin/main .
 
+# 독립 앱: 공개 API 보존 해제 · pubspec 위생 감사
+dartograph dead --closed-app .
+dartograph deps .
+
 # 심볼 질의
 dartograph query ApiClient --baseline .dartograph-baseline.json .
 dartograph query --batch requests.json .
@@ -83,6 +87,9 @@ dartograph skill
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 실는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
+- `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
+- `dead --closed-app`은 독립 실행 앱(Flutter 앱·CLI 실행 파일)에서 공개 API 보존을 끈다 — `lib/<package>.dart`가 export해도 `main`에서 도달하지 못하는 선언은 보고된다. `baseline --write --closed-app`과 짝을 이루며, 게시 라이브러리에는 쓰지 않는다.
+- `dartograph mcp`는 세 개의 질의·검증 도구 외에 MCP 리소스(`dartograph://usage`·`skill`·`config`)와 프롬프트(`impact-precheck`·`dead-code-review`·`dependency-audit`)도 노출한다.
 
 `// dartograph:ignore` 줄 주석은 그 주석이 위에 오는 선언의 dead 보고를 억제한다(`retentionReason: inlineIgnore`로 보존) — 저장소 작성자의 결정이며 그래프 자체에 기록된다.
 

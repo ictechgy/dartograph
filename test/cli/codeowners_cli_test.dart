@@ -44,12 +44,14 @@ example/
     ]);
 
     expect(result.status, 1, reason: result.error);
-    expect(result.output, contains('@lib-team: 1 finding(s)'));
-    expect(result.output, contains('(unowned): 1 finding(s)'));
+    // pub get 없는 프로젝트는 project: ID라 파일 발견이 선언 발견과 함께 난다 —
+    // lib/는 orphan 선언 + orphan.dart·app.dart 파일, example/은 선언 + 파일.
+    expect(result.output, contains('@lib-team: 3 finding(s)'));
+    expect(result.output, contains('(unowned): 2 finding(s)'));
     expect(result.output, contains('example/orphan.dart'));
     expect(
       result.output,
-      contains('dead: 2 finding(s), 0 suppressed by baseline'),
+      contains('dead: 5 finding(s), 0 suppressed by baseline'),
     );
   });
 

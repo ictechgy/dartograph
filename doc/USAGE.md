@@ -16,11 +16,12 @@ dartograph --version
 ```text
 dartograph init [--force] [<package-root>]
 dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
+dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
@@ -41,8 +42,8 @@ dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>
 dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 ```
 
-`--incremental <dir>`는 분석·색인 명령(graph·dead·query·compare·affected·impact·
-baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실 캐시를 두고 다음
+`--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
+impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실 캐시를 두고 다음
 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시 해석한다. 산출물은
 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가 다르거나 쓸 수 없으면
 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
@@ -125,6 +126,18 @@ affected·baseline)은 빈 목록이다.
 `--explain`은 단일 대상의 전체 근거를 묻는 명령이라 `--baseline`·`--since`와 함께 쓰지 않는다.
 그래프에 없는 ID는 `known: false`와 종료 코드 64로 구분한다.
 
+`dead --closed-app`은 공개 API 보존(`lib/<package>.dart`가 export하는 선언 전부를
+보존 루트로 두는 정책)을 끈다. **라이브러리가 아니라 독립 실행 앱**(Flutter 앱·CLI
+실행 파일)을 분석할 때 쓴다 — 앱에는 외부 소비자가 없으므로 `main`에서 도달하지
+못하는 공개 선언도 finding으로 보고된다. 진입점·테스트·annotation·`entry_points`
+설정·build_runner·JS/FFI 외부 바인딩·억제 마커 등 나머지 보존 근거는 그대로다.
+보고서는 `closed-app-analysis` limitation으로 이 모드를 명시한다. 외부에 게시되는
+패키지에 쓰면 공개 API가 소비자 없이 dead로 보고되므로 **게시 라이브러리에는 쓰지
+않는다**. `--report-redundant-public`(이미 공개 선언만을 다른 질문으로 다룸)과의
+결합은 usage(64)다. `baseline --write <file> --closed-app`은 같은 루트 의미로
+finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된다 — 모드를
+다르게 한 baseline은 finding 지문이 어긋나 억제가 적용되지 않는다.
+
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
 것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"
@@ -142,6 +155,22 @@ barrel·플러그인 등 외부·도구가 유지를 선언한 선언), enum 상
 override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단일 패키지 분석이라
 외부 소비자는 보이지 않는다 — **게시된 패키지의 공개 API는 이 관측으로 좁히지 말 것**.
 `--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
+
+`deps`는 pubspec 선언과 소스의 `package:` import/export 관측을 대조하는 의존성 위생
+감사다. finding은 네 종류다: `unused-dependency`(선언됐는데 어느 소스도 import하지
+않음), `unused-dev-dependency`(dev 선언의 같은 관측), `dev-dependency-in-lib`
+(dev 의존을 `lib/` 안에서 참조 — 게시 패키지가 깨지는 배선), `undeclared-dependency`
+(참조하는데 어느 선언에도 없음). `--format`은 `text`(기본)·`json`·`markdown`·
+`github-actions`·`sarif`다.
+
+사용은 **관측**으로만 판정한다 — `package:` 지시문이 없어도 도구 계약이 요구하는
+의존은 사용으로 친다: pubspec `executables`에 노출된 실행 파일, `build.yaml`의
+`builders`·`post_process_builders`, `analysis_options.yaml`이 include하거나
+analyzer plugin으로 올린 패키지. 이 근거는 finding의 `evidence`와 보고서의
+`tool-usage:` limitation에 실린다. 런타임 로딩(`Isolate.spawnUri` 등), 생성 코드가
+import하는 패키지, 에셋 경로만의 참조는 이 감사에 보이지 않으며 그 사실이 limitation으로
+남는다. `dependency_overrides`는 사용 관측을 만들지 않으므로 미사용으로 보고하지
+않는다. finding이 있으면 종료 코드 1이다 — 삭제 지시가 아니라 검토 목록이다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
@@ -340,19 +369,22 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 |---|---|---|
 | `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
 | `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
-| `verify_run` | `packageRoot`, `command`(`dead`\|`cycles`\|`rules`\|`metrics`), `strict`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
+| `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
 
 도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
 `exitCode: <0|1|2|64>`다. 분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
-`dead`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
-입력 스키마·예시는 [MCP.md](MCP.md)에 있다.
+`dead`·`deps`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
+`closedApp`은 `dead`에만 적용된다. 서버는 세 가지 정적 리소스(`dartograph://usage`·
+`dartograph://skill`·`dartograph://config`)와 세 가지 프롬프트(`impact-precheck`·
+`dead-code-review`·`dependency-audit`)도 노출한다 — 입력 스키마·예시는
+[MCP.md](MCP.md)에 있다.
 
 ## 종료 코드
 
 | 코드 | 뜻 |
 |---:|---|
 | 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
-| 1 | `dead` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
+| 1 | `dead`·`deps` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함, `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다), 또는 `history`가 원장을 읽지 못함 |
 | 64 | 잘못된 명령·인자(`--record`·`history`의 옵션 오류 포함), 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 

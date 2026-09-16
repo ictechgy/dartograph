@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../analysis/reachability_analyzer.dart';
+import 'report_escapes.dart';
 
 /// `dead`가 지원하는 사용자 및 CI 출력 형식이다.
 enum ReportFormat {
@@ -102,23 +103,27 @@ abstract final class DeadReporter {
   ) {
     final output = StringBuffer();
     for (final finding in findings) {
-      final path = _escapeText(_path(finding.source));
+      final path = ReportEscapes.escapeText(
+        ReportEscapes.sourcePath(finding.source),
+      );
       final position = finding.line == null
           ? path
           : '$path:${finding.line}:${finding.column ?? 1}';
       output.writeln(
-        '$position: ${report.severity}: ${_escapeText(finding.kind)} '
-        '${_escapeText(finding.id)} — ${_escapeText(finding.reason)}',
+        '$position: ${report.severity}: ${ReportEscapes.escapeText(finding.kind)} '
+        '${ReportEscapes.escapeText(finding.id)} — ${ReportEscapes.escapeText(finding.reason)}',
       );
       output.writeln(
-        '    evidence: retentionRootsChecked=${_escapeText(_roots(finding))}',
+        '    evidence: retentionRootsChecked=${ReportEscapes.escapeText(_roots(finding))}',
       );
       for (final limitation in finding.limitations) {
-        output.writeln('    limitation: ${_escapeText(limitation)}');
+        output.writeln(
+          '    limitation: ${ReportEscapes.escapeText(limitation)}',
+        );
       }
     }
     for (final limitation in limits) {
-      output.writeln('limitation: ${_escapeText(limitation)}');
+      output.writeln('limitation: ${ReportEscapes.escapeText(limitation)}');
     }
     output.writeln(
       '${report.label}: ${findings.length} finding(s), $suppressed suppressed by baseline',
@@ -152,12 +157,12 @@ abstract final class DeadReporter {
     output.writeln('|---|---|---|---|---|---|');
     for (final finding in findings) {
       final location = finding.line == null
-          ? '`${_mdCell(_path(finding.source))}`'
-          : '`${_mdCell(_path(finding.source))}:${finding.line}:${finding.column ?? 1}`';
+          ? ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))
+          : '${ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))}:${finding.line}:${finding.column ?? 1}';
       output.writeln(
-        '| ${report.severity} | ${_mdCell(finding.kind)} | '
-        '`${_mdCell(finding.id)}` | $location | ${_mdCell(finding.reason)} | '
-        '`retentionRootsChecked=${_mdCell(_roots(finding))}` |',
+        '| ${report.severity} | ${ReportEscapes.mdCell(finding.kind)} | '
+        '${ReportEscapes.mdCode(finding.id)} | $location | ${ReportEscapes.mdCell(finding.reason)} | '
+        '${ReportEscapes.mdCode('retentionRootsChecked=${_roots(finding)}')} |',
       );
     }
     output.writeln();
@@ -165,46 +170,16 @@ abstract final class DeadReporter {
     output.writeln();
     for (final finding in findings) {
       for (final limitation in finding.limitations) {
-        output.writeln('- `${_mdCell(finding.id)}`: ${_mdCell(limitation)}');
+        output.writeln(
+          '- ${ReportEscapes.mdCode(finding.id)}: ${ReportEscapes.mdCell(limitation)}',
+        );
       }
     }
     for (final limitation in limits) {
-      output.writeln('- ${_mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
     }
     return output.toString();
   }
-
-  /// Markdown 표 셀: 제어문자를 가시 이스케이프하고 파이프를 이스케이프한다.
-  static String _mdCell(String value) =>
-      _escapeText(value).replaceAll('|', r'\|');
-
-  /// text 형식은 `path:line:col: severity: ...` 행 프로토콜이다. 동적 값의
-  /// 개행·제어문자는 두 번째 진단줄 위조나 ANSI 주입이 되므로 C0·DEL을 가시
-  /// 이스케이프로 바꾼다(정상 경로는 바이트 불변). 정책 정본은 graph_exporter의
-  /// 클래스 문서를 본다.
-  static String _escapeText(String value) {
-    if (!value.runes.any(_isControlRune)) return value;
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_isControlRune(rune)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      switch (rune) {
-        case 0x0a:
-          output.write(r'\n');
-        case 0x0d:
-          output.write(r'\r');
-        case 0x09:
-          output.write(r'\t');
-        default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
 
   static String _githubActions(
     List<DeadFinding> findings,
@@ -221,7 +196,9 @@ abstract final class DeadReporter {
       );
     }
     for (final finding in findings) {
-      final properties = <String>['file=${_property(_path(finding.source))}'];
+      final properties = <String>[
+        'file=${ReportEscapes.githubProperty(ReportEscapes.sourcePath(finding.source))}',
+      ];
       if (finding.line != null) properties.add('line=${finding.line}');
       if (finding.column != null) properties.add('col=${finding.column}');
       final message =
@@ -230,12 +207,12 @@ abstract final class DeadReporter {
           '${_roots(finding)}; limitations: '
           '${finding.limitations.join(',')}';
       output.writeln(
-        '::${report.githubCommand} ${properties.join(',')},title=dartograph ${report.label}::${_message(message)}',
+        '::${report.githubCommand} ${properties.join(',')},title=dartograph ${report.label}::${ReportEscapes.githubMessage(message)}',
       );
     }
     for (final limitation in limits) {
       output.writeln(
-        '::notice title=dartograph limitation::${_message(limitation)}',
+        '::notice title=dartograph limitation::${ReportEscapes.githubMessage(limitation)}',
       );
     }
     return output.toString();
@@ -254,7 +231,9 @@ abstract final class DeadReporter {
             'locations': [
               {
                 'physicalLocation': {
-                  'artifactLocation': {'uri': _sarifUri(finding.source)},
+                  'artifactLocation': {
+                    'uri': ReportEscapes.sarifUri(finding.source),
+                  },
                   // 파일 finding(line 없음)에 1:1 region을 발명하지 않는다 —
                   // SARIF에서 region은 선택이며 위치 증거 날조는 근거 규약 위반이다.
                   if (finding.line != null)
@@ -308,70 +287,6 @@ abstract final class DeadReporter {
       'version': '2.1.0',
     })}\n';
   }
-
-  /// source ID에서 `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
-  ///
-  /// projectIdForPath는 상대 경로 앞에 항상 `project:` 센티널을 붙이므로,
-  /// `project:x.dart`라는 합법 파일명의 ID는 `project:project:x.dart`가 되어 한 번
-  /// 벗기면 원본 경로로 정확히 왕복한다 — 센티널 충돌은 없다(감사 "낮음" 항목을
-  /// 코드 대조로 vacuous 확인). `package:`·`file:` 소스는 그대로 둔다.
-  static String _path(String source) => source.startsWith('project:')
-      ? source.substring('project:'.length)
-      : source;
-
-  /// SARIF artifact uri. `Uri(path:)` 조립은 `\`를 `/`로 치환하고 `%41`을 기존
-  /// 이스케이프로 해석해 경로를 조용히 손상·오귀속한다. 구분자(`/` — project ID는
-  /// 항상 URL 구분자를 쓴다)로 분리해 세그먼트별로 인코딩하면 손실이 없고 정상
-  /// 경로는 바이트가 불변이다.
-  ///
-  /// 원본 [source]의 `project:` 접두로 판정한다: project 소스는 상대 경로라 센티널을
-  /// 벗겨 세그먼트 인코딩하고, 나머지(`file:`·`package:` — projectIdForPath의 root 밖
-  /// fallback·의존 해결)는 이미 절대 URI라 그대로 통과시킨다(`/`로 쪼개 재인코딩하면
-  /// 스킴 콜론이 `%3A`로 손상, 실측 `file:///a`→`file%3A///a`). 원본 접두로 판정하므로
-  /// `file:x.dart`라는 root 수준 파일명(id `project:file:x.dart`)도 절대 URI로 오인하지
-  /// 않는다(상대 경로로 인코딩).
-  static String _sarifUri(String source) => source.startsWith('project:')
-      ? Uri(pathSegments: _path(source).split('/')).toString()
-      : source;
-
-  /// GitHub workflow command 이스케이프. 스펙 최소집합(`%`, CR, LF + property의
-  /// `:`·`,`)에 더해 C0·DEL·C1과 행 구조·시각 순서를 깨뜨릴 수 있는 문자
-  /// (U+2028·2029 줄 분리, U+202A–202E·U+2066–2069 bidi 제어를 러너 로그·주석으로
-  /// 흘리지 않는다. 기존 `%0D`·`%0A` 관례와 같은 대문자 hex 퍼센트 인코딩이고
-  /// 정상 입력의 바이트는 불변이다.
-  static String _property(String value) => _githubEncode(value, property: true);
-
-  static String _message(String value) => _githubEncode(value, property: false);
-
-  static String _githubEncode(String value, {required bool property}) {
-    if (!value.runes.any((rune) => _githubNeedsEncoding(rune, property))) {
-      return value;
-    }
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_githubNeedsEncoding(rune, property)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      for (final byte in utf8.encode(String.fromCharCode(rune))) {
-        output.write(
-          '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
-        );
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _githubNeedsEncoding(int rune, bool property) =>
-      rune == 0x25 || // %
-      rune < 0x20 || // C0 (CR·LF 포함)
-      rune == 0x7f || // DEL
-      (rune >= 0x80 && rune <= 0x9f) || // C1
-      rune == 0x2028 ||
-      rune == 0x2029 || // 줄 분리·단락 분리
-      (rune >= 0x202a && rune <= 0x202e) || // bidi 제어
-      (rune >= 0x2066 && rune <= 0x2069) || // bidi 격리
-      (property && (rune == 0x3a || rune == 0x2c)); // : ,
 
   static String _roots(DeadFinding finding) {
     final roots = finding.retentionRootsChecked;

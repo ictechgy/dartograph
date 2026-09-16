@@ -15,7 +15,8 @@ void main() {
       output.toString(),
       contains(
         '1   dead findings (including a dead --explain of an unreachable '
-        'target),\n      or cycles/rules/metrics findings with --strict',
+        'target),\n      deps findings, or cycles/rules/metrics findings with '
+        '--strict',
       ),
     );
     // help가 계약을 요약하는지 확인한다: dead --explain의 죽은 대상은 1이고,

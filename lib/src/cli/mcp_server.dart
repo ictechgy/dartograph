@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../core/tool_info.dart';
+import 'agent_skill.dart';
+import 'configuration_template.dart';
 import 'dartograph_cli.dart';
 
 /// dartograph가 구현하는 MCP 프로토콜 버전이다(stdio transport).
@@ -16,6 +18,9 @@ const _invalidRequest = -32600;
 const _methodNotFound = -32601;
 const _invalidParams = -32602;
 const _internalError = -32603;
+
+/// MCP 리소스 관례상 "알 수 없는 URI"에 쓰는 코드다.
+const _resourceNotFound = -32002;
 
 /// `impact_query` 도구 이름이다.
 const impactToolName = 'impact_query';
@@ -58,17 +63,26 @@ Future<int> runMcpServer({
     final id = message['id'];
     final method = message['method'];
     if (method is! String) {
-      // id가 없는 메시지는 알림으로 간주하고 답하지 않는다.
-      if (message.containsKey('id')) {
+      // 응답 형태(result·error) 메시지와 id 없는 알림에는 답하지 않는다.
+      if (message.containsKey('id') &&
+          !message.containsKey('result') &&
+          !message.containsKey('error')) {
         _writeError(output, id, _invalidRequest, 'Missing method');
       }
       continue;
     }
     if (method.startsWith('notifications/')) continue;
+    // id가 없는 요청 형태 메시지는 JSON-RPC notification이다 — notifications/
+    // 접두사만이 아니라 어떤 메서드든 id가 없으면 답을 보내지 않는다.
+    if (!message.containsKey('id')) continue;
     switch (method) {
       case 'initialize':
         _writeResult(output, id, {
-          'capabilities': {'tools': <String, Object?>{}},
+          'capabilities': {
+            'tools': <String, Object?>{},
+            'resources': <String, Object?>{},
+            'prompts': <String, Object?>{},
+          },
           'protocolVersion': mcpProtocolVersion,
           'serverInfo': {'name': 'dartograph', 'version': toolVersion},
         });
@@ -76,6 +90,61 @@ Future<int> runMcpServer({
         _writeResult(output, id, <String, Object?>{});
       case 'tools/list':
         _writeResult(output, id, {'tools': _toolDefinitions});
+      case 'resources/list':
+        _writeResult(output, id, {'resources': _resourceDefinitions});
+      case 'resources/read':
+        final params = message['params'];
+        if (params is! Map<String, Object?>) {
+          _writeError(output, id, _invalidParams, 'params must be an object');
+          continue;
+        }
+        final uri = params['uri'];
+        if (uri is! String) {
+          _writeError(
+            output,
+            id,
+            _invalidParams,
+            'params.uri must be a string',
+          );
+          continue;
+        }
+        final resource = _readResource(uri);
+        if (resource == null) {
+          _writeError(output, id, _resourceNotFound, 'Unknown resource: $uri');
+          continue;
+        }
+        _writeResult(output, id, {
+          'contents': [resource],
+        });
+      case 'prompts/list':
+        _writeResult(output, id, {'prompts': _promptDefinitions});
+      case 'prompts/get':
+        final params = message['params'];
+        if (params is! Map<String, Object?>) {
+          _writeError(output, id, _invalidParams, 'params must be an object');
+          continue;
+        }
+        final name = params['name'];
+        if (name is! String) {
+          _writeError(
+            output,
+            id,
+            _invalidParams,
+            'params.name must be a string',
+          );
+          continue;
+        }
+        final prompt = _getPrompt(
+          name,
+          params['arguments'] is Map<String, Object?>
+              ? params['arguments']! as Map<String, Object?>
+              : const <String, Object?>{},
+        );
+        if (prompt == null) {
+          _writeError(output, id, _invalidParams, 'Unknown prompt: $name');
+          continue;
+        }
+        _writeResult(output, id, prompt);
       case 'tools/call':
         final params = message['params'];
         if (params is! Map<String, Object?>) {
@@ -197,9 +266,9 @@ List<Map<String, Object?>> get _toolDefinitions => [
     'name': verifyToolName,
     'description':
         'Run a dartograph verification and return its exit code with the raw '
-        'output: dead (unreachable declarations), cycles, rules (layer '
-        'violations), or metrics. Use format json for a machine-readable '
-        'document. Read-only.',
+        'output: dead (unreachable declarations), deps (pubspec hygiene '
+        'audit), cycles, rules (layer violations), or metrics. Use format '
+        'json for a machine-readable document. Read-only.',
     'inputSchema': {
       'type': 'object',
       'properties': {
@@ -209,9 +278,15 @@ List<Map<String, Object?>> get _toolDefinitions => [
         },
         'command': {
           'type': 'string',
-          'enum': ['dead', 'cycles', 'rules', 'metrics'],
+          'enum': ['dead', 'deps', 'cycles', 'rules', 'metrics'],
         },
         'strict': {'type': 'boolean'},
+        'closedApp': {
+          'type': 'boolean',
+          'description':
+              'For dead only: do not retain the public API (standalone '
+              'application mode).',
+        },
         'since': {
           'type': 'string',
           'description': 'Git revision for dead --since.',
@@ -231,6 +306,179 @@ List<Map<String, Object?>> get _toolDefinitions => [
     },
   },
 ];
+
+/// 서버가 노출하는 정적 리소스다. 프로젝트별 동적 상태는 도구가 답한다 —
+/// 리소스는 호출 사이에 바뀌지 않는 문서만 노출한다.
+List<Map<String, Object?>> get _resourceDefinitions => [
+  {
+    'uri': 'dartograph://usage',
+    'name': 'usage',
+    'description':
+        'The full dartograph CLI contract: every command, flag, exit code, '
+        'and output-format rule.',
+    'mimeType': 'text/plain',
+  },
+  {
+    'uri': 'dartograph://skill',
+    'name': 'agent-skill',
+    'description':
+        'The agent skill document (dartograph skill output): query patterns, '
+        'symbol id shapes, and interpretation rules for AI callers.',
+    'mimeType': 'text/markdown',
+  },
+  {
+    'uri': 'dartograph://config',
+    'name': 'config-template',
+    'description':
+        'The commented dartograph.yaml template (dartograph init output): '
+        'entry_points and source_packages with their validation rules.',
+    'mimeType': 'text/yaml',
+  },
+];
+
+/// 정적 리소스 URI를 본문으로 해석한다. 모르는 URI는 null이다.
+Map<String, Object?>? _readResource(String uri) => switch (uri) {
+  'dartograph://usage' => {
+    'uri': uri,
+    'mimeType': 'text/plain',
+    'text': cliUsageText,
+  },
+  'dartograph://skill' => {
+    'uri': uri,
+    'mimeType': 'text/markdown',
+    'text': agentSkillMarkdown,
+  },
+  'dartograph://config' => {
+    'uri': uri,
+    'mimeType': 'text/yaml',
+    'text': configurationTemplate,
+  },
+  _ => null,
+};
+
+/// 에이전트가 자주 쓰는 작업 흐름의 프롬프트 정의다.
+List<Map<String, Object?>> get _promptDefinitions => [
+  {
+    'name': 'impact-precheck',
+    'description':
+        'Pre-check what an edit affects before making it: impacted symbols '
+        'with usage paths, call sites, related tests, and a risk score.',
+    'arguments': [
+      {
+        'name': 'packageRoot',
+        'description': 'Package root directory to analyze.',
+        'required': true,
+      },
+      {
+        'name': 'since',
+        'description':
+            'Git revision the change is measured from (e.g. HEAD, main).',
+        'required': false,
+      },
+    ],
+  },
+  {
+    'name': 'dead-code-review',
+    'description':
+        'Review unreachable declarations as candidates for removal. Use '
+        'closedApp only for standalone applications, never published '
+        'libraries.',
+    'arguments': [
+      {
+        'name': 'packageRoot',
+        'description': 'Package root directory to analyze.',
+        'required': true,
+      },
+      {
+        'name': 'closedApp',
+        'description':
+            'Set to "true" for a standalone application (public API is not '
+            'retained). Omit or "false" for published libraries.',
+        'required': false,
+      },
+    ],
+  },
+  {
+    'name': 'dependency-audit',
+    'description':
+        'Audit pubspec hygiene: unused declarations, dev_dependencies used '
+        'from lib/, and package: imports nothing declares.',
+    'arguments': [
+      {
+        'name': 'packageRoot',
+        'description': 'Package root directory to analyze.',
+        'required': true,
+      },
+    ],
+  },
+];
+
+/// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·필수 인자 누락은 null이다.
+Map<String, Object?>? _getPrompt(String name, Map<String, Object?> arguments) {
+  final packageRoot = arguments['packageRoot'];
+  if (packageRoot is! String || packageRoot.trim().isEmpty) return null;
+  final text = switch (name) {
+    'impact-precheck' => _impactPrompt(packageRoot, arguments['since']),
+    'dead-code-review' => _deadPrompt(packageRoot, arguments['closedApp']),
+    'dependency-audit' =>
+      'Audit the pubspec dependencies of the package at "$packageRoot".\n\n'
+          '1. Call verify_run with command "deps", format "json", and '
+          'packageRoot "$packageRoot".\n'
+          '2. Review each finding: unused-dependency and '
+          'unused-dev-dependency mean no analyzed source references the '
+          'package (tool contracts like executables, builders, and lint '
+          'includes already count as used); dev-dependency-in-lib means a '
+          'dev dependency leaked into published code; undeclared-dependency '
+          'means an import resolves through no declared section.\n'
+          '3. Treat findings as review candidates — runtime loading and '
+          'generated-code references are invisible to this audit.',
+    _ => null,
+  };
+  if (text == null) return null;
+  return {
+    'description': _promptDefinitions
+        .where((prompt) => prompt['name'] == name)
+        .first['description'],
+    'messages': [
+      {
+        'role': 'user',
+        'content': {'type': 'text', 'text': text},
+      },
+    ],
+  };
+}
+
+/// impact-precheck 프롬프트 본문이다.
+String _impactPrompt(String packageRoot, Object? since) {
+  final seed = since is String && since.trim().isNotEmpty
+      ? 'call impact_query with packageRoot "$packageRoot" and since "$since"'
+      : 'call impact_query with packageRoot "$packageRoot" and one seed: '
+            'since (a git revision), changed (edited project-relative paths), '
+            'or symbol (one symbol id)';
+  return 'Pre-check the impact of the pending change in "$packageRoot" '
+      'BEFORE editing.\n\n'
+      '1. First $seed.\n'
+      '2. Read impacted symbols with their shortest usage paths, callSites '
+      'into changed declarations, the affected test libraries, and the risk '
+      'score factors.\n'
+      '3. Impact is observed dependency reachability — an unlisted '
+      'declaration is not proven unaffected. Report the coverage block when '
+      'it is non-zero.';
+}
+
+/// dead-code-review 프롬프트 본문이다.
+String _deadPrompt(String packageRoot, Object? closedApp) {
+  final closed = closedApp == true || closedApp == 'true';
+  return 'Review unreachable declarations in "$packageRoot" as candidates '
+      'for removal.\n\n'
+      '1. Call verify_run with command "dead", format "json", packageRoot '
+      '"$packageRoot"${closed ? ', and closedApp true' : ''}.\n'
+      '${closed ? '   closed-app mode does not retain the public API — only use it because this is a standalone application.\n' : '   Public API stays retained because the package may be consumed as a library; pass closedApp only for standalone applications.\n'}'
+      '2. For any finding worth removing, call dependency_query on the '
+      'symbol to inspect its retention roots and usage evidence.\n'
+      '3. Never treat a finding as proof of deletion safety — check the '
+      'limitations list first.';
+}
 
 Future<Map<String, Object?>?> _callTool({
   required String name,
@@ -398,7 +646,7 @@ Future<Map<String, Object?>> _verifyTool({
   required ChangedFilesSince? changedFilesSince,
 }) async {
   final command = arguments['command'];
-  const commands = {'dead', 'cycles', 'rules', 'metrics'};
+  const commands = {'dead', 'deps', 'cycles', 'rules', 'metrics'};
   if (command is! String || !commands.contains(command)) {
     return _toolError('command must be one of ${commands.join(', ')}');
   }
@@ -409,6 +657,15 @@ Future<Map<String, Object?>> _verifyTool({
   }
   final args = <String>[command];
   if (arguments['strict'] == true) args.add('--strict');
+  // closed-app은 dead의 전제를 바꾸는 플래그다 — 다른 명령에 붙이면 호출
+  // 의도가 없는데 조용히 무시되므로 오류로 답한다. 'true' 문자열도 불리언과
+  // 같이 해석한다(_deadPrompt의 인자 해석과 같은 기준).
+  if (arguments['closedApp'] == true || arguments['closedApp'] == 'true') {
+    if (command != 'dead') {
+      return _toolError('closedApp is only valid for command dead');
+    }
+    args.add('--closed-app');
+  }
   final since = arguments['since'];
   if (since != null) {
     if (since is! String || since.trim().isEmpty) {
@@ -421,8 +678,8 @@ Future<Map<String, Object?>> _verifyTool({
   final config = arguments['config'];
   if (config != null) args.addAll(['--config', '$config']);
   // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
-  // `dead`만 text·json·github-actions·sarif를 받는다.
-  if (format != null && command == 'dead') {
+  // `dead`·`deps`만 text·json·markdown·github-actions·sarif를 받는다.
+  if (format != null && (command == 'dead' || command == 'deps')) {
     args.addAll(['--format', '$format']);
   }
   args.add(root);

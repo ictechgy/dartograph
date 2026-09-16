@@ -261,6 +261,22 @@ void main() {
     expect(error.toString(), contains('Invalid changed list'));
   });
 
+  test('impact reports an unreadable --changed file as usage', () async {
+    // 없는 입력 경로는 분석 실패(2)가 아니라 잘못된 사용(64)이다.
+    final missing = p.join(directory.path, 'does-not-exist.json');
+    final error = StringBuffer();
+    final status = await run([
+      'impact',
+      '--changed',
+      missing,
+      directory.path,
+    ], error: error);
+
+    expect(status, 64);
+    expect(error.toString(), contains('Changed list could not be read'));
+    expect(error.toString(), contains(missing));
+  });
+
   test('impact renders text, markdown, and sarif losslessly', () async {
     final changes = changedFile(['lib/a.dart']).path;
     final text = StringBuffer();

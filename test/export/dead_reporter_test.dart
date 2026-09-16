@@ -233,6 +233,41 @@ void main() {
     expect(literalActions.split('\n').where((l) => l.isNotEmpty), hasLength(1));
   });
 
+  test('C1, line-separator, and bidi controls are escaped in text output', () {
+    // C1(NEL 등)·U+2028·bidi 제어는 C0가 아니라 과거 escape를 통과했다 —
+    // 터미널·GitHub 로그에서 행 위조·시각 순서 왜곡이 되므로 같은 집합으로 막는다.
+    final hostile = DeadFinding(
+      id: 'package:app/a.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/ev\u0085il\u2028\u202e.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+
+    final text = DeadReporter.render(ReportFormat.text, [hostile]);
+    expect(text, isNot(contains('\u0085')));
+    expect(text, isNot(contains('\u2028')));
+    expect(text, isNot(contains('\u202e')));
+    expect(text, contains(r'\x85'));
+    expect(text, contains(r'\u{2028}'));
+    expect(text, contains(r'\u{202e}'));
+  });
+
+  test('markdown code spans keep ids containing backticks intact', () {
+    // id 안의 백틱은 span을 조기 종료시켜 출력을 깨뜨린다 — 구분자를 더 긴
+    // 백틱 run으로 늘려(CommonMark) 원문을 보존한다.
+    final hostile = DeadFinding(
+      id: 'package:app/a.dart::Foo`x',
+      kind: 'declaration',
+      source: 'project:lib/a.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+    );
+
+    final markdown = DeadReporter.render(ReportFormat.markdown, [hostile]);
+    expect(markdown, contains('``package:app/a.dart::Foo`x``'));
+  });
+
   test('sarif uri keeps backslashes and literal percent sequences', () {
     final backslash = DeadFinding(
       id: r'package:app/back\slash.dart::x',

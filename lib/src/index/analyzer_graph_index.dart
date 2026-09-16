@@ -47,6 +47,11 @@ final class AnalyzerGraphResult {
     required this.limitations,
     this.limitationDetails = const [],
     this.retentionRoots = const {},
+    this.packageName,
+    this.declaredDependencies = const [],
+    this.declaredDevDependencies = const [],
+    this.declaredDependencyOverrides = const [],
+    this.packageImports = const {},
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -60,6 +65,23 @@ final class AnalyzerGraphResult {
 
   /// analyzer와 manifest에서 확인한 명시적 보존 루트다.
   final Map<String, RetentionReason> retentionRoots;
+
+  /// pubspec의 패키지 이름이다. pubspec 부재·파싱 불가면 null이다.
+  final String? packageName;
+
+  /// pubspec `dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> declaredDependencies;
+
+  /// pubspec `dev_dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> declaredDevDependencies;
+
+  /// pubspec `dependency_overrides` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> declaredDependencyOverrides;
+
+  /// 분석 대상 소스가 import/export 지시문으로 참조한 `package:` 이름 → 그
+  /// 이름을 참조하는 소스 ID(`project:…`) 목록(각 목록 정렬). 미해결 지시문도
+  /// 선언된 URI 기준으로 센다 — 미해결을 건너뛰면 미선언 의존 신호가 사라진다.
+  final Map<String, List<String>> packageImports;
 }
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
@@ -336,6 +358,11 @@ final class AnalyzerGraphIndex {
           _cacheWriteFailureDetail,
         ],
         retentionRoots: result.retentionRoots,
+        packageName: result.packageName,
+        declaredDependencies: result.declaredDependencies,
+        declaredDevDependencies: result.declaredDevDependencies,
+        declaredDependencyOverrides: result.declaredDependencyOverrides,
+        packageImports: result.packageImports,
       );
     }
     return result;
@@ -441,6 +468,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
     routeUses: routeUses,
     dependencies: _libraryDependencies(root, library, resolved).toList()
       ..sort(),
+    packageReferences: _packageReferences(resolved.unit),
     libraryFacts: _libraryFacts(root, library, entryLibraryPath),
     librarySource: _relativeSourcePath(
       library.firstFragment.source.fullName,
@@ -503,6 +531,39 @@ Set<String> _libraryDependencies(
   return dependencies;
 }
 
+/// 유닛의 import/export 지시문이 선언한 `package:` 이름 집합이다(정렬).
+///
+/// 지시문 문자열(`uri.stringValue`)을 읽으므로 해석 성공 여부와 무관하게 잡힌다
+/// — pubspec에 선언되지 않아 해석에 실패한 import도 deps 감사의 근거가 된다.
+/// 조건부 지시문의 구성 URI도 센다(선택된 구성만 해석돼도 선언된 의존은 사실).
+List<String> _packageReferences(CompilationUnit unit) {
+  final names = <String>{};
+  void addUri(String? declared) {
+    if (declared == null || !declared.startsWith('package:')) return;
+    final uri = Uri.tryParse(declared);
+    if (uri == null || uri.pathSegments.isEmpty) return;
+    names.add(uri.pathSegments.first);
+  }
+
+  for (final directive in unit.directives) {
+    final List<Configuration> configurations;
+    switch (directive) {
+      case ImportDirective():
+        addUri(directive.uri.stringValue);
+        configurations = directive.configurations;
+      case ExportDirective():
+        addUri(directive.uri.stringValue);
+        configurations = directive.configurations;
+      default:
+        continue;
+    }
+    for (final configuration in configurations) {
+      addUri(configuration.uri.stringValue);
+    }
+  }
+  return names.toList()..sort();
+}
+
 /// 라이브러리 수준 사실(간선 대상·공개 API 후보)을 뽑는다.
 ///
 /// 같은 라이브러리의 모든 유닛이 같은 값을 얻는다 — 조립은 유닛 순서로 첫 항목을
@@ -563,6 +624,7 @@ final class _UnitFacts {
     required this.routeUses,
     required this.dependencies,
     required this.libraryFacts,
+    required this.packageReferences,
   });
 
   /// 루트 기준 posix 상대 경로다(캐시 키).
@@ -607,6 +669,11 @@ final class _UnitFacts {
   /// 라이브러리 수준 사실이다.
   final _LibraryFacts libraryFacts;
 
+  /// 이 유닛의 import/export 지시문이 선언한 `package:` 이름이다(정렬).
+  /// 지시문 문자열을 직접 읽으므로 미해결 import도 잡힌다 — 미선언 의존은
+  /// 해석 결과가 아니라 선언 텍스트가 근거다.
+  final List<String> packageReferences;
+
   /// `project:` source ID다.
   String get sourceId => 'project:$source';
 
@@ -621,6 +688,7 @@ final class _UnitFacts {
     'librarySource': librarySource,
     'mainEntry': mainEntry,
     'nodes': [for (final node in nodes) _nodeJson(node)],
+    'packageReferences': packageReferences,
     'roots': {for (final entry in roots.entries) entry.key: entry.value.name},
     'routes': routeTables,
     'routeUses': routeUses,
@@ -679,6 +747,10 @@ final class _UnitFacts {
           for (final dependency in value['dependencies'] as List? ?? const [])
             dependency as String,
         ],
+        packageReferences: [
+          for (final name in value['packageReferences'] as List? ?? const [])
+            name as String,
+        ],
         libraryFacts: libraryFacts,
       );
     } on Object {
@@ -736,6 +808,7 @@ Map<String, Object?> _nodeJson(GraphNode node) => {
   'isAbstract': node.isAbstract,
   'isEnumConstant': node.isEnumConstant,
   'isLibrary': node.isLibrary,
+  'isSealed': node.isSealed,
   'isTypeDeclaration': node.isTypeDeclaration,
   'line': ?node.line,
   'sourceUri': ?node.sourceUri,
@@ -752,6 +825,7 @@ GraphNode _nodeFromJson(Map<String, Object?> node) => GraphNode(
   isTypeDeclaration: node['isTypeDeclaration']! as bool,
   isAbstract: node['isAbstract']! as bool,
   isEnumConstant: node['isEnumConstant']! as bool,
+  isSealed: node['isSealed']! as bool,
 );
 
 Map<String, Object?> _edgeJson(GraphEdge edge) => {
@@ -847,6 +921,28 @@ AnalyzerGraphResult _assembleResult({
     limitations.add(AnalyzerLimitation.testCodeRetention);
   }
   final limitationDetails = _agentLimitations(root, sources, facts);
+  // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
+  // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
+  // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
+  if (!_addBuildRunnerRoots(
+    root,
+    graph,
+    retentionRoots,
+    pubspecContent,
+    limitationDetails,
+  )) {
+    limitationDetails.add(
+      'build-yaml-unparsed: builder entry points could not be read',
+    );
+  }
+  final manifest = _manifestFacts(pubspecContent);
+  final packageImports = <String, List<String>>{};
+  for (final source in sources) {
+    final unit = facts[source]!;
+    for (final name in unit.packageReferences) {
+      packageImports.putIfAbsent(name, () => []).add(unit.sourceId);
+    }
+  }
   if (entryPoints != null) {
     // 설정이 보존 루트를 좁혔다는 사실 자체를 출력에 남긴다. 없으면 PR로
     // 추가된 dartograph.yaml이 죽은 코드를 조용히 숨겨도 클린 저장소와
@@ -867,7 +963,143 @@ AnalyzerGraphResult _assembleResult({
     limitations: limitations.toList()..sort((a, b) => a.index - b.index),
     limitationDetails: limitationDetails,
     retentionRoots: Map.unmodifiable(retentionRoots),
+    packageName: manifest.name,
+    declaredDependencies: manifest.dependencies,
+    declaredDevDependencies: manifest.devDependencies,
+    declaredDependencyOverrides: manifest.dependencyOverrides,
+    packageImports: Map.unmodifiable(packageImports),
   );
+}
+
+/// pubspec에서 deps 감사가 쓰는 매니페스트 사실이다.
+///
+/// 이름·의존 섹션 키만 읽는다 — 버전 제약·sdk 조건은 선언 사실이 아니므로
+/// 건드리지 않는다. 섹션 값이 map이 아니면 그 섹션을 비어 있는 것으로 둔다
+/// (잘못된 형태의 pubspec은 analyzer가 이미 진단한다).
+({
+  String? name,
+  List<String> dependencies,
+  List<String> devDependencies,
+  List<String> dependencyOverrides,
+})
+_manifestFacts(String? pubspecContent) {
+  if (pubspecContent == null) {
+    return (
+      name: null,
+      dependencies: const [],
+      devDependencies: const [],
+      dependencyOverrides: const [],
+    );
+  }
+  final document = loadYaml(pubspecContent);
+  List<String> keysOf(Object? section) {
+    if (section is! YamlMap) return const [];
+    return [for (final key in section.keys) '$key']..sort();
+  }
+
+  return (
+    name: document is YamlMap && document['name'] is String
+        ? document['name'] as String
+        : null,
+    dependencies: keysOf(document is YamlMap ? document['dependencies'] : null),
+    devDependencies: keysOf(
+      document is YamlMap ? document['dev_dependencies'] : null,
+    ),
+    dependencyOverrides: keysOf(
+      document is YamlMap ? document['dependency_overrides'] : null,
+    ),
+  );
+}
+
+/// `build.yaml`의 builder factory를 보존 루트로 삼는다. 읽을 수 있으면 true다.
+///
+/// `builders.*.builder_factories`(목록)와 `post_process_builders.*.
+/// builder_factory`(단수)의 이름을 `import:`가 가리키는 라이브러리의 선언으로
+/// 해석한다. `package:` URI는 그대로 쓰고 상대 경로는 이 패키지의 `lib/`
+/// 라이브러리로 해석한다 — 두 형태가 그래프 노드 ID와 일치해야 매치된다.
+/// build.yaml이 없으면 아무것도 하지 않는다(플러그인이 아닌 패키지의 정상
+/// 상태이며 한계가 아니다).
+bool _addBuildRunnerRoots(
+  String root,
+  CodeGraph graph,
+  Map<String, RetentionReason> roots,
+  String? pubspecContent,
+  List<String> limitationDetails,
+) {
+  final file = File(p.join(root, 'build.yaml'));
+  if (!file.existsSync()) return true;
+  final Object? document;
+  try {
+    document = loadYaml(readConfigurationSync(file));
+  } on Object {
+    return false;
+  }
+  if (document is! YamlMap) return true;
+  final name = pubspecContent == null
+      ? null
+      : switch (loadYaml(pubspecContent)) {
+          YamlMap map when map['name'] is String => map['name'] as String,
+          _ => null,
+        };
+  void addFactory(String? libraryId, String factory) {
+    if (libraryId == null || factory.isEmpty) return;
+    final id = '$libraryId::$factory';
+    if (graph.containsNode(id)) {
+      roots.putIfAbsent(id, () => RetentionReason.buildRunner);
+      return;
+    }
+    limitationDetails.add(
+      'build-yaml-builder-unresolved: $id was declared but not found',
+    );
+  }
+
+  String? libraryIdOf(Object? import) {
+    if (import is! String || import.isEmpty) return null;
+    if (import.startsWith('package:')) return import;
+    // `lib/…` 상대 경로는 이 패키지의 라이브러리 ID로 해석한다.
+    final normalized = import.startsWith('./') ? import.substring(2) : import;
+    if (!normalized.startsWith('lib/') || name == null) return null;
+    return 'package:$name/${normalized.substring('lib/'.length)}';
+  }
+
+  void addEntries(Object? section, {required bool listValue}) {
+    if (section is! YamlMap) return;
+    for (final entry in section.entries) {
+      final value = entry.value;
+      if (value is! YamlMap) continue;
+      // 컬렉션 리터럴의 if-else는 else가 안쪽 if에 붙어 목록·단일 분기가
+      // 어긋난다 — 명령형으로 분리한다.
+      final rawFactories = listValue
+          ? value['builder_factories']
+          : value['builder_factory'];
+      final factories = <String>[
+        if (rawFactories is YamlList)
+          ...rawFactories.whereType<String>()
+        else if (rawFactories is String)
+          rawFactories,
+      ];
+      if (factories.isEmpty) continue;
+      final libraryId = libraryIdOf(value['import']);
+      if (libraryId == null) {
+        // import를 해석하지 못했는데 factory가 선언돼 있으면 조용히 넘기지
+        // 않는다 — 실제로 보존되지 않은 빌더 루트는 한계로 남긴다.
+        final rawImport = value['import'];
+        limitationDetails.add(
+          'build-yaml-import-unresolved: ${entry.key} declares builder '
+          'factories but its import (${rawImport ?? 'missing'}) could not '
+          'be interpreted',
+        );
+        continue;
+      }
+      for (final factory in factories) {
+        addFactory(libraryId, factory);
+      }
+    }
+  }
+
+  addEntries(document['builders'], listValue: true);
+  addEntries(document['post_process_builders'], listValue: false);
+  return true;
 }
 
 /// 증분 실행이 쓰는 입력 해시를 한 번의 파일 순회로 모은다.
@@ -955,14 +1187,17 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
 
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
-// 노드 직렬화에 isLibrary를 추가할 때도 같다(v3 — 추출 의미 변화 없이 필드만 늘었다).
-const _cacheSchemaVersion = 3;
+// 노드 직렬화에 isLibrary를 추가할 때도 같다(v3). isSealed와 deps 감사 필드
+// (packageImports·manifest) 추가로 v4가 됐다 — 추출 의미 변화 없이 필드만 늘었다.
+const _cacheSchemaVersion = 4;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
-// 올리지 않았다(직렬화 변경 시에는 위 schemaVersion만 올린다 — isEnumConstant·
-// isLibrary 선례).
+// 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
+// deps 감사 입력으로 쓰는 새 추출)과 build.yaml·인터롭 annotation 보존 루트로
+// 추출 의미가 바뀌어 다시 올린다. @anonymous 인식과 build.yaml 미해석 import
+// 한계 기록(v8)으로 다시 올린다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v6-inline-ignore-source-packages';
+    'dartograph-analysis-$toolVersion-cache-v8-anonymous-binding-import-gaps';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -1147,10 +1382,15 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
   final snapshot = result.graph.snapshot();
   final rootIds = result.retentionRoots.keys.toList()..sort();
   return jsonEncode({
+    'declaredDependencies': result.declaredDependencies,
+    'declaredDependencyOverrides': result.declaredDependencyOverrides,
+    'declaredDevDependencies': result.declaredDevDependencies,
     'edges': [for (final edge in snapshot.edges) _edgeJson(edge)],
     'limitationDetails': result.limitationDetails,
     'limitations': result.limitations.map((item) => item.name).toList(),
     'nodes': [for (final node in snapshot.nodes) _nodeJson(node)],
+    'packageImports': result.packageImports,
+    'packageName': ?result.packageName,
     'retentionRoots': {
       for (final id in rootIds) id: result.retentionRoots[id]!.name,
     },
@@ -1182,6 +1422,31 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
       retentionRoots: {
         for (final entry in encodedRoots.entries)
           entry.key: RetentionReason.values.byName(entry.value! as String),
+      },
+      packageName: document['packageName'] as String?,
+      declaredDependencies: [
+        for (final name in document['declaredDependencies']! as List<Object?>)
+          name! as String,
+      ],
+      declaredDevDependencies: [
+        for (final name
+            in document['declaredDevDependencies']! as List<Object?>)
+          name! as String,
+      ],
+      declaredDependencyOverrides: [
+        for (final name
+            in document['declaredDependencyOverrides']! as List<Object?>)
+          name! as String,
+      ],
+      packageImports: {
+        for (final entry
+            in (document['packageImports']! as Map)
+                .cast<String, Object?>()
+                .entries)
+          entry.key: [
+            for (final source in entry.value! as List<Object?>)
+              source! as String,
+          ],
       },
     );
   } on Object {
@@ -1459,6 +1724,7 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
                 (element is ClassElement && element.isAbstract) ||
                 element is MixinElement,
             isEnumConstant: element is FieldElement && element.isEnumConstant,
+            isSealed: element is ClassElement && element.isSealed,
           ),
         );
       }
@@ -1797,6 +2063,9 @@ RetentionReason? _retentionReason(
         annotationLibrary == 'package:meta/meta.dart') {
       return RetentionReason.visibleForTesting;
     }
+    if (_isExternalBinding(name, annotationLibrary)) {
+      return RetentionReason.externalBinding;
+    }
     final arguments = annotation.arguments?.arguments;
     if (name == 'pragma' &&
         annotationLibrary == 'dart:core' &&
@@ -1806,10 +2075,81 @@ RetentionReason? _retentionReason(
       return RetentionReason.vmEntryPoint;
     }
   }
+  // @JS·@staticInterop 같은 binding annotation이 붙은 타입의 멤버는 외부
+  // 런타임이 호출한다 — 멤버 자신의 metadata만 보면 놓친다. analyzer 14의
+  // ClassBody는 Declaration이 아니라 선언 사이에 끼므로 Declaration만 검사하고
+  // 계속 올라간다. extension 멤버는 on 절 타겟 타입의 annotation을 본다
+  // (@staticInterop 타입에 API를 얹는 관용구).
+  for (
+    AstNode? ancestor = node.parent;
+    ancestor != null && ancestor is! CompilationUnit;
+    ancestor = ancestor.parent
+  ) {
+    if (ancestor is! Declaration) continue;
+    final bound = ancestor.metadata.any(
+      (annotation) => _isExternalBinding(
+        annotation.name.name.split('.').last,
+        annotation.element?.library?.uri.toString(),
+      ),
+    );
+    if (bound) return RetentionReason.externalBinding;
+    if (ancestor is ExtensionDeclaration) {
+      final extended = ancestor.onClause?.extendedType.type?.element;
+      if (extended is InterfaceElement &&
+          extended.metadata.annotations.any(_isExternalBindingElement)) {
+        return RetentionReason.externalBinding;
+      }
+    }
+  }
   if (_overridesInheritedMember(element)) {
     return RetentionReason.overrideContract;
   }
   return null;
+}
+
+/// 외부 런타임이 이름으로 호출하는 binding annotation인지 판정한다.
+///
+/// package:js 계열(`JS`·`JSExport`·`JSAnonymous`·`staticInterop`)과 FFI 계열
+/// (`Native`·`FfiNative`)은 annotation이 실제 그 라이브러리에서 와야 한다 —
+/// 이름만 같은 사용자 선언이 호출 계약을 위장하지 못한다(visibleForTesting과
+/// 같은 검증 규칙).
+bool _isExternalBinding(String name, String? annotationLibrary) {
+  if (annotationLibrary == null) return false;
+  if (annotationLibrary == 'dart:js_interop' ||
+      annotationLibrary.startsWith('package:js/')) {
+    return _jsBindingAnnotations.contains(name);
+  }
+  if (annotationLibrary == 'dart:ffi' ||
+      annotationLibrary.startsWith('package:ffi/')) {
+    return _ffiBindingAnnotations.contains(name);
+  }
+  return false;
+}
+
+// `anonymous`는 `const _Anonymous anonymous`로 선언된 상수라 작성명·요소명 모두
+// 'anonymous'다 — 클래스 이름(JSAnonymous·_Anonymous)이 아니라 적힌 이름을 본다.
+const _jsBindingAnnotations = {
+  'JS',
+  'JSAnonymous',
+  'JSExport',
+  'anonymous',
+  'staticInterop',
+};
+
+const _ffiBindingAnnotations = {'FfiNative', 'Native'};
+
+/// 요소 수준 annotation(ElementAnnotation)이 외부 binding 계약인지 본다.
+///
+/// AST의 `Annotation.element`와 달리 생성자 호출은 `element.name`이 생성자
+/// 이름(`new`·`JS.named`)이라 클래스 이름은 enclosingElement에서 가져온다.
+bool _isExternalBindingElement(ElementAnnotation annotation) {
+  final element = annotation.element;
+  if (element == null) return false;
+  final name = element is ConstructorElement
+      ? element.enclosingElement.name
+      : element.name;
+  return name != null &&
+      _isExternalBinding(name, element.library?.uri.toString());
 }
 
 /// 대표 라이브러리가 공개하는 선언과 그 멤버를 보존 루트로 삼는다.

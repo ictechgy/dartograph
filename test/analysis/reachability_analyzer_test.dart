@@ -101,6 +101,121 @@ void main() {
     },
   );
 
+  test(
+    'a reachable sealed type preserves its direct and transitive subtypes',
+    () {
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'app::root'))
+        ..addNode(
+          GraphNode(
+            id: 'package:app/shape.dart::Shape',
+            isTypeDeclaration: true,
+            isSealed: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'package:app/shape.dart::Circle',
+            isTypeDeclaration: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'package:app/shape.dart::RectBase',
+            isTypeDeclaration: true,
+            isSealed: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'package:app/shape.dart::Square',
+            isTypeDeclaration: true,
+          ),
+        )
+        // switch 디스패치만 쓰이는 서브타입은 사용 간선이 없다 — 상위만 도달.
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'app::root',
+            targetId: 'package:app/shape.dart::Shape',
+            kind: EdgeKind.reference,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'package:app/shape.dart::Circle',
+            targetId: 'package:app/shape.dart::Shape',
+            kind: EdgeKind.inheritance,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'package:app/shape.dart::RectBase',
+            targetId: 'package:app/shape.dart::Shape',
+            kind: EdgeKind.inheritance,
+          ),
+        )
+        // sealed인 서브타입의 서브타입도 전이 보존된다.
+        ..addEdge(
+          const GraphEdge(
+            sourceId: 'package:app/shape.dart::Square',
+            targetId: 'package:app/shape.dart::RectBase',
+            kind: EdgeKind.inheritance,
+          ),
+        );
+
+      final result = ReachabilityAnalyzer().analyze(
+        graph.snapshot(),
+        roots: const {'app::root': RetentionReason.mainEntryPoint},
+      );
+
+      expect(result.deadDeclarations, isEmpty);
+      final explanation = result.explain('package:app/shape.dart::Circle');
+      expect(explanation.reachable, isTrue);
+      expect(
+        explanation.reason,
+        'retained as a subtype of a reachable sealed type',
+      );
+      expect(explanation.witness, 'package:app/shape.dart::Shape');
+      expect(explanation.path, ['app::root', 'package:app/shape.dart::Shape']);
+      final transitive = result.explain('package:app/shape.dart::Square');
+      expect(transitive.reachable, isTrue);
+      expect(transitive.witness, 'package:app/shape.dart::RectBase');
+    },
+  );
+
+  test('an unreachable sealed type still reports its subtypes as dead', () {
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::root'))
+      ..addNode(
+        GraphNode(
+          id: 'package:app/shape.dart::Orphan',
+          isTypeDeclaration: true,
+          isSealed: true,
+        ),
+      )
+      ..addNode(
+        GraphNode(id: 'package:app/shape.dart::Impl', isTypeDeclaration: true),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/shape.dart::Impl',
+          targetId: 'package:app/shape.dart::Orphan',
+          kind: EdgeKind.inheritance,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {'app::root': RetentionReason.mainEntryPoint},
+    );
+
+    // 상위 sealed가 도달하지 못하면 서브타입 보존이 과해지지 않는다.
+    expect(result.deadDeclarations.map((finding) => finding.id), [
+      'package:app/shape.dart::Impl',
+      'package:app/shape.dart::Orphan',
+    ]);
+  });
+
   test('an unreachable enum still reports its constants as dead', () {
     final graph = CodeGraph()
       ..addNode(GraphNode(id: 'app::root'))
@@ -338,6 +453,42 @@ void main() {
     expect(
       result.deadFiles.single.toJson().toString(),
       isNot(contains('delete')),
+    );
+  });
+
+  test('project-scheme file nodes are reported as dead files', () {
+    // package_config이 없는 프로젝트는 자기 라이브러리를 project: ID로 둔다 —
+    // dead-file 검사가 package:만 보면 이 파일 발견이 조용히 사라진다.
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/orphan.dart::dead',
+          sourceUri: 'project:lib/orphan.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:lib/main.dart'))
+      ..addNode(GraphNode(id: 'project:lib/orphan.dart'));
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'project:lib/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+    );
+
+    expect(
+      result.deadFiles.map((finding) => finding.id),
+      contains('project:lib/orphan.dart'),
+    );
+    expect(
+      result.deadDeclarations.map((finding) => finding.id),
+      contains('project:lib/orphan.dart::dead'),
     );
   });
 

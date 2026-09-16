@@ -8,6 +8,7 @@ import '../analysis/affected_analyzer.dart';
 import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/code_owners.dart';
+import '../analysis/dependency_audit.dart';
 import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
@@ -23,12 +24,14 @@ import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
 import '../export/codeowners_reporter.dart';
 import '../export/dead_reporter.dart';
+import '../export/dependency_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
 import '../export/ledger_reporter.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
+import '../index/dependency_tools.dart';
 import '../index/incremental_cache.dart';
 import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
@@ -211,6 +214,16 @@ Future<int> _dispatchCommand(
         changedFilesSince ?? ChangedFiles.since,
         failedItems,
       );
+    case 'deps':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
+      return await _runDeps(
+        indexed.arguments,
+        stdoutSink,
+        stderrSink,
+        indexed.index,
+        failedItems,
+      );
     case 'query':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
       if (indexed == null) return ExitStatus.usage.code;
@@ -338,6 +351,7 @@ const _recordableCommands = {
   'compare',
   'cycles',
   'dead',
+  'deps',
   'graph',
   'impact',
   'metrics',
@@ -699,7 +713,14 @@ Future<int> _runImpact(
       changedSources.addAll(matched.matchedSources);
       unmappedDartFiles = matched.unmappedDartFiles;
     } else if (changedFile != null) {
-      changedSources.addAll(await _readChangedEntries(changedFile));
+      try {
+        changedSources.addAll(await _readChangedEntries(changedFile));
+      } on FileSystemException {
+        // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
+        // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
+        error.writeln('Changed list could not be read: $changedFile');
+        return ExitStatus.usage.code;
+      }
     } else {
       changedSymbols.add(symbol!);
     }
@@ -1597,6 +1618,7 @@ Future<int> _runDead(
   var reportTestOnly = false;
   var reportRedundantPublic = false;
   var codeownersFormat = false;
+  var closedApp = false;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (const {
@@ -1611,6 +1633,20 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
+      // valued 옵션 중복은 boolean 플래그와 같은 기준으로 거부한다 — 조용한
+      // last-win은 사용자가 지정한 의도를 침묵 속에 바꾼다.
+      final alreadySet = switch (argument) {
+        '--explain' => explainId != null,
+        '--format' => reportFormat != null || codeownersFormat,
+        '--baseline' => baselinePath != null,
+        '--since' => since != null,
+        '--codeowners' => codeownersPath != null,
+        _ => false,
+      };
+      if (alreadySet) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
       switch (argument) {
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
@@ -1670,6 +1706,12 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       reportRedundantPublic = true;
+    } else if (argument == '--closed-app') {
+      if (closedApp) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      closedApp = true;
     } else if (!argument.startsWith('-') && rootPath == null) {
       rootPath = argument;
     } else {
@@ -1680,11 +1722,14 @@ Future<int> _runDead(
   // --report-test-only·--report-redundant-public는 각각 다른 질문을 info로
   // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
   // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
+  // --closed-app은 공개 API 보존을 거는 분석이므로, 그 보존을 전제로 답하는
+  // --report-redundant-public과는 전제가 모순되어 결합하지 않는다.
   if (rootPath == null ||
       (reportFormat == null && !codeownersFormat) ||
       (codeownersFormat && codeownersPath == null) ||
       (!codeownersFormat && codeownersPath != null) ||
       (reportTestOnly && reportRedundantPublic) ||
+      (closedApp && reportRedundantPublic) ||
       (explainId != null &&
           (codeownersFormat ||
               reportFormat != ReportFormat.json ||
@@ -1699,15 +1744,23 @@ Future<int> _runDead(
   try {
     final indexed = await indexPackage(rootPath);
     final limitations = _limitations(indexed);
+    if (closedApp) {
+      limitations.add(
+        'closed-app: public API surface is not preserved; findings assume the '
+        'package is a standalone application, not a published library',
+      );
+    }
+    // closed-app은 라이브러리 소비자라는 전제를 걷어낸다 — publicApi 루트만
+    // 빼고 나머지 보존 계약(main·테스트·annotation·설정 진입점)은 그대로다.
+    final roots = closedApp
+        ? (Map.of(indexed.retentionRoots)
+            ..removeWhere((_, reason) => reason == RetentionReason.publicApi))
+        : indexed.retentionRoots;
     final analyzer = ReachabilityAnalyzer();
     final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
       final explanation = analyzer
-          .analyze(
-            snapshot,
-            roots: indexed.retentionRoots,
-            limitations: limitations,
-          )
+          .analyze(snapshot, roots: roots, limitations: limitations)
           .explain(explainId);
       output.writeln(jsonEncode(explanation.toJson()));
       if (explanation.known && !explanation.reachable) {
@@ -1730,19 +1783,19 @@ Future<int> _runDead(
     if (reportTestOnly) {
       findings = analyzer.testOnlyDeclarations(
         snapshot,
-        roots: indexed.retentionRoots,
+        roots: roots,
         limitations: limitations,
       );
     } else if (reportRedundantPublic) {
       findings = analyzer.redundantPublicDeclarations(
         snapshot,
-        roots: indexed.retentionRoots,
+        roots: roots,
         limitations: limitations,
       );
     } else {
       final result = analyzer.analyze(
         snapshot,
-        roots: indexed.retentionRoots,
+        roots: roots,
         limitations: limitations,
       );
       findings = [...result.deadDeclarations, ...result.deadFiles]
@@ -1831,6 +1884,91 @@ Future<int> _runDead(
   }
 }
 
+Future<int> _runDeps(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+  List<String> failedItems,
+) async {
+  ReportFormat? format;
+  String? rootPath;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      format = ReportFormat.values
+          .where((item) => item.name == value)
+          .firstOrNull;
+      if (format == null) {
+        error.writeln(
+          'Unknown report format: $value '
+          '(expected text, json, markdown, github-actions, or sarif).',
+        );
+        return ExitStatus.usage.code;
+      }
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (rootPath == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  try {
+    final indexed = await indexPackage(rootPath);
+    final limitations = _limitations(indexed);
+    final declared = <String>{
+      ...indexed.declaredDependencies,
+      ...indexed.declaredDevDependencies,
+      ...indexed.declaredDependencyOverrides,
+    };
+    final toolCheck = detectToolLikeDependencies(rootPath, declared);
+    limitations.addAll(toolCheck.limitations);
+    limitations.add(
+      'package-usage: usage is observed from package: import/export directives '
+      'only; runtime loading, generated-code, and asset references are '
+      'invisible to this audit',
+    );
+    final findings = DependencyAudit().audit(
+      packageName: indexed.packageName,
+      dependencies: indexed.declaredDependencies,
+      devDependencies: indexed.declaredDevDependencies,
+      dependencyOverrides: indexed.declaredDependencyOverrides,
+      packageImports: indexed.packageImports,
+      toolLike: toolCheck.toolLike,
+    );
+    output.write(
+      DependencyReporter.render(
+        format ?? ReportFormat.text,
+        findings,
+        limitations: limitations,
+      ),
+    );
+    failedItems.addAll([
+      for (final finding in findings) 'deps:${finding.kind}:${finding.name}',
+    ]);
+    return findings.isEmpty
+        ? ExitStatus.success.code
+        : ExitStatus.findings.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
 Future<int> _runBaseline(
   List<String> arguments,
   StringSink output,
@@ -1840,19 +1978,30 @@ Future<int> _runBaseline(
   // 옵션 모양의 값을 경로로 받으면 `baseline --write --force .`이 `--force`라는
   // 이름의 파일을 실제로 만들고 성공을 보고한다. 인덱싱과 쓰기 전에 거부한다.
   // `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
-  if (arguments.length != 3 ||
+  if (arguments.length < 3 ||
+      arguments.length > 4 ||
       arguments[0] != '--write' ||
-      arguments[1].startsWith('-') ||
-      arguments[2].startsWith('-')) {
+      arguments[1].startsWith('-')) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  final tail = arguments.skip(2).toList();
+  final closedApp = tail.remove('--closed-app');
+  if (tail.length != 1 || tail.first.startsWith('-')) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final indexed = await indexPackage(arguments[2]);
+    final indexed = await indexPackage(tail.first);
     final limitations = _limitations(indexed);
+    // dead --closed-app과 같은 루트 집합에서 지문을 만들어야 억제가 맞는다.
+    final roots = closedApp
+        ? (Map.of(indexed.retentionRoots)
+            ..removeWhere((_, reason) => reason == RetentionReason.publicApi))
+        : indexed.retentionRoots;
     final result = ReachabilityAnalyzer().analyze(
       indexed.graph.snapshot(),
-      roots: indexed.retentionRoots,
+      roots: roots,
       limitations: limitations,
     );
     final findings = [...result.deadDeclarations, ...result.deadFiles];
@@ -2335,10 +2484,11 @@ dartograph — dependency graphs for Dart and Flutter codebases
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph baseline --write <file> [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
@@ -2377,7 +2527,21 @@ declarations reached only from test code) at info severity, so it never fails
 the build and does not combine with --explain or --baseline. dead
 --report-redundant-public likewise answers at info severity (public
 declarations whose observed references all come from their own library) with
-the same combination rules. cycles/rules
+the same combination rules. dead --closed-app stops retaining the public API
+surface: only actual entry points (main functions, tests, annotations, and
+configured entry_points) keep code alive. Use it for standalone applications,
+not published libraries — the report is still a review list, not a deletion
+instruction. Pass the same --closed-app to baseline --write so the recorded
+fingerprints match. --closed-app does not combine with
+--report-redundant-public, whose premise is public-API retention.
+
+deps audits pubspec hygiene: declared dependencies no source imports
+(unused-dependency, unused-dev-dependency), dev_dependencies referenced from
+lib/ (dev-dependency-in-lib), and package: imports nothing declares
+(undeclared-dependency). Packages with a confirmed tool contract — executables,
+build.yaml builders, analysis_options include/plugins — count as used.
+Findings are review candidates with evidence, not deletion instructions.
+cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.
 
@@ -2417,8 +2581,8 @@ as self-loops. graph --collapse <n> (requires --level file) summarizes
 libraries into their first n path segments; folder nodes are aggregates and
 carry no source location.
 
-analyzer를 쓰는 명령(graph, dead, query, compare, affected, impact, baseline,
-cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터리에 파일별 사실
+analyzer를 쓰는 명령(graph, dead, deps, query, compare, affected, impact,
+baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터리에 파일별 사실
 캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
 다르거나 쓸 수 없으면 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을
@@ -2451,9 +2615,13 @@ verdict; an unlisted declaration is not proven unaffected.
 mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
 clients. It exposes three read-only tools over the existing CLI paths:
 impact_query (the impact pre-check), dependency_query (query/--batch), and
-verify_run (dead, cycles, rules, metrics with exit code and raw output).
-stdout carries only JSON-RPC; diagnostics stay on stderr. The caller passes
-packageRoot per call. Nothing is modified by these tools.
+verify_run (dead, deps, cycles, rules, metrics with exit code and raw
+output; closedApp selects dead --closed-app). It also serves three static
+resources (dartograph://usage, dartograph://skill, dartograph://config) and
+three prompts (impact-precheck, dead-code-review, dependency-audit) that
+walk through the common workflows. stdout carries only JSON-RPC;
+diagnostics stay on stderr. The caller passes packageRoot per call. Nothing
+is modified by these tools.
 
 runtime reports the dependencies that only appear at run time — environment
 variables and dart-defines, dynamic loading (Isolate.spawnUri, Process.run,
@@ -2474,8 +2642,11 @@ program cannot run, and a present one is not proof that it does.
 Exit codes:
   0   success
   1   dead findings (including a dead --explain of an unreachable target),
-      or cycles/rules/metrics findings with --strict, or a runtime/impact
-      risk level at or above --fail-on
+      deps findings, or cycles/rules/metrics findings with --strict, or a
+      runtime/impact risk level at or above --fail-on
   2   analysis failure
   64  usage error, or a query/--explain target not found in the graph
 ''';
+
+/// MCP `dartograph://usage` 리소스가 노출하는 CLI 계약 본문이다(도움말과 같은 문서).
+const cliUsageText = _help;
