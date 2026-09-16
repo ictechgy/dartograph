@@ -15,6 +15,7 @@ coverage/
 .DS_Store
 
 # 로컬 상태
+.dartograph/
 .omc/
 .claude/settings.local.json
 .serena/

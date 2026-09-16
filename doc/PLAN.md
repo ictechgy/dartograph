@@ -101,5 +101,6 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 - 요구 1~4를 보강하는 잔여 작업(미릴리스): PR 코멘트 CI 예시
   (`.github/workflows/impact-precheck.yml`), `dead --format markdown`·
   `dead --format codeowners`, MCP 스키마·오류·예시 문서([MCP.md](MCP.md)).
-- 미착수: `dartograph.yaml` 확장(thresholds·include/exclude·retained_*)과 issue-type
-  필터, CODEOWNERS 전체 문법. 범위 결정이 필요하다([RESEARCH.md](RESEARCH.md)).
+- 미착수: `rules --explain <node>`. `dartograph.yaml` 확장(thresholds·
+  include/exclude·retained_*)·issue-type 필터(`--kinds`)·CODEOWNERS 전체 문법은
+  구현됐다(미릴리스 — [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) §6 참조).
