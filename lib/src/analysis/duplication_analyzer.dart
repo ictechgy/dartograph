@@ -88,11 +88,7 @@ final class DuplicationAnalyzer {
       final count = codes.length - minTokens + 1;
       final hashes = count <= 0
           ? const <int>[]
-          : List<int>.generate(
-              count,
-              (i) => _windowHash(codes, i, minTokens),
-              growable: false,
-            );
+          : _rollingHashes(codes, minTokens);
       windows.add(hashes);
       for (var i = 0; i < hashes.length; i++) {
         positions.putIfAbsent(hashes[i], () => []).add((segment: s, index: i));
@@ -197,14 +193,35 @@ final class DuplicationAnalyzer {
     endLine: segment.lines[start + tokenCount - 1],
   );
 
-  /// 윈도의 결정적 FNV-1a 해시다(63bit). 토큰 코드는 이미 균일한 해시라
-  /// 코드 하나당 한 번의 곱셈으로 섞는다.
-  static int _windowHash(List<int> codes, int start, int length) {
-    var hash = 0xcbf29ce484222325;
-    for (var i = start; i < start + length; i++) {
-      hash ^= codes[i];
-      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+  /// 연속 윈도의 결정적 롤링 다항 해시다(63bit, mod 2^63-1 아님 — 마스크 연산).
+  ///
+  /// 위치마다 윈도 전체를 다시 곱하지 않고 나가는 코드를 빼고 들어오는 코드를
+  /// 더해 O(1)에 갱신한다 — 토큰 N개·윈도 길이 k에서 O(N·k)가 O(N+k)가 된다.
+  /// 해시 충돌은 같은 윈도로 오인해 발견 쌍을 만들 수 있으므로 FNV 대신
+  /// 다항식을 쓰되 품질은 동급으로 유지한다.
+  static List<int> _rollingHashes(List<int> codes, int length) {
+    const mask = 0x7fffffffffffffff;
+    const base = 0x100000001b3; // FNV 소수 — 이미 균일한 토큰 코드에 충분하다.
+    // base^(length-1) — 나가는 항의 계수다.
+    var highFactor = 1;
+    for (var i = 1; i < length; i++) {
+      highFactor = (highFactor * base) & mask;
     }
-    return hash;
+    // 롤링 회귀 h[i+1] = (h[i] - out·B^{k-1})·B + in 이 성립하려면 윈도 값이
+    // 순수 다항식이어야 한다 — 상수 시드는 매 단계 B가 곱해져 회귀를 깬다.
+    var hash = 0;
+    for (var i = 0; i < length; i++) {
+      hash = (hash * base + codes[i]) & mask;
+    }
+    final count = codes.length - length + 1;
+    final hashes = List<int>.filled(count, 0);
+    hashes[0] = hash;
+    for (var i = 1; i < count; i++) {
+      hash =
+          ((hash - codes[i - 1] * highFactor) * base + codes[i + length - 1]) &
+          mask;
+      hashes[i] = hash;
+    }
+    return hashes;
   }
 }

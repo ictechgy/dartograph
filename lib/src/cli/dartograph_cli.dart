@@ -861,12 +861,18 @@ _matchChangedSources({
     for (final node in indexed.graph.snapshot().nodes)
       if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
   }.toList()..sort();
+  // 소스마다 resolveSymbolicLinks syscall이 필요하다 — 파일 수에 비례하므로
+  // 직렬로 두지 않고 한꺼번에 돌린다.
+  final canonicals = await Future.wait(
+    sources.map((source) => _canonicalSource(canonicalRoot, source)),
+  );
   final matchedSources = <String>{};
   final matchedFiles = <String>{};
-  for (final source in sources) {
+  for (var i = 0; i < sources.length; i++) {
+    final source = sources[i];
     final relative = source.substring('project:'.length);
     final absolute = p.normalize(p.join(canonicalRoot, relative));
-    final canonical = await _canonicalSource(canonicalRoot, source);
+    final canonical = canonicals[i];
     if (changed.contains(absolute) ||
         (canonical != null && changed.contains(canonical))) {
       matchedSources.add(source);
@@ -1987,14 +1993,21 @@ Future<int> _runDead(
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
       // 같은 파일의 finding마다 링크 해석 syscall을 반복하지 않도록 고유
-      // source당 1회만 해석한다(감사 P8).
-      final canonicalBySource = <String, String?>{};
-      for (final source in reported.map((finding) => finding.source).toSet()) {
-        canonicalBySource[source] = await _canonicalSource(
-          canonicalRoot,
-          source,
-        );
-      }
+      // source당 1회만 해석한다(감사 P8). syscall이 파일 수에 비례하므로
+      // 직렬로 두지 않고 한꺼번에 돌린다.
+      final reportedSources = reported
+          .map((finding) => finding.source)
+          .toSet()
+          .toList();
+      final reportedCanonicals = await Future.wait(
+        reportedSources.map(
+          (source) => _canonicalSource(canonicalRoot, source),
+        ),
+      );
+      final canonicalBySource = Map.fromIterables(
+        reportedSources,
+        reportedCanonicals,
+      );
       final scoped = <DeadFinding>[];
       for (final finding in reported) {
         if (_changedContains(

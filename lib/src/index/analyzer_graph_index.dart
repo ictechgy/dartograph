@@ -1525,6 +1525,11 @@ Future<List<File>> _analysisInputFiles(
       if (p.equals(dependencyRoot.path, packageRoot.path)) continue;
       addFile(File(p.join(dependencyRoot.path, 'pubspec.yaml')));
       addFile(File(p.join(dependencyRoot.path, 'analysis_options.yaml')));
+      // pub-cache 의존은 버전·커밋 단위로 내용이 고정된다 — rootUri 경로 자체가
+      // 지문이 되므로 `lib/` 전체를 해시하지 않는다. 무관한 패키지 파일 변경이
+      // 아니라 버전이 바뀔 때만 무효화된다. path dep처럼 내용이 변하는 의존은
+      // 그대로 `lib/` 전체를 지문에 넣는다.
+      if (isContentLockedDependency(dependencyRoot.path)) continue;
       final library = Directory(p.join(dependencyRoot.path, 'lib'));
       // 프로젝트 안 의존(중첩 패키지·path dep)은 프로젝트 루트가 경계다.
       // 바깥 의존(pub-cache 등)의 링크는 그 패키지 루트를 경계로 본다.
@@ -1578,6 +1583,41 @@ Future<List<File>> _analysisInputFiles(
 
 Future<Directory> _resolved(Directory directory) async =>
     Directory(await directory.resolveSymbolicLinks());
+
+/// [path]가 pub cache 아래의 내용 고정 의존성인지다.
+///
+/// hosted·git 의존은 버전/커밋이 바뀌면 캐시 내 경로도 바뀌므로 rootUri가 곧
+/// 내용 지문이다. path dep·로컬 오버라이드는 같은 경로에서 내용이 변하므로
+/// false다. `PUB_CACHE`가 없으면 플랫폼 기본 위치를 본다. [environment]는
+/// 테스트가 주입하는 환경 변수 뷔다.
+bool isContentLockedDependency(
+  String path, {
+  Map<String, String>? environment,
+}) {
+  final values = environment ?? Platform.environment;
+  final configured = values['PUB_CACHE'];
+  final String? pubCache;
+  if (configured != null && configured.isNotEmpty) {
+    pubCache = configured;
+  } else {
+    final home = Platform.isWindows
+        ? values['LOCALAPPDATA'] ?? values['USERPROFILE']
+        : values['HOME'];
+    pubCache = home == null
+        ? null
+        : Platform.isWindows
+        ? p.join(home, 'Pub', 'Cache')
+        : p.join(home, '.pub-cache');
+  }
+  if (pubCache == null) return false;
+  final String resolvedCache;
+  try {
+    resolvedCache = Directory(pubCache).absolute.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return false;
+  }
+  return p.equals(path, resolvedCache) || p.isWithin(resolvedCache, path);
+}
 
 FactCache? _defaultFactCache(String root) {
   final directory = defaultAnalyzerCacheDirectory(root);
@@ -2680,20 +2720,26 @@ void _addPublicApiRoots(
   Map<String, RetentionReason> roots,
   Iterable<String> exportedIds,
 ) {
-  // export 심볼마다 정렬 뷰를 다시 만들지 않는다 — 노드 ID 목록을 한 번만
-  // 뽑아 재사용한다(감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
-  final allNodeIds = graph.nodes.keys.toList(growable: false);
+  // export 심볼마다 노드 전체를 다시 스캔하면 O(export 수 × 노드 수)다 —
+  // 선언 prefix 기준으로 한 번만 묶어 멤버 조회를 O(멤버 수)로 만든다
+  // (감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
+  final membersByDeclaration = <String, List<String>>{};
+  for (final nodeId in graph.nodes.keys) {
+    final dot = nodeId.lastIndexOf('.');
+    if (dot == -1 || !nodeId.contains('::')) continue;
+    final memberName = nodeId.substring(dot + 1);
+    // 비공개 멤버는 공개 API로 보존하지 않는다. 마지막 '.' 뒤가 멤버명이므로
+    // 이 목록에는 직접 멤버만 온다.
+    if (memberName.startsWith('_')) continue;
+    membersByDeclaration
+        .putIfAbsent(nodeId.substring(0, dot), () => [])
+        .add(nodeId);
+  }
   for (final id in exportedIds) {
     if (!graph.containsNode(id)) continue;
     roots.putIfAbsent(id, () => RetentionReason.publicApi);
-    final memberPrefix = '$id.';
-    for (final nodeId in allNodeIds.where(
-      (candidate) => candidate.startsWith(memberPrefix),
-    )) {
-      final memberName = nodeId.substring(memberPrefix.length);
-      if (!memberName.contains('.') && !memberName.startsWith('_')) {
-        roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
-      }
+    for (final nodeId in membersByDeclaration[id] ?? const <String>[]) {
+      roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
     }
   }
 }
