@@ -445,6 +445,26 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
 배포용 패키징은 `vsce package`를 쓴다. 자세한 표는
 [editors/vscode/README.md](../editors/vscode/README.md)를 본다.
 
+## analysis server 플러그인
+
+`editors/analysis_plugin/`은 `analysis_server_plugin` 프레임워크의 플러그인이다 —
+IDE와 `dart analyze` 양쪽에서 그래프 발견을 진단으로 낸다. 프로젝트의
+`analysis_options.yaml`에 활성화한다:
+
+```yaml
+plugins:
+  dartograph_analysis_plugin: ^0.1.0
+```
+
+- `dartograph_dead_code`(warning) — `dead` 발견을 선언 위치에 표시한다.
+  선언 위 진단에는 `// dartograph:ignore`를 넣는 quick fix가 붙는다.
+- `dartograph_duplicate_block`(info) — `dup` 발견을 블록 범위로 표시한다.
+
+플러그인은 PATH의 `dartograph` 실행 파일을 호출한다(`DARTOGRAPH_EXECUTABLE`로
+교체 가능). 첫 분석 패스가 보고서를 동기로 적재하고 이후는 TTL 만료 시
+백그라운드로 갱신한다 — 증분 캐시(`.dartograph/cache`)가 반복 비용을 줄인다.
+진단은 근거 관측이며 삭제 판정이 아니다.
+
 ## 종료 코드
 
 | 코드 | 뜻 |

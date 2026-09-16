@@ -34,6 +34,12 @@ jobs:
         run: |
           node --check editors/vscode/extension.js
           node editors/vscode/test/mapper.test.js
+      - name: Analysis plugin checks
+        working-directory: editors/analysis_plugin
+        run: |
+          dart pub get
+          dart analyze
+          dart test
       - name: Tests, coverage and isolated activation
         run: tool/check-coverage.sh
       - run: tool/verify-false-positive-corpus.sh
