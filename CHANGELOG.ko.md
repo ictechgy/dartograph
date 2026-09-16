@@ -2,6 +2,48 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## 0.11.0
+
+- `dartograph deps` 추가. 선언된 `dependencies`/`dev_dependencies`/`dependency_overrides`와
+  관측된 `package:` import·export를 대조하는 pubspec 위생 감사다. 네 종류의 발견
+  (`unused-dependency`·`unused-dev-dependency`·`dev-dependency-in-lib`·
+  `undeclared-dependency`)을 다섯 형식(text·json·markdown·github-actions·sarif)으로
+  보고하고 finding이 있으면 종료 코드 1을 반환한다. 도구 계약 의존성(`executables`·
+  `build.yaml` builders·`analysis_options` includes/plugins)은 package_config 근거로
+  사용분으로 세고, 런타임/생성/asset 참조는 limitation으로 남는다. 발견은 검토
+  목록이지 삭제 지시가 아니다.
+- `dead --closed-app`과 `baseline --write --closed-app` 추가. 독립 실행 앱(Flutter
+  앱·CLI 실행 파일)에서 공개 API 보존 루트를 제거해 `main`에서 도달하지 못하는 공개
+  선언이 `lib/<package>.dart`의 export 대상이어도 보고되게 한다. 보고서는
+  `closed-app-analysis` limitation으로 모드를 명시하고 `--report-redundant-public`과의
+  결합은 usage 오류(64)다. 게시 라이브러리에는 쓰지 않는다.
+- MCP 서버가 `tools/*`와 함께 `resources/list`·`resources/read`,
+  `prompts/list`·`prompts/get`을 처리하고 `initialize` capabilities에 선언한다.
+  정적 리소스 세 종류(`dartograph://usage`·`dartograph://skill`·`dartograph://config`
+  — CLI 도움말·생성 스킬·설정 템플릿과 같은 본문)와 프롬프트 세 개
+  (`impact-precheck`·`dead-code-review`·`dependency-audit`)를 노출하고 알 수 없는
+  리소스 URI는 `-32002`로 답한다. `verify_run`은 `deps` 명령과 `closedApp` 플래그를
+  받되 `dead`가 아닌 명령에 주면 인자 오류로 거부해 조용히 무시되는 플래그를 막는다.
+- `dead`가 sealed 계층을 구제한다. 도달 가능한 sealed 선언은 직접·전이적 서브타입을
+  enum 상수와 같은 방식으로 살려 두며, 새 `GraphNode.isSealed` 표시를 읽는다.
+- index가 패키지 manifest 사실(선언된 dependencies·dev_dependencies·
+  dependency_overrides·패키지별 `package:` 지시문 import)을 추가로 수집하고,
+  `build.yaml` builder가 요구하는 팩토리 함수를 `buildRunner` 루트로,
+  `@JS`/`@staticInterop`/FFI 계열 annotation 대상을 `externalBinding` 루트로
+  보존한다. 사실 캐시 스키마는 v4, index identity는 v7로 갱신했다.
+- analyzer 14의 AST 변화로 생긴 회귀를 고쳤다 — 멤버와 선언 사이에 `ClassBody`
+  노드가 끼어 ancestor 순회가 멈춰 기존 보존 근거를 잃던 문제. 이제
+  `Declaration`이 아닌 노드를 건너뛰고 `CompilationUnit`까지 올라간다.
+- index가 `include:` 목록·`@anonymous` 지시문·해석되지 않는 `build.yaml` import를
+  인식하게 고쳤고, project-scheme dead 파일이 난독화되지 않은 소스로 보고된다.
+- CLI가 `dead`의 값 있는 옵션(`--explain`·`--format`·`--baseline`·`--since`·
+  `--codeowners`)이 중복 지정되면 조용한 last-win 대신 usage 오류로 거부하고, 읽을 수
+  없는 `--changed` 입력을 분석 실패가 아니라 usage 오류로 분류한다.
+- 리포터가 C1·bidi 제어 문자를 이스케이프하고 markdown code span을 안전하게
+  fence한다. 이스케이프 정책은 `report_escapes.dart`로 공유한다.
+- MCP가 notification 형태의 request 메시지를 무시하고 문자열로 온 `closedApp`
+  값을 인식한다.
+
 ## 0.10.0
 
 - 색인 명령 11개(`graph`·`dead`·`query`·`compare`·`affected`·`impact`·`baseline`·
