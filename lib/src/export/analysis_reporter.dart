@@ -4,6 +4,7 @@ import '../analysis/affected_analyzer.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
+import '../core/graph_node.dart';
 
 /// Phase 5 그래프 질의 결과를 결정적인 JSON으로 직렬화한다.
 abstract final class AnalysisReporter {
@@ -45,15 +46,44 @@ abstract final class AnalysisReporter {
   /// Martin 지표·주계열 영역(zone)과 엄격 모드가 사용하는 허용 오차를 보존한다.
   ///
   /// zone은 관측 시점의 허용 오차에 의존하는 표현 값이라 항목 toJson이 아니라
-  /// 여기서 합친다(정렬된 키 순서도 유지된다).
+  /// 여기서 합친다(정렬된 키 순서도 유지된다). [complexity]는 선언 ID → 순환
+  /// 복잡도 맵이고 [nodeSources]는 그 정점의 `sourceUri`·행이다 — 상위 10개를
+  /// 점수 내림·ID 오름차순으로 낸다. `hotSpots`는 afferent 결합도가 가장 큰
+  /// 라이브러리 10개다(수정 시 전이 영향이 큰 정점).
   static String metrics(
     Iterable<ArchitectureMetrics> metrics, {
     required Iterable<String> limitations,
     required double tolerance,
-  }) =>
-      '${jsonEncode({
-        'limitations': limitations.toSet().toList()..sort(),
-        'metrics': metrics.map((item) => {...item.toJson(), 'zone': item.zone(tolerance).value}).toList(),
-        'tolerance': tolerance,
-      })}\n';
+    Map<String, int> complexity = const {},
+    Map<String, GraphNode> nodeSources = const {},
+  }) {
+    final items = metrics.toList();
+    final topComplexity = complexity.entries.toList()
+      ..sort((a, b) {
+        final order = b.value.compareTo(a.value);
+        return order != 0 ? order : a.key.compareTo(b.key);
+      });
+    final hotSpots =
+        [
+          for (final item in items)
+            if (item.afferentCoupling > 0) item,
+        ]..sort((a, b) {
+          final order = b.afferentCoupling.compareTo(a.afferentCoupling);
+          return order != 0 ? order : a.id.compareTo(b.id);
+        });
+    return '${jsonEncode({
+      'complexity': {
+        'maximum': topComplexity.isEmpty ? 0 : topComplexity.first.value,
+        'top': [
+          for (final entry in topComplexity.take(10)) {'complexity': entry.value, 'id': entry.key, 'source': ?nodeSources[entry.key]?.sourceUri, 'line': ?nodeSources[entry.key]?.line},
+        ],
+      },
+      'hotSpots': [
+        for (final item in hotSpots.take(10)) {'afferentCoupling': item.afferentCoupling, 'id': item.id},
+      ],
+      'limitations': limitations.toSet().toList()..sort(),
+      'metrics': items.map((item) => {...item.toJson(), 'zone': item.zone(tolerance).value}).toList(),
+      'tolerance': tolerance,
+    })}\n';
+  }
 }
