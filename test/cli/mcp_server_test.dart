@@ -165,8 +165,12 @@ void main() {
         'name': 'dependency-audit',
         'arguments': {'packageRoot': directory.path},
       }),
-      request(34, 'prompts/get', {'name': 'nope', 'arguments': {}}),
-      request(35, 'prompts/get', {
+      request(34, 'prompts/get', {
+        'name': 'duplication-review',
+        'arguments': {'packageRoot': directory.path, 'minTokens': '40'},
+      }),
+      request(35, 'prompts/get', {'name': 'nope', 'arguments': {}}),
+      request(36, 'prompts/get', {
         'name': 'impact-precheck',
         'arguments': <String, Object?>{},
       }),
@@ -178,6 +182,7 @@ void main() {
       'impact-precheck',
       'dead-code-review',
       'dependency-audit',
+      'duplication-review',
     ]);
 
     String textOf(Map<String, Object?> response) =>
@@ -191,8 +196,10 @@ void main() {
     expect(textOf(responses[1]), contains(directory.path));
     expect(textOf(responses[2]), contains('closedApp true'));
     expect(textOf(responses[3]), contains('command "deps"'));
-    expect((responses[4]['error'] as Map)['code'], -32602);
+    expect(textOf(responses[4]), contains('command "dup"'));
+    expect(textOf(responses[4]), contains('minTokens 40'));
     expect((responses[5]['error'] as Map)['code'], -32602);
+    expect((responses[6]['error'] as Map)['code'], -32602);
   });
 
   test('verify_run rejects closedApp for non-dead commands', () async {

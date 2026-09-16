@@ -421,6 +421,27 @@ List<Map<String, Object?>> get _promptDefinitions => [
       },
     ],
   },
+  {
+    'name': 'duplication-review',
+    'description':
+        'Review duplicated code blocks as consolidation candidates. '
+        'Findings are token-structural matches, not proof of semantic '
+        'equivalence.',
+    'arguments': [
+      {
+        'name': 'packageRoot',
+        'description': 'Package root directory to analyze.',
+        'required': true,
+      },
+      {
+        'name': 'minTokens',
+        'description':
+            'Minimum duplicated token window (integer ≥ 2; omit for the '
+            'CLI default).',
+        'required': false,
+      },
+    ],
+  },
 ];
 
 /// 프롬프트 이름과 인자를 렌더링한다. 모르는 이름·필수 인자 누락은 null이다.
@@ -442,6 +463,17 @@ Map<String, Object?>? _getPrompt(String name, Map<String, Object?> arguments) {
           'means an import resolves through no declared section.\n'
           '3. Treat findings as review candidates — runtime loading and '
           'generated-code references are invisible to this audit.',
+    'duplication-review' =>
+      'Review duplicated code blocks in the package at "$packageRoot".\n\n'
+          '1. Call verify_run with command "dup", format "json", and '
+          'packageRoot "$packageRoot"'
+          '${arguments['minTokens'] != null ? ', minTokens ${arguments['minTokens']}' : ''}.\n'
+          '2. For each duplicate-block finding, open the listed instances and '
+          'decide whether the match is accidental parallelism or a real '
+          'consolidation candidate.\n'
+          '3. Findings are token-structural matches — semantic equivalence is '
+          'not verified, generated sources are excluded, and nothing here is '
+          'a deletion or merge instruction.',
     _ => null,
   };
   if (text == null) return null;

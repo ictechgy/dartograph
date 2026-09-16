@@ -33,11 +33,12 @@ Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
 ```text
 dartograph init [--force] [<package-root>]
 dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -47,6 +48,7 @@ dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions
 dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
+dartograph setup [--install <package-root> [--force]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
 dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
@@ -97,6 +99,17 @@ affected·baseline)은 빈 목록이다.
 `<skills-directory>/dartograph/SKILL.md`에 기록하고 성공·충돌 메시지에 그 경로를
 표시한다. 기존 파일이나 링크가 있으면 exit 64로 중단하며 `--force`로 덮어쓴다.
 그 자리의 심볼릭 링크는 대상을 따라가지 않고 링크 자체를 교체한다.
+
+`setup`은 Claude Code 연동 설정을 만든다. 인자 없이 실행하면 세 결과물을
+검토용으로 출력한다 — PostToolUse 훅 스크립트(`dartograph-impact.sh`),
+`settings.json`에 병합할 hooks 블록, `.mcp.json` 문서. `--install <package-root>`는
+`.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여), `.claude/settings.json`의
+`hooks.PostToolUse` 목록과 `.mcp.json`의 `mcpServers`에 dartograph 항목을 **병합**한다 —
+기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의 설정은
+덮어쓰지 않고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
+`dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
+에이전트에게 보고한다. PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·
+로그인·텔레메트리는 없다. `--force`는 생성 스크립트와 dartograph MCP 항목을 교체한다.
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
@@ -188,6 +201,17 @@ analyzer plugin으로 올린 패키지. 이 근거는 finding의 `evidence`와 �
 import하는 패키지, 에셋 경로만의 참조는 이 감사에 보이지 않으며 그 사실이 limitation으로
 남는다. `dependency_overrides`는 사용 관측을 만들지 않으므로 미사용으로 보고하지
 않는다. finding이 있으면 종료 코드 1이다 — 삭제 지시가 아니라 검토 목록이다.
+
+`dup`은 소스 안의 중복 코드 블록을 찾는다. 정규화한 토큰 창(window)을 모든 파일에서
+대조해 `--min-tokens`(기본값) 이상 반복되는 비겹침 블록을 `duplicate-block`
+finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검증하지 않는다 — 이름만
+다른 사본도 잡지만, 같은 모양이어도 의도된 병행 구조일 수 있다. 생성 코드는 제외되고,
+분석된 소스 안에서만 대조하므로 finding은 리뷰 후보이지 삭제·병합 지시가 아니다.
+
+`--kinds <csv>`는 `dead`(`declaration`,`file`)·`deps`(4종)·`dup`(`duplicate-block`)이
+보고하는 finding 종류를 좁힌다. 그래프·지문·baseline은 그대로이고 보고만 필터된다 —
+모두 걸러지면 종료 코드 0이다. 모르는 종류·빈 값은 usage(64)이고, `dead --explain`과는
+결합하지 않는다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
@@ -386,15 +410,16 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 |---|---|---|
 | `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
 | `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
-| `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
+| `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`dup`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `minTokens`, `kinds`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
 
 도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
 `exitCode: <0|1|2|64>`다. 분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
-`dead`·`deps`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
+`dead`·`deps`·`dup`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
+`minTokens`는 `dup` 전용, `kinds`는 `dead`·`deps`·`dup` 전용으로 다른 명령에서는 거절한다.
 `closedApp`은 `dead`에만 적용된다. 서버는 세 가지 정적 리소스(`dartograph://usage`·
-`dartograph://skill`·`dartograph://config`)와 세 가지 프롬프트(`impact-precheck`·
-`dead-code-review`·`dependency-audit`)도 노출한다 — 입력 스키마·예시는
-[MCP.md](MCP.md)에 있다.
+`dartograph://skill`·`dartograph://config`)와 네 가지 프롬프트(`impact-precheck`·
+`dead-code-review`·`dependency-audit`·`duplication-review`)도 노출한다 — 입력
+스키마·예시는 [MCP.md](MCP.md)에 있다.
 
 ## 종료 코드
 
