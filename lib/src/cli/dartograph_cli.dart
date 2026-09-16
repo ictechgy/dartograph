@@ -40,6 +40,7 @@ import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
 import '../runtime/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
+import 'agent_setup.dart';
 import 'agent_skill.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
@@ -248,6 +249,12 @@ Future<int> _dispatchCommand(
       );
     case 'skill':
       return await _runSkill(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+      );
+    case 'setup':
+      return await _runSetup(
         arguments.skip(1).toList(),
         stdoutSink,
         stderrSink,
@@ -1350,6 +1357,103 @@ Future<int> _runSkill(
     error.writeln(
       'Skill installation failed: check the destination permissions.',
     );
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `dartograph setup` — Claude Code 훅·프로젝트 MCP 설정을 생성한다.
+///
+/// 인쇄 경로는 세 결과물을 검토용으로 보여주고, `--install`은 훅 스크립트를
+/// `.claude/hooks/`에 쓰고 `.claude/settings.json`·`.mcp.json`에 병합한다.
+/// 기존 파일은 절대 통째로 덮어쓰지 않는다 — 병합할 수 없는 기존 설정은
+/// 그대로 두고 실패한다. 유료 서비스·로그인·텔레메트리 의존은 없다.
+Future<int> _runSetup(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+) async {
+  bool force = false;
+  String? installRoot;
+  for (var i = 0; i < arguments.length; i++) {
+    final argument = arguments[i];
+    if (argument == '--force' && !force) {
+      force = true;
+    } else if (argument == '--install' &&
+        installRoot == null &&
+        i + 1 < arguments.length &&
+        !arguments[i + 1].startsWith('-')) {
+      installRoot = arguments[++i];
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (installRoot == null) {
+    output
+      ..writeln('# .claude/hooks/$agentHookScriptName')
+      ..write(agentHookScript)
+      ..writeln('# .claude/settings.json — merge this block')
+      ..writeln(agentHookConfigJson())
+      ..writeln('# .mcp.json')
+      ..writeln(agentMcpConfigJson());
+    return ExitStatus.success.code;
+  }
+  final root = installRoot;
+  if (!Directory(root).existsSync()) {
+    error.writeln('Setup failed: $root is not a directory.');
+    return ExitStatus.usage.code;
+  }
+  final script = File(
+    p.join(root, '.claude', 'hooks', agentHookScriptName),
+  );
+  // init·skill과 같은 가드다. 링크 자체도 검사해 매달린 링크를 잡는다.
+  if (!force &&
+      (await script.exists() || await Link(script.path).exists())) {
+    error.writeln(
+      '${script.path} already exists. Pass --force to overwrite it.',
+    );
+    return ExitStatus.usage.code;
+  }
+  final settings = File(p.join(root, '.claude', 'settings.json'));
+  final mcpConfig = File(p.join(root, '.mcp.json'));
+  try {
+    // 설정 파일은 통째로 쓰지 않고 기존 내용 위에 dartograph 항목만 병합한다.
+    // 깨진 JSON·예상 밖 타입이면 FormatException으로 빠진다 — 병합을 먼저
+    // 계산해 한쪽만 쓰이는 부분 설치를 피한다.
+    final mergedSettings = mergeClaudeSettings(
+      await settings.exists() ? await settings.readAsString() : null,
+    );
+    final mergedMcp = mergeMcpConfig(
+      await mcpConfig.exists() ? await mcpConfig.readAsString() : null,
+      force: force,
+    );
+
+    await Directory(script.parent.path).create(recursive: true);
+    AtomicWrite.stringSync(script, agentHookScript);
+    if (!Platform.isWindows) {
+      await Process.run('chmod', ['+x', script.path]);
+    }
+    output.writeln('Installed hook script at ${script.path}.');
+
+    if (mergedSettings == null) {
+      output.writeln('${settings.path} already registers the dartograph hook.');
+    } else {
+      AtomicWrite.stringSync(settings, mergedSettings);
+      output.writeln('Registered the impact hook in ${settings.path}.');
+    }
+
+    if (mergedMcp == null) {
+      output.writeln('${mcpConfig.path} already registers dartograph mcp.');
+    } else {
+      AtomicWrite.stringSync(mcpConfig, mergedMcp);
+      output.writeln('Registered the MCP server in ${mcpConfig.path}.');
+    }
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
   }
 }
@@ -2803,6 +2907,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
+       dartograph setup [--install <package-root> [--force]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
@@ -2820,6 +2925,18 @@ root. Pass --force to overwrite an existing configuration file.
 skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
+
+setup prints or installs Claude Code integration without MCP calls: with no
+options it prints the PostToolUse hook script, the settings.json hook block,
+and the .mcp.json document for review. --install writes
+<package-root>/.claude/hooks/dartograph-impact.sh, merges the hook into
+<package-root>/.claude/settings.json, and merges the dartograph MCP server
+into <package-root>/.mcp.json. Existing keys are preserved; settings whose
+hooks are not the expected JSON shape, or invalid JSON, fail instead of being
+overwritten. --force overwrites the generated script and replaces an existing
+dartograph MCP entry. The hook runs `dartograph impact --changed` after Dart
+file edits and requires dartograph on PATH; no paid service, login, or
+telemetry is involved.
 
 
 dead --format codeowners groups findings by the owners of their source paths
