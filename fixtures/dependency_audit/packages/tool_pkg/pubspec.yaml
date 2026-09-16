@@ -1,0 +1,5 @@
+name: tool_pkg
+environment:
+  sdk: ^3.11.0
+executables:
+  tool_pkg:

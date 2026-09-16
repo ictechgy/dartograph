@@ -108,6 +108,14 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  expect_status 1 "dead closed-app findings" dead --format json --closed-app fixtures/closed_app
+  expect_status 0 "baseline write closed-app" baseline --write "$TEMPORARY_DIRECTORY/baseline-closed.json" --closed-app fixtures/closed_app
+  expect_status 0 "dead closed-app with baseline" dead --format json --closed-app --baseline "$TEMPORARY_DIRECTORY/baseline-closed.json" fixtures/closed_app
+  expect_status 64 "dead closed-app with redundant-public" dead --report-redundant-public --closed-app --format json fixtures/closed_app
+  expect_status 1 "deps hygiene findings" deps --format json fixtures/dependency_audit
+  expect_status 0 "deps clean manifest" deps fixtures/closed_app
+  expect_status 64 "deps usage error" deps
+  expect_status 64 "deps unknown format" deps --format xml fixtures/closed_app
   CHANGES_FILE="$TEMPORARY_DIRECTORY/changes.json"
   printf '["lib/a.dart"]' > "$CHANGES_FILE"
   expect_status 0 "impact changed" impact --changed "$CHANGES_FILE" --format json fixtures/phase5_contract

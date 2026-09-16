@@ -1,0 +1,16 @@
+name: dependency_audit_fixture
+environment:
+  sdk: ^3.11.0
+dependencies:
+  meta: ^1.17.0
+  declared_unused:
+    path: packages/declared_unused
+  tool_pkg:
+    path: packages/tool_pkg
+  builder_pkg:
+    path: packages/builder_pkg
+dev_dependencies:
+  dev_pkg:
+    path: packages/dev_pkg
+  unused_dev:
+    path: packages/unused_dev
