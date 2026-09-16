@@ -139,6 +139,63 @@ class Swapped {
     },
   );
 
+  test(
+    'distrusts mutable field initials rebound by injection, cascade, or external writes',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-events.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/events.dart').writeAsString(r'''
+import 'package:flutter/services.dart';
+
+class Injected {
+  EventChannel channel = const EventChannel('default');
+  Injected({EventChannel? channel})
+      : channel = channel ?? const EventChannel('default');
+  void listen() => channel.receiveBroadcastStream();
+}
+
+class FormalInjected {
+  EventChannel channel = const EventChannel('default');
+  FormalInjected(this.channel);
+  void listen() => channel.receiveBroadcastStream();
+}
+
+class Cascaded {
+  EventChannel channel = const EventChannel('default');
+  void rebind() => this..channel = EventChannel('later');
+  void listen() => channel.receiveBroadcastStream();
+}
+
+class External {
+  EventChannel other = const EventChannel('default');
+  void listen() => other.receiveBroadcastStream();
+}
+
+void poke(External api) {
+  api.other = EventChannel('later');
+}
+
+EventChannel topMutable = EventChannel('top');
+void rebindTop() => topMutable = EventChannel('later');
+void listenTop() => topMutable.receiveBroadcastStream();
+
+class Stable {
+  EventChannel channel = const EventChannel('charging');
+  void listen() => channel.receiveBroadcastStream();
+}
+''');
+
+      final result = indexBridges(root.path, events: true);
+
+      expect(result.facts, hasLength(1));
+      expect(result.facts.single['channel'], 'charging');
+      expect(
+        result.limitations,
+        contains(startsWith('unresolved-stream-listens: 5')),
+      );
+    },
+  );
+
   test('messages and events are separate documents', () async {
     final root = await Directory.systemTemp.createTemp('bridge-events.');
     addTearDown(() => root.delete(recursive: true));

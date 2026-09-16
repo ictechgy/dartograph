@@ -103,6 +103,11 @@ BridgeIndexResult indexBridges(
       parsed.unit,
       auxMode: messages || events,
     );
+    // aux 채널의 초기값 신뢰 게이트 — 유닛 단위 재대입 관측이 필요한 유일한
+    // 데이터이므로 opt-in 모드에서만 계산한다.
+    final assignedNames = messages || events
+        ? _assignedNamesIn(parsed.unit)
+        : _AssignedNames();
     final rootDeclaredNames = _topLevelDeclaredNames(parsed.unit);
     final rootChannels = _topLevelChannels(
       parsed.unit,
@@ -124,7 +129,9 @@ BridgeIndexResult indexBridges(
         flutterPrefixes,
         rootDeclaredNames,
         auxChannelType,
+        assignedNames,
       ),
+      assignedNames,
       messages: messages,
       events: events,
     );
@@ -292,7 +299,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     Set<String> rootDeclaredNames,
     Map<String, _BridgeName> rootConstants,
     Map<String, _BridgeName> rootChannels,
-    Map<String, _BridgeName> rootAuxChannels, {
+    Map<String, _BridgeName> rootAuxChannels,
+    this._assignedNames, {
     required this.messages,
     required this.events,
   }) : _declaredNameScopes = [rootDeclaredNames],
@@ -314,6 +322,9 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   /// 보조 채널 유니버스가 담는 생성자 타입 이름이다.
   String get _auxChannelType => events ? 'EventChannel' : 'BasicMessageChannel';
+  /// 유닛 어디에서든 재대입되는 이름 관측. aux 채널의 초기값 신뢰를 게이트한다
+  /// — 외부 receiver 대입이 보이면 선언 초기값을 믿지 않고 미해석으로 둔다.
+  final _AssignedNames _assignedNames;
   final List<Map<String, _BridgeName>> _channelScopes;
   final List<Map<String, _BridgeName>> _auxChannelScopes;
   final List<Map<String, _BridgeName>> _auxFieldScopes = [];
@@ -405,25 +416,22 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   /// 같은 변수를 다시 방문하지만 등록은 멱등이라 결과가 달라지지 않는다.
   /// 초기화 표현식은 조회만 하므로 부작용이 없다.
   ///
-  /// mutable 필드의 선언 초기값은 클래스 본문 어디에서든 `this.x =`나 `x =`로
-  /// 재대입될 수 있어 그대로는 믿지 못한다. 본문 전체를 먼저 훑어 재대입되는
-  /// 이름을 모으고(final/const는 애초에 불가), 한 번도 재대입되지 않는 필드만
-  /// 초기값으로 등록한다. MethodChannel 채널은 기존처럼 재대입 여부와 무관하게
-  /// 초기값을 등록한다(v1 의미 유지).
+  /// mutable 필드의 선언 초기값은 본문 밖 대입·생성자 초기자·initializing
+  /// formal·cascade로도 바뀔 수 있어 그대로는 믿지 못한다. 유닛 전체를 훑어 만든
+  /// 재대입 이름 집합에 없는 필드만 초기값으로 등록한다. MethodChannel 채널은
+  /// 기존처럼 재대입 여부와 무관하게 초기값을 등록한다(v1 의미 유지).
   void _prescanFields(List<ClassMember> members) {
     final variables = <VariableDeclaration>[];
-    final declaredFields = <String>{};
     for (final field in members.whereType<FieldDeclaration>()) {
       for (final variable in field.fields.variables) {
         _declare(variable.name.lexeme);
         _recordStringConstant(variable);
         variables.add(variable);
-        declaredFields.add(variable.name.lexeme);
       }
     }
-    final reassignments = _ReassignedFieldNames(declaredFields);
+    final enclosing = _EnclosingAssignedNames();
     for (final member in members) {
-      member.accept(reassignments);
+      member.accept(enclosing);
     }
     for (final variable in variables) {
       final channel = _channelCreatedBy(variable.initializer);
@@ -432,7 +440,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
       }
       if (variable.isFinal ||
           variable.isConst ||
-          !reassignments.names.contains(variable.name.lexeme)) {
+          (!enclosing.names.contains(variable.name.lexeme) &&
+              !_assignedNames.fields.contains(variable.name.lexeme))) {
         final auxChannel = _auxChannelCreatedBy(variable.initializer);
         if (auxChannel != null) {
           _auxChannelScopes.last[variable.name.lexeme] = auxChannel;
@@ -625,7 +634,19 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     _recordStringConstant(node);
     final channel = _channelCreatedBy(node.initializer);
     if (channel != null) _channelScopes.last[node.name.lexeme] = channel;
-    if (!_isFieldVariable(node) || node.isFinal || node.isConst) {
+    // mutable 필드는 _prescanFields의 재대입 게이트가 판정하므로 여기서는
+    // final/const만 통과시킨다. 최상위 mutable 변수는 prescan과 같은 게이트를
+    // 다시 적용한다 — live 방문이 게이트를 우회해 재등록하는 것을 막는다.
+    // 지역 변수는 _assignAuxChannel이 같은 스코프를 갱신하므로 게이트가 없어도
+    // 초기값이 stale로 남지 않는다.
+    final isField = _isFieldVariable(node);
+    final isReassignedTopLevel =
+        !isField &&
+        _isTopLevelVariable(node) &&
+        !node.isFinal &&
+        !node.isConst &&
+        _assignedNames.bare.contains(node.name.lexeme);
+    if ((!isField || node.isFinal || node.isConst) && !isReassignedTopLevel) {
       final basicChannel = _auxChannelCreatedBy(node.initializer);
       if (basicChannel != null) {
         _auxChannelScopes.last[node.name.lexeme] = basicChannel;
@@ -638,6 +659,12 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     final parent = node.parent;
     return parent is VariableDeclarationList &&
         parent.parent is FieldDeclaration;
+  }
+
+  bool _isTopLevelVariable(VariableDeclaration node) {
+    final parent = node.parent;
+    return parent is VariableDeclarationList &&
+        parent.parent is TopLevelVariableDeclaration;
   }
 
   @override
@@ -1085,33 +1112,88 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   }
 }
 
-/// 클래스 본문을 순수 구문으로 훑어 `this.x =`(또는 같은 이름의 bare `x =`)로
-/// 재대입되는 필드 이름을 모은다. mutable 필드의 선언 초기값을 aux 채널로 신뢰할지
-/// 결정하는 prescan 보조다 — 재대입이 한 번이라도 보이면 그 이름을 모아서 초기값
-/// 등록을 막는다(미해석으로 떨어지는 방향이라 사실을 억제할 뿐 잘못된 사실을
-/// 만들지는 않는다). 지역 변수에 가려진 bare 이름도 보수적으로 재대입으로 친다.
-class _ReassignedFieldNames extends RecursiveAstVisitor<void> {
-  _ReassignedFieldNames(this.fieldNames);
-
-  final Set<String> fieldNames;
+/// 클래스 본문 안에서 enclosing 선언의 필드를 묶는 대입·주입 위치를 모은다.
+/// bare `x =`, `this.x =`, 생성자 필드 초기자(`: x = …`), initializing
+/// formal(`this.x`)을 포함한다. 지역 변수에 가려진 bare 이름도 보수적으로
+/// 포함한다 — 미해석으로 떨어지는 방향이라 사실을 억제할 뿐 잘못된 사실을
+/// 만들지는 않는다.
+class _EnclosingAssignedNames extends RecursiveAstVisitor<void> {
   final Set<String> names = {};
 
   @override
   void visitAssignmentExpression(AssignmentExpression node) {
     final left = node.leftHandSide;
-    if (left is SimpleIdentifier && fieldNames.contains(left.name)) {
+    if (left is SimpleIdentifier) {
       names.add(left.name);
-    } else if (left is PropertyAccess &&
-        left.target is ThisExpression &&
-        fieldNames.contains(left.propertyName.name)) {
+    } else if (left is PropertyAccess && _bindsEnclosing(left, node)) {
       names.add(left.propertyName.name);
-    } else if (left is PrefixedIdentifier &&
-        left.prefix.name == 'this' &&
-        fieldNames.contains(left.identifier.name)) {
-      names.add(left.identifier.name);
     }
     super.visitAssignmentExpression(node);
   }
+
+  /// `this.x =`와 `this`를 대상으로 한 cascade 절(`this..x =`)의 LHS만
+  /// enclosing 필드를 묶는다 — `obj..x =`처럼 다른 객체의 cascade는 외부 쓰기다.
+  static bool _bindsEnclosing(
+    PropertyAccess left,
+    AssignmentExpression node,
+  ) {
+    if (left.target is ThisExpression) return true;
+    final parent = node.parent;
+    return left.target == null &&
+        parent is CascadeExpression &&
+        parent.target is ThisExpression;
+  }
+
+  @override
+  void visitConstructorFieldInitializer(ConstructorFieldInitializer node) {
+    names.add(node.fieldName.name);
+    super.visitConstructorFieldInitializer(node);
+  }
+
+  @override
+  void visitFieldFormalParameter(FieldFormalParameter node) {
+    names.add(node.name.lexeme);
+    super.visitFieldFormalParameter(node);
+  }
+}
+
+/// 유닛 전체의 대입 LHS를 훑어 재대입 후보 이름을 모은다. 최상위 변수는 어느
+/// 함수 본문에서든 재대입될 수 있고, 필드는 다른 객체를 통해 클래스 밖에서도
+/// 쓰일 수 있으므로 둘을 구분해 수집한다.
+class _AssignedNames extends RecursiveAstVisitor<void> {
+  /// bare `x =` 대입 이름 — 최상위 변수 게이트에 쓴다. enclosing 필드나 지역
+  /// 변수를 묶는 대입도 보수적으로 포함한다.
+  final Set<String> bare = {};
+
+  /// `obj.x =`·`..x =`·`a.b =`처럼 `this`가 아닌 receiver를 가진 멤버 대입
+  /// 이름 — 어느 클래스의 필드인지 구분할 수 없으므로 같은 이름의 모든 필드
+  /// 초기값 신뢰를 막는다. `this.x =`는 enclosing 귀속이라 여기에 넣지 않는다.
+  final Set<String> fields = {};
+
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    final left = node.leftHandSide;
+    if (left is SimpleIdentifier) {
+      bare.add(left.name);
+    } else if (left is PropertyAccess) {
+      // `this.x =`·`this..x =`는 enclosing 필드를 묶어 _EnclosingAssignedNames가
+      // 담당한다 — 유닛 전체로 올리면 같은 이름의 다른 클래스 필드까지 억제된다.
+      // `obj..x =`처럼 다른 객체를 대상으로 한 cascade는 외부 쓰기다.
+      if (!_EnclosingAssignedNames._bindsEnclosing(left, node)) {
+        fields.add(left.propertyName.name);
+      }
+    } else if (left is PrefixedIdentifier) {
+      fields.add(left.identifier.name);
+    }
+    super.visitAssignmentExpression(node);
+  }
+}
+
+/// 유닛의 모든 대입 위치를 훑어 재대입 이름 집합을 만든다.
+_AssignedNames _assignedNamesIn(CompilationUnit unit) {
+  final collector = _AssignedNames();
+  unit.accept(collector);
+  return collector;
 }
 
 Map<String, Object?>? _enclosingSymbol(AstNode node) {
@@ -1188,11 +1270,19 @@ Map<String, _BridgeName> _topLevelAuxChannels(
   Map<String, Set<String?>> flutterPrefixes,
   Set<String> declaredNames,
   String channelType,
+  _AssignedNames assignedNames,
 ) {
   final channels = <String, _BridgeName>{};
   for (final declaration
       in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
     for (final variable in declaration.variables.variables) {
+      // 최상위 mutable 변수도 어느 함수 본문에서든 재대입될 수 있으므로
+      // 클래스 필드와 같은 재대입 게이트를 적용한다.
+      if (!variable.isFinal &&
+          !variable.isConst &&
+          assignedNames.bare.contains(variable.name.lexeme)) {
+        continue;
+      }
       final initializer = variable.initializer;
       final ArgumentList? arguments;
       if (initializer is MethodInvocation &&
