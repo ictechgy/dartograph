@@ -285,6 +285,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
           'type': 'integer',
           'description': 'For dup only: minimum duplicated token window.',
         },
+        'kinds': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'description':
+              'For dead, deps, or dup: report only these finding kinds.',
+        },
         'closedApp': {
           'type': 'boolean',
           'description':
@@ -691,6 +697,19 @@ Future<Map<String, Object?>> _verifyTool({
       return _toolError('minTokens must be an integer ≥ 2');
     }
     args.addAll(['--min-tokens', '$minTokens']);
+  }
+  final kinds = arguments['kinds'];
+  if (kinds != null) {
+    // minTokens와 같은 이유로 의도 없는 인자를 조용히 무시하지 않는다.
+    if (command != 'dead' && command != 'deps' && command != 'dup') {
+      return _toolError('kinds is only valid for command dead, deps, or dup');
+    }
+    if (kinds is! List ||
+        kinds.isEmpty ||
+        kinds.any((item) => item is! String || item.trim().isEmpty)) {
+      return _toolError('kinds must be a non-empty list of strings');
+    }
+    args.addAll(['--kinds', kinds.join(',')]);
   }
   // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
   // `dead`·`deps`·`dup`만 text·json·markdown·github-actions·sarif를 받는다.

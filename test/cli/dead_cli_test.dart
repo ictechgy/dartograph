@@ -150,6 +150,83 @@ void main() {
       );
     },
   );
+
+  test('dead --kinds narrows the reported finding kinds', () async {
+    final filesOnly = StringBuffer();
+    final declarationsOnly = StringBuffer();
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'file',
+        corpusDirectory.path,
+      ], output: filesOnly),
+      ExitStatus.findings.code,
+    );
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'declaration',
+        corpusDirectory.path,
+      ], output: declarationsOnly),
+      ExitStatus.findings.code,
+    );
+
+    final fileKinds = (jsonDecode(filesOnly.toString())
+            as Map<String, Object?>)['findings']! as List<Object?>;
+    expect(fileKinds, isNotEmpty);
+    expect(
+      fileKinds.cast<Map<String, Object?>>().map((f) => f['kind']).toSet(),
+      {'file'},
+    );
+    final declarationKinds = (jsonDecode(declarationsOnly.toString())
+            as Map<String, Object?>)['findings']! as List<Object?>;
+    expect(declarationKinds, isNotEmpty);
+    expect(
+      declarationKinds
+          .cast<Map<String, Object?>>()
+          .map((f) => f['kind'])
+          .toSet(),
+      {'declaration'},
+    );
+  });
+
+  test('dead rejects unknown kinds and --kinds with --explain', () async {
+    final error = StringBuffer();
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--format',
+        'json',
+        '--kinds',
+        'bogus',
+        'unused',
+      ], error: error),
+      ExitStatus.usage.code,
+    );
+    expect(error.toString(), contains('Unknown --kinds'));
+
+    expect(
+      await runDartograph([
+        'dead',
+        '--explain',
+        'some::id',
+        '--format',
+        'json',
+        '--kinds',
+        'file',
+        'unused',
+      ]),
+      ExitStatus.usage.code,
+    );
+  });
 }
 
 Future<void> _copyCorpus(Directory source, Directory destination) async {

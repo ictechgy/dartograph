@@ -1627,6 +1627,7 @@ Future<int> _runDead(
   String? baselinePath;
   String? since;
   String? codeownersPath;
+  Set<String>? kinds;
   ReportFormat? reportFormat;
   String? rootPath;
   var reportTestOnly = false;
@@ -1641,6 +1642,7 @@ Future<int> _runDead(
       '--baseline',
       '--since',
       '--codeowners',
+      '--kinds',
     }.contains(argument)) {
       if (++index >= arguments.length) {
         error.write(_help);
@@ -1655,6 +1657,7 @@ Future<int> _runDead(
         '--baseline' => baselinePath != null,
         '--since' => since != null,
         '--codeowners' => codeownersPath != null,
+        '--kinds' => kinds != null,
         _ => false,
       };
       if (alreadySet) {
@@ -1662,6 +1665,13 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       switch (argument) {
+        case '--kinds':
+          kinds = _parseKinds(
+            value,
+            const {'declaration', 'file'},
+            error,
+          );
+          if (kinds == null) return ExitStatus.usage.code;
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
           // 있으므로 대시 가드를 적용하지 않는다. 값이 빠진 오타는 뒤따르는
@@ -1749,6 +1759,7 @@ Future<int> _runDead(
               reportFormat != ReportFormat.json ||
               baselinePath != null ||
               since != null ||
+              kinds != null ||
               reportTestOnly ||
               reportRedundantPublic)) ||
       ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
@@ -1819,6 +1830,13 @@ Future<int> _runDead(
         });
     }
     var reported = findings;
+    // kind 필터는 보고 대상 선택이다 — baseline 억제·--since 범위 좁히기와
+    // 조합해도 발견 지문은 바뀌지 않는다.
+    if (kinds != null) {
+      reported = reported
+          .where((finding) => kinds!.contains(finding.kind))
+          .toList();
+    }
     if (since != null) {
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
@@ -1906,10 +1924,27 @@ Future<int> _runDeps(
   List<String> failedItems,
 ) async {
   ReportFormat? format;
+  Set<String>? kinds;
   String? rootPath;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument == '--format' && format == null) {
+    if (argument == '--kinds' && kinds == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      kinds = _parseKinds(
+        arguments[index],
+        const {
+          'unused-dependency',
+          'unused-dev-dependency',
+          'dev-dependency-in-lib',
+          'undeclared-dependency',
+        },
+        error,
+      );
+      if (kinds == null) return ExitStatus.usage.code;
+    } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {
         error.write(_help);
         return ExitStatus.usage.code;
@@ -1951,14 +1986,19 @@ Future<int> _runDeps(
       'only; runtime loading, generated-code, and asset references are '
       'invisible to this audit',
     );
-    final findings = DependencyAudit().audit(
-      packageName: indexed.packageName,
-      dependencies: indexed.declaredDependencies,
-      devDependencies: indexed.declaredDevDependencies,
-      dependencyOverrides: indexed.declaredDependencyOverrides,
-      packageImports: indexed.packageImports,
-      toolLike: toolCheck.toolLike,
-    );
+    final findings = DependencyAudit()
+        .audit(
+          packageName: indexed.packageName,
+          dependencies: indexed.declaredDependencies,
+          devDependencies: indexed.declaredDevDependencies,
+          dependencyOverrides: indexed.declaredDependencyOverrides,
+          packageImports: indexed.packageImports,
+          toolLike: toolCheck.toolLike,
+        )
+        .where(
+          (finding) => kinds == null || kinds.contains(finding.kind),
+        )
+        .toList();
     output.write(
       DependencyReporter.render(
         format ?? ReportFormat.text,
@@ -1983,6 +2023,33 @@ Future<int> _runDeps(
   }
 }
 
+/// `--kinds <csv>`를 발견 종류 집합으로 파싱한다.
+///
+/// 모르는 종류·빈 항목은 조용히 아무 발견도 내지 않는 필터가 되므로 유효
+/// 종류 목록과 함께 usage 오류로 거부한다.
+Set<String>? _parseKinds(
+  String value,
+  Set<String> valid,
+  StringSink error,
+) {
+  final kinds = value.split(',').map((item) => item.trim()).toSet();
+  if (kinds.isEmpty || kinds.any((item) => item.isEmpty)) {
+    error.writeln(
+      'Invalid --kinds: $value (expected comma-separated kinds).',
+    );
+    return null;
+  }
+  final unknown = kinds.difference(valid).toList()..sort();
+  if (unknown.isNotEmpty) {
+    error.writeln(
+      'Unknown --kinds: ${unknown.join(', ')} '
+      '(expected ${valid.toList()..sort()}).',
+    );
+    return null;
+  }
+  return kinds;
+}
+
 Future<int> _runDup(
   List<String> arguments,
   StringSink output,
@@ -1992,10 +2059,22 @@ Future<int> _runDup(
 ) async {
   ReportFormat? format;
   int? minTokens;
+  Set<String>? kinds;
   String? rootPath;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument == '--format' && format == null) {
+    if (argument == '--kinds' && kinds == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      kinds = _parseKinds(
+        arguments[index],
+        const {'duplicate-block'},
+        error,
+      );
+      if (kinds == null) return ExitStatus.usage.code;
+    } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {
         error.write(_help);
         return ExitStatus.usage.code;
@@ -2049,19 +2128,24 @@ Future<int> _runDup(
       minTokens: window,
     );
     limitations.addAll(report.limitations);
+    final findings = kinds == null
+        ? report.findings
+        : report.findings
+              .where((finding) => kinds!.contains(finding.kind))
+              .toList();
     output.write(
       DuplicationReporter.render(
         format ?? ReportFormat.text,
-        report.findings,
+        findings,
         limitations: limitations,
         minTokens: window,
       ),
     );
     failedItems.addAll([
-      for (final finding in report.findings)
+      for (final finding in findings)
         'dup:${finding.instances.first.source}:${finding.instances.first.startLine}',
     ]);
-    return report.findings.isEmpty
+    return findings.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
   } on FileSystemException {
@@ -2590,11 +2674,11 @@ dartograph — dependency graphs for Dart and Flutter codebases
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
        dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -2648,6 +2732,12 @@ lib/ (dev-dependency-in-lib), and package: imports nothing declares
 (undeclared-dependency). Packages with a confirmed tool contract — executables,
 build.yaml builders, analysis_options include/plugins — count as used.
 Findings are review candidates with evidence, not deletion instructions.
+
+--kinds <csv> restricts which finding kinds dead, deps, and dup report:
+dead takes declaration,file; deps takes the four kinds above; dup takes
+duplicate-block. Unknown kinds are usage errors. Filtering narrows the
+report — baselines, fingerprints, and exit-code semantics are unchanged.
+
 cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.

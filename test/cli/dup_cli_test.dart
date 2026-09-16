@@ -109,6 +109,35 @@ void main() {
       error: error,
     );
     expect(duplicated, ExitStatus.usage.code);
+
+    final badKinds = await runDartograph(
+      ['dup', '--kinds', 'declaration', 'unused'],
+      output: output,
+      error: error,
+    );
+    expect(badKinds, ExitStatus.usage.code);
+    expect(error.toString(), contains('Unknown --kinds'));
+  });
+
+  test('dup --kinds keeps matching findings', () async {
+    final fixture = await copyFixture('duplication');
+    final output = StringBuffer();
+
+    final status = await runDartograph([
+      'dup',
+      '--format',
+      'json',
+      '--min-tokens',
+      '20',
+      '--kinds',
+      'duplicate-block',
+      fixture.path,
+    ], output: output);
+
+    expect(status, ExitStatus.findings.code);
+    final findings = (jsonDecode(output.toString())
+            as Map<String, Object?>)['findings']! as List<Object?>;
+    expect(findings, hasLength(1));
   });
 }
 

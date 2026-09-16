@@ -34,6 +34,9 @@ final class DuplicationFinding {
   /// 발견을 만든다. [instances]는 두 위치로, 보고 전에 정렬된다.
   const DuplicationFinding({required this.tokenCount, required this.instances});
 
+  /// 발견 종류다. `--kinds` 필터가 다른 명령과 같은 필드를 본다.
+  String get kind => 'duplicate-block';
+
   /// 겹치지 않게 확장된 공통 토큰 수다(윈도 크기 이상).
   final int tokenCount;
 

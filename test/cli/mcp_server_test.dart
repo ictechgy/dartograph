@@ -271,6 +271,52 @@ void main() {
     },
   );
 
+  test('verify_run validates kinds and forwards them to the CLI', () async {
+    final responses = await exchange([
+      // cycles는 kinds를 받지 않는다.
+      request(60, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'kinds': ['file'],
+        },
+      }),
+      // 빈 목록과 비문자열 항목은 거부한다.
+      request(61, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': <String>[],
+        },
+      }),
+      request(62, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'dead',
+          'kinds': [1],
+        },
+      }),
+    ]);
+
+    expect(
+      ((responses[0]['result'] as Map)['content'] as List)
+          .cast<Map>()
+          .single['text'],
+      contains('kinds is only valid for command dead, deps, or dup'),
+    );
+    for (final response in responses.sublist(1)) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      expect(
+        ((result['content'] as List).single as Map)['text'],
+        contains('kinds must be a non-empty list of strings'),
+      );
+    }
+  });
+
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([
       // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.
