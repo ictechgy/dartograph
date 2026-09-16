@@ -7,7 +7,11 @@ The extension shells out to the `dartograph` executable and renders its JSON
 reports in the **Problems** panel. It does not replace the Dart analyzer —
 findings are graph evidence with stated limitations, never a deletion verdict.
 
-## Requirements
+## Install
+
+The extension is on the
+[marketplace](https://marketplace.visualstudio.com/items?itemName=ictechgy.dartograph)
+— search for **dartograph** in the Extensions view. It also needs the CLI:
 
 ```sh
 dart pub global activate dartograph

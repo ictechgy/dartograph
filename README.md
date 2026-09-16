@@ -158,8 +158,10 @@ Full arguments, output formats, exit codes, and CI examples live in
   `config`) and prompts (`impact-precheck`, `dead-code-review`,
   `dependency-audit`, `duplication-review`) alongside the three query/verify
   tools.
-- `editors/vscode/` ships a zero-build VS Code extension that runs the CLI and
-  surfaces `dead`/`deps`/`dup`/`impact` JSON findings as Problems diagnostics —
+- A zero-build VS Code extension is on the
+  [marketplace](https://marketplace.visualstudio.com/items?itemName=ictechgy.dartograph)
+  (source: `editors/vscode/`): it runs the CLI and surfaces
+  `dead`/`deps`/`dup`/`impact` JSON findings as Problems diagnostics —
   evidence and limitations included, never a deletion verdict.
 
 A `// dartograph:ignore` line comment suppresses dead reporting for the
