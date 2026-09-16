@@ -101,9 +101,119 @@ void main() {
       final info = result['serverInfo'] as Map<String, Object?>;
       expect(info['name'], 'dartograph');
       expect(info['version'], isNotEmpty);
-      expect(result['capabilities'], {'tools': <String, Object?>{}});
+      expect(result['capabilities'], {
+        'tools': <String, Object?>{},
+        'resources': <String, Object?>{},
+        'prompts': <String, Object?>{},
+      });
     },
   );
+
+  test(
+    'resources/list and resources/read serve the static documents',
+    () async {
+      final responses = await exchange([
+        request(20, 'resources/list'),
+        request(21, 'resources/read', {'uri': 'dartograph://usage'}),
+        request(22, 'resources/read', {'uri': 'dartograph://skill'}),
+        request(23, 'resources/read', {'uri': 'dartograph://config'}),
+        request(24, 'resources/read', {'uri': 'dartograph://missing'}),
+      ]);
+
+      final listed = ((responses[0]['result'] as Map)['resources'] as List)
+          .cast<Map<String, Object?>>();
+      expect(listed.map((r) => r['uri']).toList(), [
+        'dartograph://usage',
+        'dartograph://skill',
+        'dartograph://config',
+      ]);
+
+      final usage = ((responses[1]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(usage['mimeType'], 'text/plain');
+      expect(usage['text'] as String, contains('dartograph deps'));
+
+      final skill = ((responses[2]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(skill['mimeType'], 'text/markdown');
+      expect(skill['text'] as String, contains('dartograph'));
+
+      final config = ((responses[3]['result'] as Map)['contents'] as List)
+          .cast<Map<String, Object?>>()
+          .single;
+      expect(config['mimeType'], 'text/yaml');
+      expect(config['text'] as String, contains('entry_points'));
+
+      expect((responses[4]['error'] as Map)['code'], -32002);
+    },
+  );
+
+  test('prompts/list and prompts/get render workflow prompts', () async {
+    final responses = await exchange([
+      request(30, 'prompts/list'),
+      request(31, 'prompts/get', {
+        'name': 'impact-precheck',
+        'arguments': {'packageRoot': directory.path, 'since': 'HEAD'},
+      }),
+      request(32, 'prompts/get', {
+        'name': 'dead-code-review',
+        'arguments': {'packageRoot': directory.path, 'closedApp': 'true'},
+      }),
+      request(33, 'prompts/get', {
+        'name': 'dependency-audit',
+        'arguments': {'packageRoot': directory.path},
+      }),
+      request(34, 'prompts/get', {'name': 'nope', 'arguments': {}}),
+      request(35, 'prompts/get', {
+        'name': 'impact-precheck',
+        'arguments': <String, Object?>{},
+      }),
+    ]);
+
+    final listed = ((responses[0]['result'] as Map)['prompts'] as List)
+        .cast<Map<String, Object?>>();
+    expect(listed.map((p) => p['name']).toList(), [
+      'impact-precheck',
+      'dead-code-review',
+      'dependency-audit',
+    ]);
+
+    String textOf(Map<String, Object?> response) =>
+        ((((response['result'] as Map)['messages'] as List)
+                    .cast<Map<String, Object?>>()
+                    .single)['content']
+                as Map)['text']
+            as String;
+
+    expect(textOf(responses[1]), contains('since "HEAD"'));
+    expect(textOf(responses[1]), contains(directory.path));
+    expect(textOf(responses[2]), contains('closedApp true'));
+    expect(textOf(responses[3]), contains('command "deps"'));
+    expect((responses[4]['error'] as Map)['code'], -32602);
+    expect((responses[5]['error'] as Map)['code'], -32602);
+  });
+
+  test('verify_run rejects closedApp for non-dead commands', () async {
+    final responses = await exchange([
+      request(40, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'closedApp': true,
+        },
+      }),
+    ]);
+
+    final result = responses.single['result'] as Map<String, Object?>;
+    expect(result['isError'], isTrue);
+    expect(
+      ((result['content'] as List).single as Map)['text'],
+      contains('closedApp is only valid for command dead'),
+    );
+  });
 
   test('tools/list exposes the three read-only tools with schemas', () async {
     final responses = await exchange([request(2, 'tools/list')]);
