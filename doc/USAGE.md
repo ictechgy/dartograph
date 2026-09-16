@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.11.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.12.0은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph
@@ -489,7 +489,7 @@ plugins:
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.11.0
+- run: dart pub global activate dartograph 0.12.0
 - run: dartograph dead --format github-actions --since origin/main .
 - run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```

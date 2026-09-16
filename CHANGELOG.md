@@ -4,6 +4,29 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.12.0
+
+- Added `dartograph dup`, token-shingle duplicate-block detection with
+  `--min-tokens` and all report formats. Findings are review candidates, not
+  merge advice.
+- `metrics` now reports per-function cyclomatic complexity and a hot-spots
+  ranking, gated by `thresholds.complexity` under `--strict`.
+- `dead`/`deps`/`dup` accept `--kinds` for finding-type filtering.
+- `dartograph.yaml` grew `include`/`exclude` path globs, `retained_names`/
+  `retained_files` retention roots, and `thresholds`.
+- CODEOWNERS matching now supports the full syntax (`!` negation, character
+  classes, `\` escapes).
+- Added `dartograph setup`, which installs Claude Code PostToolUse hooks and
+  merges MCP server config without overwriting existing keys.
+- The MCP `verify_run` tool covers `dup`/`--kinds`, and a
+  `duplication-review` prompt joins the prompt set.
+- VS Code extension `ictechgy.dartograph` is published on the Marketplace —
+  CLI JSON reports become Problems diagnostics, with `runOnSave` and an
+  impact check for the current file.
+- `editors/analysis_plugin/` ships `dartograph_analysis_plugin` (pub.dev),
+  an analysis-server plugin that surfaces `dead`/`dup` findings as
+  `dartograph_dead_code`/`dartograph_duplicate_block` diagnostics in IDEs and
+  `dart analyze`, with a `// dartograph:ignore` quick fix.
 - Added `bridges --events`, an opt-in producer path that emits EventChannel
   `receiveBroadcastStream` listens as bridge-facts version 2 with
   `transport: event-channel` and `kind: stream-listen`. Only calls whose

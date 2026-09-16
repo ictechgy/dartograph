@@ -4,6 +4,26 @@
 
 ## Unreleased
 
+## 0.12.0
+
+- `dartograph dup` 추가 — `--min-tokens`와 전 보고 형식을 지원하는 토큰
+  shingle 중복 블록 탐지. 발견은 검토 후보이지 병합 지시가 아니다.
+- `metrics`에 함수 수준 순환 복잡도와 hot-spots 랭킹을 추가하고
+  `thresholds.complexity`로 `--strict` 게이트한다.
+- `dead`/`deps`/`dup`에 발견 종류 필터 `--kinds` 추가.
+- `dartograph.yaml`에 `include`/`exclude` 경로 glob, `retained_names`/
+  `retained_files` 보존 루트, `thresholds` 추가.
+- CODEOWNERS 매칭이 전체 문법(`!` 부정·문자 클래스·`\` 이스케이프)을 지원한다.
+- `dartograph setup` 추가 — Claude Code PostToolUse 훅을 설치하고 MCP 서버
+  설정을 기존 키를 보존하며 병합한다.
+- MCP `verify_run`이 `dup`/`--kinds`를 지원하고 `duplication-review`
+  프롬프트가 추가됐다.
+- VS Code 확장 `ictechgy.dartograph`가 Marketplace에 게시됐다 — CLI JSON
+  보고가 Problems 진단이 되고 `runOnSave`·현재 파일 impact 검사를 제공한다.
+- `editors/analysis_plugin/`의 `dartograph_analysis_plugin`(pub.dev 게시)은
+  IDE와 `dart analyze`에서 `dead`/`dup` 발견을 `dartograph_dead_code`/
+  `dartograph_duplicate_block` 진단으로 내고 `// dartograph:ignore`
+  quick fix를 제공한다.
 - `bridges --events` 추가. EventChannel `receiveBroadcastStream` 수신 호출을
   bridge-facts v2(`transport: event-channel`, `kind: stream-listen`)로 내는
   opt-in producer 경로다. 수신자가 `EventChannel` 생성으로 입증된 호출만 사실이
