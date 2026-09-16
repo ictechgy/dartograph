@@ -997,6 +997,78 @@ void entry() {}
     expect(result.packageImports.keys, containsAll(['meta', 'never_declared']));
     expect(result.packageImports['meta'], ['project:lib/main.dart']);
   });
+
+  test('declaration bodies yield cyclomatic complexity facts', () async {
+    final package = await Directory.systemTemp.createTemp(
+      'dartograph-complexity.',
+    );
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/pubspec.yaml').writeAsString('''
+name: complexity_fixture
+environment:
+  sdk: ^3.11.0
+''');
+    await Directory('${package.path}/lib').create();
+    // decide의 기대 점수를 손으로 센다: 기본 1 +
+    // ?? 1 + ??= 1 + if(&&) 2 + if(||) 2 + for 1 + 컬렉션 for 1 +
+    // while 1 + do 1 + switch case 2(default 제외) + switch-expression case 2 +
+    // ?: 1 + on 1 + 중첩 람다의 if 1 = 18
+    await File('${package.path}/lib/main.dart').writeAsString('''
+int decide(int? x) {
+  final y = x ?? 0;
+  var z = y;
+  z ??= 1;
+  if (y > 0 && z > 0) {}
+  if (y > 1 || z > 1) {}
+  for (var i = 0; i < 3; i++) {}
+  final list = [for (var i = 0; i < 2; i++) i];
+  while (z > 10) {
+    z--;
+  }
+  do {
+    z--;
+  } while (z > 5);
+  switch (y) {
+    case 1:
+      break;
+    case 2:
+      break;
+    default:
+      break;
+  }
+  final s = switch (y) { 0 => 'a', _ => 'b' };
+  final t = y > 3 ? 1 : 0;
+  try {
+    throw StateError('x');
+  } on StateError {}
+  final f = () {
+    if (y > 9) return 1;
+    return 0;
+  };
+  return f() + s.length + t + list.length;
+}
+
+int trivial() => 0;
+
+abstract class Empty {
+  void noBody();
+}
+''');
+    final pubGet = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: package.path);
+    expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    const prefix = 'package:complexity_fixture/main.dart::';
+    expect(result.complexity['${prefix}decide'], 18);
+    expect(result.complexity['${prefix}trivial'], 1);
+    // 본문이 없는 선언은 점수를 내지 않는다.
+    expect(result.complexity.containsKey('${prefix}Empty.noBody'), isFalse);
+  });
 }
 
 /// 여러 디렉터리의 main과 검증 케이스를 갖춘 임시 패키지를 만든다.
