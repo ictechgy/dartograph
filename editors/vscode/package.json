@@ -1,0 +1,68 @@
+{
+  "name": "dartograph",
+  "displayName": "dartograph",
+  "description": "Dependency-graph evidence queries for Dart: dead code, dependency hygiene, and duplication findings as Problems.",
+  "version": "0.1.0",
+  "publisher": "ictechgy",
+  "license": "MIT",
+  "repository": "https://github.com/ictechgy/dartograph",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:pubspec.yaml"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dartograph.analyzeWorkspace",
+        "title": "dartograph: Analyze Workspace"
+      },
+      {
+        "command": "dartograph.checkImpact",
+        "title": "dartograph: Check Impact of Current File"
+      },
+      {
+        "command": "dartograph.clearFindings",
+        "title": "dartograph: Clear Findings"
+      }
+    ],
+    "configuration": {
+      "title": "dartograph",
+      "properties": {
+        "dartograph.executable": {
+          "type": "string",
+          "default": "dartograph",
+          "description": "Path to the dartograph executable (dart pub global activate dartograph)."
+        },
+        "dartograph.runOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Re-run the analysis a short delay after a Dart file is saved."
+        },
+        "dartograph.minTokens": {
+          "type": "number",
+          "default": 40,
+          "minimum": 2,
+          "description": "Minimum duplicated token window reported by `dartograph dup`."
+        },
+        "dartograph.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "--incremental",
+            ".dartograph/cache"
+          ],
+          "description": "Extra arguments appended to every dartograph invocation. The default keeps an incremental cache under .dartograph/cache so re-runs stay fast."
+        }
+      }
+    }
+  }
+}
