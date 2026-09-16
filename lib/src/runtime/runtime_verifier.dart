@@ -491,7 +491,7 @@ abstract final class RuntimeVerifier {
       case RuntimeFactChannel.executable:
         return _judgeExecutable(fact, inputs, fileSystem);
       case RuntimeFactChannel.uri:
-        return _judgeUri(fact, fileSystem);
+        return _judgeUri(fact, inputs, fileSystem);
       case RuntimeFactChannel.reflection:
         return _Judgement(
           fact,
@@ -738,7 +738,11 @@ abstract final class RuntimeVerifier {
     );
   }
 
-  static _Judgement _judgeUri(RuntimeFact fact, RuntimeFileSystem fileSystem) {
+  static _Judgement _judgeUri(
+    RuntimeFact fact,
+    RuntimeInputs inputs,
+    RuntimeFileSystem fileSystem,
+  ) {
     final candidate = fact.path;
     if (candidate == null) {
       return _Judgement(
@@ -763,7 +767,17 @@ abstract final class RuntimeVerifier {
       );
     }
     if (uri.scheme == 'file') {
-      final path = uri.toFilePath();
+      final String path;
+      try {
+        path = uri.toFilePath(windows: inputs.windows);
+      } on UnsupportedError {
+        // query·fragment가 붙은 file: URI 등 — 경로로 환원할 수 없다.
+        return _Judgement(
+          fact,
+          RuntimeVerdict.unverifiable,
+          'invalid-uri: "$candidate" cannot be reduced to a file path',
+        );
+      }
       final state = fileSystem.state(path);
       return switch (state) {
         RuntimePathState.file => _Judgement(

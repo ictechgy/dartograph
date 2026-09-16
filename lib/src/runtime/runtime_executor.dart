@@ -181,17 +181,34 @@ Future<RuntimeExecution> executeEntrypoint({
   } on TimeoutException {
     timedOut = true;
     process.kill(ProcessSignal.sigkill);
-    exitCode = await exited.timeout(const Duration(seconds: 5));
+    // SIGKILL해도 자식이 5초 안에 수확되지 않으면 종료 코드를 더 기다리지
+    // 않는다 — 계약은 예외가 아니라 실행 기록이다.
+    exitCode = await exited
+        .then<int?>((code) => code)
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+  } on Object {
+    // 파이프 I/O 등으로 결과 관측에 실패했다 — 예외를 밖으로 던지지 않고
+    // "관측 불가" 기록으로 남긴다.
+    return RuntimeExecution.unresolved(
+      entrypoint: entrypoint,
+      reason: 'execution-observation-failed',
+    );
   } finally {
     if (exitCode == null) process.kill(ProcessSignal.sigkill);
     // 부모가 끝나도 후손이 파이프를 보유할 수 있다. 제한 시간 뒤에는 EOF를 기다리지 않는다.
     await stdoutSubscription.cancel();
     await stderrSubscription.cancel();
   }
+  if (exitCode == null) {
+    return RuntimeExecution.unresolved(
+      entrypoint: entrypoint,
+      reason: 'execution-observation-failed',
+    );
+  }
   final stderrText = utf8.decode(bytes, allowMalformed: true);
   return RuntimeExecution(
     entrypoint: entrypoint,
-    exitCode: exitCode!,
+    exitCode: exitCode,
     timedOut: timedOut,
     stderrSummary: truncated ? '$stderrText\n… (stderr truncated)' : stderrText,
   );

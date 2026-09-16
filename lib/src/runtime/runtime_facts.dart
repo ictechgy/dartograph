@@ -130,6 +130,9 @@ final class RuntimeFact {
   String get id => '${kind.key}:$name@$source:$line:$column';
 
   /// 보고서 JSON 표현이다. 키는 사전순으로 고정한다.
+  ///
+  /// [unverifiableReason]이 있으면 함께 실어, 탐지 단계의 판정 불가 사유가
+  /// 검증 결과(`unverified`)에만 숨지 않고 사실 자체에도 남게 한다.
   Map<String, Object> toJson() => {
     'channel': channel.key,
     'column': column,
@@ -139,6 +142,7 @@ final class RuntimeFact {
     'line': line,
     'name': name,
     'source': source,
+    'unverifiableReason': ?unverifiableReason,
   };
 }
 

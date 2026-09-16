@@ -176,6 +176,20 @@ void parse(String raw) {
       expect(parse.detail, 'Uri.parse(<computed>)');
     });
 
+    test('동명의 사용자 정의 DynamicLibrary는 네이티브 사실로 보지 않는다', () async {
+      // 해석된 선언은 dart:ffi가 아니므로 이름만으로 네이티브 로드로 잡지 않는다.
+      final facts = await scan({
+        'lib/shim.dart': '''class DynamicLibrary {
+  DynamicLibrary.open(String name);
+}
+
+final wrapped = DynamicLibrary.open('libfake.so');
+''',
+      });
+
+      expect(ofKind(facts, RuntimeFactKind.dynamicLoad), isEmpty);
+    });
+
     test('dart:mirrors import를 리플렉션 사실로 남긴다', () async {
       final facts = await scan({
         'lib/mirrors.dart': '''import 'dart:mirrors';
@@ -405,6 +419,36 @@ String describe() => 'see https://example.com/docs for details';
       });
 
       expect(ofKind(facts, RuntimeFactKind.external), isEmpty);
+    });
+
+    test('해석된 동명 API는 네트워크 호출로 보지 않는다', () async {
+      // 예전 규칙은 메서드·수신자 이름만으로 외부 자원을 보고해 사용자 정의
+      // get·getUrl·connect의 문자열 인자까지 오탐했다.
+      final facts = await scan({
+        'lib/local.dart': '''class Client {
+  Future<void> getUrl(Uri uri) async {}
+  void get(String url) {}
+}
+
+class Bus {
+  void connect(String url) {}
+}
+
+void get(String url) {}
+
+void run(Client client, Bus bus) {
+  client.getUrl(Uri.parse('https://example.com/resolved'));
+  client.get('https://example.com/direct');
+  bus.connect('https://example.com/bus');
+  get('https://example.com/top');
+}
+''',
+      });
+
+      // Uri.parse의 리터럴만 외부 자원이다 — 동명 API의 문자열 인자는 아니다.
+      expect(ofKind(facts, RuntimeFactKind.external).map((fact) => fact.name), [
+        'https://example.com/resolved',
+      ]);
     });
 
     test('spawnUri 대상은 uri 채널이 잡고 외부 자원으로 중복 보고하지 않는다', () async {

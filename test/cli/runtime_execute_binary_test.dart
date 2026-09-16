@@ -1,3 +1,8 @@
+/// setUpAll의 컴파일이 기본 회귀 제한(30초)을 넘을 수 있으므로 스위트
+/// 타임아웃을 늘려둔다.
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -45,14 +50,22 @@ void main() {
   tearDownAll(() => directory.delete(recursive: true));
 
   test('컴파일 배포본의 --execute는 진입점을 실행한다', () async {
-    final result = await Process.run(binary, [
-      'runtime',
-      '--execute',
-      'bin/probe.dart',
-      '--format',
-      'json',
-      p.join(directory.path, 'probe_package'),
-    ]);
+    final result = await Process.run(
+      binary,
+      [
+        'runtime',
+        '--execute',
+        'bin/probe.dart',
+        '--format',
+        'json',
+        p.join(directory.path, 'probe_package'),
+      ],
+      // dart가 PATH에 없는 환경에서도 결정적으로 찾게 현재 테스트 러너의
+      // SDK를 명시한다(`<sdk>/bin/dart` 관례).
+      environment: {
+        'DART_SDK': p.dirname(p.dirname(Platform.resolvedExecutable)),
+      },
+    );
 
     expect(result.exitCode, 0, reason: '${result.stderr}');
     final report = jsonDecode(result.stdout as String) as Map<String, Object?>;

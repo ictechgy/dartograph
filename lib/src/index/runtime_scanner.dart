@@ -210,7 +210,11 @@ final class _RuntimeFactVisitor extends RecursiveAstVisitor<void> {
       _maybeAssetImage(node);
     } else if (type == 'Image' && constructor == 'asset') {
       _assetFact(node, 'Image.asset', _assetName(node));
-    } else if (type == 'DynamicLibrary' && constructor == 'open') {
+    } else if (type == 'DynamicLibrary' &&
+        constructor == 'open' &&
+        (element == null || _matchesLibrary(element, 'dart:ffi'))) {
+      // 해석된 코드에서는 dart:ffi인지 확인한다 — 사용자의 동명 래퍼 클래스가
+      // 네이티브 라이브러리 사실로 오인되지 않게(정적 메서드 경로와 같은 관용구).
       _dynamicLibraryFact(node, node.argumentList.arguments);
     } else if (type == 'HttpClient' &&
         _matchesLibraries(element, _httpLibraries)) {
@@ -279,23 +283,37 @@ final class _RuntimeFactVisitor extends RecursiveAstVisitor<void> {
 
   /// [node]가 원격 목적지를 인자로 받는 알려진 네트워크 API인지 확인한다.
   ///
-  /// 해석된 코드는 라이브러리로 확인하고, 해석되지 않은 코드는 이름으로
-  /// 확인한다([_matchesLibrary]와 같은 관용구).
+  /// 해석된 코드는 라이브러리로만 판정한다 — 사용자 정의 `get`·`connect` 같은
+  /// 동명 메서드가 외부 자원으로 오인되지 않게 이름 비교는 해석 실패 시의
+  /// 폴백이다([_matchesLibrary]와 같은 관용구).
   bool _isNetworkCall(MethodInvocation node) {
     final method = node.methodName.name;
-    if (_httpClientRequestMethods.contains(method)) return true;
     final target = node.target;
+    final element = node.methodName.element;
+    if (element != null) {
+      final library = element.library?.uri.toString();
+      if (library == null) return false;
+      // `package:http`의 최상위·접두사 호출이다.
+      if (library.startsWith('package:http/')) {
+        return _httpFunctions.contains(method);
+      }
+      if (!_httpLibraries.contains(library)) return false;
+      if (_httpClientRequestMethods.contains(method)) return true;
+      final enclosing = element.enclosingElement?.name;
+      return method == 'connect' &&
+          enclosing != null &&
+          _connectTargets.contains(enclosing);
+    }
+    // 해석되지 않은 코드는 이름으로 짐작한다(커버리지를 위한 관용구).
+    if (_httpClientRequestMethods.contains(method)) return true;
     if (method == 'connect' &&
         target is SimpleIdentifier &&
         _connectTargets.contains(target.name)) {
       return true;
     }
     if (!_httpFunctions.contains(method)) return false;
-    // `package:http`의 최상위 함수다(접두사 호출 `http.get(...)` 포함).
     if (target == null) return true;
-    if (target is SimpleIdentifier && target.name == 'http') return true;
-    final library = node.methodName.element?.library?.uri.toString();
-    return library != null && library.startsWith('package:http/');
+    return target is SimpleIdentifier && target.name == 'http';
   }
 
   void _maybeFromEnvironment(MethodInvocation node) {
@@ -505,8 +523,9 @@ final class _RuntimeFactVisitor extends RecursiveAstVisitor<void> {
     if (!_matchesLibrary(target.element, 'dart:core')) return;
     final arguments = node.argumentList.arguments;
     if (arguments.isEmpty) return;
-    // 리터럴 URL은 문자열 리터럴 규칙이 잡는다. 여기서는 정적으로 확정되지 않는
-    // 대상만 남긴다(리터럴 로컬 경로까지 중복 보고하지 않는다).
+    // 리터럴 http(s)는 문자열 리터럴 규칙이 목적지 자리에서 잡는다. file: 등
+    // 다른 스킴의 리터럴은 처음부터 보고 대상이 아니고, 여기서는 정적으로
+    // 확정되지 않는 대상만 남긴다.
     if (arguments.first is SimpleStringLiteral) return;
     _report(
       node,
