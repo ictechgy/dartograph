@@ -9,6 +9,7 @@ import '../analysis/baseline.dart';
 import '../analysis/architecture_metrics.dart';
 import '../analysis/code_owners.dart';
 import '../analysis/dependency_audit.dart';
+import '../analysis/duplication_analyzer.dart';
 import '../analysis/graph_projection.dart';
 import '../analysis/cycle_detector.dart';
 import '../analysis/layer_rules.dart';
@@ -25,6 +26,7 @@ import '../export/analysis_reporter.dart';
 import '../export/codeowners_reporter.dart';
 import '../export/dead_reporter.dart';
 import '../export/dependency_reporter.dart';
+import '../export/duplication_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
 import '../export/ledger_reporter.dart';
@@ -224,6 +226,16 @@ Future<int> _dispatchCommand(
         indexed.index,
         failedItems,
       );
+    case 'dup':
+      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      if (indexed == null) return ExitStatus.usage.code;
+      return await _runDup(
+        indexed.arguments,
+        stdoutSink,
+        stderrSink,
+        indexed.index,
+        failedItems,
+      );
     case 'query':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
       if (indexed == null) return ExitStatus.usage.code;
@@ -352,6 +364,7 @@ const _recordableCommands = {
   'cycles',
   'dead',
   'deps',
+  'dup',
   'graph',
   'impact',
   'metrics',
@@ -1091,15 +1104,16 @@ Future<int> _runMetrics(
   }
   try {
     final indexed = await indexPackage(parsed.root);
-    final metrics = ArchitectureMetricsCalculator().calculate(
-      indexed.graph.snapshot(),
-    );
+    final snapshot = indexed.graph.snapshot();
+    final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
     const tolerance = 0.3;
     output.write(
       AnalysisReporter.metrics(
         metrics,
         limitations: _limitations(indexed),
         tolerance: tolerance,
+        complexity: indexed.complexity,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
       ),
     );
     final exceedsTolerance = metrics.any(
@@ -1969,6 +1983,98 @@ Future<int> _runDeps(
   }
 }
 
+Future<int> _runDup(
+  List<String> arguments,
+  StringSink output,
+  StringSink error,
+  IndexPackage indexPackage,
+  List<String> failedItems,
+) async {
+  ReportFormat? format;
+  int? minTokens;
+  String? rootPath;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && format == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      format = ReportFormat.values
+          .where((item) => item.name == value)
+          .firstOrNull;
+      if (format == null) {
+        error.writeln(
+          'Unknown report format: $value '
+          '(expected text, json, markdown, github-actions, or sarif).',
+        );
+        return ExitStatus.usage.code;
+      }
+    } else if (argument == '--min-tokens' && minTokens == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = int.tryParse(arguments[index]);
+      if (value == null || value < 2) {
+        error.writeln(
+          'Invalid --min-tokens: ${arguments[index]} (expected an integer ≥ 2).',
+        );
+        return ExitStatus.usage.code;
+      }
+      minTokens = value;
+    } else if (!argument.startsWith('-') && rootPath == null) {
+      rootPath = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  if (rootPath == null) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  final window = minTokens ?? 50;
+  try {
+    final indexed = await indexPackage(rootPath);
+    final limitations = _limitations(indexed);
+    limitations.add(
+      'duplication-scope: matching is token-structural within analyzed '
+      'sources; generated files are excluded and semantic equivalence is '
+      'not required — findings are review candidates, not merge advice',
+    );
+    final report = DuplicationAnalyzer().analyze(
+      indexed.tokenSegments,
+      minTokens: window,
+    );
+    limitations.addAll(report.limitations);
+    output.write(
+      DuplicationReporter.render(
+        format ?? ReportFormat.text,
+        report.findings,
+        limitations: limitations,
+        minTokens: window,
+      ),
+    );
+    failedItems.addAll([
+      for (final finding in report.findings)
+        'dup:${finding.instances.first.source}:${finding.instances.first.startLine}',
+    ]);
+    return report.findings.isEmpty
+        ? ExitStatus.success.code
+        : ExitStatus.findings.code;
+  } on FileSystemException {
+    return _reportAnalysisFailure(error);
+  } on ArgumentError {
+    return _reportAnalysisFailure(error);
+  } on StateError {
+    return _reportAnalysisFailure(error);
+  } on Exception {
+    return _reportAnalysisFailure(error);
+  }
+}
+
 Future<int> _runBaseline(
   List<String> arguments,
   StringSink output,
@@ -2488,6 +2594,7 @@ Usage: dartograph [--help] [--version]
        dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -2581,7 +2688,7 @@ as self-loops. graph --collapse <n> (requires --level file) summarizes
 libraries into their first n path segments; folder nodes are aggregates and
 carry no source location.
 
-analyzer를 쓰는 명령(graph, dead, deps, query, compare, affected, impact,
+analyzer를 쓰는 명령(graph, dead, deps, dup, query, compare, affected, impact,
 baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터리에 파일별 사실
 캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
@@ -2615,7 +2722,7 @@ verdict; an unlisted declaration is not proven unaffected.
 mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
 clients. It exposes three read-only tools over the existing CLI paths:
 impact_query (the impact pre-check), dependency_query (query/--batch), and
-verify_run (dead, deps, cycles, rules, metrics with exit code and raw
+verify_run (dead, deps, dup, cycles, rules, metrics with exit code and raw
 output; closedApp selects dead --closed-app). It also serves three static
 resources (dartograph://usage, dartograph://skill, dartograph://config) and
 three prompts (impact-precheck, dead-code-review, dependency-audit) that

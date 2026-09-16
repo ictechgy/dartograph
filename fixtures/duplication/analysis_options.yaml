@@ -1,0 +1,4 @@
+analyzer:
+  errors:
+    # 이 fixture는 이름만 다른 반복 선언이 의도된 검증 입력이다.
+    public_member_api_docs: ignore

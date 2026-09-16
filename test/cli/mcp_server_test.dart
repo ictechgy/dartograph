@@ -226,6 +226,51 @@ void main() {
     }
   });
 
+  test(
+    'verify_run validates minTokens for dup and rejects it elsewhere',
+    () async {
+      final responses = await exchange([
+        request(50, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dup',
+            'minTokens': 12,
+          },
+        }),
+        request(51, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'minTokens': 12,
+          },
+        }),
+        request(52, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dup',
+            'minTokens': 1,
+          },
+        }),
+      ]);
+
+      // 첫 호출은 CLI에 `--min-tokens 12`로 전달된다(실행 여부와 무관하게
+      // 인자 검증을 통과한다는 것을 나머지 케이스의 오류와 대조해 본다).
+      final passed = responses[0]['result'] as Map<String, Object?>;
+      expect(passed.containsKey('isError'), isTrue);
+      for (final response in responses.sublist(1)) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        expect(
+          ((result['content'] as List).single as Map)['text'],
+          contains('minTokens'),
+        );
+      }
+    },
+  );
+
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([
       // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.

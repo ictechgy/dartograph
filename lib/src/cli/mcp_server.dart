@@ -278,9 +278,13 @@ List<Map<String, Object?>> get _toolDefinitions => [
         },
         'command': {
           'type': 'string',
-          'enum': ['dead', 'deps', 'cycles', 'rules', 'metrics'],
+          'enum': ['dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'],
         },
         'strict': {'type': 'boolean'},
+        'minTokens': {
+          'type': 'integer',
+          'description': 'For dup only: minimum duplicated token window.',
+        },
         'closedApp': {
           'type': 'boolean',
           'description':
@@ -646,7 +650,7 @@ Future<Map<String, Object?>> _verifyTool({
   required ChangedFilesSince? changedFilesSince,
 }) async {
   final command = arguments['command'];
-  const commands = {'dead', 'deps', 'cycles', 'rules', 'metrics'};
+  const commands = {'dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'};
   if (command is! String || !commands.contains(command)) {
     return _toolError('command must be one of ${commands.join(', ')}');
   }
@@ -677,9 +681,21 @@ Future<Map<String, Object?>> _verifyTool({
   if (baseline != null) args.addAll(['--baseline', '$baseline']);
   final config = arguments['config'];
   if (config != null) args.addAll(['--config', '$config']);
+  final minTokens = arguments['minTokens'];
+  if (minTokens != null) {
+    // closed-app과 같은 이유로 의도 없는 인자를 조용히 무시하지 않는다.
+    if (command != 'dup') {
+      return _toolError('minTokens is only valid for command dup');
+    }
+    if (minTokens is! int || minTokens < 2) {
+      return _toolError('minTokens must be an integer ≥ 2');
+    }
+    args.addAll(['--min-tokens', '$minTokens']);
+  }
   // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
-  // `dead`·`deps`만 text·json·markdown·github-actions·sarif를 받는다.
-  if (format != null && (command == 'dead' || command == 'deps')) {
+  // `dead`·`deps`·`dup`만 text·json·markdown·github-actions·sarif를 받는다.
+  if (format != null &&
+      (command == 'dead' || command == 'deps' || command == 'dup')) {
     args.addAll(['--format', '$format']);
   }
   args.add(root);
