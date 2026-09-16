@@ -5,9 +5,9 @@
 ## 0.11.0
 
 - `dartograph deps` 추가. 선언된 `dependencies`/`dev_dependencies`/`dependency_overrides`와
-  관측된 `package:` import·export를 대조하는 pubspec 위생 감사다. 네 종류의 발견 —
-  `unused-dependency`·`unused-dev-dependency`·`dev-dependency-in-lib`·
-  `undeclared-dependency` — 을 다섯 형식(text·json·markdown·github-actions·sarif)으로
+  관측된 `package:` import·export를 대조하는 pubspec 위생 감사다. 네 종류의 발견
+  (`unused-dependency`·`unused-dev-dependency`·`dev-dependency-in-lib`·
+  `undeclared-dependency`)을 다섯 형식(text·json·markdown·github-actions·sarif)으로
   보고하고 finding이 있으면 종료 코드 1을 반환한다. 도구 계약 의존성(`executables`·
   `build.yaml` builders·`analysis_options` includes/plugins)은 package_config 근거로
   사용분으로 세고, 런타임/생성/asset 참조는 limitation으로 남는다. 발견은 검토
@@ -31,13 +31,14 @@
   `build.yaml` builder가 요구하는 팩토리 함수를 `buildRunner` 루트로,
   `@JS`/`@staticInterop`/FFI 계열 annotation 대상을 `externalBinding` 루트로
   보존한다. 사실 캐시 스키마는 v4, index identity는 v7로 갱신했다.
-- analyzer 14의 실제 회귀를 고쳤다 — 멤버와 선언 사이에 `ClassBody` 노드가 끼어
-  ancestor 순회가 멈춰 기존 보존 근거를 잃던 문제. 이제 `Declaration`이 아닌 노드를
-  건너뛰고 `CompilationUnit`까지 올라간다.
+- analyzer 14의 AST 변화로 생긴 회귀를 고쳤다 — 멤버와 선언 사이에 `ClassBody`
+  노드가 끼어 ancestor 순회가 멈춰 기존 보존 근거를 잃던 문제. 이제
+  `Declaration`이 아닌 노드를 건너뛰고 `CompilationUnit`까지 올라간다.
 - index가 `include:` 목록·`@anonymous` 지시문·해석되지 않는 `build.yaml` import를
   인식하게 고쳤고, project-scheme dead 파일이 난독화되지 않은 소스로 보고된다.
-- CLI가 중복된 `dead` 옵션을 거부하고 읽을 수 없는 `--changed` 입력을 분석 실패가
-  아니라 usage 오류로 분류한다.
+- CLI가 `dead`의 값 있는 옵션(`--explain`·`--format`·`--baseline`·`--since`·
+  `--codeowners`)이 중복 지정되면 조용한 last-win 대신 usage 오류로 거부하고, 읽을 수
+  없는 `--changed` 입력을 분석 실패가 아니라 usage 오류로 분류한다.
 - 리포터가 C1·bidi 제어 문자를 이스케이프하고 markdown code span을 안전하게
   fence한다. 이스케이프 정책은 `report_escapes.dart`로 공유한다.
 - MCP가 notification 형태의 request 메시지를 무시하고 문자열로 온 `closedApp`

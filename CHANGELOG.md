@@ -34,19 +34,21 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
   from the new `GraphNode.isSealed` marker.
 - The index additionally collects package-manifest facts (declared
   dependencies, dev dependencies, dependency overrides, and `package:`
-  directive imports per package), preserves `build.yaml` builder factories as
-  `buildRunner` roots, and preserves `@JS`/`@staticInterop`/FFI annotation
-  targets as `externalBinding` roots. The fact-cache schema moved to v4 and the
-  index identity to v7.
-- Fixed a real analyzer-14 regression where `ClassBody` nodes sat between
-  members and declarations and stopped ancestor traversal, losing existing
-  retention evidence — the walk now skips non-`Declaration` nodes up to the
-  `CompilationUnit`.
+  directive imports per package), preserves the factory functions that
+  `build.yaml` builders require as `buildRunner` roots, and preserves
+  `@JS`/`@staticInterop`/FFI annotation targets as `externalBinding` roots. The
+  fact-cache schema moved to v4 and the index identity to v7.
+- Fixed a regression caused by analyzer 14's AST shape: `ClassBody` nodes now
+  sit between members and declarations, which stopped ancestor traversal and
+  lost existing retention evidence — the walk now skips non-`Declaration`
+  nodes until it reaches the `CompilationUnit`.
 - Fixed the index to recognize `include:` lists, `@anonymous` directives, and
   unresolved `build.yaml` imports; project-scheme dead files are now reported
   with unmangled sources.
-- CLI rejects duplicate `dead` options and classifies unreadable `--changed`
-  input as a usage error instead of an analysis failure.
+- CLI rejects duplicate valued options on `dead` (`--explain`, `--format`,
+  `--baseline`, `--since`, `--codeowners`) instead of silently applying
+  last-win, and classifies unreadable `--changed` input as a usage error
+  instead of an analysis failure.
 - Reporters now escape C1 and bidi controls and fence markdown code spans
   safely; the escaping policy is shared through `report_escapes.dart`.
 - MCP silences notification-shaped request messages and honors `closedApp`
