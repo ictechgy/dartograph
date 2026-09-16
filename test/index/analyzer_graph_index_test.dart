@@ -1116,8 +1116,8 @@ environment:
     await Directory('${package.path}/lib').create();
     // decide의 기대 점수를 손으로 센다: 기본 1 +
     // ?? 1 + ??= 1 + if(&&) 2 + if(||) 2 + for 1 + 컬렉션 for 1 +
-    // while 1 + do 1 + switch case 2(default 제외) + switch-expression case 2 +
-    // ?: 1 + on 1 + 중첩 람다의 if 1 = 18
+    // 컬렉션 if 1 + while 1 + do 1 + switch case 2(default 제외) +
+    // switch-expression case 2 + ?: 1 + on 1 + 중첩 람다의 if 1 = 19
     await File('${package.path}/lib/main.dart').writeAsString('''
 int decide(int? x) {
   final y = x ?? 0;
@@ -1126,7 +1126,7 @@ int decide(int? x) {
   if (y > 0 && z > 0) {}
   if (y > 1 || z > 1) {}
   for (var i = 0; i < 3; i++) {}
-  final list = [for (var i = 0; i < 2; i++) i];
+  final list = [for (var i = 0; i < 2; i++) i, if (y > 0) y];
   while (z > 10) {
     z--;
   }
@@ -1169,7 +1169,7 @@ abstract class Empty {
     final result = await AnalyzerGraphIndex().index(package.path);
 
     const prefix = 'package:complexity_fixture/main.dart::';
-    expect(result.complexity['${prefix}decide'], 18);
+    expect(result.complexity['${prefix}decide'], 19);
     expect(result.complexity['${prefix}trivial'], 1);
     // 본문이 없는 선언은 점수를 내지 않는다.
     expect(result.complexity.containsKey('${prefix}Empty.noBody'), isFalse);

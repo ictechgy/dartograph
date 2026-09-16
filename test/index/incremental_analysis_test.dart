@@ -291,6 +291,10 @@ void main() {
       final fixture = await _fixture({
         'pubspec.yaml': _appPubspec,
         'lib/main.dart': 'void main() {}\n',
+        // 스코프·임계 설정이 있어야 쓰기 실패 경로의 필드 보존이 드러난다.
+        'dartograph.yaml':
+            'include:\n  - "lib/**"\nexclude:\n  - "lib/gen/**"\n'
+            'thresholds:\n  distance: 0.5\n  complexity: 7\n',
       });
       addTearDown(fixture.dispose);
       // 캐시 경로 자리에 파일을 두어 디렉터리 생성이 실패하게 만든다.
@@ -454,6 +458,26 @@ void _expectSameOutput(
     _rootsDigest(actual),
     _rootsDigest(expected),
     reason: '보존 루트가 전체 해석과 달라졌다',
+  );
+  expect(actual.packageName, expected.packageName);
+  expect(actual.declaredDependencies, expected.declaredDependencies);
+  expect(actual.declaredDevDependencies, expected.declaredDevDependencies);
+  expect(
+    actual.declaredDependencyOverrides,
+    expected.declaredDependencyOverrides,
+  );
+  expect(actual.packageImports, expected.packageImports);
+  expect(actual.complexity, expected.complexity);
+  expect(
+    actual.tokenSegments.map((segment) => segment.source).toList(),
+    expected.tokenSegments.map((segment) => segment.source).toList(),
+  );
+  expect(actual.includeGlobs, expected.includeGlobs);
+  expect(actual.excludeGlobs, expected.excludeGlobs);
+  expect(actual.metricsDistanceThreshold, expected.metricsDistanceThreshold);
+  expect(
+    actual.metricsComplexityThreshold,
+    expected.metricsComplexityThreshold,
   );
 }
 

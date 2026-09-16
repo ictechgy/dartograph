@@ -407,6 +407,10 @@ final class AnalyzerGraphIndex {
         packageImports: result.packageImports,
         complexity: result.complexity,
         tokenSegments: result.tokenSegments,
+        includeGlobs: result.includeGlobs,
+        excludeGlobs: result.excludeGlobs,
+        metricsDistanceThreshold: result.metricsDistanceThreshold,
+        metricsComplexityThreshold: result.metricsComplexityThreshold,
       );
     }
     return result;
@@ -2054,8 +2058,8 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
 
 /// 선언 본문 하나의 순환 복잡도를 센다.
 ///
-/// 기본값 1에 분기 지점마다 1을 더한다: `if`·`for`(컬렉션 리터럴의 for 요소
-/// 포함)·`while`·`do`·switch/switch-expression의 각 `case` 라벨·`catch`/
+/// 기본값 1에 분기 지점마다 1을 더한다: `if`·`for`(컬렉션 리터럴의 if·for
+/// 요소 포함)·`while`·`do`·switch/switch-expression의 각 `case` 라벨·`catch`/
 /// `on`·조건부 `?:`·`&&`·`||`·`??`·`??=`. `default` 라벨은 새 분기가 아니라
 /// 세지 않는다. 람다·지역 함수 같은 중첩 본문의 분기는 감싸는 이름 있는 선언에
 /// 귀속한다 — 지역 함수는 그래프 정점이 아니라 따로 보고할 대상이 없다.
@@ -2079,6 +2083,12 @@ final class _ComplexityVisitor extends RecursiveAstVisitor<void> {
   void visitForElement(ForElement node) {
     score++;
     super.visitForElement(node);
+  }
+
+  @override
+  void visitIfElement(IfElement node) {
+    score++;
+    super.visitIfElement(node);
   }
 
   @override
