@@ -89,7 +89,8 @@ dartograph skill
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
 - `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
 - `dead --closed-app`은 독립 실행 앱(Flutter 앱·CLI 실행 파일)에서 공개 API 보존을 끈다 — `lib/<package>.dart`가 export해도 `main`에서 도달하지 못하는 선언은 보고된다. `baseline --write --closed-app`과 짝을 이루며, 게시 라이브러리에는 쓰지 않는다.
-- `dartograph mcp`는 세 개의 질의·검증 도구 외에 MCP 리소스(`dartograph://usage`·`skill`·`config`)와 프롬프트(`impact-precheck`·`dead-code-review`·`dependency-audit`)도 노출한다.
+- `dartograph mcp`는 세 개의 질의·검증 도구 외에 MCP 리소스(`dartograph://usage`·`skill`·`config`)와 프롬프트(`impact-precheck`·`dead-code-review`·`dependency-audit`·`duplication-review`)도 노출한다.
+- `editors/vscode/`의 빌드 없는 VS Code 확장이 CLI를 실행해 `dead`/`deps`/`dup`/`impact` JSON 발견을 Problems 진단으로 표시한다 — 근거·한계를 유지하고 삭제 판정은 내리지 않는다.
 
 `// dartograph:ignore` 줄 주석은 그 주석이 위에 오는 선언의 dead 보고를 억제한다(`retentionReason: inlineIgnore`로 보존) — 저장소 작성자의 결정이며 그래프 자체에 기록된다.
 

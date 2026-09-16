@@ -30,6 +30,10 @@ jobs:
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze
+      - name: VS Code extension checks
+        run: |
+          node --check editors/vscode/extension.js
+          node editors/vscode/test/mapper.test.js
       - name: Tests, coverage and isolated activation
         run: tool/check-coverage.sh
       - run: tool/verify-false-positive-corpus.sh
