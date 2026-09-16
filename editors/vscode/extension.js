@@ -16,16 +16,22 @@ const SEVERITY = {
 };
 
 let diagnostics;
+let impactDiagnostics;
 let output;
 let saveTimer;
 let running = false;
-let reportedMissing = false;
+let pendingRerun = false;
+let missingExecutable = null;
 
 function activate(context) {
   diagnostics = vscode.languages.createDiagnosticCollection('dartograph');
+  impactDiagnostics = vscode.languages.createDiagnosticCollection(
+    'dartograph-impact',
+  );
   output = vscode.window.createOutputChannel('dartograph');
   context.subscriptions.push(
     diagnostics,
+    impactDiagnostics,
     output,
     vscode.commands.registerCommand('dartograph.analyzeWorkspace', () =>
       runWorkspaceAnalysis(),
@@ -33,13 +39,21 @@ function activate(context) {
     vscode.commands.registerCommand('dartograph.checkImpact', () =>
       runImpactCheck(),
     ),
-    vscode.commands.registerCommand('dartograph.clearFindings', () =>
-      diagnostics.clear(),
-    ),
+    vscode.commands.registerCommand('dartograph.clearFindings', () => {
+      diagnostics.clear();
+      impactDiagnostics.clear();
+    }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (document.languageId !== 'dart' || !config().runOnSave) return;
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(runWorkspaceAnalysis, SAVE_DELAY_MS);
+      saveTimer = setTimeout(() => {
+        // 진행 중인 분석이 끝난 뒤 한 번 다시 돌려 최신 저장을 반영한다.
+        if (running) {
+          pendingRerun = true;
+          return;
+        }
+        runWorkspaceAnalysis();
+      }, SAVE_DELAY_MS);
     }),
   );
 }
@@ -55,46 +69,79 @@ function config() {
     executable: section.get('executable', 'dartograph'),
     runOnSave: section.get('runOnSave', false),
     minTokens: section.get('minTokens', 40),
-    args: section.get('args', []),
+    args: section.get('args', ['--incremental', '.dartograph/cache']),
   };
 }
 
-/// pubspec.yaml을 가진 워크스페이스 폴더만 분석 대상으로 본다.
+/// pubspec.yaml을 가진 폴더를 분석 대상으로 본다 — 루트와 `packages/*` 하위까지.
 async function packageRoots() {
   const folders = vscode.workspace.workspaceFolders || [];
   const roots = [];
   for (const folder of folders) {
-    const manifest = vscode.Uri.joinPath(folder.uri, 'pubspec.yaml');
+    if (await hasManifest(folder.uri)) {
+      roots.push(folder.uri);
+      continue;
+    }
+    // 모노레포의 한 수준 하위 패키지도 대상으로 삼는다.
     try {
-      await vscode.workspace.fs.stat(manifest);
-      roots.push(folder);
+      const entries = await vscode.workspace.fs.readDirectory(
+        vscode.Uri.joinPath(folder.uri, 'packages'),
+      );
+      for (const [name, kind] of entries) {
+        if (kind !== vscode.FileType.Directory) continue;
+        const sub = vscode.Uri.joinPath(folder.uri, 'packages', name);
+        if (await hasManifest(sub)) roots.push(sub);
+      }
     } catch {
-      // pubspec.yaml이 없는 폴더는 Dart 패키지가 아니므로 건너뛴다.
+      // packages/ 디렉터리가 없으면 건너뛴다.
     }
   }
   return roots;
 }
 
+async function hasManifest(uri) {
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.joinPath(uri, 'pubspec.yaml'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /// dead·deps·dup를 실행해 결과를 Problems에 반영한다.
 async function runWorkspaceAnalysis() {
-  if (running) return;
-  const roots = await packageRoots();
-  if (roots.length === 0) {
-    vscode.window.showInformationMessage(
-      'dartograph: no workspace folder contains pubspec.yaml',
-    );
+  if (running) {
+    pendingRerun = true;
     return;
   }
   running = true;
   const collected = new Map();
   try {
-    for (const folder of roots) {
-      for (const report of await runReports(folder)) {
+    const roots = await packageRoots();
+    if (roots.length === 0) {
+      vscode.window.showInformationMessage(
+        'dartograph: no workspace folder contains pubspec.yaml',
+      );
+      return;
+    }
+    let succeeded = 0;
+    for (const root of roots) {
+      const reports = await runReports(root);
+      succeeded += reports.length;
+      for (const report of reports) {
         logLimitations(report);
         for (const item of mapper.mapReport(report)) {
-          collect(collected, folder, item);
+          collect(collected, root, item);
         }
       }
+    }
+    // 모든 명령이 실패한 실행은 성공(0 finding)과 구분해 기존 진단을 보존한다.
+    if (succeeded === 0) {
+      vscode.window.setStatusBarMessage(
+        'dartograph: analysis failed — see output',
+        8000,
+      );
+      return;
     }
     publish(collected);
     vscode.window.setStatusBarMessage(
@@ -103,12 +150,16 @@ async function runWorkspaceAnalysis() {
     );
   } finally {
     running = false;
+    if (pendingRerun) {
+      pendingRerun = false;
+      runWorkspaceAnalysis();
+    }
   }
 }
 
 /// 세 검사를 순차 실행한다. 한 명령이 분석 실패로 끝나도 나머지 결과를 살린다.
-async function runReports(folder) {
-  const cwd = folder.uri.fsPath;
+async function runReports(root) {
+  const cwd = root.fsPath;
   const extra = config().args;
   const reports = [];
   const specs = [
@@ -135,7 +186,9 @@ async function runReports(folder) {
 }
 
 /// 현재 편집 파일을 변경본으로 간주해 영향받는 선언을 Problems에 표시한다.
+/// 워크스페이스 분석과 컬렉션이 분리돼 서로의 진단을 지우지 않는다.
 async function runImpactCheck() {
+  if (running) return;
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== 'dart') {
     vscode.window.showInformationMessage(
@@ -147,37 +200,46 @@ async function runImpactCheck() {
   if (!folder) return;
   const cwd = folder.uri.fsPath;
   const relative = path.relative(cwd, editor.document.uri.fsPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  const outside =
+    relative === '..' ||
+    relative.startsWith('..' + path.sep) ||
+    path.isAbsolute(relative);
+  if (outside) {
     vscode.window.showInformationMessage(
       'dartograph: file is outside the package root',
     );
     return;
   }
-  const report = await runJson(
-    'impact',
-    [
+  running = true;
+  try {
+    const report = await runJson(
       'impact',
-      '--changed',
-      JSON.stringify([relative]),
-      '--format',
-      'json',
-      ...config().args,
+      [
+        'impact',
+        '--changed',
+        JSON.stringify([relative.split(path.sep).join('/')]),
+        '--format',
+        'json',
+        ...config().args,
+        cwd,
+      ],
       cwd,
-    ],
-    cwd,
-  );
-  if (!report) return;
-  const collected = new Map();
-  logLimitations(report);
-  for (const item of mapper.mapImpact(report)) {
-    collect(collected, folder, item);
+    );
+    if (!report) return;
+    const collected = new Map();
+    logLimitations(report);
+    for (const item of mapper.mapImpact(report)) {
+      collect(collected, folder.uri, item);
+    }
+    publishImpact(collected);
+    vscode.window.setStatusBarMessage(
+      `dartograph: ${(report.impacted || []).length} impacted symbol(s), ` +
+        `${(report.tests || []).length} related test(s)`,
+      5000,
+    );
+  } finally {
+    running = false;
   }
-  publish(collected);
-  vscode.window.setStatusBarMessage(
-    `dartograph: ${(report.impacted || []).length} impacted symbol(s), ` +
-      `${(report.tests || []).length} related test(s)`,
-    5000,
-  );
 }
 
 /// 명령을 실행해 stdout의 JSON 문서를 돌려준다. 종료 1(발견)도 정상 결과다.
@@ -190,8 +252,8 @@ function runJson(name, args, cwd) {
       { cwd, maxBuffer: 32 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error && error.code === 'ENOENT') {
-          if (!reportedMissing) {
-            reportedMissing = true;
+          if (missingExecutable !== executable) {
+            missingExecutable = executable;
             vscode.window.showErrorMessage(
               `dartograph: '${executable}' not found — ` +
                 'run `dart pub global activate dartograph`',
@@ -199,13 +261,16 @@ function runJson(name, args, cwd) {
           }
           return resolve(null);
         }
-        const exitCode = error ? error.code : 0;
-        if (typeof exitCode === 'number' && exitCode !== 0 && exitCode !== 1) {
-          output.appendLine(
-            `[${name}] exit ${exitCode}: ${String(stderr).trim()}`,
-          );
+        // 숫자 0/1은 정상(1은 발견), 그 밖의 오류(2·64·문자열 코드·signal)를 여기서 잡는다.
+        const ok =
+          !error ||
+          (typeof error.code === 'number' &&
+            (error.code === 0 || error.code === 1));
+        if (!ok) {
+          const detail = String(stderr).trim() || error.message;
+          output.appendLine(`[${name}] failed: ${detail}`);
           vscode.window.showErrorMessage(
-            `dartograph ${name} failed (exit ${exitCode}) — see output`,
+            `dartograph ${name} failed — see output`,
           );
           return resolve(null);
         }
@@ -223,8 +288,8 @@ function runJson(name, args, cwd) {
 }
 
 /// 진단 레코드를 파일별 목록에 추가한다.
-function collect(collected, folder, item) {
-  const uri = vscode.Uri.joinPath(folder.uri, ...item.file.split('/'));
+function collect(collected, root, item) {
+  const uri = vscode.Uri.joinPath(root, ...item.file.split('/'));
   const key = uri.toString();
   if (!collected.has(key)) collected.set(key, { uri, items: [] });
   const range = new vscode.Range(
@@ -254,6 +319,14 @@ function publish(collected) {
   diagnostics.clear();
   for (const { uri, items } of collected.values()) {
     diagnostics.set(uri, items);
+  }
+}
+
+/// impact 진단은 별도 컬렉션이므로 워크스페이스 분석 결과를 지우지 않는다.
+function publishImpact(collected) {
+  impactDiagnostics.clear();
+  for (const { uri, items } of collected.values()) {
+    impactDiagnostics.set(uri, items);
   }
 }
 

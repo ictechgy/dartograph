@@ -13,6 +13,13 @@ function stripScheme(source) {
   return source.includes(':') ? null : source;
 }
 
+/// 보고서가 준 경로가 루트 안의 상대 경로인지 확인한다 — `..`·절대 경로를 배제한다.
+function safeRelative(file) {
+  if (!file || file.startsWith('/') || /^[A-Za-z]:/.test(file)) return null;
+  if (file.split('/').includes('..')) return null;
+  return file;
+}
+
 /// 알려진 행·열에서 시작하는 0-based 범위를 만든다(보고서는 1-based).
 function pointRange(line, column) {
   const row = Math.max(0, (line || 1) - 1);
@@ -22,10 +29,12 @@ function pointRange(line, column) {
 
 /// 1-based 행 범위를 0-based 진단 범위로 변환한다.
 function lineRange(startLine, endLine) {
+  const start = Math.max(0, startLine - 1);
+  const end = Math.max(0, endLine - 1);
   return {
-    startLine: Math.max(0, startLine - 1),
+    startLine: start,
     startCol: 0,
-    endLine: Math.max(0, endLine - 1),
+    endLine: Math.max(start, end),
     endCol: Number.MAX_SAFE_INTEGER,
   };
 }
@@ -36,7 +45,7 @@ function mapReport(report) {
   for (const finding of report.findings || []) {
     switch (report.report) {
       case 'dead': {
-        const file = stripScheme(finding.source);
+        const file = safeRelative(stripScheme(finding.source));
         if (!file) break;
         items.push({
           file,
@@ -56,16 +65,20 @@ function mapReport(report) {
         break;
       case 'dup':
         for (const instance of finding.instances || []) {
-          const file = stripScheme(instance.source);
+          const file = safeRelative(stripScheme(instance.source));
           if (!file) continue;
-          const other = (finding.instances || []).find(
+          const others = (finding.instances || []).filter(
             (peer) => peer !== instance,
           );
-          const otherPath = other
-            ? stripScheme(other.source) || other.source
-            : null;
-          const elsewhere = other
-            ? ` — also at ${otherPath}:${other.startLine}`
+          const elsewhere = others.length
+            ? ' — also at ' +
+              others
+                .map(
+                  (peer) =>
+                    `${stripScheme(peer.source) || peer.source}:` +
+                    `${peer.startLine}`,
+                )
+                .join(', ')
             : '';
           items.push({
             file,
@@ -87,7 +100,7 @@ function mapReport(report) {
 function mapImpact(report) {
   const items = [];
   for (const item of report.impacted || []) {
-    const impactedFile = stripScheme(item.source);
+    const impactedFile = safeRelative(stripScheme(item.source));
     if (!impactedFile) continue;
     items.push({
       file: impactedFile,
@@ -98,7 +111,7 @@ function mapImpact(report) {
     });
   }
   for (const item of report.tests || []) {
-    const testFile = stripScheme(item.source);
+    const testFile = safeRelative(stripScheme(item.source));
     if (!testFile) continue;
     items.push({
       file: testFile,
@@ -110,4 +123,11 @@ function mapImpact(report) {
   return items;
 }
 
-module.exports = { mapReport, mapImpact, stripScheme, pointRange, lineRange };
+module.exports = {
+  mapReport,
+  mapImpact,
+  stripScheme,
+  safeRelative,
+  pointRange,
+  lineRange,
+};

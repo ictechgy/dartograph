@@ -6,6 +6,7 @@ const {
   mapReport,
   mapImpact,
   stripScheme,
+  safeRelative,
   pointRange,
   lineRange,
 } = require('../mapper');
@@ -26,13 +27,21 @@ assert.deepStrictEqual(pointRange(3, 5), {
 });
 assert.deepStrictEqual(pointRange(undefined, undefined).startLine, 0);
 
-// lineRange: 행 범위를 0-based로 바꾼다.
+// lineRange: 행 범위를 0-based로 바꾸고 뒤집힌 범위는 시작점으로 묶는다.
 assert.deepStrictEqual(lineRange(2, 5), {
   startLine: 1,
   startCol: 0,
   endLine: 4,
   endCol: Number.MAX_SAFE_INTEGER,
 });
+assert.strictEqual(lineRange(5, 2).endLine, 4);
+
+// safeRelative: 루트 밖 경로(절대·드라이브·..)를 거부한다.
+assert.strictEqual(safeRelative('lib/a.dart'), 'lib/a.dart');
+assert.strictEqual(safeRelative('../outside.dart'), null);
+assert.strictEqual(safeRelative('a/../../b.dart'), null);
+assert.strictEqual(safeRelative('/etc/x.dart'), null);
+assert.strictEqual(safeRelative('C:/x.dart'), null);
 
 // dead 발견: source·line·column이 진단 위치가 되고 reason이 메시지다.
 const deadItems = mapReport({
@@ -50,6 +59,11 @@ const deadItems = mapReport({
       kind: 'declaration',
       source: 'package:dep/x.dart',
       reason: 'outside package root',
+    },
+    {
+      kind: 'file',
+      source: 'project:../outside.dart',
+      reason: 'traversal attempt',
     },
   ],
 });
