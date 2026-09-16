@@ -1,0 +1,6 @@
+analyzer:
+  errors:
+    # 이 fixture는 미해석 package: URI와 미문서화 선언이 의도된 검증 입력이다.
+    uri_does_not_exist: ignore
+    undefined_function: ignore
+    public_member_api_docs: ignore
