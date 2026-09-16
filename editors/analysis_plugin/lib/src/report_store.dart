@@ -57,15 +57,33 @@ String? safeRelative(String? file) {
   return file;
 }
 
+/// 문서 필드를 List로만 받는다 — 모양이 어긋난 보고서는 던지지 않고 건너뛴다.
+List<Object?>? _listField(Map<Object?, Object?> map, String key) {
+  final value = map[key];
+  return value is List ? value : null;
+}
+
+/// 문서 필드를 String으로만 받는다.
+String? _stringField(Map<Object?, Object?> map, String key) {
+  final value = map[key];
+  return value is String ? value : null;
+}
+
+/// 문서 필드를 int로만 받는다 — double 등 다른 수치형은 null이다.
+int? _intField(Map<Object?, Object?> map, String key) {
+  final value = map[key];
+  return value is int ? value : null;
+}
+
 /// `dead --format json` 문서를 파일별 발견으로 변환한다.
 Map<String, List<PluginFinding>> parseDead(Map<String, Object?> document) {
   final byFile = <String, List<PluginFinding>>{};
-  for (final finding in document['findings'] as List? ?? const []) {
+  for (final finding in _listField(document, 'findings') ?? const []) {
     if (finding is! Map) continue;
-    final file = safeRelative(stripScheme(finding['source'] as String?));
+    final file = safeRelative(stripScheme(_stringField(finding, 'source')));
     if (file == null) continue;
-    final line = finding['line'] as int? ?? 1;
-    final column = finding['column'] as int? ?? 1;
+    final line = _intField(finding, 'line') ?? 1;
+    final column = _intField(finding, 'column') ?? 1;
     byFile
         .putIfAbsent(file, () => [])
         .add(
@@ -83,28 +101,32 @@ Map<String, List<PluginFinding>> parseDead(Map<String, Object?> document) {
 /// `dup --format json` 문서를 파일별 발견으로 변환한다.
 Map<String, List<PluginFinding>> parseDup(Map<String, Object?> document) {
   final byFile = <String, List<PluginFinding>>{};
-  for (final finding in document['findings'] as List? ?? const []) {
+  for (final finding in _listField(document, 'findings') ?? const []) {
     if (finding is! Map) continue;
-    final instances = finding['instances'] as List? ?? const [];
+    final instances = _listField(finding, 'instances') ?? const [];
     final tokenCount = finding['tokenCount'];
     for (final instance in instances) {
       if (instance is! Map) continue;
-      final file = safeRelative(stripScheme(instance['source'] as String?));
+      final file = safeRelative(stripScheme(_stringField(instance, 'source')));
       if (file == null) continue;
       final others = [
         for (final peer in instances)
           if (peer != instance && peer is Map)
-            '${stripScheme(peer['source'] as String?) ?? peer['source']}'
+            '${stripScheme(_stringField(peer, 'source')) ?? peer['source']}'
                 ':${peer['startLine']}',
       ];
+      // parseDead와 같이 1 미만은 1로, 뒤집힌 범위는 점으로 정규화한다 —
+      // 진단 층의 getOffsetOfLine은 범위 밖 행에 RangeError를 던진다.
+      final start = (_intField(instance, 'startLine') ?? 1).clamp(1, 1 << 30);
+      final rawEnd = _intField(instance, 'endLine');
       byFile
           .putIfAbsent(file, () => [])
           .add(
             PluginFinding(
               file: file,
-              line: (instance['startLine'] as int?) ?? 1,
+              line: start,
               column: 1,
-              endLine: instance['endLine'] as int?,
+              endLine: rawEnd != null && rawEnd >= start ? rawEnd : start,
               message:
                   'duplicate block ($tokenCount tokens)'
                   '${others.isEmpty ? '' : ' — also at ${others.join(', ')}'}',
@@ -129,7 +151,8 @@ abstract final class ReportCache {
     if (entry != null && !entry.isStale) return entry.report;
     if (entry == null) {
       final report = _loadSync(root);
-      if (report == null) return null;
+      // 실패도 짧게 캐시한다 — CLI가 계속 죽어 있을 때 파일마다 동기 실행이
+      // 플러그인 isolate를 반복해서 막지 않기 위해서다.
       _entries[root] = _CacheEntry(report);
       return report;
     }
@@ -140,20 +163,31 @@ abstract final class ReportCache {
     return entry.report;
   }
 
-  /// 테스트가 캐시를 비우도록 한다.
-  static void clear() => _entries.clear();
+  /// 테스트가 캐시와 실행 파일 지정을 비우도록 한다.
+  static void clear() {
+    _entries.clear();
+    debugExecutable = null;
+  }
+
+  /// 테스트가 실행 파일을 지정한다 — Platform.environment는 수정할 수 없어
+  /// 환경 변수 경로를 테스트에서 검증할 수 없다.
+  static String? debugExecutable;
 
   /// 실행 파일 이름은 환경 변수로 바꿀 수 있다(테스트·커스텀 설치 경로).
   static String get _executable =>
-      Platform.environment['DARTOGRAPH_EXECUTABLE'] ?? 'dartograph';
+      debugExecutable ??
+      Platform.environment['DARTOGRAPH_EXECUTABLE'] ??
+      'dartograph';
 
   static Future<void> _load(String root) async {
     final dead = await _run('dead', root);
     final dup = await _run('dup', root);
-    // 두 명령이 모두 실패하면 보고 부재를 캐시하지 않는다 — 실패와
-    // "발견 없음"을 섞지 않기 위해서다.
+    // 두 명령이 모두 실패하면 보고 부재를 실패 상태로 짧게 남긴다 — 실패와
+    // "발견 없음"을 섞지 않기 위해서다. 한쪽만 실패하면 성공한 쪽을
+    // 서빙한다 — 명령이 없는 구버전 CLI(exit 64)에서도 dead 진단이
+    // 동작해야 하기 때문이다.
     if (dead == null && dup == null) {
-      _entries.remove(root);
+      _entries[root] = _CacheEntry(null);
       return;
     }
     _entries[root] = _CacheEntry(
@@ -177,14 +211,19 @@ abstract final class ReportCache {
 
   static Map<String, Object?>? _runSync(String command, String root) {
     try {
-      final result = Process.runSync(_executable, [
-        command,
-        '--format',
-        'json',
-        '--incremental',
-        '.dartograph/cache',
-        root,
-      ], workingDirectory: root);
+      final result = Process.runSync(
+        _executable,
+        [
+          command,
+          '--format',
+          'json',
+          '--incremental',
+          '.dartograph/cache',
+          root,
+        ],
+        workingDirectory: root,
+        stdoutEncoding: utf8,
+      );
       if (result.exitCode != 0 && result.exitCode != 1) return null;
       final decoded = jsonDecode(result.stdout as String);
       return decoded is Map ? decoded.cast<String, Object?>() : null;
@@ -199,14 +238,19 @@ abstract final class ReportCache {
   /// 실패)는 null이다 — 보고 부재를 "발견 없음"과 섞지 않기 위해 구분한다.
   static Future<Map<String, Object?>?> _run(String command, String root) async {
     try {
-      final result = await Process.run(_executable, [
-        command,
-        '--format',
-        'json',
-        '--incremental',
-        '.dartograph/cache',
-        root,
-      ], workingDirectory: root);
+      final result = await Process.run(
+        _executable,
+        [
+          command,
+          '--format',
+          'json',
+          '--incremental',
+          '.dartograph/cache',
+          root,
+        ],
+        workingDirectory: root,
+        stdoutEncoding: utf8,
+      );
       // 0과 1(발견)만 정상 결과다.
       if (result.exitCode != 0 && result.exitCode != 1) return null;
       final decoded = jsonDecode(result.stdout as String);
