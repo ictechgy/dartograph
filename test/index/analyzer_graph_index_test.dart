@@ -765,6 +765,114 @@ entry_points:
     },
   );
 
+  test(
+    'retained_names and retained_files add configured retention roots',
+    () async {
+      final package = await _entryPointPackage();
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/dartograph.yaml').writeAsString('''
+retained_names:
+  - 'develop*'
+retained_files:
+  - 'lib/no_main.dart'
+''');
+
+      final result = await AnalyzerGraphIndex().index(package.path);
+
+      // 파일 glob이 맞은 no_main.dart의 Helper는 보존 루트다.
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('::Helper'))
+            .value,
+        RetentionReason.configuredRetention,
+      );
+      // 이름 glob이 맞은 development도 보존 루트다 — 같은 파일의 main이
+      // 이미 mainEntryPoint라 덮지 않는다.
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('::development'))
+            .value,
+        RetentionReason.configuredRetention,
+      );
+      expect(
+        result.retentionRoots.entries
+            .singleWhere((entry) => entry.key.endsWith('main_dev.dart::main'))
+            .value,
+        RetentionReason.mainEntryPoint,
+      );
+      // 설정이 보존 루트를 늘렸다는 사실이 한계로 남는다.
+      expect(
+        result.limitationDetails,
+        anyElement(startsWith('retention-config:')),
+      );
+    },
+  );
+
+  test('include/exclude and thresholds surface on the index result', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File('${package.path}/dartograph.yaml').writeAsString('''
+include:
+  - 'lib/**'
+exclude:
+  - 'lib/gen/**'
+thresholds:
+  distance: 0.5
+  complexity: 10
+''');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(result.includeGlobs, ['lib/**']);
+    expect(result.excludeGlobs, ['lib/gen/**']);
+    expect(result.metricsDistanceThreshold, 0.5);
+    expect(result.metricsComplexityThreshold, 10);
+  });
+
+  test('unknown dartograph.yaml keys surface as a limitation', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    await File(
+      '${package.path}/dartograph.yaml',
+    ).writeAsString('entry_points:\n  - lib/main.dart\ntypos_key: 1\n');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    expect(
+      result.limitationDetails,
+      contains(
+        'config-unknown-keys: dartograph.yaml has unrecognized keys: typos_key',
+      ),
+    );
+  });
+
+  test(
+    'invalid scope config fails instead of silently narrowing',
+    () async {
+      for (final config in const [
+        'include: []\n',
+        'exclude: nope\n',
+        'exclude:\n  - 42\n',
+        'retained_names: {a: b}\n',
+        'retained_files:\n  - \n',
+        'thresholds: []\n',
+        'thresholds: {distance: 0}\n',
+        'thresholds: {complexity: 1.5}\n',
+        'thresholds: {bogus: 1}\n',
+      ]) {
+        final package = await _entryPointPackage();
+        addTearDown(() => package.delete(recursive: true));
+        await File('${package.path}/dartograph.yaml').writeAsString(config);
+
+        await expectLater(
+          AnalyzerGraphIndex().index(package.path),
+          throwsA(isA<FormatException>()),
+          reason: 'config: $config',
+        );
+      }
+    },
+  );
+
   test('JS interop annotations retain declarations and their members', () async {
     final package = await Directory.systemTemp.createTemp(
       'dartograph-js-interop.',

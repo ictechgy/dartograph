@@ -19,6 +19,7 @@ import '../analysis/graph_comparison.dart';
 import '../analysis/impact_analyzer.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
+import '../core/path_glob.dart';
 import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
 import '../export/bridge_exporter.dart';
@@ -1106,11 +1107,22 @@ Future<int> _runMetrics(
     final indexed = await indexPackage(parsed.root);
     final snapshot = indexed.graph.snapshot();
     final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
-    const tolerance = 0.3;
+    // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의
+    // 복잡도 상한을 정한다 — 설정 파일이 게이트를 바꾼다는 사실은 한계에 남긴다.
+    final tolerance = indexed.metricsDistanceThreshold ?? 0.3;
+    final complexityLimit = indexed.metricsComplexityThreshold;
+    final limitations = _limitations(indexed);
+    if (indexed.metricsDistanceThreshold != null || complexityLimit != null) {
+      limitations.add(
+        'thresholds: dartograph.yaml overrides metrics gates '
+        '(distance ≤ $tolerance'
+        '${complexityLimit == null ? '' : ', complexity ≤ $complexityLimit'})',
+      );
+    }
     output.write(
       AnalysisReporter.metrics(
         metrics,
-        limitations: _limitations(indexed),
+        limitations: limitations,
         tolerance: tolerance,
         complexity: indexed.complexity,
         nodeSources: {for (final node in snapshot.nodes) node.id: node},
@@ -1123,7 +1135,16 @@ Future<int> _runMetrics(
       for (final item in metrics)
         if (!item.isolated && item.distance > tolerance) item.id,
     ]);
-    return parsed.strict && exceedsTolerance
+    var exceedsComplexity = false;
+    if (complexityLimit != null) {
+      for (final entry in indexed.complexity.entries) {
+        if (entry.value > complexityLimit) {
+          exceedsComplexity = true;
+          failedItems.add(entry.key);
+        }
+      }
+    }
+    return parsed.strict && (exceedsTolerance || exceedsComplexity)
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
   } on FileSystemException {
@@ -1837,6 +1858,16 @@ Future<int> _runDead(
           .where((finding) => kinds!.contains(finding.kind))
           .toList();
     }
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      reported = reported
+          .where((finding) => _inScope(scope, finding.source))
+          .toList();
+    }
     if (since != null) {
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
@@ -1986,7 +2017,7 @@ Future<int> _runDeps(
       'only; runtime loading, generated-code, and asset references are '
       'invisible to this audit',
     );
-    final findings = DependencyAudit()
+    var findings = DependencyAudit()
         .audit(
           packageName: indexed.packageName,
           dependencies: indexed.declaredDependencies,
@@ -1999,6 +2030,36 @@ Future<int> _runDeps(
           (finding) => kinds == null || kinds.contains(finding.kind),
         )
         .toList();
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      // 소스를 싣는 발견은 근거 경로를 범위로 좁힌다 — 근거가 전부 빠진
+      // 발견은 관측 자체가 사라진 것이라 본다. 패키지 수준 발견
+      // (unused-dependency류, sources 없음)은 경로를 모르니 그대로 둔다.
+      final scoped = <DependencyFinding>[];
+      for (final finding in findings) {
+        if (finding.sources.isEmpty) {
+          scoped.add(finding);
+          continue;
+        }
+        final sources = finding.sources
+            .where((source) => _inScope(scope, source))
+            .toList();
+        if (sources.isEmpty) continue;
+        scoped.add(
+          DependencyFinding(
+            name: finding.name,
+            kind: finding.kind,
+            reason: finding.reason,
+            sources: sources,
+          ),
+        );
+      }
+      findings = scoped;
+    }
     output.write(
       DependencyReporter.render(
         format ?? ReportFormat.text,
@@ -2021,6 +2082,38 @@ Future<int> _runDeps(
   } on Exception {
     return _reportAnalysisFailure(error);
   }
+}
+
+/// `dartograph.yaml`의 include/exclude glob을 한 번 컴파일해 둔다.
+///
+/// 반환값이 null이면 설정이 없다는 뜻이다 — 매칭 비용도 한계 문구도 없다.
+({List<RegExp> include, List<RegExp> exclude})? _scopeMatchers(
+  List<String> includeGlobs,
+  List<String> excludeGlobs,
+) {
+  if (includeGlobs.isEmpty && excludeGlobs.isEmpty) return null;
+  return (
+    include: [
+      for (final pattern in includeGlobs) PathGlob.compile(pattern)!,
+    ],
+    exclude: [
+      for (final pattern in excludeGlobs) PathGlob.compile(pattern)!,
+    ],
+  );
+}
+
+/// [source]가 include/exclude 범위 안인지 본다. 매칭은 소스 ID의 스킴을 뗀다.
+bool _inScope(
+  ({List<RegExp> include, List<RegExp> exclude}) scope,
+  String source,
+) {
+  final separator = source.indexOf(':');
+  final path = separator < 0 ? source : source.substring(separator + 1);
+  if (scope.include.isNotEmpty &&
+      !scope.include.any((matcher) => matcher.hasMatch(path))) {
+    return false;
+  }
+  return !scope.exclude.any((matcher) => matcher.hasMatch(path));
 }
 
 /// `--kinds <csv>`를 발견 종류 집합으로 파싱한다.
@@ -2128,11 +2221,33 @@ Future<int> _runDup(
       minTokens: window,
     );
     limitations.addAll(report.limitations);
-    final findings = kinds == null
+    var findings = kinds == null
         ? report.findings
         : report.findings
               .where((finding) => kinds!.contains(finding.kind))
               .toList();
+    final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
+    if (scope != null) {
+      limitations.add(
+        'include-exclude: dartograph.yaml include/exclude globs narrow '
+        'reported findings; the graph and fingerprints are unchanged',
+      );
+      // 인스턴스를 범위로 좁힌다 — 한 위치만 남으면 쌍이 성립하지 않는다.
+      final scoped = <DuplicationFinding>[];
+      for (final finding in findings) {
+        final instances = finding.instances
+            .where((instance) => _inScope(scope, instance.source))
+            .toList();
+        if (instances.length < 2) continue;
+        scoped.add(
+          DuplicationFinding(
+            tokenCount: finding.tokenCount,
+            instances: instances,
+          ),
+        );
+      }
+      findings = scoped;
+    }
     output.write(
       DuplicationReporter.render(
         format ?? ReportFormat.text,
@@ -2727,6 +2842,13 @@ not published libraries — the report is still a review list, not a deletion
 instruction. Pass the same --closed-app to baseline --write so the recorded
 fingerprints match. --closed-app does not combine with
 --report-redundant-public, whose premise is public-API retention.
+
+dartograph.yaml also accepts include/exclude globs that narrow which sources
+produce dead, deps, and dup findings (matched against the source path without
+its project:/package: scheme; the graph is unchanged), retained_names and
+retained_files globs that keep declarations alive like dartograph:ignore
+comments, and thresholds (distance, complexity) that metrics --strict gates
+on. Every active config narrowing is reported as a limitation.
 
 deps audits pubspec hygiene: declared dependencies no source imports
 (unused-dependency, unused-dev-dependency), dev_dependencies referenced from

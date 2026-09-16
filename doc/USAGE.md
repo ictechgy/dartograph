@@ -434,6 +434,40 @@ source_packages:
 심볼릭 링크, `.dart_tool`·`build`·`.fvm` 경로, 중복 package는 조용히 무시하지 않고 분석
 실패(종료 코드 2)로 알린다. package config가 제공한 `package:` URI와 analyzer element
 identity를 그대로 사용하며, package source와 이 설정은 분석 캐시 키에 포함된다.
+
+같은 파일의 나머지 키는 보고 범위·보존·임계를 조정한다.
+
+```yaml
+# dead·deps·dup 발견 보고 범위(gitignore류 glob, 소스 ID의
+# project:/package: 스킴을 뗀 경로에 매칭). 그래프 자체는 바뀌지 않는다.
+include:
+  - lib/**
+exclude:
+  - lib/generated/**
+
+# `// dartograph:ignore`의 설정 파일 판. retained_names는 선언 이름
+# (`Class.member` 포함), retained_files는 맞은 파일의 모든 선언을 보존한다.
+retained_names:
+  - '*.fromJson'
+retained_files:
+  - lib/gen/**
+
+# metrics --strict의 게이트다.
+thresholds:
+  distance: 0.3     # |D'| 허용치(기본 0.3)
+  complexity: 40    # 선언 순환 복잡도 상한
+```
+
+- `include`가 있으면 맞는 소스만 발견을 내고, `exclude`는 맞는 소스의 발견을 뺀다.
+  deps의 소스 근거도 같은 범위로 좁혀지며 근거가 전부 빠진 발견은 관측이 사라진
+  것으로 본다. dup 발견은 범위 밖 인스턴스를 걸러 위치가 둘 미만이면 내지 않는다.
+  범위 좁힘이 활성이면 `include-exclude:` 한계가 보고에 실린다.
+- `retained_*`로 늘어난 보존 루트는 `configuredRetention` 사유를 갖고
+  `retention-config:` 한계로 집계된다. 이 키들은 분석 의미를 바꾸므로 캐시
+  identity에 포함된다.
+- 모르는 최상위 키는 `config-unknown-keys:` 한계로 보고한다 — 오타가 조용히
+  무시되지 않는다. 비어 있는 목록·비문자열 항목·잘못된 thresholds 타입·모르는
+  thresholds 키는 분석 실패(종료 코드 2)다.
 - finding은 검토할 후보와 근거이며 삭제 지시가 아니다.
 - `source-analysis-errors`, `source-unresolved-invocations`, `source-conditional-configuration`은
   관측된 **파일**의 finding에 붙는다. 특정 선언이 원인이라고 단정하지 않는다.

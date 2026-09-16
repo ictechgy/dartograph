@@ -17,6 +17,7 @@ import '../core/code_graph.dart';
 import '../core/fact_cache.dart';
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
+import '../core/path_glob.dart';
 import '../core/retention_reason.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
@@ -55,6 +56,10 @@ final class AnalyzerGraphResult {
     this.packageImports = const {},
     this.complexity = const {},
     this.tokenSegments = const [],
+    this.includeGlobs = const [],
+    this.excludeGlobs = const [],
+    this.metricsDistanceThreshold,
+    this.metricsComplexityThreshold,
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -97,6 +102,23 @@ final class AnalyzerGraphResult {
   /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
   /// 기계 산출물의 반복은 검토 신호가 아니다.
   final List<TokenSegment> tokenSegments;
+
+  /// `dartograph.yaml`의 `include` glob이다. 비어 있으면 모든 소스가 범위다.
+  ///
+  /// 발견 보고 범위만 좁힌다 — 그래프·의존 관측은 그대로다. 매칭은 소스 ID의
+  /// 스킴(`project:`·`package:`)을 뗀 경로에 [PathGlob] 문법을 적용한다.
+  final List<String> includeGlobs;
+
+  /// `dartograph.yaml`의 `exclude` glob이다. [includeGlobs]보다 뒤에 적용한다.
+  final List<String> excludeGlobs;
+
+  /// `dartograph.yaml` `thresholds.distance`다 — `metrics --strict`의
+  /// |D'| 허용치를 바꾼다(기본 0.3). 미설정이면 null이다.
+  final double? metricsDistanceThreshold;
+
+  /// `dartograph.yaml` `thresholds.complexity`다 — `metrics --strict`가
+  /// 실패로 바꾸는 최대 순환 복잡도다. 미설정이면 null이다.
+  final int? metricsComplexityThreshold;
 }
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
@@ -159,6 +181,7 @@ final class AnalyzerGraphIndex {
   ) async {
     final unitPaths = _dartFilesUnder(root, collection, sourcePackages);
     final entryPoints = _readEntryPoints(root);
+    final scope = _readScopeConfig(root);
     final pubspecContent = _readPubspec(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
     // (잘못된 이름은 조립 단계의 FormatException, 종료 코드 2다).
@@ -185,6 +208,7 @@ final class AnalyzerGraphIndex {
         facts: facts,
         entryPoints: entryPoints,
         pubspecContent: pubspecContent,
+        scope: scope,
       );
     }
     return _analyzeIncrementally(
@@ -195,6 +219,7 @@ final class AnalyzerGraphIndex {
       pubspecContent: pubspecContent,
       entryLibraryPath: entryLibraryPath,
       incremental: incremental,
+      scope: scope,
     );
   }
 
@@ -210,6 +235,7 @@ final class AnalyzerGraphIndex {
     required String? pubspecContent,
     required String? entryLibraryPath,
     required IncrementalCache incremental,
+    required _ScopeConfig scope,
   }) async {
     final sourcesOf = <String, String>{
       for (final path in unitPaths) path: ?_relativeSourcePath(path, root),
@@ -333,6 +359,7 @@ final class AnalyzerGraphIndex {
       facts: facts,
       entryPoints: entryPoints,
       pubspecContent: pubspecContent,
+      scope: scope,
     );
     incremental.stats
       ..resolvedFiles = resolved.length
@@ -973,6 +1000,7 @@ AnalyzerGraphResult _assembleResult({
   required Map<String, _UnitFacts> facts,
   required Set<String>? entryPoints,
   required String? pubspecContent,
+  required _ScopeConfig scope,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1084,6 +1112,25 @@ AnalyzerGraphResult _assembleResult({
       );
     }
   }
+  // 설정 파일이 추가한 보존도 출력에 남긴다 — entry_points 한계 기록과 같은
+  // 이유로, 설정이 조용히 죽은 코드를 숨기면 클린 저장소와 구별되지 않는다.
+  final configuredRoots = _addConfiguredRetentionRoots(
+    graph,
+    retentionRoots,
+    scope,
+  );
+  if (configuredRoots > 0) {
+    limitationDetails.add(
+      'retention-config: $configuredRoots declaration(s) retained by '
+      'dartograph.yaml retained_names/retained_files',
+    );
+  }
+  if (scope.unknownKeys.isNotEmpty) {
+    limitationDetails.add(
+      'config-unknown-keys: dartograph.yaml has unrecognized keys: '
+      '${scope.unknownKeys.join(', ')}',
+    );
+  }
   return AnalyzerGraphResult(
     graph: graph,
     limitations: limitations.toList()..sort((a, b) => a.index - b.index),
@@ -1095,6 +1142,10 @@ AnalyzerGraphResult _assembleResult({
     declaredDependencyOverrides: manifest.dependencyOverrides,
     packageImports: Map.unmodifiable(packageImports),
     complexity: Map.unmodifiable(complexity),
+    includeGlobs: List.unmodifiable(scope.includeGlobs),
+    excludeGlobs: List.unmodifiable(scope.excludeGlobs),
+    metricsDistanceThreshold: scope.distanceThreshold,
+    metricsComplexityThreshold: scope.complexityThreshold,
     tokenSegments: List.unmodifiable(tokenSegments),
   );
 }
@@ -1318,16 +1369,18 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(String rootPath) async {
 // 노드 직렬화에 isLibrary를 추가할 때도 같다(v3). isSealed와 deps 감사 필드
 // (packageImports·manifest) 추가로 v4가 됐다 — 추출 의미 변화 없이 필드만 늘었다.
 // 선언별 순환 복잡도 필드 추가로 v5다 — 역시 형식만 바뀐다.
-const _cacheSchemaVersion = 5;
+// include/exclude·thresholds 필드 추가로 v6다 — 역시 형식만 바뀐다.
+const _cacheSchemaVersion = 6;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
 // deps 감사 입력으로 쓰는 새 추출)과 build.yaml·인터롭 annotation 보존 루트로
 // 추출 의미가 바뀌어 다시 올린다. @anonymous 인식과 build.yaml 미해석 import
 // 한계 기록(v8)으로 다시 올린다. 복잡도 추출 시작(v9)으로 다시 올린다.
-// dup 입력용 정규화 토큰 추출(v10)로 다시 올린다.
+// dup 입력용 정규화 토큰 추출(v10)로 다시 올린다. retained_names/retained_files
+// 설정 보존 루트(v11)로 다시 올린다 — 같은 dartograph.yaml 내용의 해석이 바뀐다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v10-normalized-token-segments';
+    'dartograph-analysis-$toolVersion-cache-v11-configured-retention';
 
 Future<String?> _tryAnalysisCacheKey(String root) async {
   try {
@@ -1520,6 +1573,10 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'limitations': result.limitations.map((item) => item.name).toList(),
     'nodes': [for (final node in snapshot.nodes) _nodeJson(node)],
     'complexity': result.complexity,
+    'excludeGlobs': result.excludeGlobs,
+    'includeGlobs': result.includeGlobs,
+    'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
+    'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
     'tokenSegments': [
       for (final segment in result.tokenSegments)
         {'c': segment.codes, 'l': segment.lines, 's': segment.source},
@@ -1588,6 +1645,18 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
             in (document['complexity']! as Map).cast<String, Object?>().entries)
           entry.key: entry.value! as int,
       },
+      excludeGlobs: [
+        for (final value in document['excludeGlobs']! as List<Object?>)
+          value! as String,
+      ],
+      includeGlobs: [
+        for (final value in document['includeGlobs']! as List<Object?>)
+          value! as String,
+      ],
+      metricsComplexityThreshold:
+          document['metricsComplexityThreshold'] as int?,
+      metricsDistanceThreshold:
+          (document['metricsDistanceThreshold'] as num?)?.toDouble(),
       tokenSegments: [
         for (final value in document['tokenSegments']! as List<Object?>)
           TokenSegment(
@@ -2286,6 +2355,173 @@ String _entryPointSourceId(String root, String entry) {
     );
   }
   return id;
+}
+
+/// `dartograph.yaml`의 보고 범위·보존·임계 설정이다.
+///
+/// `entry_points`·`source_packages`와 달리 이 키들은 analyzer 해석 대상을
+/// 바꾸지 않는다 — include/exclude는 발견 보고를 좁히고, retained_*는 보존
+/// 루트를 추가하고, thresholds는 metrics 게이트를 바꾼다.
+final class _ScopeConfig {
+  const _ScopeConfig({
+    this.includeGlobs = const [],
+    this.excludeGlobs = const [],
+    this.retainedNameGlobs = const [],
+    this.retainedFileGlobs = const [],
+    this.distanceThreshold,
+    this.complexityThreshold,
+    this.unknownKeys = const [],
+  });
+
+  final List<String> includeGlobs;
+  final List<String> excludeGlobs;
+  final List<String> retainedNameGlobs;
+  final List<String> retainedFileGlobs;
+  final double? distanceThreshold;
+  final int? complexityThreshold;
+
+  /// 알려진 키가 아닌 최상위 키다 — 오타가 조용히 무시되지 않게 한계로 남긴다.
+  final List<String> unknownKeys;
+}
+
+/// `dartograph.yaml`이 알아보는 최상위 키다.
+const _knownConfigKeys = {
+  'entry_points',
+  'source_packages',
+  'include',
+  'exclude',
+  'retained_names',
+  'retained_files',
+  'thresholds',
+};
+
+/// `dartograph.yaml`에서 보고 범위·보존·임계 키를 읽는다.
+///
+/// `_readEntryPoints`와 같은 검증 철학을 따른다 — 잘못된 타입·빈 목록·빈
+/// 문자열·컴파일되지 않는 glob은 조용히 무시하지 않고 [FormatException]으로
+/// 실패시킨다(종료 코드 2). 키가 없으면 빈 설정을 돌려준다.
+_ScopeConfig _readScopeConfig(String root) {
+  final file = File(p.join(root, 'dartograph.yaml'));
+  if (!file.existsSync()) return const _ScopeConfig();
+  final document = loadYaml(readConfigurationSync(file));
+  if (document == null) return const _ScopeConfig();
+  if (document is! YamlMap) {
+    throw const FormatException('dartograph.yaml must be a YAML mapping');
+  }
+  final unknown = [
+    for (final key in document.keys)
+      if (key is! String || !_knownConfigKeys.contains(key)) '$key',
+  ]..sort();
+  List<String> globList(String key) {
+    final raw = document[key];
+    if (raw == null) return const [];
+    if (raw is! YamlList || raw.isEmpty) {
+      throw FormatException('$key must be a non-empty list of glob patterns');
+    }
+    final globs = <String>[];
+    for (final value in raw) {
+      if (value is! String || value.trim().isEmpty) {
+        throw FormatException('$key entries must be non-empty glob strings');
+      }
+      final pattern = value.trim();
+      if (PathGlob.compile(pattern) == null) {
+        throw FormatException('$key glob does not compile: $value');
+      }
+      globs.add(pattern);
+    }
+    return globs;
+  }
+
+  double? distance;
+  int? complexity;
+  final rawThresholds = document['thresholds'];
+  if (rawThresholds != null) {
+    if (rawThresholds is! YamlMap) {
+      throw const FormatException(
+        'thresholds must be a mapping of metric names to limits',
+      );
+    }
+    for (final entry in rawThresholds.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      switch (key) {
+        case 'distance':
+          if (value is! num || value <= 0) {
+            throw FormatException(
+              'thresholds.distance must be a positive number: $value',
+            );
+          }
+          distance = value.toDouble();
+        case 'complexity':
+          if (value is! int || value < 1) {
+            throw FormatException(
+              'thresholds.complexity must be a positive integer: $value',
+            );
+          }
+          complexity = value;
+        default:
+          throw FormatException(
+            'thresholds key must be distance or complexity: $key',
+          );
+      }
+    }
+  }
+  return _ScopeConfig(
+    includeGlobs: globList('include'),
+    excludeGlobs: globList('exclude'),
+    retainedNameGlobs: globList('retained_names'),
+    retainedFileGlobs: globList('retained_files'),
+    distanceThreshold: distance,
+    complexityThreshold: complexity,
+    unknownKeys: unknown,
+  );
+}
+
+/// 소스 ID에서 스킴(`project:`·`package:`)을 떼고 glob 매칭용 경로를 얻는다.
+String _sourceGlobPath(String source) {
+  final scheme = source.indexOf(':');
+  return scheme < 0 ? source : source.substring(scheme + 1);
+}
+
+/// `retained_files`·`retained_names` glob을 보존 루트로 적용한다.
+///
+/// glob은 파일마다가 아니라 한 번만 컴파일한다. 이름 glob은 선언 ID의
+/// `::` 뒤 부분(`Class.member` 포함)과 파일 glob은 스킴을 뗀 소스 경로에
+/// 맞춘다. 라이브러리 노드는 선언이 아니므로 이름 매칭에서 빠진다.
+int _addConfiguredRetentionRoots(
+  CodeGraph graph,
+  Map<String, RetentionReason> roots,
+  _ScopeConfig scope,
+) {
+  if (scope.retainedNameGlobs.isEmpty && scope.retainedFileGlobs.isEmpty) {
+    return 0;
+  }
+  final nameMatchers = <RegExp>[
+    for (final pattern in scope.retainedNameGlobs) PathGlob.compile(pattern)!,
+  ];
+  final fileMatchers = <RegExp>[
+    for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
+  ];
+  var added = 0;
+  for (final node in graph.snapshot().nodes) {
+    if (node.isLibrary) continue;
+    final id = node.id;
+    final separator = id.indexOf('::');
+    if (separator < 0) continue;
+    var retain = fileMatchers.any(
+      (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+    );
+    if (!retain) {
+      final name = id.substring(separator + 2);
+      retain = nameMatchers.any((matcher) => matcher.hasMatch(name));
+    }
+    // 기존 보존 루트를 덮지 않는다 — 더 강한 근거(진입점·annotation)가 우선이다.
+    if (retain && !roots.containsKey(id)) {
+      roots[id] = RetentionReason.configuredRetention;
+      added++;
+    }
+  }
+  return added;
 }
 
 RetentionReason? _retentionReason(

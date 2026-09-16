@@ -14,4 +14,28 @@ const configurationTemplate = '''
 # Keep this opt-in; the default analysis scope does not crawl vendor packages.
 # source_packages:
 #   - vendor/shared_preferences_android
+
+# Report scope for dead, deps, and dup findings (gitignore-style globs
+# matched against the source path after its project:/package: scheme).
+# include narrows the scope to matching sources; exclude then removes
+# matches. The dependency graph itself is unchanged — these keys only
+# decide which findings get reported.
+# include:
+#   - lib/**
+# exclude:
+#   - lib/generated/**
+
+# Retention roots declared by name or file glob — the config-file form of
+# "// dartograph:ignore". retained_names matches the declaration name
+# (including "Class.member"); retained_files retains every declaration in
+# matching files.
+# retained_names:
+#   - '*.fromJson'
+# retained_files:
+#   - lib/gen/**
+
+# Thresholds that metrics --strict gates on.
+# thresholds:
+#   distance: 0.3      # max |D'| before strict fails (default 0.3)
+#   complexity: 40     # max function cyclomatic complexity
 ''';
