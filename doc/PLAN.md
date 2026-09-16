@@ -77,8 +77,8 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 | 6.1 수정 전 영향 점검 `impact` | 0.9.0 릴리스 | `--since`/`--changed`/`--symbol`, 5종 리포터, `--fail-on`, MCP `impact_query` |
 | 6.2 에이전트 질의 `mcp` | 0.9.0 릴리스 | stdio JSON-RPC 도구 3종(impact_query·dependency_query·verify_run) |
 | 6.3 런타임 의존 검증 `runtime` | 0.9.0 릴리스 | 5카테고리 탐지·판정·`--execute` |
-| 6.4 증분 분석 | 구현(미릴리스) | 브랜치 `feat/incremental-analysis` @ `941e595`, `--incremental <dir>` |
-| 6.4 검증 원장 | 구현(미릴리스) | `--record <dir>`·`history --ledger`. 설계는 [DECISION-ledger.md](DECISION-ledger.md) |
+| 6.4 증분 분석 | 0.10.0 릴리스 | `--incremental <dir>`. 설계·측정은 [DECISION-incremental.md](DECISION-incremental.md) |
+| 6.4 검증 원장 | 0.10.0 릴리스 | `--record <dir>`·`history --ledger`. 설계는 [DECISION-ledger.md](DECISION-ledger.md) |
 
 ## Phase 6 — 수정 전 영향 점검 · 런타임 · 에이전트 질의 · 증분
 
@@ -90,17 +90,18 @@ cartograph의 같은 절과 동일. 한 세션 한 Phase 일부, PR마다 GLM �
 | 1. 수정 시 영향 사전 점검(사람·AI) | `dartograph impact` | 0.9.0 릴리스 |
 | 2. AI용 질의 스킬/MCP | `dartograph mcp` | 0.9.0 릴리스 |
 | 3. 런타임에 드러나는 의존성 검증 | `dartograph runtime` | 0.9.0 릴리스 |
-| 4. CI에서 자동화 가능한 속도(증분) | `--incremental <dir>` | 구현(미릴리스, 0.10.0 후보) |
+| 4. CI에서 자동화 가능한 속도(증분) | `--incremental <dir>` | 0.10.0 릴리스 |
 
 - 경쟁·대체재 조사와 차별점: [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md)
 - 증분 설계·측정: [DECISION-incremental.md](DECISION-incremental.md)
 - 문제 해결 안내: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- 요구 4의 두 항목(증분 분석·검증 원장)이 모두 구현됐다(미릴리스, 0.10.0 후보).
+- 요구 4의 두 항목(증분 분석·검증 원장)이 모두 구현됐다(0.10.0 릴리스).
   증분 설계는 [DECISION-incremental.md](DECISION-incremental.md), 원장 설계는
   [DECISION-ledger.md](DECISION-ledger.md).
-- 요구 1~4를 보강하는 잔여 작업(미릴리스): PR 코멘트 CI 예시
+- 요구 1~4를 보강하는 잔여 작업도 릴리스됐다: PR 코멘트 CI 예시
   (`.github/workflows/impact-precheck.yml`), `dead --format markdown`·
   `dead --format codeowners`, MCP 스키마·오류·예시 문서([MCP.md](MCP.md)).
-- 미착수: `rules --explain <node>`. `dartograph.yaml` 확장(thresholds·
-  include/exclude·retained_*)·issue-type 필터(`--kinds`)·CODEOWNERS 전체 문법은
-  구현됐다(미릴리스 — [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) §6 참조).
+- `rules --explain <node>`는 0.4.0부터 구현돼 있다. `dartograph.yaml`
+  확장(thresholds·include/exclude·retained_*)·issue-type 필터(`--kinds`)·
+  CODEOWNERS 전체 문법도 구현됐다(0.12.0 릴리스 —
+  [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) §6 참조).
