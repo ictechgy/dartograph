@@ -299,10 +299,15 @@ void go() => channel.invokeMethod('take');
 ''');
 
       // package_config 자체가 없으면 URI 텍스트만으로는 출처를 증명할 수 없다.
+      // 사실은 버리지 않고 limitation으로 남기는 것이 계약이다.
       final unverified = indexBridges(root.path);
       expect(
         unverified.limitations,
         contains(startsWith('flutter-services-provenance-unverified:')),
+      );
+      expect(
+        unverified.facts.where((f) => f['kind'] == 'method-invoke'),
+        hasLength(1),
       );
 
       // dependency_overrides로 같은 이름의 로컬 패키지를 가리키게 해도 SDK·
@@ -324,7 +329,14 @@ void go() => channel.invokeMethod('take');
         contains(startsWith('flutter-services-provenance-unverified:')),
       );
 
-      // Flutter SDK 레이아웃(…/packages/flutter)으로 해석되면 검증된다.
+      // Flutter SDK 레이아웃(…/packages/flutter)으로 해석되고 내용 앵커가
+      // 있으면 검증된다.
+      await Directory(
+        '${root.path}/flutter_sdk/packages/flutter/lib',
+      ).create(recursive: true);
+      await File(
+        '${root.path}/flutter_sdk/packages/flutter/lib/services.dart',
+      ).writeAsString('// fake flutter services for provenance verification\n');
       await File('${root.path}/.dart_tool/package_config.json').writeAsString(
         '''
 {

@@ -30,6 +30,20 @@ void shoot() => channel.invokeMethod('takePhoto');
     ).writeAsString(channelSource);
     // package:flutter/services.dart의 provenance가 검증되도록 flutter를
     // SDK 레이아웃(…/packages/flutter)으로 해석하는 package_config를 둔다.
+    // 내용 앵커로 lib/services.dart까지 요구하므로 함께 만든다.
+    await Directory(
+      p.join(mono.path, 'flutter_sdk', 'packages', 'flutter', 'lib'),
+    ).create(recursive: true);
+    await File(
+      p.join(
+        mono.path,
+        'flutter_sdk',
+        'packages',
+        'flutter',
+        'lib',
+        'services.dart',
+      ),
+    ).writeAsString('// fake flutter services for provenance verification\n');
     await Directory(
       p.join(directory.path, '.dart_tool'),
     ).create(recursive: true);
@@ -268,6 +282,19 @@ import 'package:flutter/services.dart';
 
 final channel = MethodChannel('dev.example/glob');
 ''');
+    await Directory(
+      p.join(globbed.path, 'flutter_sdk', 'packages', 'flutter', 'lib'),
+    ).create(recursive: true);
+    await File(
+      p.join(
+        globbed.path,
+        'flutter_sdk',
+        'packages',
+        'flutter',
+        'lib',
+        'services.dart',
+      ),
+    ).writeAsString('// fake flutter services for provenance verification\n');
     await Directory(p.join(member.path, '.dart_tool')).create();
     await File(
       p.join(member.path, '.dart_tool', 'package_config.json'),

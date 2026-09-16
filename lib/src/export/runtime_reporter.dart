@@ -308,7 +308,7 @@ abstract final class RuntimeReporter {
     for (final item in report.missing) {
       final properties = <String>[
         if (item.fact.source.startsWith('project:'))
-          'file=${ReportEscapes.githubProperty(item.fact.source.substring('project:'.length))}',
+          'file=${ReportEscapes.githubProperty(ReportEscapes.sourcePath(item.fact.source))}',
         'line=${item.fact.line}',
         'col=${item.fact.column}',
       ];
@@ -418,5 +418,5 @@ abstract final class RuntimeReporter {
       report.detected.values.fold<int>(0, (sum, facts) => sum + facts.length);
 
   static String _location(RuntimeFact fact) =>
-      '${ReportEscapes.sourcePath(fact.source)}:${fact.line}:${fact.column}';
+      '${ReportEscapes.escapeText(ReportEscapes.sourcePath(fact.source))}:${fact.line}:${fact.column}';
 }

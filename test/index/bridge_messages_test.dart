@@ -4,8 +4,15 @@ import 'package:dartograph/src/index/bridge_index.dart';
 import 'package:test/test.dart';
 
 /// `package:flutter/services.dart`의 provenance 검증이 통과하도록 flutter를
-/// SDK 레이아웃(…/packages/flutter)으로 해석하는 package_config를 쓴다.
+/// SDK 레이아웃(…/packages/flutter)으로 해석하는 package_config를 쓰고
+/// 내용 앵커(lib/services.dart)까지 만든다.
 Future<void> _writeVerifiedFlutterConfig(String root) async {
+  await Directory(
+    '$root/flutter_sdk/packages/flutter/lib',
+  ).create(recursive: true);
+  await File(
+    '$root/flutter_sdk/packages/flutter/lib/services.dart',
+  ).writeAsString('// fake flutter services for provenance verification\n');
   await Directory('$root/.dart_tool').create(recursive: true);
   await File('$root/.dart_tool/package_config.json').writeAsString('''
 {

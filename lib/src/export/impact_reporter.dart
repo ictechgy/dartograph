@@ -287,7 +287,9 @@ abstract final class ImpactReporter {
     for (final item in report.impacted) {
       final properties = <String>[];
       if (item.source != null) {
-        properties.add('file=${ReportEscapes.githubProperty(item.source!)}');
+        properties.add(
+          'file=${ReportEscapes.githubProperty(ReportEscapes.sourcePath(item.source!))}',
+        );
       }
       if (item.line != null) {
         properties.add('line=${item.line}');
