@@ -63,13 +63,18 @@ Future<int> runMcpServer({
     final id = message['id'];
     final method = message['method'];
     if (method is! String) {
-      // id가 없는 메시지는 알림으로 간주하고 답하지 않는다.
-      if (message.containsKey('id')) {
+      // 응답 형태(result·error) 메시지와 id 없는 알림에는 답하지 않는다.
+      if (message.containsKey('id') &&
+          !message.containsKey('result') &&
+          !message.containsKey('error')) {
         _writeError(output, id, _invalidRequest, 'Missing method');
       }
       continue;
     }
     if (method.startsWith('notifications/')) continue;
+    // id가 없는 요청 형태 메시지는 JSON-RPC notification이다 — notifications/
+    // 접두사만이 아니라 어떤 메서드든 id가 없으면 답을 보내지 않는다.
+    if (!message.containsKey('id')) continue;
     switch (method) {
       case 'initialize':
         _writeResult(output, id, {
@@ -653,8 +658,9 @@ Future<Map<String, Object?>> _verifyTool({
   final args = <String>[command];
   if (arguments['strict'] == true) args.add('--strict');
   // closed-app은 dead의 전제를 바꾸는 플래그다 — 다른 명령에 붙이면 호출
-  // 의도가 없는데 조용히 무시되므로 오류로 답한다.
-  if (arguments['closedApp'] == true) {
+  // 의도가 없는데 조용히 무시되므로 오류로 답한다. 'true' 문자열도 불리언과
+  // 같이 해석한다(_deadPrompt의 인자 해석과 같은 기준).
+  if (arguments['closedApp'] == true || arguments['closedApp'] == 'true') {
     if (command != 'dead') {
       return _toolError('closedApp is only valid for command dead');
     }

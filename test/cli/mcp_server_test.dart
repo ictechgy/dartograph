@@ -205,14 +205,40 @@ void main() {
           'closedApp': true,
         },
       }),
+      // 문자열 'true'도 불리언과 같이 해석한다 — 프롬프트 인자 해석과 같은 기준.
+      request(41, 'tools/call', {
+        'name': verifyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'command': 'cycles',
+          'closedApp': 'true',
+        },
+      }),
     ]);
 
-    final result = responses.single['result'] as Map<String, Object?>;
-    expect(result['isError'], isTrue);
-    expect(
-      ((result['content'] as List).single as Map)['text'],
-      contains('closedApp is only valid for command dead'),
-    );
+    for (final response in responses) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isTrue);
+      expect(
+        ((result['content'] as List).single as Map)['text'],
+        contains('closedApp is only valid for command dead'),
+      );
+    }
+  });
+
+  test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
+    final responses = await exchange([
+      // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.
+      {'jsonrpc': '2.0', 'method': 'ping'},
+      {'jsonrpc': '2.0', 'method': 'no/such_method'},
+      // 응답 형태(result) 메시지도 마찬가지다.
+      {'jsonrpc': '2.0', 'id': 7, 'result': <String, Object?>{}},
+      // 유효 요청 하나로 응답이 실제로 흐르는지 대조한다.
+      request(42, 'ping'),
+    ]);
+
+    expect(responses.single['id'], 42);
+    expect(responses.single, isNot(contains('error')));
   });
 
   test('tools/list exposes the three read-only tools with schemas', () async {
