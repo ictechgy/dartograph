@@ -271,6 +271,9 @@ abstract final class RuntimeVerifier {
       if (execution != null && !execution.unresolved)
         'execute-runs-code: --execute ran the entrypoint as a child process; '
             'the reported exit code is the only containment',
+      if (execution != null && !execution.unresolved && execution.timedOut)
+        'execute-process-scope: the timed-out run was killed by PID only; '
+            'descendant processes may have outlived the timeout',
       if (execution != null && execution.unresolved)
         'execute-unresolved: --execute ran nothing because the dart executable '
             'could not be resolved; the reason is reported in execution.reason',

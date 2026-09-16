@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'report_escapes.dart';
 
 import '../analysis/impact_analyzer.dart';
 
@@ -59,9 +60,11 @@ abstract final class ImpactReporter {
     'changed': {
       // 라이브러리 · 심별은 그래프 정점 ID 그대로다(sources만 프로젝트 상대 경로).
       'libraries': report.changedLibraries,
-      'sources': report.changedSources.map(_path).toList(),
+      'sources': report.changedSources.map(ReportEscapes.sourcePath).toList(),
       'symbols': report.changedSymbols,
-      'unattributedSources': report.unattributedSources.map(_path).toList(),
+      'unattributedSources': report.unattributedSources
+          .map(ReportEscapes.sourcePath)
+          .toList(),
     },
     'coverage': report.coverage.toJson(),
     'explain': ?(explainId == null ? null : 'impact'),
@@ -95,7 +98,7 @@ abstract final class ImpactReporter {
     for (final factor in report.risk.factors) {
       output.writeln(
         '  factor ${factor.name} (weight ${factor.weight}): '
-        '${_escapeText(factor.detail)}',
+        '${ReportEscapes.escapeText(factor.detail)}',
       );
     }
     output.writeln(
@@ -103,13 +106,15 @@ abstract final class ImpactReporter {
     );
     for (final item in report.impacted) {
       final location = item.source == null
-          ? _escapeText(item.id)
-          : '${_escapeText(item.source!)}:${item.line ?? 1}:${item.column ?? 1}';
+          ? ReportEscapes.escapeText(item.id)
+          : '${ReportEscapes.escapeText(item.source!)}:${item.line ?? 1}:${item.column ?? 1}';
       output.writeln(
-        '  $location: ${item.kind} ${_escapeText(item.id)} '
+        '  $location: ${item.kind} ${ReportEscapes.escapeText(item.id)} '
         '— depth ${item.depth}, risk ${item.riskLevel} (${item.riskScore})',
       );
-      output.writeln('    path: ${item.path.map(_escapeText).join(' -> ')}');
+      output.writeln(
+        '    path: ${item.path.map(ReportEscapes.escapeText).join(' -> ')}',
+      );
     }
     if (report.truncated) {
       output.writeln(
@@ -119,22 +124,22 @@ abstract final class ImpactReporter {
     output.writeln('tests: ${report.tests.length} related test library(ies)');
     for (final test in report.tests) {
       output.writeln(
-        '  ${_escapeText(test.source ?? test.id)}: depth ${test.depth}',
+        '  ${ReportEscapes.escapeText(test.source ?? test.id)}: depth ${test.depth}',
       );
     }
     output.writeln('callSites: ${report.callSites.length}');
     for (final call in report.callSites) {
       final location = call.fromSource == null
-          ? _escapeText(call.fromId)
-          : '${_escapeText(call.fromSource!)}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}';
+          ? ReportEscapes.escapeText(call.fromId)
+          : '${ReportEscapes.escapeText(call.fromSource!)}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}';
       output.writeln(
-        '  $location: ${_escapeText(call.fromId)} -> '
-        '${_escapeText(call.toId)} (${_escapeText(call.kind)})',
+        '  $location: ${ReportEscapes.escapeText(call.fromId)} -> '
+        '${ReportEscapes.escapeText(call.toId)} (${ReportEscapes.escapeText(call.kind)})',
       );
     }
     if (report.missingSymbols.isNotEmpty) {
       output.writeln(
-        'missing: ${report.missingSymbols.map(_escapeText).join(', ')}',
+        'missing: ${report.missingSymbols.map(ReportEscapes.escapeText).join(', ')}',
       );
     }
     output.writeln(
@@ -142,7 +147,7 @@ abstract final class ImpactReporter {
       'symbol(s) would be missed by inspecting changed files only',
     );
     for (final limitation in limits) {
-      output.writeln('limitation: ${_escapeText(limitation)}');
+      output.writeln('limitation: ${ReportEscapes.escapeText(limitation)}');
     }
     return output.toString();
   }
@@ -173,8 +178,8 @@ abstract final class ImpactReporter {
     output.writeln('|---|---:|---|');
     for (final factor in report.risk.factors) {
       output.writeln(
-        '| ${_mdCell(factor.name)} | ${factor.weight} | '
-        '${_mdCell(factor.detail)} |',
+        '| ${ReportEscapes.mdCell(factor.name)} | ${factor.weight} | '
+        '${ReportEscapes.mdCell(factor.detail)} |',
       );
     }
     output.writeln();
@@ -188,13 +193,13 @@ abstract final class ImpactReporter {
       for (final item in report.impacted) {
         final location = item.source == null
             ? ''
-            : '`${_mdCell(item.source!)}:${item.line ?? 1}`';
+            : '`${ReportEscapes.mdCell(item.source!)}:${item.line ?? 1}`';
         output.writeln(
-          '| `${_mdCell(item.id)}` | ${item.kind} | ${item.depth} | '
+          '| `${ReportEscapes.mdCell(item.id)}` | ${item.kind} | ${item.depth} | '
           '${item.riskLevel} (${item.riskScore}) | $location |',
         );
         output.writeln(
-          '| ↳ path |  |  |  | `${item.path.map(_mdCell).join(' → ')}` |',
+          '| ↳ path |  |  |  | `${item.path.map(ReportEscapes.mdCell).join(' → ')}` |',
         );
       }
     }
@@ -212,7 +217,7 @@ abstract final class ImpactReporter {
     } else {
       for (final test in report.tests) {
         output.writeln(
-          '- `${_mdCell(test.source ?? test.id)}` (depth ${test.depth})',
+          '- `${ReportEscapes.mdCell(test.source ?? test.id)}` (depth ${test.depth})',
         );
       }
     }
@@ -225,10 +230,10 @@ abstract final class ImpactReporter {
       for (final call in report.callSites) {
         final location = call.fromSource == null
             ? ''
-            : ' at `${_mdCell(call.fromSource!)}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}`';
+            : ' at `${ReportEscapes.mdCell(call.fromSource!)}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}`';
         output.writeln(
-          '- `${_mdCell(call.fromId)}` → `${_mdCell(call.toId)}` '
-          '(${_mdCell(call.kind)})$location',
+          '- `${ReportEscapes.mdCell(call.fromId)}` → `${ReportEscapes.mdCell(call.toId)}` '
+          '(${ReportEscapes.mdCell(call.kind)})$location',
         );
       }
     }
@@ -243,7 +248,7 @@ abstract final class ImpactReporter {
       output.writeln();
       output.writeln(
         'Requested symbols absent from the graph: '
-        '${report.missingSymbols.map((id) => '`${_mdCell(id)}`').join(', ')}',
+        '${report.missingSymbols.map((id) => '`${ReportEscapes.mdCell(id)}`').join(', ')}',
       );
     }
     if (limits.isNotEmpty) {
@@ -251,7 +256,7 @@ abstract final class ImpactReporter {
       output.writeln('## Limitations');
       output.writeln();
       for (final limitation in limits) {
-        output.writeln('- ${_mdCell(limitation)}');
+        output.writeln('- ${ReportEscapes.mdCell(limitation)}');
       }
     }
     output.writeln();
@@ -282,7 +287,7 @@ abstract final class ImpactReporter {
     for (final item in report.impacted) {
       final properties = <String>[];
       if (item.source != null) {
-        properties.add('file=${_property(item.source!)}');
+        properties.add('file=${ReportEscapes.githubProperty(item.source!)}');
       }
       if (item.line != null) {
         properties.add('line=${item.line}');
@@ -294,13 +299,13 @@ abstract final class ImpactReporter {
       final prefix = properties.isEmpty ? '' : '${properties.join(',')},';
       output.writeln(
         '::$command ${prefix}title=dartograph impact::'
-        '${_message('${item.kind} ${item.id} — depth ${item.depth}, '
+        '${ReportEscapes.githubMessage('${item.kind} ${item.id} — depth ${item.depth}, '
         'risk ${item.riskLevel}')}',
       );
     }
     for (final limitation in limits) {
       output.writeln(
-        '::notice title=dartograph limitation::${_message(limitation)}',
+        '::notice title=dartograph limitation::${ReportEscapes.githubMessage(limitation)}',
       );
     }
     return output.toString();
@@ -320,7 +325,7 @@ abstract final class ImpactReporter {
               {
                 'physicalLocation': {
                   'artifactLocation': {
-                    'uri': _sarifUri('project:${item.source!}'),
+                    'uri': ReportEscapes.sarifUri('project:${item.source!}'),
                   },
                   if (item.line != null)
                     'region': {
@@ -373,77 +378,4 @@ abstract final class ImpactReporter {
       'version': '2.1.0',
     })}\n';
   }
-
-  /// `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
-  static String _path(String source) => source.startsWith('project:')
-      ? source.substring('project:'.length)
-      : source;
-
-  /// text·markdown의 C0·DEL 가시 이스케이프(정상 입력은 바이트 불변).
-  static String _escapeText(String value) {
-    if (!value.runes.any(_isControlRune)) return value;
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_isControlRune(rune)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      switch (rune) {
-        case 0x0a:
-          output.write(r'\n');
-        case 0x0d:
-          output.write(r'\r');
-        case 0x09:
-          output.write(r'\t');
-        default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
-
-  /// Markdown 표 셀: 파이프와 개행을 이스케이프해 표 구조를 지킨다.
-  static String _mdCell(String value) =>
-      _escapeText(value).replaceAll('|', r'\|');
-
-  static String _property(String value) => _githubEncode(value, property: true);
-
-  static String _message(String value) => _githubEncode(value, property: false);
-
-  static String _githubEncode(String value, {required bool property}) {
-    if (!value.runes.any((rune) => _githubNeedsEncoding(rune, property))) {
-      return value;
-    }
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_githubNeedsEncoding(rune, property)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      for (final byte in utf8.encode(String.fromCharCode(rune))) {
-        output.write(
-          '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
-        );
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _githubNeedsEncoding(int rune, bool property) =>
-      rune == 0x25 ||
-      rune < 0x20 ||
-      rune == 0x7f ||
-      (rune >= 0x80 && rune <= 0x9f) ||
-      rune == 0x2028 ||
-      rune == 0x2029 ||
-      (rune >= 0x202a && rune <= 0x202e) ||
-      (rune >= 0x2066 && rune <= 0x2069) ||
-      (property && (rune == 0x3a || rune == 0x2c));
-
-  /// SARIF artifact uri. `project:` 소스는 세그먼트 인코딩, 절대 URI는 그대로 둔다.
-  static String _sarifUri(String source) => source.startsWith('project:')
-      ? Uri(pathSegments: _path(source).split('/')).toString()
-      : source;
 }

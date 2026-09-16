@@ -3,6 +3,24 @@ import 'dart:io';
 import 'package:dartograph/src/index/bridge_index.dart';
 import 'package:test/test.dart';
 
+/// `package:flutter/services.dart`의 provenance 검증이 통과하도록 flutter를
+/// SDK 레이아웃(…/packages/flutter)으로 해석하는 package_config를 쓴다.
+Future<void> _writeVerifiedFlutterConfig(String root) async {
+  await Directory('$root/.dart_tool').create(recursive: true);
+  await File('$root/.dart_tool/package_config.json').writeAsString('''
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "flutter",
+      "rootUri": "../flutter_sdk/packages/flutter",
+      "packageUri": "lib/"
+    }
+  ]
+}
+''');
+}
+
 void main() {
   test('indexes only sends on proven BasicMessageChannel receivers', () async {
     final root = await Directory.systemTemp.createTemp('bridge-messages.');
@@ -101,6 +119,7 @@ class Api {
 }
 ''');
 
+    await _writeVerifiedFlutterConfig(root.path);
     final result = indexBridges(root.path, messages: true);
 
     expect(result.facts, hasLength(1));
@@ -131,6 +150,7 @@ class Api {
 }
 ''');
 
+      await _writeVerifiedFlutterConfig(root.path);
       final result = indexBridges(root.path, messages: true);
 
       expect(result.facts.map((fact) => fact['channel']), ['local', 'updated']);
@@ -332,6 +352,7 @@ import 'package:flutter/services.dart';
 final channel = BasicMessageChannel<Object?>('unused', codec);
 ''');
 
+    await _writeVerifiedFlutterConfig(root.path);
     final result = indexBridges(root.path, messages: true);
     expect(result.facts, isEmpty);
     expect(result.limitations, isEmpty);

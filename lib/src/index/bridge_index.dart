@@ -67,6 +67,8 @@ BridgeIndexResult indexBridges(
   var flutterServicesReexports = 0;
   var parseErrorFiles = 0;
   var ffiInteropFiles = 0;
+  var sawFlutterServicesImport = false;
+  bool? flutterProvenanceVerified;
   // opt-in transport의 채널 종류다. 보조 유니버스는 BasicMessageChannel 또는
   // EventChannel 둘 중 하나만 담으므로 이 이름 하나면 충분하다.
   final auxChannelType = events ? 'EventChannel' : 'BasicMessageChannel';
@@ -98,6 +100,7 @@ BridgeIndexResult indexBridges(
         type: _flutterServicesPrefixes(parsed.unit, type),
     };
     if (flutterPrefixes.values.every((prefixes) => prefixes.isEmpty)) continue;
+    sawFlutterServicesImport = true;
 
     final constants = _topLevelStringConstants(
       parsed.unit,
@@ -207,6 +210,14 @@ BridgeIndexResult indexBridges(
           : 'unresolved-basic-message-sends: $unresolvedAuxCalls '
                 '${unresolvedAuxCalls == 1 ? 'send call has' : 'send calls have'} '
                 'no proven BasicMessageChannel receiver',
+    if (sawFlutterServicesImport &&
+        !(flutterProvenanceVerified ??= _flutterServicesProvenanceVerified(
+          root,
+        )))
+      'flutter-services-provenance-unverified: channel facts matched '
+          'package:flutter/services.dart textually, but the resolved flutter '
+          'package could not be verified against .dart_tool/package_config.json '
+          '(missing, unreadable, or outside the Flutter SDK/pub-cache layout)',
     if (conditionalFlutterImports > 0)
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '
@@ -1394,6 +1405,54 @@ Map<String, _BridgeName> _topLevelStringConstants(
     }
   }
   return strings;
+}
+
+/// `package:flutter/services.dart`가 실제 Flutter 패키지를 가리키는지
+/// `.dart_tool/package_config.json`으로 확인한다.
+///
+/// 이 스캐너는 구문만 보므로 import URI 문자열 그 자체는 출처 증거가 못 된다 —
+/// dependency_overrides로 같은 이름의 로컬 패키지를 끼워 넣으면 URI는 그대로다.
+/// 확인이 불가능하거나 해석된 루트가 Flutter SDK(`…/packages/flutter`)·pub
+/// cache 레이아웃 밖이면 false다.
+bool _flutterServicesProvenanceVerified(Directory root) {
+  final configFile = File(
+    p.join(root.path, '.dart_tool', 'package_config.json'),
+  );
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(configFile.readAsStringSync());
+  } on Object {
+    return false;
+  }
+  if (decoded is! Map<String, Object?>) return false;
+  final packages = decoded['packages'];
+  if (packages is! List) return false;
+  for (final entry in packages) {
+    if (entry is! Map || entry['name'] != 'flutter') continue;
+    final rootUri = entry['rootUri'];
+    if (rootUri is! String) return false;
+    // package_config의 rootUri는 package_config.json이 있는 .dart_tool/
+    // 디렉터리 기준 상대 URI다.
+    final resolved = configFile.uri.resolveUri(Uri.parse(rootUri));
+    if (!resolved.isScheme('file')) return false;
+    final segments = resolved.path
+        .split('/')
+        .where((segment) => segment.isNotEmpty)
+        .toList();
+    if (segments.length >= 2 &&
+        segments[segments.length - 2] == 'packages' &&
+        segments.last == 'flutter') {
+      return true;
+    }
+    for (var i = 0; i < segments.length - 1; i++) {
+      if (segments[i] == '.pub-cache' ||
+          (segments[i] == 'Pub' && segments[i + 1] == 'Cache')) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
 }
 
 Set<String?> _flutterServicesPrefixes(CompilationUnit unit, String type) => unit

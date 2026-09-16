@@ -28,6 +28,25 @@ void shoot() => channel.invokeMethod('takePhoto');
     await File(
       p.join(directory.path, 'lib', 'channel.dart'),
     ).writeAsString(channelSource);
+    // package:flutter/services.dart의 provenance가 검증되도록 flutter를
+    // SDK 레이아웃(…/packages/flutter)으로 해석하는 package_config를 둔다.
+    await Directory(
+      p.join(directory.path, '.dart_tool'),
+    ).create(recursive: true);
+    await File(
+      p.join(directory.path, '.dart_tool', 'package_config.json'),
+    ).writeAsString('''
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "flutter",
+      "rootUri": "../../../flutter_sdk/packages/flutter",
+      "packageUri": "lib/"
+    }
+  ]
+}
+''');
   }
 
   setUp(() async {
@@ -177,6 +196,7 @@ final channel = MethodChannel('dev.example/orphan');
       // limitation 목록은 생산자 고정 순서(사전순 아님) — 감지 항목이 정확히
       // 하나만 붙는 것을 전체 목록으로 고정한다.
       expect(document['limitations'], [
+        startsWith('flutter-services-provenance-unverified:'),
         startsWith('pub-workspace-root-not-found:'),
       ]);
     },
@@ -217,6 +237,7 @@ final channel = MethodChannel('dev.example/notlisted');
       // (잘못된 기준으로 조용히 조인되지 않게 limitation을 싣는다).
       expect(document['project'], await member.resolveSymbolicLinks());
       expect(document['limitations'], [
+        startsWith('flutter-services-provenance-unverified:'),
         startsWith('pub-workspace-member-not-listed:'),
       ]);
     },
@@ -247,6 +268,21 @@ import 'package:flutter/services.dart';
 
 final channel = MethodChannel('dev.example/glob');
 ''');
+    await Directory(p.join(member.path, '.dart_tool')).create();
+    await File(
+      p.join(member.path, '.dart_tool', 'package_config.json'),
+    ).writeAsString('''
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "flutter",
+      "rootUri": "../../../flutter_sdk/packages/flutter",
+      "packageUri": "lib/"
+    }
+  ]
+}
+''');
 
     final document = await bridges([member.path]);
 
@@ -272,6 +308,7 @@ final channel = MethodChannel('dev.example/broken');
 
     expect(document['project'], await broken.resolveSymbolicLinks());
     expect(document['limitations'], [
+      startsWith('flutter-services-provenance-unverified:'),
       startsWith('pub-workspace-pubspec-unparsed:'),
     ]);
   });
