@@ -66,6 +66,7 @@ BridgeIndexResult indexBridges(
   var conditionalFlutterImports = 0;
   var flutterServicesReexports = 0;
   var parseErrorFiles = 0;
+  var ffiInteropFiles = 0;
   // opt-in transport의 채널 종류다. 보조 유니버스는 BasicMessageChannel 또는
   // EventChannel 둘 중 하나만 담으므로 이 이름 하나면 충분하다.
   final auxChannelType = events ? 'EventChannel' : 'BasicMessageChannel';
@@ -81,6 +82,10 @@ BridgeIndexResult indexBridges(
       throwIfDiagnostics: false,
     );
     if (parsed.errors.isNotEmpty) parseErrorFiles++;
+    // FFI/JNI interop은 채널 조인 범위 밖이므로 fact가 아니라 파일 수준
+    // 관측으로만 센다. 채널 import 여부와 무관하게 세어야 하므로 조기
+    // continue보다 앞에 둔다.
+    if (_hasFfiInteropImport(parsed.unit)) ffiInteropFiles++;
     if (_hasFlutterServicesReexport(parsed.unit)) {
       flutterServicesReexports++;
     }
@@ -199,6 +204,10 @@ BridgeIndexResult indexBridges(
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '
           'configuration-dependent provenance',
+    if (ffiInteropFiles > 0)
+      'unscanned-ffi-interop: $ffiInteropFiles Dart source '
+          '${ffiInteropFiles == 1 ? 'file imports' : 'files import'} '
+          'dart:ffi/JNI interop outside channel join coverage',
     if (flutterServicesReexports > 0)
       'flutter-services-reexports: $flutterServicesReexports Dart source '
           '${flutterServicesReexports == 1 ? 'file re-exports' : 'files re-export'} '
@@ -1343,6 +1352,17 @@ bool _hasFlutterServicesReexport(CompilationUnit unit) =>
             (configuration) =>
                 configuration.uri.stringValue == _flutterServicesUri,
           ),
+    );
+
+/// 채널 계약이 덮지 못하는 dart:ffi/JNIgen 계열 import를 관측한다. import URI는
+/// analyzer가 확정한 문자열이므로 타입 추정 없이 파일 수준 근거로 쓸 수 있다.
+bool _hasFfiInteropImport(CompilationUnit unit) =>
+    unit.directives.whereType<ImportDirective>().any(
+      (directive) =>
+          directive.uri.stringValue?.startsWith('dart:ffi') == true ||
+          directive.uri.stringValue?.startsWith('package:ffi/') == true ||
+          directive.uri.stringValue?.startsWith('package:jni/') == true ||
+          directive.uri.stringValue?.startsWith('package:jnigen/') == true,
     );
 
 const _flutterChannelTypes = {

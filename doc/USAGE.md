@@ -228,7 +228,9 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 임의의 `.listen()`이나 EventChannel로 입증되지 않은 수신자에서 stream 사실을
 추론하지 않고, 미귀속 호출은 `unresolved-stream-listens`로 센다. `--messages`와
 `--events`는 서로 다른 transport 문서라 함께 쓸 수 없고(usage 64), 두 문서가
-필요하면 두 번 실행한다. 패키지의
+필요하면 두 번 실행한다. 어느 문서든 dart:ffi·package:jni 계열 import를 관측하면
+채널 사실과 별개로 `unscanned-ffi-interop` limitation에 파일 수를 싣는다 —
+FFI/JNI 경계는 채널 조인 범위 밖이다. 패키지의
 `lib/<package-name>.dart`가 export한 공개 선언과
 공개 멤버는 외부 소비자 API로 보존하고 `query`에서 `reason: publicApi`로 설명한다.
 
