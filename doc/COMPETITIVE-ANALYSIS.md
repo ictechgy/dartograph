@@ -131,16 +131,16 @@
 |---|---|---|---|---|
 | P0 | 증분 분석 + CI 게이트 | 요구 4, 대체재 대비 최대 열위 | 전체 분석 대비 실측 배수(목표 5배, 미달 시 실측 기재), CI 예시 워크플로 동작 | 출시(0.10.0 — warm 7.5배·leaf 1.9배·imported 약 1.0배). `.github/workflows/impact-precheck.yml`에 PR 트리거·PR 코멘트·SARIF·증분 캐시·검증 원장 예시 작성(CI 실행 미검증, 액션 SHA 고정) |
 | P0 | 검증 원장(append-only JSONL) + `history` 조회 | 추적 가능성 요구 | 각 실행의 입력·버전·결과가 누적되고 덮어쓰기 불가 | 출시(0.10.0 — `--record <dir>`·`history --ledger`) |
-| P1 | 런타임 오탐 추가 축소 | 4.2 신호 대 잡음 | 합성 픽스처 오탐 0, 미판정 사유 표기 | 진행 중(결함 3건 수정 + 회귀 테스트) |
+| P1 | 런타임 오탐 추가 축소 | 4.2 신호 대 잡음 | 합성 픽스처 오탐 0, 미판정 사유 표기 | 완료(PR #108 — AOT `--execute` 해석·동명 API 오탐 차단·미판정 사유 노출 + 회귀 테스트) |
 | P1 | MCP 스키마·예시 문서 강화 | Knip·Serena 선점 | 클라이언트 설정 예시 + 오류 코드 표 + 재현 호출 | 완료(doc/MCP.md에 도구 스키마·JSON-RPC 오류 코드 표·재현 호출 예시) |
-| P1 | `deps` 의존성 위생 감사 | dallow `deps`·DCM `check-dependencies`·knip 미사용 deps — codebase intelligence 도구의 표준 기능 | 선언↔`package:` 관측 대조 4종 finding + 도구 계약(executables·build.yaml·analysis_options) 사용 인정 + limitation 보존 | 구현(미릴리스 — `deps` 명령·4종 finding·5형식·MCP `verify_run`, fixture·테스트 통과) |
-| P1 | `dead --closed-app` | undead `--mode=closed-app` — 앱 시장(라이브러리보다 큰 사용자층) | 공개 API 보존만 끄고 나머지 루트 유지, limitation 명시, baseline 짝 | 구현(미릴리스 — `dead`·`baseline --write`·`--report-test-only`에 적용, `--report-redundant-public` 결합 거부) |
-| P1 | MCP resources/prompts | Knip `knip://docs/`·`knip-configure`, dart_sentinel `sentinel://` 리소스 | `resources/list·read` + `prompts/list·get` + capabilities | 구현(미릴리스 — 정적 리소스 3종·프롬프트 3종, `-32002` 미지 URI) |
-| P1 | 보존 정밀도: build_runner·JS/FFI·sealed | undead framework adapters | build.yaml 팩토리 루트, `externalBinding` 보존, sealed 하위 전이 구제 | 구현(미릴리스 — `RetentionReason.buildRunner`·`externalBinding`, `GraphNode.isSealed`, analyzer 14 `ClassBody` 순회 수정) |
+| P1 | `deps` 의존성 위생 감사 | dallow `deps`·DCM `check-dependencies`·knip 미사용 deps — codebase intelligence 도구의 표준 기능 | 선언↔`package:` 관측 대조 4종 finding + 도구 계약(executables·build.yaml·analysis_options) 사용 인정 + limitation 보존 | 구현(0.11.0 — `deps` 명령·4종 finding·5형식·MCP `verify_run`, fixture·테스트 통과) |
+| P1 | `dead --closed-app` | undead `--mode=closed-app` — 앱 시장(라이브러리보다 큰 사용자층) | 공개 API 보존만 끄고 나머지 루트 유지, limitation 명시, baseline 짝 | 구현(0.11.0 — `dead`·`baseline --write`·`--report-test-only`에 적용, `--report-redundant-public` 결합 거부) |
+| P1 | MCP resources/prompts | Knip `knip://docs/`·`knip-configure`, dart_sentinel `sentinel://` 리소스 | `resources/list·read` + `prompts/list·get` + capabilities | 구현(0.11.0 — 정적 리소스 3종·프롬프트 3종, `-32002` 미지 URI) |
+| P1 | 보존 정밀도: build_runner·JS/FFI·sealed | undead framework adapters | build.yaml 팩토리 루트, `externalBinding` 보존, sealed 하위 전이 구제 | 구현(0.11.0 — `RetentionReason.buildRunner`·`externalBinding`, `GraphNode.isSealed`, analyzer 14 `ClassBody` 순회 수정) |
 | P2 | 0.9.0 릴리스 패키징 | 오픈소스 배포 | 태그·CHANGELOG·`pub publish --dry-run` 통과 | 완료(게시 0.9.0, 태그 v0.9.0 = b2aad3a) |
 | P2 | 다음 릴리스(0.10.0) 패키징 | 증분 발행 | 태그·CHANGELOG·dry-run | 완료(게시 0.10.0, 태그 v0.10.0 = 2b3a236) |
-| P2 | 중복 코드 탐지 | dallow·DCM·fallow | 토큰/AST 수준 duplication + limitation | 구현(미릴리스 — `dup` 명령·토큰 shingle 기반 duplicate-block finding·`--min-tokens`·MCP `verify_run`, 리뷰 후보일 뿐 삭제 지시 아님) |
-| P2 | 함수 수준 순환 복잡도 | dallow·DCM·dart_sentinel | `metrics`에 함수 복잡도 추가 | 구현(미릴리스 — `metrics` complexity·hotSpots 섹션, `thresholds.complexity` 게이트) |
-| P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 완료(미릴리스 — AOT 설치·`--version`·`dead` 실측, USAGE·README 설치 절 갱신, 상대 path 제약 기록) |
-| P3 | Claude Code hooks·툴별 AI 설정 생성 | dart_sentinel `setup-hooks`·`generate-ai-config` | MCP 호출 없이 강제되는 훅 스크립트 | 구현(미릴리스 — `setup` 명령: PostToolUse 훅 스크립트·settings.json·`.mcp.json` 병합 설치, 기존 키 보존·깨진 설정 보호) |
-| P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 구현(게시됨 — `ictechgy.dartograph` v0.1.0 Problems 진단 + `editors/analysis_plugin/` analysis server 플러그인: `dartograph_dead_code`·`dartograph_duplicate_block` 진단·`dartograph:ignore` quick fix, `dart analyze`에서도 동작 확인. AST 수준 자동 수정은 미구현) |
+| P2 | 중복 코드 탐지 | dallow·DCM·fallow | 토큰/AST 수준 duplication + limitation | 구현(0.12.0 — `dup` 명령·토큰 shingle 기반 duplicate-block finding·`--min-tokens`·MCP `verify_run`, 리뷰 후보일 뿐 삭제 지시 아님) |
+| P2 | 함수 수준 순환 복잡도 | dallow·DCM·dart_sentinel | `metrics`에 함수 복잡도 추가 | 구현(0.12.0 — `metrics` complexity·hotSpots 섹션, `thresholds.complexity` 게이트) |
+| P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 완료(0.12.0 — AOT 설치·`--version`·`dead` 실측, USAGE·README 설치 절 갱신, 상대 path 제약 기록) |
+| P3 | Claude Code hooks·툴별 AI 설정 생성 | dart_sentinel `setup-hooks`·`generate-ai-config` | MCP 호출 없이 강제되는 훅 스크립트 | 구현(0.12.0 — `setup` 명령: PostToolUse 훅 스크립트·settings.json·`.mcp.json` 병합 설치, 기존 키 보존·깨진 설정 보호) |
+| P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 구현(게시됨 — `ictechgy.dartograph` v0.1.0 Problems 진단 + `dartograph_analysis_plugin` v0.1.0 pub.dev 게시: `dartograph_dead_code`·`dartograph_duplicate_block` 진단·`dartograph:ignore` quick fix, `dart analyze`에서도 동작 확인. AST 수준 자동 수정은 미구현) |
