@@ -24,4 +24,10 @@ enum RetentionReason {
 
   /// `// dartograph:ignore` 인라인 주석이 바로 위 선언의 보고 억제를 지시한다.
   inlineIgnore,
+
+  /// JS 인터롭·네이티브 FFI binding annotation이 외부 런타임 호출 계약을 선언한다.
+  externalBinding,
+
+  /// build.yaml이 선언한 builder factory를 build_runner가 이름으로 호출한다.
+  buildRunner,
 }

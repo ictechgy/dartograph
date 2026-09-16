@@ -14,6 +14,7 @@ final class GraphNode {
     bool isTypeDeclaration = false,
     bool isAbstract = false,
     bool isEnumConstant = false,
+    bool isSealed = false,
   }) {
     if (id.isEmpty) {
       throw ArgumentError.value(id, 'id', 'must not be empty');
@@ -24,7 +25,8 @@ final class GraphNode {
     if (column != null && column < 1) {
       throw ArgumentError.value(column, 'column', 'must be 1-based');
     }
-    if (isLibrary && (isTypeDeclaration || isAbstract || isEnumConstant)) {
+    if (isLibrary &&
+        (isTypeDeclaration || isAbstract || isEnumConstant || isSealed)) {
       throw ArgumentError.value(
         isLibrary,
         'isLibrary',
@@ -45,6 +47,13 @@ final class GraphNode {
         'is mutually exclusive with a type declaration',
       );
     }
+    if (isSealed && !isTypeDeclaration) {
+      throw ArgumentError.value(
+        isSealed,
+        'isSealed',
+        'requires a type declaration',
+      );
+    }
     return GraphNode._(
       id: id,
       sourceUri: sourceUri,
@@ -55,6 +64,7 @@ final class GraphNode {
       isTypeDeclaration: isTypeDeclaration,
       isAbstract: isAbstract,
       isEnumConstant: isEnumConstant,
+      isSealed: isSealed,
     );
   }
 
@@ -68,6 +78,7 @@ final class GraphNode {
     required this.isTypeDeclaration,
     required this.isAbstract,
     required this.isEnumConstant,
+    required this.isSealed,
   });
 
   /// 라이브러리 정체성과 선언 경로에서 만든 안정적인 그래프 ID다.
@@ -101,6 +112,11 @@ final class GraphNode {
   /// 상수를 직접 참조하지 않는 소비도 있으므로, 도달성이 이 표시로 상수를 보존한다.
   final bool isEnumConstant;
 
+  /// sealed 타입 선언인지 나타낸다. sealed 타입이 도달 가능하면 직접 서브타입은
+  /// 언어가 보장하는 디스패치 대상이라 사용 참조 없이도 런타임에 호출되므로,
+  /// 도달성이 이 표시로 서브타입을 보존한다.
+  final bool isSealed;
+
   @override
   bool operator ==(Object other) =>
       other is GraphNode &&
@@ -112,7 +128,8 @@ final class GraphNode {
       isLibrary == other.isLibrary &&
       isTypeDeclaration == other.isTypeDeclaration &&
       isAbstract == other.isAbstract &&
-      isEnumConstant == other.isEnumConstant;
+      isEnumConstant == other.isEnumConstant &&
+      isSealed == other.isSealed;
 
   @override
   int get hashCode => Object.hash(
@@ -125,5 +142,6 @@ final class GraphNode {
     isTypeDeclaration,
     isAbstract,
     isEnumConstant,
+    isSealed,
   );
 }
