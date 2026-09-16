@@ -74,9 +74,9 @@
 - **함수 수준 복잡도가 없다.** `metrics`는 아키텍처 수준(CCD·instability)만 낸다.
   순환 복잡도는 dallow·DCM·dart_sentinel이 제공한다.
 - **IDE 통합 깊이.** dart_sentinel은 analysis server 플러그인으로 실시간 진단·quick
-  fix를 준다. dartograph는 CLI·MCP가 중심이며 `editors/vscode/` 확장이 CLI JSON
-  보고를 Problems 진단으로 옮기는 수준이다 — analysis server 플러그인과 quick
-  fix는 아직 없다.
+  fix를 준다. dartograph도 `editors/analysis_plugin/`의 analysis server 플러그인이
+  `dead`/`dup` 진단과 `dartograph:ignore` quick fix를 낸다 — 다만 CLI 결과를
+  파일 위치로 옮기는 수준이며 실시간 AST 기반 quick fix 전체와는 결이 다르다.
 - **모노레포 스캔 표면.** dallow는 `--recursive`로 워크스페이스를 한 번에 훑는다.
   dartograph는 패키지 하나를 분석하고 `--project`/workspace 감지는 `bridges`에만 있다.
 - **런타임 검증의 신호 대 잡음.** 자기 저장소 기준 `config` 탐지의 다수가 CLI 인자 경로라
@@ -143,4 +143,4 @@
 | P2 | 함수 수준 순환 복잡도 | dallow·DCM·dart_sentinel | `metrics`에 함수 복잡도 추가 | 구현(미릴리스 — `metrics` complexity·hotSpots 섹션, `thresholds.complexity` 게이트) |
 | P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 완료(미릴리스 — AOT 설치·`--version`·`dead` 실측, USAGE·README 설치 절 갱신, 상대 path 제약 기록) |
 | P3 | Claude Code hooks·툴별 AI 설정 생성 | dart_sentinel `setup-hooks`·`generate-ai-config` | MCP 호출 없이 강제되는 훅 스크립트 | 구현(미릴리스 — `setup` 명령: PostToolUse 훅 스크립트·settings.json·`.mcp.json` 병합 설치, 기존 키 보존·깨진 설정 보호) |
-| P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 부분 구현(게시됨 — `ictechgy.dartograph` v0.1.0: CLI JSON 보고 → Problems 진단·runOnSave·impact 명령. analysis server 플러그인·quick fix는 미구현) |
+| P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 구현(게시됨 — `ictechgy.dartograph` v0.1.0 Problems 진단 + `editors/analysis_plugin/` analysis server 플러그인: `dartograph_dead_code`·`dartograph_duplicate_block` 진단·`dartograph:ignore` quick fix, `dart analyze`에서도 동작 확인. AST 수준 자동 수정은 미구현) |

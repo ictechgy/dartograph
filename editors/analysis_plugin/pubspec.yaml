@@ -1,0 +1,19 @@
+name: dartograph_analysis_plugin
+description: >-
+  Analysis server plugin that surfaces dartograph graph findings as
+  diagnostics with evidence — never a deletion verdict.
+version: 0.1.0
+repository: https://github.com/ictechgy/dartograph
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  # 분석 서버가 자체 제약(^0.3.0 대)으로 해석하므로 범위를 넓게 둔다.
+  analysis_server_plugin: ^0.3.0
+  analyzer: ^14.0.0
+  analyzer_plugin: ^0.14.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.26.0

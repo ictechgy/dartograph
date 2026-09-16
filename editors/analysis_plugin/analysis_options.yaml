@@ -1,0 +1,7 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+  errors:
+    public_member_api_docs: error
