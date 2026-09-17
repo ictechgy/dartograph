@@ -256,9 +256,11 @@ abstract final class RuntimeVerifier {
     RuntimeExecution? execution,
     int? limit,
     bool verify = true,
+    List<String> extraLimitations = const [],
   }) {
     final limitations = <String>[
       ...detectionLimitations,
+      ...extraLimitations,
       if (inputs.environmentFromProcess)
         'environment-source: verification used the caller process environment; '
             'results depend on the shell that ran the command'
