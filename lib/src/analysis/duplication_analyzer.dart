@@ -169,7 +169,11 @@ final class DuplicationAnalyzer {
     findings.sort((a, b) {
       final order = b.tokenCount.compareTo(a.tokenCount);
       if (order != 0) return order;
-      return _instanceOrder(a.instances.first, b.instances.first);
+      // 위치 쌍별 발견은 첫 인스턴스가 같을 수 있다([P,Q]·[P,R]) — 둘째까지
+      // 비교해 전순서를 만들어 List.sort의 비안정성이 출력에 새지 않게 한다.
+      final first = _instanceOrder(a.instances.first, b.instances.first);
+      if (first != 0) return first;
+      return _instanceOrder(a.instances.last, b.instances.last);
     });
     return DuplicationReport(findings, [
       if (saturated > 0)
