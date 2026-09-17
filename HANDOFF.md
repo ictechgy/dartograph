@@ -1,8 +1,38 @@
 # Handoff
 
-_Last updated: 2026-09-17 (PR #103 발행 — `feature/bridge-events` EventChannel·FFI·mutable 재대입. GLM 반영 완료, 머지 대기)_
+_Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·GitHub Release 발행, README 퇴고 #116 머지. 열린 PR 없음)_
 
-## 2026-09-17 — `feature/bridge-events` → PR #103 (OPEN)
+## 2026-09-17 — 0.13.0 릴리스 + Claude/GLM 리뷰 수정 묶음
+
+- **릴리스**: `v0.13.0` = `6a1abfb` (PR #115). pub.dev latest 0.13.0, GitHub Release 발행,
+  `dart pub global activate` 설치본 `--version` 0.13.0 실측. main = `edbbe2b`.
+- **Claude 3트랙 리뷰**(성능·보안·구조, 스크럽 패킷 ~690KB) → 확정 19건을 PR 5개로 분할:
+  - #110 정합성 — dup 3-way 정렬 비결정(비교자 total order), `redundantPublic`의
+    sealed/구조 보존 오분류 수정.
+  - #111 심링크 — `lib/src/index/project_files.dart` 공유 워커로 통합, 루트 밖 링크 대상을
+    `symlink-escape:` limitation으로 기록(차단 아님 — analyzer가 따라가므로 그래프 일치).
+  - #112 MCP — stdin 라인 1MiB 상한, `packageRoot` canonical 컨테인먼트(서버 cwd 하위),
+    Claude 훅 JSON 추출 fail-closed.
+  - #114 구조 — 이스케이프 `ReportEscapes` 통합, bridge flutter provenance 검증
+    (package_config 탐색 + `lib/services.dart` 내용 앵커), `--execute` 후손 프로세스
+    생존 limitation(`execute-process-scope`). GLM 1건 실행 반영.
+  - #113 성능 — dup 롤링 해시, sealed 서브타입 인덱스, canonical 해석 병렬, pub-cache
+    의존성 지문 축소(`lib/` 해시 제외), ledger 스트리밍 읽기. #114 머지 후 충돌 → rebase
+    로 해소(`fact_cache_test` 양쪽 보존).
+- **README 퇴고** #116 (머지 `edbbe2b`): Claude 리뷰 18건 중 16건 반영 — ko 오탈자 3건
+  (띄어쓰기·실는다→싣는다)·오역(자리→공백)·직역체 정리, en 릴리스 문단을 Install 절로
+  이동해 양본 구조 대칭. GLM 지적 4건은 원문 대조로 전부 기각/해소.
+- 테스트 546개 통과, analyze clean.
+- **보류: VS Code 확장 아이콘** — `editors/vscode/icon-drafts/`에 시안 5종(SVG 원본 +
+  PNG, 미추적 파일). 사용자가 선택 대기 중. 채택 시 128×128 PNG로 정제해
+  `package.json`의 `icon` 필드에 연결 후 확장 v0.1.1 배포 가능(확장 자체는 v0.1.0 게시
+  이후 변경 없어 현재 재배포 불필요로 판단).
+- `HANDOFF-PROGRESS.md`는 다른 세션(AutoCoder) 소유 원장 — 여전히 미추적, 건드리지 않음.
+- `SECURITY.md` supported 라인은 0.13.x로 갱신 완료.
+
+---
+
+## 2026-09-17 — `feature/bridge-events` → PR #103 (MERGED)
 
 - 브랜치 4커밋: `65a24c2` EventChannel producer(`receiveBroadcastStream`→`stream-listen`, `--events` v2 문서),
   `489a151` mutable 필드 초기값 해석, `b583c2a` FFI/JNI 파일 `unscanned-ffi-interop` 한계,
@@ -42,7 +72,10 @@ _Last updated: 2026-09-17 (PR #103 발행 — `feature/bridge-events` EventChann
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(0.10.0 — 증분 분석·검증 원장·리포터·CI/MCP 문서, PR #96)**:
+- **이번 세션(0.13.0 — Claude 리뷰 수정 5PR + 릴리스 + README 퇴고)**: 성능·보안·구조
+  Claude 리뷰 확정 19건을 PR #110~#114로 반영·머지하고 0.13.0을 발행(PR #115). README
+  en/ko 퇴고를 Claude 협업으로 PR #116에 머지. 남은 것은 VS Code 아이콘 선택뿐.
+- 이전 세션(0.10.0 — 증분 분석·검증 원장·리포터·CI/MCP 문서, PR #96):
   P0의 증분 분석(`--incremental <dir>`)과 검증 원장(`--record`/`history`)을 완성하고,
   `dead --format markdown`·`codeowners` 리포터와 PR 코멘트 CI 예시, MCP 스키마·오류·예시
   문서를 추가했다. CI가 잡은 SARIF 업로드 결함(`package:` URI·물리 위치 누락)도 수정.
@@ -61,13 +94,13 @@ _Last updated: 2026-09-17 (PR #103 발행 — `feature/bridge-events` EventChann
 
 ## Current Status
 
-- 릴리스 기준: **`v0.10.0` → `2b3a236`** (게시 커밋 = PR #96 merge). pub.dev latest 0.10.0·
-  GitHub Release(tag=v0.10.0) 공개. 새 격리 캐시 설치본으로 `--version` 0.10.0·CLI 계약
-  통과 실측. (이전 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`, 0.7.0→`e1b3202`, 0.6.0→`85c345a`,
-  0.5.0→`16b18fd`, 0.4.1→`53a4e0f`.)
-- main 기준: **`2b3a236`** (PR #96 머지). 열린 제품 PR 없음.
-- **미릴리스 누적 0건** — 증분 분석·검증 원장·리포터·CI/MCP 문서가 0.10.0으로 발행됐다.
-- 테스트 **451개**, 라인 커버리지는 CI의 check-coverage가 게이트한다.
+- 릴리스 기준: **`v0.13.0` → `6a1abfb`** (게시 커밋 = PR #115 merge). pub.dev latest 0.13.0·
+  GitHub Release(tag=v0.13.0) 공개. `dart pub global activate` 설치본 `--version` 0.13.0
+  실측. VS Code 확장 `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
+  (이전 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`.)
+- main 기준: **`edbbe2b`** (PR #116 README 퇴고 머지). 열린 제품 PR 없음.
+- **미릴리스 누적 0건** — 모든 수정이 0.13.0으로 발행됐다.
+- 테스트 **546개**, 라인 커버리지는 CI의 check-coverage가 게이트한다.
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
   신선한 resolution으로 게이트를 돌린다.
