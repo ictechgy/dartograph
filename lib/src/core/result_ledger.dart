@@ -175,8 +175,13 @@ final class ResultLedger {
     }
     final entries = <LedgerEntry>[];
     var skipped = 0;
-    final lines = await file.readAsLines();
-    for (final line in lines) {
+    // 원장은 append-only로 무한정 자란다 — 전체를 한 리스트로 올리지 않고
+    // 줄 단위로 흘려보낸다.
+    await for (final line
+        in file
+            .openRead()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
       Object? decoded;

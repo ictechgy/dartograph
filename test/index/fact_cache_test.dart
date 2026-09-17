@@ -251,6 +251,39 @@ environment:
     );
   });
 
+  test('content-locked dependency detection follows PUB_CACHE', () async {
+    final workspace = await Directory.systemTemp.createTemp(
+      'dartograph-pubcache.',
+    );
+    addTearDown(() => workspace.delete(recursive: true));
+    final cache = Directory('${workspace.path}/pub-cache')..createSync();
+    final hosted = Directory('${cache.path}/hosted/pub.dev/foo-1.2.3')
+      ..createSync(recursive: true);
+    final elsewhere = Directory('${workspace.path}/deps/foo')
+      ..createSync(recursive: true);
+    final environment = {'PUB_CACHE': cache.path};
+
+    // 호출자는 심링크까지 해석한 의존 루트를 넘긴다 — 같은 형태로 검증한다.
+    final resolvedHosted = hosted.resolveSymbolicLinksSync();
+    expect(
+      isContentLockedDependency(resolvedHosted, environment: environment),
+      isTrue,
+    );
+    // 캐시 밖의 path dep는 같은 경로에서 내용이 변하므로 지문 대상이다.
+    expect(
+      isContentLockedDependency(elsewhere.path, environment: environment),
+      isFalse,
+    );
+    // PUB_CACHE가 없으면 플랫폼 기본 위치만 본다 — 임의 경로는 false다.
+    expect(
+      isContentLockedDependency(
+        hosted.path,
+        environment: {'HOME': workspace.path},
+      ),
+      isFalse,
+    );
+  });
+
   test('linked directory contents invalidate analyzer facts', () async {
     final root = await Directory.systemTemp.createTemp(
       'dartograph-symlink-dir-cache.',

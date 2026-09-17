@@ -437,6 +437,18 @@ final class ReachabilityAnalyzer {
     // switch의 exhaustive 매칭처럼 사용 참조 없이 런타임에 호출된다(undead의
     // sealed 계층 보존과 같은 계약). 서브타입이 다시 sealed면 전이한다.
     final nodesById = {for (final node in graph.nodes) node.id: node};
+    // 상속 간선을 target 기준으로 한 번만 모은다 — 큐 항목마다 간선 전체를
+    // 다시 스캔하면 O(도달 sealed 수 × 간선 수)가 된다.
+    final subtypesByParent = <String, List<GraphEdge>>{};
+    for (final edge in graph.edges) {
+      switch (edge.kind) {
+        case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
+          if (edge.sourceId != edge.targetId && edge.sourceId.contains('::')) {
+            subtypesByParent.putIfAbsent(edge.targetId, () => []).add(edge);
+          }
+        default:
+      }
+    }
     final sealedSubtypeParents = <String, String>{};
     final sealedQueue = <String>[
       for (final node in graph.nodes)
@@ -444,21 +456,12 @@ final class ReachabilityAnalyzer {
     ];
     for (var index = 0; index < sealedQueue.length; index++) {
       final parent = sealedQueue[index];
-      for (final edge in graph.edges) {
-        if (edge.targetId != parent ||
-            edge.sourceId == parent ||
-            !edge.sourceId.contains('::') ||
-            sealedSubtypeParents.containsKey(edge.sourceId)) {
-          continue;
-        }
-        switch (edge.kind) {
-          case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
-            sealedSubtypeParents[edge.sourceId] = parent;
-            final subtype = nodesById[edge.sourceId];
-            if (subtype != null && subtype.isSealed) {
-              sealedQueue.add(edge.sourceId);
-            }
-          default:
+      for (final edge in subtypesByParent[parent] ?? const <GraphEdge>[]) {
+        if (sealedSubtypeParents.containsKey(edge.sourceId)) continue;
+        sealedSubtypeParents[edge.sourceId] = parent;
+        final subtype = nodesById[edge.sourceId];
+        if (subtype != null && subtype.isSealed) {
+          sealedQueue.add(edge.sourceId);
         }
       }
     }
