@@ -2806,7 +2806,9 @@ Future<int> _runMcp(
     return ExitStatus.usage.code;
   }
   return runMcpServer(
-    input: stdin.transform(utf8.decoder).transform(const LineSplitter()),
+    // LineSplitter는 개행 전까지 무제한 버퍼링한다 — 메시지 크기 상한은
+    // 바이트 단계에서 둔다.
+    input: stdin.transform(boundedUtf8Lines(mcpMaxMessageBytes)),
     output: output,
     error: error,
   );

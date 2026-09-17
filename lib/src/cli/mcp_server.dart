@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
 import '../core/tool_info.dart';
+import '../index/project_files.dart';
 import 'agent_skill.dart';
 import 'configuration_template.dart';
 import 'dartograph_cli.dart';
@@ -31,6 +33,53 @@ const dependencyToolName = 'dependency_query';
 /// `verify_run` 도구 이름이다.
 const verifyToolName = 'verify_run';
 
+/// stdio 프레이밍의 JSON-RPC 메시지 한 줄 상한(바이트)이다. 개행 없는 입력이
+/// 라인 버퍼를 무제한으로 키우지 못하게 한다 — 다른 입력 경로(설정·배치
+/// 파일)의 1MiB 상한과 맞춘다.
+const mcpMaxMessageBytes = 1 << 20;
+
+/// stdin 바이트를 [maxBytes] 상한의 UTF-8 라인 스트림으로 변환한다.
+///
+/// `LineSplitter`는 개행 전까지 무제한 버퍼링하므로 직접 쓸 수 없다. 상한을
+/// 넘는 라인은 [maxBytes]에서 잘라 돌려준다 — 잘린 JSON은 반드시 파싱에
+/// 실패하므로 서버가 `Invalid JSON`으로 답하고 연결은 유지된다. 나머지 바이트는
+/// 다음 개행까지 버린다.
+StreamTransformer<List<int>, String> boundedUtf8Lines(int maxBytes) {
+  final buffer = BytesBuilder();
+  // 상한을 넘긴 라인의 잔여 바이트를 버리는 중인지다.
+  var skipping = false;
+
+  void emitLine(EventSink<String> sink) {
+    if (buffer.isNotEmpty) {
+      sink.add(utf8.decode(buffer.takeBytes(), allowMalformed: true));
+    }
+    skipping = false;
+  }
+
+  return StreamTransformer.fromHandlers(
+    handleData: (chunk, sink) {
+      var offset = 0;
+      while (offset < chunk.length) {
+        final newline = chunk.indexOf(0x0A, offset);
+        final end = newline == -1 ? chunk.length : newline;
+        if (!skipping && end > offset) {
+          final piece = chunk.sublist(offset, end);
+          final room = maxBytes - buffer.length;
+          buffer.add(piece.length <= room ? piece : piece.sublist(0, room));
+          if (piece.length > room) skipping = true;
+        }
+        if (newline == -1) break;
+        emitLine(sink);
+        offset = newline + 1;
+      }
+    },
+    handleDone: (sink) {
+      emitLine(sink);
+      sink.close();
+    },
+  );
+}
+
 /// dartograph의 분석·질의 능력을 MCP 도구로 노출하는 stdio 서버를 실행한다.
 ///
 /// stdout에는 JSON-RPC 응답만 쓰고, 진단은 stderr로 보낸다. 각 도구 호출은
@@ -44,9 +93,15 @@ Future<int> runMcpServer({
   IndexPackage? indexPackage,
   ChangedFilesSince? changedFilesSince,
   Future<Directory> Function()? createScratch,
+  String? allowedRootBase,
 }) async {
   final scratchFactory =
       createScratch ?? () => Directory.systemTemp.createTemp('dartograph-mcp.');
+  // 도구 인자 packageRoot는 이 경계 안으로 해석돼야 한다 — 클라이언트가 서버
+  // 작업 디렉터리 밖의 임의 디렉터리를 스캔하게 하지 않는다.
+  final rootBoundary = Directory(
+    allowedRootBase ?? Directory.current.path,
+  ).absolute.resolveSymbolicLinksSync();
   await for (final line in input) {
     if (line.trim().isEmpty) continue;
     Object? message;
@@ -182,6 +237,7 @@ Future<int> runMcpServer({
             indexPackage: indexPackage,
             changedFilesSince: changedFilesSince,
             createScratch: scratchFactory,
+            rootBoundary: rootBoundary,
           );
         } on Object catch (exception) {
           // 도구 실행 중 예상 못 한 예외는 프로토콜 오류로 답하고 진단은
@@ -545,6 +601,7 @@ Future<Map<String, Object?>?> _callTool({
   required IndexPackage? indexPackage,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
+  required String rootBoundary,
 }) async {
   if (name != impactToolName &&
       name != dependencyToolName &&
@@ -555,10 +612,17 @@ Future<Map<String, Object?>?> _callTool({
   if (root is! String || root.trim().isEmpty) {
     return _toolError('packageRoot is required and must be a non-empty string');
   }
+  final resolvedRoot = _resolveToolRoot(root, rootBoundary);
+  if (resolvedRoot == null) {
+    return _toolError(
+      'packageRoot must be an existing directory within the server '
+      'working directory',
+    );
+  }
   switch (name) {
     case impactToolName:
       return _impactTool(
-        root: root,
+        root: resolvedRoot,
         arguments: arguments,
         indexPackage: indexPackage,
         changedFilesSince: changedFilesSince,
@@ -566,14 +630,14 @@ Future<Map<String, Object?>?> _callTool({
       );
     case dependencyToolName:
       return _dependencyTool(
-        root: root,
+        root: resolvedRoot,
         arguments: arguments,
         indexPackage: indexPackage,
         createScratch: createScratch,
       );
     case verifyToolName:
       return _verifyTool(
-        root: root,
+        root: resolvedRoot,
         arguments: arguments,
         indexPackage: indexPackage,
         changedFilesSince: changedFilesSince,
@@ -581,6 +645,21 @@ Future<Map<String, Object?>?> _callTool({
     default:
       return null;
   }
+}
+
+/// 도구 인자 `packageRoot`를 실제 디렉터리로 해석해 [boundary] 안임을
+/// 확인한다. 존재하지 않거나 경계를 벗어나면 `null`을 돌려준다. 해석된
+/// 경로를 그대로 도구에 넘겨 `a/../b` 같은 우회와 cwd 기준 상대 경로
+/// 불일치를 없앤다.
+String? _resolveToolRoot(String root, String boundary) {
+  final String resolved;
+  try {
+    resolved = Directory(root).absolute.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
+  }
+  if (!FileSystemEntity.isDirectorySync(resolved)) return null;
+  return isPathWithinRoot(resolved, boundary) ? resolved : null;
 }
 
 Future<Map<String, Object?>> _impactTool({
