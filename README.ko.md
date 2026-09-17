@@ -8,18 +8,16 @@ Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [ca
 
 이름은 **Dart**와 cartograph를 섞었다.
 
-## 무엇을 하려는가
+## 왜 필요한가
 
-DCM(구 dart_code_metrics)은 Flutter 프로젝트의 미사용 코드·파일을 검사한다 — 그리고 2023년에 유료로 전환했다. 무료 티어는 **1인·50k LoC 이하**라, 팀이거나 더 큰 프로젝트면 돈을 내야 한다.
+DCM(구 dart_code_metrics)은 Flutter 프로젝트의 미사용 코드·파일을 검사하던 도구였으나 2023년 유료로 전환했다. 무료 티어는 **1인·50k LoC 이하**라, 팀 단위로 쓰거나 프로젝트 규모가 크면 비용을 내야 한다.
 
-dartograph는 그 자리를 채운다: **상업적 사용을 포함해 영구 무료(MIT)** — Periphery가 상업화된 뒤 cartograph가 Swift에서 그랬던 것과 같다.
+dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 무료(MIT)** — Periphery가 상업화된 뒤 cartograph가 Swift에서 그랬던 것과 같다.
 
 - 진실의 원천은 텍스트 검색이 아니라 `package:analyzer`, 즉 Dart 팀의 공식 분석기 패키지다.
-- 미사용 코드·미사용 파일·순환 의존·레이어 규칙·아키텍처 지표를 한 그래프에서 낸다.
+- 미사용 코드·미사용 파일·순환 의존·레이어 규칙·아키텍처 지표를 한 그래프에서 산출한다.
 - 모든 답은 근거를 함께 싣는다. dartograph는 삭제 판정을 내리지 않는다.
-- `query`와 `skill`은 처음부터 내장돼 코딩 에이전트가 소비하도록 설계됐다.
-
-**릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와 [GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다.** 모든 릴리스는 전체 테스트 스위트·라인 커버리지 게이트·패키지 dry-run을 통과하고 실제 공개 Flutter 플러그인 dogfooding을 거친다.
+- `query`와 `skill`은 처음부터 내장돼 코딩 에이전트가 활용하도록 설계됐다.
 
 ## 설치
 
@@ -32,9 +30,11 @@ dart install dartograph
 dartograph --version
 ```
 
+릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와 [GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다. 모든 릴리스는 전체 테스트 스위트·라인 커버리지 게이트·패키지 dry-run을 통과하고, 실제 공개된 Flutter 플러그인을 대상으로 dogfooding을 거친다.
+
 ## 사용
 
-대부분의 명령은 분석할 Dart 패키지의 루트를 마지막 인자로 받는다. 아래 예시는 전역 설치를 가정한다; 소스 체크아웃에서는 각 명령 앞에 `dart run`을 붙인다(예: `dart run dartograph graph --format dot .`).
+대부분의 명령은 분석할 Dart 패키지의 루트를 마지막 인자로 받는다. 아래 예시는 전역 설치를 가정한다. 소스 체크아웃에서는 각 명령 앞에 `dart run`을 붙인다(예: `dart run dartograph graph --format dot .`).
 
 ```bash
 # 설정 템플릿 초기화
@@ -87,22 +87,22 @@ dartograph mcp
 - `--baseline <file>`은 `baseline --write`로 기록한 finding을 정확히 억제해, 알려진 죽은 코드가 CI를 실패시키지 않고 새 finding만 드러나게 한다.
 - `query`는 한 심볼에 관한 질문에 답한다 — 양방향 이웃, 멤버, 보존 경로, baseline 상태, 한계 — 전체 그래프를 덤프하는 대신 cartograph와 같은 필드 이름을 쓴다.
 - `affected <git-ref>`는 어떤 라이브러리가 Git 리비전 이후 변경됐는지, 어떤 라이브러리가 그것들에 전이적으로 의존하는지를 보고하며, 각 의존자는 변경 라이브러리까지의 최단 의존 경로를 근거로 싣는다.
-- `compare <before> <after>`는 같은 패키지의 두 체크아웃을 비교해 추가·제거된 정점·간선·보존 루트와 새로 미도달·도달이 된 것을 낸다(새로 미도달이 된 선언은 before-path·제거된 간선·제거된 루트를 근거로 싣는다). `--since`와 달리 보고 위치를 필터링하는 게 아니라 두 그래프 전체를 비교한다.
-- `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1로 낸다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이다(cartograph도 생산한다). 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel은 기본 명령에서 사실로 읽히지 않고 한계로 집계된다.
-- `bridges --messages`와 `bridges --events`는 BasicMessageChannel의 `send` 호출과 EventChannel의 `receiveBroadcastStream` 수신을 위한 개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`/`"event-channel"`의 bridge-facts v2를내며, 채널 생성만 send로 바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을 유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은 선행 literal을 증명할 때만내며, 완전한 runtime 주소나 instance identity의 증명이 아닌 후보 prefix다. `--messages`와 `--events`는 함께 쓸 수 없다.
+- `compare <before> <after>`는 같은 패키지의 두 체크아웃을 비교해 추가·제거된 정점·간선·보존 루트와 새로 도달 불가능해지거나 도달 가능해진 것을 산출한다(새로 도달 불가능해진 선언은 before-path·제거된 간선·제거된 루트를 근거로 싣는다). `--since`와 달리 보고 위치를 필터링하는 게 아니라 두 그래프 전체를 비교한다.
+- `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1 형식으로 출력한다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이며, cartograph도 같은 형식을 생산한다. 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel은 기본 명령에서 사실로 읽히지 않고 한계로 집계된다.
+- `bridges --messages`와 `bridges --events`는 BasicMessageChannel의 `send` 호출과 EventChannel의 `receiveBroadcastStream` 수신을 위한 개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`/`"event-channel"`의 bridge-facts v2를 내며, 채널 생성만 send로 바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을 유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은 선행 literal을 증명할 때만 내며, 완전한 runtime 주소나 instance identity의 증명이 아닌 후보 prefix다. `--messages`와 `--events`는 함께 쓸 수 없다.
 - `impact`는 편집이 반영되기 전에 어떤 선언·테스트가 영향을 받는지 보고한다 — `--changed <file>`/`--symbol <id>`/`--since <ref>`로 시드를 주고 의존 경로를 근거로 싣는다. `runtime`은 실행 시점에만 드러나는 입력(환경변수·dart-define 읽기, 동적 로드, 설정 경로, 에셋, 외부 URL)을 찾아 현재 환경에 대해 판정하며, `--execute`는 진입점을 실행해 종료 코드와 stderr를 실행 증거로 남긴다.
 - `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고, `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `setup`은 Claude Code 연동을 출력하거나 `--install <root>`로 설치한다 — Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 프로젝트 `.mcp.json` 서버 항목. 기존 설정은 덮어쓰지 않고 병합한다.
-- `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 낸다.
-- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 실는다.
+- `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
+- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
-- `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
+- `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 명시적 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
 - `dead --closed-app`은 독립 실행 앱(Flutter 앱·CLI 실행 파일)에서 공개 API 보존을 끈다 — `lib/<package>.dart`가 export해도 `main`에서 도달하지 못하는 선언은 보고된다. `baseline --write --closed-app`과 짝을 이루며, 게시 라이브러리에는 쓰지 않는다.
 - `dartograph mcp`는 세 개의 질의·검증 도구 외에 MCP 리소스(`dartograph://usage`·`skill`·`config`)와 프롬프트(`impact-precheck`·`dead-code-review`·`dependency-audit`·`duplication-review`)도 노출한다.
 - 빌드 없는 VS Code 확장이 [마켓플레이스](https://marketplace.visualstudio.com/items?itemName=ictechgy.dartograph)에 게시됐다(소스: `editors/vscode/`) — CLI를 실행해 `dead`/`deps`/`dup`/`impact` JSON 발견을 Problems 진단으로 표시한다. 근거·한계를 유지하고 삭제 판정은 내리지 않는다. pub.dev의 [`dartograph_analysis_plugin`](https://pub.dev/packages/dartograph_analysis_plugin)은 `dead`/`dup` 발견을 `dart analyze`와 IDE 분석 서버의 `dartograph_dead_code`/`dartograph_duplicate_block` 진단으로 표시하고 `dartograph:ignore` quick fix를 제공한다.
 
-`// dartograph:ignore` 줄 주석은 그 주석이 위에 오는 선언의 dead 보고를 억제한다(`retentionReason: inlineIgnore`로 보존) — 저장소 작성자의 결정이며 그래프 자체에 기록된다.
+`// dartograph:ignore` 줄 주석은 바로 다음에 오는 선언의 dead 보고를 억제한다(`retentionReason: inlineIgnore`로 보존) — 저장소 작성자의 결정이며 그래프 자체에 기록된다.
 
 dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 삭제하지도 않는다. 모든 finding에 붙은 근거와 한계는 사람의 검토가 필요하다. 프로젝트 전역 도달성 도구이며 `dart analyze`의 라이브러리 내부 `unused_element`를 재구현한 것이 아니다.
 
@@ -114,7 +114,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - route table과 연결되지 않은 문자열 route는 한계로 보고되며 삭제 근거로 쓰이지 않는다.
 - 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다.
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
-- 프로젝트 안에 vendor한 local path dependency의 generated Pigeon/Dart source는 `dartograph.yaml`의 `source_packages`에 package root를 명시할 때만 그래프에 포함된다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 하며, 전체 pub cache를 순회하지 않는다.
+- 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.
