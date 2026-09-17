@@ -29,12 +29,6 @@ just as cartograph does for Swift after Periphery went commercial.
 - `query` and `skill` are built in from day one, designed to be consumed by
   coding agents.
 
-**Releases are published on
-[pub.dev](https://pub.dev/packages/dartograph) and
-[GitHub Releases](https://github.com/ictechgy/dartograph/releases).** Every
-release passes the full test suite, the line-coverage gate, and a package
-dry-run, and is dogfooded against real public Flutter plugins.
-
 ## Install
 
 dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
@@ -46,6 +40,12 @@ dart pub global activate dartograph
 dart install dartograph
 dartograph --version
 ```
+
+Releases are published on
+[pub.dev](https://pub.dev/packages/dartograph) and
+[GitHub Releases](https://github.com/ictechgy/dartograph/releases). Every
+release passes the full test suite, the line-coverage gate, and a package
+dry-run, and is dogfooded against real public Flutter plugins.
 
 ## Usage
 
@@ -122,8 +122,9 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `bridges` emits Flutter `MethodChannel` creation and
   `invokeMethod`/`invokeListMethod`/`invokeMapMethod` facts in
   [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md)
-  v1 — the bridge-fact format [isthmus](https://github.com/ictechgy/isthmus)
-  joins across platform boundaries (cartograph produces it too). Each fact
+  v1 — the bridge-fact format that
+  [isthmus](https://github.com/ictechgy/isthmus) joins across platform
+  boundaries; cartograph produces it too. Each fact
   carries MethodChannel provenance, lexical scope, UTF-8 positions, and UTC
   millisecond timestamps. Dynamic channel names remain facts; unattributed or
   malformed invocations, partial parses, and EventChannel/BasicMessageChannel
