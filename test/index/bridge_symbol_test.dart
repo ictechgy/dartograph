@@ -299,4 +299,82 @@ mixin M {
       expect(invocation['dynamic'], isFalse);
     },
   );
+
+  test(
+    'flutter services provenance is limited when package_config cannot verify it',
+    () async {
+      final root = await Directory.systemTemp.createTemp('bridge-provenance.');
+      addTearDown(() => root.delete(recursive: true));
+      await File('${root.path}/channel.dart').writeAsString('''
+import 'package:flutter/services.dart';
+final channel = MethodChannel('cam');
+void go() => channel.invokeMethod('take');
+''');
+
+      // package_config 자체가 없으면 URI 텍스트만으로는 출처를 증명할 수 없다.
+      // 사실은 버리지 않고 limitation으로 남기는 것이 계약이다.
+      final unverified = indexBridges(root.path);
+      expect(
+        unverified.limitations,
+        contains(startsWith('flutter-services-provenance-unverified:')),
+      );
+      expect(
+        unverified.facts.where((f) => f['kind'] == 'method-invoke'),
+        hasLength(1),
+      );
+
+      // dependency_overrides로 같은 이름의 로컬 패키지를 가리키게 해도 SDK·
+      // pub cache 레이아웃이 아니면 검증되지 않는다.
+      await Directory('${root.path}/.dart_tool').create();
+      await File('${root.path}/.dart_tool/package_config.json').writeAsString(
+        '''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "flutter", "rootUri": "../vendor/flutter", "packageUri": "lib/"}
+  ]
+}
+''',
+      );
+      final overridden = indexBridges(root.path);
+      expect(
+        overridden.limitations,
+        contains(startsWith('flutter-services-provenance-unverified:')),
+      );
+
+      // Flutter SDK 레이아웃(…/packages/flutter)으로 해석되고 내용 앵커가
+      // 있으면 검증된다.
+      await Directory(
+        '${root.path}/flutter_sdk/packages/flutter/lib',
+      ).create(recursive: true);
+      await File(
+        '${root.path}/flutter_sdk/packages/flutter/lib/services.dart',
+      ).writeAsString('// fake flutter services for provenance verification\n');
+      await File('${root.path}/.dart_tool/package_config.json').writeAsString(
+        '''
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "flutter",
+      "rootUri": "../flutter_sdk/packages/flutter",
+      "packageUri": "lib/"
+    }
+  ]
+}
+''',
+      );
+      final verified = indexBridges(root.path);
+      expect(
+        verified.limitations.where(
+          (s) => s.startsWith('flutter-services-provenance-unverified:'),
+        ),
+        isEmpty,
+      );
+      expect(
+        verified.facts.where((f) => f['kind'] == 'method-invoke'),
+        hasLength(1),
+      );
+    },
+  );
 }

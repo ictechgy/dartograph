@@ -640,6 +640,25 @@ void main() {
       final sorted = [...executed.limitations]..sort();
       expect(executed.limitations, sorted);
 
+      // 타임아웃으로 죽인 실행은 직계 PID만 대상이라 후손 생존 가능성을 남긴다.
+      final timedOut = _analyze(
+        const [],
+        execution: const RuntimeExecution(
+          entrypoint: 'bin/probe.dart',
+          exitCode: -1,
+          timedOut: true,
+          stderrSummary: '',
+        ),
+      );
+      expect(
+        timedOut.limitations,
+        contains(startsWith('execute-process-scope')),
+      );
+      expect(
+        executed.limitations,
+        isNot(contains(startsWith('execute-process-scope'))),
+      );
+
       // 실행 파일을 못 찾아 아무것도 실행하지 않은 경우는 "실행 실패"가 아니다.
       final unresolved = _analyze(
         const [],

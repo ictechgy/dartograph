@@ -69,6 +69,8 @@ BridgeIndexResult indexBridges(
   var flutterServicesReexports = 0;
   var parseErrorFiles = 0;
   var ffiInteropFiles = 0;
+  var sawFlutterServicesImport = false;
+  bool? flutterProvenanceVerified;
   // opt-in transport의 채널 종류다. 보조 유니버스는 BasicMessageChannel 또는
   // EventChannel 둘 중 하나만 담으므로 이 이름 하나면 충분하다.
   final auxChannelType = events ? 'EventChannel' : 'BasicMessageChannel';
@@ -103,6 +105,7 @@ BridgeIndexResult indexBridges(
         type: _flutterServicesPrefixes(parsed.unit, type),
     };
     if (flutterPrefixes.values.every((prefixes) => prefixes.isEmpty)) continue;
+    sawFlutterServicesImport = true;
 
     final constants = _topLevelStringConstants(
       parsed.unit,
@@ -215,6 +218,15 @@ BridgeIndexResult indexBridges(
           : 'unresolved-basic-message-sends: $unresolvedAuxCalls '
                 '${unresolvedAuxCalls == 1 ? 'send call has' : 'send calls have'} '
                 'no proven BasicMessageChannel receiver',
+    if (sawFlutterServicesImport &&
+        !(flutterProvenanceVerified ??= _flutterServicesProvenanceVerified(
+          root,
+        )))
+      'flutter-services-provenance-unverified: channel facts matched '
+          'package:flutter/services.dart textually, but the resolved flutter '
+          'package could not be verified against .dart_tool/package_config.json '
+          '(missing, malformed, or resolving outside the Flutter SDK/'
+          'pub-cache layout)',
     if (conditionalFlutterImports > 0)
       'conditional-flutter-services-imports: $conditionalFlutterImports Dart source '
           '${conditionalFlutterImports == 1 ? 'file has' : 'files have'} '
@@ -1359,6 +1371,75 @@ Map<String, _BridgeName> _topLevelStringConstants(
     }
   }
   return strings;
+}
+
+/// `package:flutter/services.dart`가 실제 Flutter 패키지를 가리키는지
+/// `.dart_tool/package_config.json`으로 확인한다.
+///
+/// 이 스캐너는 구문만 보므로 import URI 문자열 그 자체는 출처 증거가 못 된다 —
+/// dependency_overrides로 같은 URI를 로컬 코드로 끼워 넣으면 URI는 그대로다.
+/// pub 워크스페이스에서는 package_config가 워크스페이스 루트에만 생기므로
+/// [root]에서 조상으로 올라가며 가장 가까운 설정 파일을 찾는다. 확인이
+/// 불가능하거나 해석된 루트가 Flutter SDK(`…/packages/flutter`)·pub cache
+/// 레이아웃 밖이면 false다.
+///
+/// 이 검사는 레이아웃·내용 앵커(`lib/services.dart` 존재)를 보는 휴리스틱이다 —
+/// 저장소가 자기 package_config와 디렉터리를 함께 위조하면 통과할 수 있다.
+/// 우발적 잘못 연결을 걸러 한계를 표면화하는 것이 목적이다.
+bool _flutterServicesProvenanceVerified(Directory root) {
+  for (var dir = root; ; dir = dir.parent) {
+    final configFile = File(
+      p.join(dir.path, '.dart_tool', 'package_config.json'),
+    );
+    if (configFile.existsSync()) {
+      return _verifiedFlutterPackageEntry(configFile);
+    }
+    if (p.equals(dir.parent.path, dir.path)) return false;
+  }
+}
+
+/// [configFile]의 `flutter` 엔트리가 Flutter SDK·pub cache 레이아웃의 실제
+/// 패키지를 가리키는지 확인한다. 어떤 이유로든 확인이 안 되면 false다 —
+/// 호출자는 사실을 버리지 않고 limitation으로 남긴다.
+bool _verifiedFlutterPackageEntry(File configFile) {
+  try {
+    final decoded = jsonDecode(configFile.readAsStringSync());
+    if (decoded is! Map) return false;
+    final packages = decoded['packages'];
+    if (packages is! List) return false;
+    for (final entry in packages) {
+      if (entry is! Map || entry['name'] != 'flutter') continue;
+      final rootUri = entry['rootUri'];
+      if (rootUri is! String) continue;
+      // package_config의 rootUri는 package_config.json이 있는 .dart_tool/
+      // 디렉터리 기준 상대 URI다.
+      final resolved = configFile.absolute.uri.resolveUri(Uri.parse(rootUri));
+      if (!resolved.isScheme('file')) continue;
+      final segments = resolved.path
+          .split('/')
+          .where((segment) => segment.isNotEmpty)
+          .toList();
+      var layoutMatches =
+          segments.length >= 2 &&
+          segments[segments.length - 2] == 'packages' &&
+          segments.last == 'flutter';
+      for (var i = 0; !layoutMatches && i < segments.length - 1; i++) {
+        layoutMatches =
+            segments[i] == '.pub-cache' ||
+            (segments[i] == 'Pub' && segments[i + 1] == 'Cache');
+      }
+      if (!layoutMatches) continue;
+      // 레이아웃 문자열은 흉내 낼 수 있으므로 실제 패키지 내용 앵커를 요구한다.
+      if (File(
+        p.join(resolved.toFilePath(), 'lib', 'services.dart'),
+      ).existsSync()) {
+        return true;
+      }
+    }
+    return false;
+  } on Object {
+    return false;
+  }
 }
 
 Set<String?> _flutterServicesPrefixes(CompilationUnit unit, String type) => unit

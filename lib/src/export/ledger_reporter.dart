@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/result_ledger.dart';
+import 'report_escapes.dart';
 
 /// `history`가 지원하는 출력 형식이다.
 enum HistoryFormat {
@@ -47,10 +48,10 @@ abstract final class LedgerReporter {
               .join(',');
       output.writeln(
         '${entry.recordedAt.toUtc().toIso8601String()}  '
-        '${_escapeText(entry.command)}  exit=${entry.exitCode}  '
+        '${ReportEscapes.escapeText(entry.command)}  exit=${entry.exitCode}  '
         'failed=${entry.failedItems.length}  '
-        'commit=${_escapeText(entry.commit ?? '-')}  '
-        'inputs=${_escapeText(inputs)}',
+        'commit=${ReportEscapes.escapeText(entry.commit ?? '-')}  '
+        'inputs=${ReportEscapes.escapeText(inputs)}',
       );
     }
     if (result.isDamaged) {
@@ -61,29 +62,4 @@ abstract final class LedgerReporter {
 
   static String _skippedLimitation(int skipped) =>
       'ledger-skipped-lines: $skipped damaged line(s) were skipped on read';
-
-  /// text의 C0·DEL 가시 이스케이프(정상 입력은 바이트 불변).
-  static String _escapeText(String value) {
-    if (!value.runes.any(_isControlRune)) return value;
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_isControlRune(rune)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      switch (rune) {
-        case 0x0a:
-          output.write(r'\n');
-        case 0x0d:
-          output.write(r'\r');
-        case 0x09:
-          output.write(r'\t');
-        default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
 }

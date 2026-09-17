@@ -1,6 +1,7 @@
 import '../analysis/code_owners.dart';
 import '../analysis/reachability_analyzer.dart';
 import 'dead_reporter.dart';
+import 'report_escapes.dart';
 
 /// `dead --format codeowners`가 쓰는 CODEOWNERS 그룹 리포터다.
 ///
@@ -29,7 +30,9 @@ abstract final class CodeownersReporter {
       );
     final groups = <String, List<DeadFinding>>{};
     for (final finding in sorted) {
-      final ownerList = owners.ownersOf(_path(finding.source));
+      final ownerList = owners.ownersOf(
+        ReportEscapes.sourcePath(finding.source),
+      );
       final key = ownerList.isEmpty ? unowned : ownerList.join(', ');
       groups.putIfAbsent(key, () => []).add(finding);
     }
@@ -42,57 +45,31 @@ abstract final class CodeownersReporter {
     final output = StringBuffer();
     for (final key in keys) {
       final group = groups[key]!;
-      output.writeln('${_escapeText(key)}: ${group.length} finding(s)');
+      output.writeln(
+        '${ReportEscapes.escapeText(key)}: ${group.length} finding(s)',
+      );
       for (final finding in group) {
         final position = finding.line == null
-            ? _escapeText(_path(finding.source))
-            : '${_escapeText(_path(finding.source))}:${finding.line}:${finding.column ?? 1}';
+            ? ReportEscapes.escapeText(ReportEscapes.sourcePath(finding.source))
+            : '${ReportEscapes.escapeText(ReportEscapes.sourcePath(finding.source))}:${finding.line}:${finding.column ?? 1}';
         output.writeln(
-          '  $position: ${report.severity}: ${_escapeText(finding.kind)} '
-          '${_escapeText(finding.id)} — ${_escapeText(finding.reason)}',
+          '  $position: ${report.severity}: ${ReportEscapes.escapeText(finding.kind)} '
+          '${ReportEscapes.escapeText(finding.id)} — ${ReportEscapes.escapeText(finding.reason)}',
         );
         for (final limitation in finding.limitations) {
-          output.writeln('      limitation: ${_escapeText(limitation)}');
+          output.writeln(
+            '      limitation: ${ReportEscapes.escapeText(limitation)}',
+          );
         }
       }
     }
     final limits = limitations.toSet().toList()..sort();
     for (final limitation in limits) {
-      output.writeln('limitation: ${_escapeText(limitation)}');
+      output.writeln('limitation: ${ReportEscapes.escapeText(limitation)}');
     }
     output.writeln(
       '${report.label}: ${sorted.length} finding(s), $suppressedCount suppressed by baseline',
     );
     return output.toString();
   }
-
-  /// `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
-  static String _path(String source) => source.startsWith('project:')
-      ? source.substring('project:'.length)
-      : source;
-
-  /// text와 같은 C0·DEL 가시 이스케이프(정상 입력은 바이트 불변).
-  static String _escapeText(String value) {
-    if (!value.runes.any(_isControlRune)) return value;
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_isControlRune(rune)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      switch (rune) {
-        case 0x0a:
-          output.write(r'\n');
-        case 0x0d:
-          output.write(r'\r');
-        case 0x09:
-          output.write(r'\t');
-        default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
 }

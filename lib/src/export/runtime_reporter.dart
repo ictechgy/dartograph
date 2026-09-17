@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'report_escapes.dart';
 
 import '../runtime/runtime_facts.dart';
 import '../runtime/runtime_verifier.dart';
@@ -75,8 +76,8 @@ abstract final class RuntimeReporter {
     for (final kind in RuntimeFactKind.values) {
       for (final fact in report.detected[kind] ?? const <RuntimeFact>[]) {
         output.writeln(
-          '  ${fact.kind.key} ${_escapeText(fact.name)} at '
-          '${_location(fact)} — ${_escapeText(fact.detail)}',
+          '  ${fact.kind.key} ${ReportEscapes.escapeText(fact.name)} at '
+          '${_location(fact)} — ${ReportEscapes.escapeText(fact.detail)}',
         );
       }
     }
@@ -88,34 +89,34 @@ abstract final class RuntimeReporter {
       );
       for (final item in report.present) {
         output.writeln(
-          '  present ${_escapeText(item.fact.name)} at '
-          '${_location(item.fact)} — ${_escapeText(item.evidence)}',
+          '  present ${ReportEscapes.escapeText(item.fact.name)} at '
+          '${_location(item.fact)} — ${ReportEscapes.escapeText(item.evidence)}',
         );
       }
       for (final item in report.defaulted) {
         output.writeln(
-          '  defaulted ${_escapeText(item.fact.name)} at '
-          '${_location(item.fact)} — ${_escapeText(item.evidence)}',
+          '  defaulted ${ReportEscapes.escapeText(item.fact.name)} at '
+          '${_location(item.fact)} — ${ReportEscapes.escapeText(item.evidence)}',
         );
       }
       for (final item in report.missing) {
         output.writeln(
-          '  missing ${_escapeText(item.fact.name)} at '
-          '${_location(item.fact)} — ${_escapeText(item.evidence)}',
+          '  missing ${ReportEscapes.escapeText(item.fact.name)} at '
+          '${_location(item.fact)} — ${ReportEscapes.escapeText(item.evidence)}',
         );
       }
       output.writeln('unverified: ${report.unverified.length}');
       for (final item in report.unverified) {
         output.writeln(
-          '  ${_escapeText(item.fact.name)} at ${_location(item.fact)} '
-          '(${item.fact.channel.key}) — ${_escapeText(item.reason)}',
+          '  ${ReportEscapes.escapeText(item.fact.name)} at ${_location(item.fact)} '
+          '(${item.fact.channel.key}) — ${ReportEscapes.escapeText(item.reason)}',
         );
       }
       output.writeln('risk: ${report.risk.level} (${report.risk.score}/100)');
       for (final factor in report.risk.factors) {
         output.writeln(
           '  factor ${factor.name} (weight ${factor.weight}): '
-          '${_escapeText(factor.detail)}',
+          '${ReportEscapes.escapeText(factor.detail)}',
         );
       }
     } else {
@@ -133,18 +134,18 @@ abstract final class RuntimeReporter {
         // 실행 파일을 못 찾아 아무것도 실행하지 않았다. "exitCode 0"처럼
         // 읽히는 문장을 내지 않는다.
         output.writeln(
-          'execution: dart run ${_escapeText(execution.entrypoint)} '
-          'not run — ${_escapeText(reason)}',
+          'execution: dart run ${ReportEscapes.escapeText(execution.entrypoint)} '
+          'not run — ${ReportEscapes.escapeText(reason)}',
         );
       } else {
         output.writeln(
-          'execution: dart run ${_escapeText(execution.entrypoint)} '
+          'execution: dart run ${ReportEscapes.escapeText(execution.entrypoint)} '
           'exited ${execution.exitCode}'
           '${execution.timedOut ? ' (timed out)' : ''}',
         );
         final summary = execution.stderrSummary.trim();
         if (summary.isNotEmpty) {
-          output.writeln('  stderr: ${_escapeText(summary)}');
+          output.writeln('  stderr: ${ReportEscapes.escapeText(summary)}');
         }
       }
     }
@@ -155,7 +156,7 @@ abstract final class RuntimeReporter {
       );
     }
     for (final limitation in report.limitations) {
-      output.writeln('limitation: ${_escapeText(limitation)}');
+      output.writeln('limitation: ${ReportEscapes.escapeText(limitation)}');
     }
     return output.toString();
   }
@@ -197,8 +198,8 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---|---|');
       for (final fact in facts) {
         output.writeln(
-          '| `${_mdCell(fact.name)}` | `${_mdCell(_location(fact))}` | '
-          '${_mdCell(fact.detail)} |',
+          '| `${ReportEscapes.mdCell(fact.name)}` | `${ReportEscapes.mdCell(_location(fact))}` | '
+          '${ReportEscapes.mdCell(fact.detail)} |',
         );
       }
       output.writeln();
@@ -214,8 +215,8 @@ abstract final class RuntimeReporter {
         ...report.missing,
       ]) {
         output.writeln(
-          '| ${item.verdict.name} | `${_mdCell(item.fact.name)}` | '
-          '`${_mdCell(_location(item.fact))}` | ${_mdCell(item.evidence)} |',
+          '| ${item.verdict.name} | `${ReportEscapes.mdCell(item.fact.name)}` | '
+          '`${ReportEscapes.mdCell(_location(item.fact))}` | ${ReportEscapes.mdCell(item.evidence)} |',
         );
       }
       output.writeln();
@@ -229,8 +230,8 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---|---|');
       for (final item in report.unverified) {
         output.writeln(
-          '| `${_mdCell(item.fact.name)}` | '
-          '`${_mdCell(_location(item.fact))}` | ${_mdCell(item.reason)} |',
+          '| `${ReportEscapes.mdCell(item.fact.name)}` | '
+          '`${ReportEscapes.mdCell(_location(item.fact))}` | ${ReportEscapes.mdCell(item.reason)} |',
         );
       }
     }
@@ -244,8 +245,8 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---:|---|');
       for (final factor in report.risk.factors) {
         output.writeln(
-          '| ${_mdCell(factor.name)} | ${factor.weight} | '
-          '${_mdCell(factor.detail)} |',
+          '| ${ReportEscapes.mdCell(factor.name)} | ${factor.weight} | '
+          '${ReportEscapes.mdCell(factor.detail)} |',
         );
       }
     }
@@ -257,12 +258,12 @@ abstract final class RuntimeReporter {
       final reason = execution.unresolvedReason;
       if (reason != null) {
         output.writeln(
-          '`dart run ${_mdCell(execution.entrypoint)}` was not run — '
-          '${_mdCell(reason)}.',
+          '`dart run ${ReportEscapes.mdCell(execution.entrypoint)}` was not run — '
+          '${ReportEscapes.mdCell(reason)}.',
         );
       } else {
         output.writeln(
-          '`dart run ${_mdCell(execution.entrypoint)}` exited '
+          '`dart run ${ReportEscapes.mdCell(execution.entrypoint)}` exited '
           '${execution.exitCode}${execution.timedOut ? ' (timed out)' : ''}.',
         );
         if (execution.stderrSummary.trim().isNotEmpty) {
@@ -284,7 +285,7 @@ abstract final class RuntimeReporter {
     output.writeln('## Limitations');
     output.writeln();
     for (final limitation in report.limitations) {
-      output.writeln('- ${_mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
     }
     output.writeln();
     output.writeln(
@@ -307,13 +308,13 @@ abstract final class RuntimeReporter {
     for (final item in report.missing) {
       final properties = <String>[
         if (item.fact.source.startsWith('project:'))
-          'file=${_property(item.fact.source.substring('project:'.length))}',
+          'file=${ReportEscapes.githubProperty(ReportEscapes.sourcePath(item.fact.source))}',
         'line=${item.fact.line}',
         'col=${item.fact.column}',
       ];
       output.writeln(
         '::warning ${properties.join(',')},title=dartograph runtime::'
-        '${_message('missing ${item.fact.kind.key} ${item.fact.name} — '
+        '${ReportEscapes.githubMessage('missing ${item.fact.kind.key} ${item.fact.name} — '
         '${item.evidence}')}',
       );
     }
@@ -321,18 +322,18 @@ abstract final class RuntimeReporter {
     if (execution != null && execution.unresolved) {
       output.writeln(
         '::warning title=dartograph runtime::dart run '
-        '${_message(execution.entrypoint)} was not run — '
-        '${_message(execution.unresolvedReason!)}',
+        '${ReportEscapes.githubMessage(execution.entrypoint)} was not run — '
+        '${ReportEscapes.githubMessage(execution.unresolvedReason!)}',
       );
     } else if (execution != null && !execution.ok) {
       output.writeln(
         '::error title=dartograph runtime::dart run '
-        '${_message(execution.entrypoint)} exited ${execution.exitCode}',
+        '${ReportEscapes.githubMessage(execution.entrypoint)} exited ${execution.exitCode}',
       );
     }
     for (final limitation in report.limitations) {
       output.writeln(
-        '::notice title=dartograph limitation::${_message(limitation)}',
+        '::notice title=dartograph limitation::${ReportEscapes.githubMessage(limitation)}',
       );
     }
     return output.toString();
@@ -398,7 +399,7 @@ abstract final class RuntimeReporter {
     'locations': [
       {
         'physicalLocation': {
-          'artifactLocation': {'uri': _sarifUri(fact.source)},
+          'artifactLocation': {'uri': ReportEscapes.sarifUri(fact.source)},
           'region': {'startColumn': fact.column, 'startLine': fact.line},
         },
       },
@@ -417,78 +418,5 @@ abstract final class RuntimeReporter {
       report.detected.values.fold<int>(0, (sum, facts) => sum + facts.length);
 
   static String _location(RuntimeFact fact) =>
-      '${_path(fact.source)}:${fact.line}:${fact.column}';
-
-  /// `project:` 센티널을 벗겨 프로젝트 상대 경로를 남긴다.
-  static String _path(String source) => source.startsWith('project:')
-      ? source.substring('project:'.length)
-      : source;
-
-  /// text·markdown의 C0·DEL 가시 이스케이프(정상 입력은 바이트 불변).
-  static String _escapeText(String value) {
-    if (!value.runes.any(_isControlRune)) return value;
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_isControlRune(rune)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      switch (rune) {
-        case 0x0a:
-          output.write(r'\n');
-        case 0x0d:
-          output.write(r'\r');
-        case 0x09:
-          output.write(r'\t');
-        default:
-          output.write('\\x${rune.toRadixString(16).padLeft(2, '0')}');
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _isControlRune(int rune) => rune < 0x20 || rune == 0x7f;
-
-  /// Markdown 표 셀: 파이프와 개행을 이스케이프해 표 구조를 지킨다.
-  static String _mdCell(String value) =>
-      _escapeText(value).replaceAll('|', r'\|');
-
-  static String _property(String value) => _githubEncode(value, property: true);
-
-  static String _message(String value) => _githubEncode(value, property: false);
-
-  static String _githubEncode(String value, {required bool property}) {
-    if (!value.runes.any((rune) => _githubNeedsEncoding(rune, property))) {
-      return value;
-    }
-    final output = StringBuffer();
-    for (final rune in value.runes) {
-      if (!_githubNeedsEncoding(rune, property)) {
-        output.writeCharCode(rune);
-        continue;
-      }
-      for (final byte in utf8.encode(String.fromCharCode(rune))) {
-        output.write(
-          '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
-        );
-      }
-    }
-    return output.toString();
-  }
-
-  static bool _githubNeedsEncoding(int rune, bool property) =>
-      rune == 0x25 ||
-      rune < 0x20 ||
-      rune == 0x7f ||
-      (rune >= 0x80 && rune <= 0x9f) ||
-      rune == 0x2028 ||
-      rune == 0x2029 ||
-      (rune >= 0x202a && rune <= 0x202e) ||
-      (rune >= 0x2066 && rune <= 0x2069) ||
-      (property && (rune == 0x3a || rune == 0x2c));
-
-  /// SARIF artifact uri. `project:` 소스는 세그먼트 인코딩, 절대 URI는 그대로 둔다.
-  static String _sarifUri(String source) => source.startsWith('project:')
-      ? Uri(pathSegments: _path(source).split('/')).toString()
-      : source;
+      '${ReportEscapes.escapeText(ReportEscapes.sourcePath(fact.source))}:${fact.line}:${fact.column}';
 }
