@@ -4,6 +4,41 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.13.0
+
+- `runtime --execute` under `dart install`/`dart compile exe` builds resolves
+  the Dart SDK through the executable name, `DART_SDK`, then `PATH`, and
+  reports a reason instead of re-running itself. `DynamicLibrary.open` bare
+  library names stay unverifiable rather than failing a file check, and
+  `external` network detection reports only http(s) literals at `Uri.parse`
+  or known network-API argument positions (#108).
+- `dup` findings now sort by a total order — same-length three-way
+  duplicates compare the second instance too — and `dead`'s
+  `redundantPublic` no longer flags declarations retained structurally
+  (sealed subtypes, containers of reachable members): they are unobserved,
+  not internal-only (#110).
+- Symlinks whose targets escape the package root are still analyzed like
+  the analyzer does, but are now surfaced as `symlink-escape:` limitations
+  across analysis, `bridges`, and `runtime` outputs (#111).
+- MCP stdio framing bounds each JSON-RPC line to 1 MiB (oversized messages
+  answer `Invalid JSON` and the connection stays usable), and every tool's
+  `packageRoot` must resolve to an existing directory inside the server
+  working directory — outside, `..`, or symlink escapes are rejected as
+  argument errors. The generated Claude Code hook parses tool input with
+  python3/jq and a fail-closed sed fallback (#112).
+- Report escaping is centralized in `ReportEscapes` across all reporters;
+  `bridges` verifies `package:flutter/services.dart` provenance against
+  `.dart_tool/package_config.json` and records
+  `flutter-services-provenance-unverified` when it cannot; `--execute`
+  timeouts record `execute-process-scope` since only the direct child
+  process is killed (#114).
+- Performance: duplicate detection uses a rolling window hash, sealed
+  subtype propagation uses a precomputed inheritance index, `--since` and
+  impact matching resolve canonical paths in parallel, hosted/git
+  dependencies under the pub cache no longer hash their whole `lib/` into
+  the cache fingerprint (path dependencies still do), and `history` streams
+  the result ledger (#113).
+
 ## 0.12.0
 
 - Added `dartograph dup`, token-shingle duplicate-block detection with

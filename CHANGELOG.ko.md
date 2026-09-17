@@ -4,6 +4,37 @@
 
 ## Unreleased
 
+## 0.13.0
+
+- `runtime --execute`가 `dart install`/`dart compile exe` 배포본에서 실행
+  파일명, `DART_SDK`, `PATH` 순으로 Dart SDK를 해석하고 자기 재실행 대신
+  사유를 보고한다. `DynamicLibrary.open`의 맨 이름은 파일 존재 검사 대신
+  미판정으로 남기고, `external` 네트워크 탐지는 `Uri.parse`나 알려진
+  네트워크 API 인자 자리의 http(s) 리터럴만 보고한다 (#108).
+- `dup` 발견 정렬이 전순서가 됐다 — 같은 길이의 3-way 중복은 둘째 인스턴스
+  까지 비교한다. `dead`의 `redundantPublic`이 구조적으로만 보존된 선언
+  (sealed 서브타입·도달 멤버의 컨테이너)을 더는 지적하지 않는다 — 내부
+  전용이 아니라 미관측이다 (#110).
+- 패키지 루트 밖을 가리키는 심링크는 analyzer처럼 계속 따라가되
+  `symlink-escape:` limitation으로 드러낸다 — 분석·`bridges`·`runtime`
+  출력 모두에 (#111).
+- MCP stdio 프레이밍이 JSON-RPC 한 줄을 1MiB로 제한하고(초과 메시지는
+  `Invalid JSON` 응답, 연결은 유지), 모든 도구의 `packageRoot`가 서버 작업
+  디렉터리 안의 실제 디렉터리로 해석돼야 한다 — 경계 밖·`..`·심링크 우회는
+  인자 오류로 거부한다. 생성된 Claude Code 훅은 python3/jq와 실패 시 닫히는
+  sed 폴백으로 도구 입력을 해석한다 (#112).
+- 출력 이스케이프를 `ReportEscapes`로 통합했다. `bridges`가
+  `package:flutter/services.dart`의 provenance를
+  `.dart_tool/package_config.json`으로 검증하고 못 하면
+  `flutter-services-provenance-unverified`를 기록한다. `--execute`
+  타임아웃은 직계 프로세스만 죽이므로 `execute-process-scope`를 기록한다
+  (#114).
+- 성능: 중복 탐지가 롤링 윈도 해시를 쓰고, sealed 서브타입 전파가 미리 만든
+  상속 인덱스를 쓰며, `--since`·impact 매칭의 canonical 경로 해석을
+  병렬화하고, pub cache 아래 hosted/git 의존은 `lib/` 전체를 캐시 지문에
+  넣지 않는다(path 의존은 계속 넣는다). `history`가 원장을 스트리밍으로
+  읽는다 (#113).
+
 ## 0.12.0
 
 - `dartograph dup` 추가 — `--min-tokens`와 전 보고 형식을 지원하는 토큰
