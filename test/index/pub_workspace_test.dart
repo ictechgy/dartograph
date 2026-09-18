@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartograph/src/core/fact_cache.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:dartograph/src/index/dependency_tools.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -48,6 +49,35 @@ void main() {
       );
       expect(detail, contains('pkgs/pkg_a'));
       expect(detail, contains('pkgs/pkg_b'));
+    },
+  );
+
+  test(
+    'incremental runs report the same workspace limitation as a full scan',
+    () async {
+      final workspace = await _makeWorkspace();
+      addTearDown(() => workspace.delete(recursive: true));
+      final cacheDirectory = await Directory.systemTemp.createTemp(
+        'dartograph-incr.',
+      );
+      addTearDown(() => cacheDirectory.delete(recursive: true));
+      final index = AnalyzerGraphIndex(
+        incremental: IncrementalCache(cacheDirectory.path),
+      );
+
+      // 첫 실행으로 증분 상태를 채운 뒤 두 번째 실행이 증분 경로를 탄다.
+      // limitation은 분석 경로가 아니라 결과 조립에서 나오므로 양쪽이 같아야 한다.
+      final first = await index.index(workspace.path);
+      final second = await index.index(workspace.path);
+      for (final result in [first, second]) {
+        expect(
+          result.limitationDetails.where(
+            (detail) => detail.startsWith('workspace-members-not-indexed:'),
+          ),
+          isNotEmpty,
+        );
+      }
+      expect(second.limitationDetails, first.limitationDetails);
     },
   );
 

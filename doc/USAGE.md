@@ -348,7 +348,11 @@ tests=$(dartograph impact --since origin/main --format test-list .)
 빈 출력은 "영향받는 테스트 없음"이다 — 인자 없는 `dart test`는 전체 스위트를
 실행하므로 빈 출력 가드는 필수다(macOS/BSD `xargs`는 빈 입력을 건너뛰지만 GNU는
 `-r`이 필요하다). 목록이 비는 것은 "테스트가 안전하다"의 증명이 아니라 관측된
-테스트 의존이 없다는 뜻이다.
+테스트 의존이 없다는 뜻이다. 줄 단위 `xargs`·따옴표 없는 `$tests` 확장은 공백이
+들어간 경로를 나눠서 넘기므로, 경로에 공백이 있을 수 있으면 `xargs -d '\n'`(GNU)
+나 `while IFS= read -r` 루프를 쓴다. `--fail-on`과 조합할 때는 파이프라인 마지막
+명령의 종료 코드만 남으므로 `set -o pipefail`을 켜거나 결과를 변수에 담아
+확인한다.
 
 `--symbol`이 그래프에 없으면 `known:false`와 종료 코드 64로 구분한다(`query`·
 `dead --explain` 계열과 같다). `impact`는 관측된 의존 도달성이지 삭제 판정이 아니며,
@@ -562,7 +566,9 @@ steps:
 - `if: always()`는 분석 단계가 코드 1로 실패해도 업로드가 실행되게 한다.
   `continue-on-error`를 빼면 finding이 code scanning 경고 **와** CI 실패 둘 다가 된다.
 - 여러 보고를 올릴 때는 `category`를 보고 종류별로 구분한다(예: `dartograph-dead`,
-  `dartograph-impact`) — 구분 없이 올리면 같은 ruleId의 결과가 덮일 수 있다.
+  `dartograph-impact`) — 같은 category·tool로 다시 올리면 code scanning이 이전
+  업로드의 결과 전체를 새 run으로 교체하므로, 보고 종류를 나누지 않으면 서로
+  다른 분석이 서로를 지운다.
 - `artifactLocation.uri`는 **패키지 루트 기준 상대 경로**다. 저장소 루트에서
   실행하면 URI가 저장소 상대 경로와 일치해 code scanning이 파일을 바로 연다.
   하위 디렉터리에서 실행하면 그 하위 경로 기준 URI가 되므로 `working-directory`를

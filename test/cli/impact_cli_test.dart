@@ -376,22 +376,66 @@ void main() {
   });
 
   test('impact --format test-list is not truncated by --limit', () async {
+    // 영향받는 테스트가 2개인 그래프로 만든다 — 테스트가 1개뿐이면
+    // --limit 1이 테스트 목록을 자르는 잘못된 구현도 같은 출력을 낸다.
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:lib/a.dart::Foo',
+          sourceUri: 'project:lib/a.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:test/a_test.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:test/a_test.dart::main',
+          sourceUri: 'project:test/a_test.dart',
+        ),
+      )
+      ..addNode(GraphNode(id: 'project:test/b_test.dart', isLibrary: true))
+      ..addNode(
+        GraphNode(
+          id: 'project:test/b_test.dart::main',
+          sourceUri: 'project:test/b_test.dart',
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:test/a_test.dart::main',
+          targetId: 'project:lib/a.dart::Foo',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'project:test/b_test.dart::main',
+          targetId: 'project:lib/a.dart::Foo',
+          kind: EdgeKind.call,
+        ),
+      );
+    final twoTests = AnalyzerGraphResult(graph: graph, limitations: const []);
     final output = StringBuffer();
     expect(
-      await run([
-        'impact',
-        '--changed',
-        changedFile(['lib/a.dart']).path,
-        '--format',
-        'test-list',
-        '--limit',
-        '1',
-        directory.path,
-      ], output: output),
+      await runDartograph(
+        [
+          'impact',
+          '--changed',
+          changedFile(['lib/a.dart']).path,
+          '--format',
+          'test-list',
+          '--limit',
+          '1',
+          directory.path,
+        ],
+        output: output,
+        indexPackage: (_) async => twoTests,
+      ),
       0,
     );
-    // --limit은 impacted 목록만 자르고 테스트 선택은 항상 전체다.
-    expect(output.toString(), 'test/a_test.dart\n');
+    // --limit은 impacted 목록만 자르고 테스트 선택은 항상 전체다 — 두
+    // 테스트가 모두 나와야 잘림 구현과 구분된다.
+    expect(output.toString(), 'test/a_test.dart\ntest/b_test.dart\n');
   });
 
   test('impact --format test-list is empty when no test is affected', () async {

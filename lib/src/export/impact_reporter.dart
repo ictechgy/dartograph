@@ -66,14 +66,22 @@ abstract final class ImpactReporter {
   /// limitations를 싣지 않는다. 경로만 경로 순으로 정렬해 결정적이다.
   static String _testList(ImpactReport report) {
     final paths = <String>{
-      for (final test in report.tests)
-        // 소스가 없는 테스트는 정점 ID가 `project:` URI라 그대로 인자가 되지
-        // 못하므로 센티널을 벗겨 프로젝트 상대 경로로 맞춘다.
-        (test.source ?? test.id).startsWith('project:')
-            ? (test.source ?? test.id).substring('project:'.length)
-            : test.source ?? test.id,
+      for (final test in report.tests) _testPath(test),
     }.toList()..sort();
     return paths.isEmpty ? '' : '${paths.join('\n')}\n';
+  }
+
+  /// 테스트 라이브러리의 `dart test` 인자용 프로젝트 상대 경로다.
+  static String _testPath(ImpactedTest test) {
+    // 소스가 없는 테스트는 정점 ID가 `project:` URI라 그대로 인자가 되지
+    // 못하므로 센티널을 벗긴다. ID의 `::symbol` 접미사도 경로가 아니므로
+    // 함께 벗긴다 — `project:test/a_test.dart::main` → `test/a_test.dart`.
+    var value = test.source ?? test.id;
+    if (value.startsWith('project:')) {
+      value = value.substring('project:'.length);
+    }
+    final separator = value.indexOf('::');
+    return separator == -1 ? value : value.substring(0, separator);
   }
 
   static Map<String, Object> _document(

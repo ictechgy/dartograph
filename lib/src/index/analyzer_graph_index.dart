@@ -2363,10 +2363,9 @@ List<Directory> _readSourcePackages(String root) {
 /// source_packages는 이 매핑이 있어야만 analyzer가 실제 package URI/element를
 /// 보존할 수 있으므로, 해석되지 않은 path dependency를 파일로 가장하지 않는다.
 Map<String, String> _packageConfigRoots(String root) {
-  final file =
-      File(p.join(root, '.dart_tool', 'package_config.json')).existsSync()
-      ? File(p.join(root, '.dart_tool', 'package_config.json'))
-      : nearestPackageConfigFile(root);
+  // nearestPackageConfigFile은 root부터 조상으로 올라가므로 root 자체 검사를
+  // 앞에 중복할 필요가 없다.
+  final file = nearestPackageConfigFile(root);
   if (file == null) {
     throw const FormatException(
       'source_packages requires .dart_tool/package_config.json',
