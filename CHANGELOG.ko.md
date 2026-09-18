@@ -4,6 +4,27 @@
 
 ## Unreleased
 
+## 0.14.0
+
+- MCP 서버가 세션별 `dartograph-mcp-cache.*` 임시 디렉터리에
+  `packageRoot`별 하위 디렉터리를 둔 증분 캐시를 쓴다 — 한 세션의 반복
+  질의가 파일 단위 사실 캐시를 재사용한다. 캐시 생성·쓰기 실패는 결과
+  동등한 전체 해석으로 폴백하고 진단은 stderr에만 남기며(경로 미노출)
+  세션 종료 시 디렉터리를 지운다 (#117).
+- 읽기 전용 MCP 도구 `runtime_query` 추가 — `runtime --no-verify
+  --format json` 고정 인자의 정적 탐지 조회다. `packageRoot`와 선택
+  `limit`만 받고 실행·환경 주입·record·필터 인자는 거부한다 (#117).
+- `runtime --kinds <csv>`는 보고하는 사실 카테고리(`env`,`dynamicLoad`,
+  `config`,`asset`,`external`)를, `runtime --statuses <csv>`는 판정
+  절(`present`,`defaulted`,`missing`,`unverified`)을 좁힌다. 필터는
+  보고 목록만 좁히고 위험도·limitations·종료 코드는 필터 전 전체 분석
+  기준을 유지하며 `--limit`은 필터된 목록에 적용된다. `--statuses`는
+  `--no-verify`와 결합하지 않고 알 수 없는·빈·중복 값은 usage 오류다
+  (#117).
+- 런타임 보고서에 `unverifiedReasonCounts` 추가 — 미판정 사실을 사유
+  접두사별로 사전순 집계(접두사 없는 사유는 `unspecified`)해
+  JSON·text·markdown·SARIF 모두에 직렬화한다 (#117).
+
 ## 0.13.0
 
 - `runtime --execute`가 `dart install`/`dart compile exe` 배포본에서 실행

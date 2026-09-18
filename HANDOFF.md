@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구현·검증·GLM 리뷰까지 완료. main `bc2be20`, 릴리스 0.13.0; 아래 변경은 전부 미커밋 — 커밋·PR은 명시 요청 대기)_
+_Last updated: 2026-09-18 (개선 후속이 PR #117로 main에 머지됨 `bc2dbd0`, 릴리스 0.13.0 유지 — 미릴리스. 이 문서 변경만 미커밋)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
@@ -60,10 +60,11 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
   kinds/statuses 거부·계약 케이스)도 보강했다. 미반영: 실제 임시 디렉터리
   접두사 핀(테스트는 팩토리 주입이라 `dartograph-mcp-cache.` 이름 미검증) —
   테스트로 잡기 어려운 경계라 기록으로 남긴다.
-- **남은 일**: 커밋·PR·푸시는 아직 명시적으로 요청받지 않았으므로 임의 진행 금지.
-  사용자 승인 시 브랜치에서 Conventional Commits(본문 한국어)로 진행하고 main
-  직접 커밋 금지는 유지한다. JSON 문서는 additive 키(`unverifiedReasonCounts`)로
-  확장했으며 버전 범프 없이 v1을 유지하는 기존 방침을 따른다.
+- **머지 완료**: 사용자 승인으로 브랜치 `feat/mcp-cache-runtime-filters`의 두
+  커밋(+HANDOFF 정정)을 PR #117로 올려 CI 전부 통과·GLM 후속 리뷰 merge-ready
+  판정 뒤 머지했다(`bc2dbd0`, 머지 커밋). main이 `bc2dbd0`으로 갱신됐다.
+  JSON 문서는 additive 키(`unverifiedReasonCounts`)로 확장했으며 버전 범프
+  없이 v1을 유지하는 기존 방침을 따른다.
 - **주의**: `runtime_query`는 CLI runtime argv를 고정 문자열로 붙인다 — runtime 인자
   파싱을 바꾸면 mcp_server.dart의 고정 argv도 확인한다. 세션 캐시는 요청마다 서버를
   새로 띄우는 클라이언트 패턴에서 이득이 없다(doc/MCP.md 한계 절 기재됨).
@@ -174,13 +175,14 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
   GitHub Release(tag=v0.13.0) 공개. `dart pub global activate` 설치본 `--version` 0.13.0
   실측. VS Code 확장 `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
   (이전 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`.)
-- 로컬 Git 확인(2026-09-18): **main / origin/main `bc2be20`**, `v0.13.0`은 `6a1abfb`.
-  릴리스 뒤 #116 README 퇴고(`edbbe2b`)와 HANDOFF 기록 커밋이 있다. 원격 게시·열린 PR 상태는
-  이번 문서 작업에서 재조회하지 않았다.
-- **개선 후속 완료·PR #117 오픈(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
-  MCP 세션 캐시·`runtime_query`·runtime 집계/필터를 브랜치
-  `feat/mcp-cache-runtime-filters`의 두 커밋으로 PR #117에 올렸다. GLM 리뷰 2회
-  (초기 지적 반영 + 후속 merge-ready 판정) 완료. 머지·0.13.0 포함 여부는 별개다.
+- 로컬 Git 확인(2026-09-18): **main / origin/main `bc2dbd0`**(PR #117 머지),
+  `v0.13.0`은 `6a1abfb`. 릴리스 뒤 #116 README 퇴고(`edbbe2b`)·HANDOFF 기록·
+  이번 개선 후속 머지가 있다. 원격 게시·열린 PR 상태는 이번 문서 작업에서
+  재조회하지 않았다.
+- **개선 후속 완료·PR #117 머지(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
+  MCP 세션 캐시·`runtime_query`·runtime 집계/필터가 PR #117(`bc2dbd0`)로 main에
+  들어갔다. GLM 리뷰 2회(초기 지적 반영 + 후속 merge-ready 판정)와 CI 전부 통과.
+  미릴리스 상태 — 0.13.0에 포함되지 않았고 다음 릴리스 대상이다.
 - **완료된 범위(재개발 금지)**: #94의 impact/MCP/runtime·BasicMessageChannel,
   #96의 CLI 증분 분석·검증 원장·markdown/codeowners 리포터, #98/#100의 MCP 리소스/프롬프트·
   yaml 확장·dead/deps/dup `--kinds`·CODEOWNERS 문법 확장, #103의 EventChannel producer,
@@ -739,7 +741,7 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
 
 ## Blockers & Open Questions
 
-- 현재 MCP/runtime 후속은 PR #117로 열려 있으며 머지가 남은 상태다. 아래 종결·보류
+- 현재 MCP/runtime 후속은 PR #117로 main에 머지됐다(`bc2dbd0`). 아래 종결·보류
   기록을 새 필수 작업으로 되살리지 않는다.
 - **issue #38 — 양측 완전 종결·close 완료(2026-09-09, reason: completed)**:
   dartograph 측 (a)+(b) 구현·왕복 검증·0.5.0 릴리스(PR #52) + 의미론 코멘트
@@ -888,9 +890,8 @@ P7 및 설계 변경 후보는 새 근거·요청 없이는 재개하지 않는�
    (#110~#115 리뷰 수정·릴리스)까지, CLI 증분 분석·검증 원장(#96), MCP 리소스/프롬프트·
    yaml 확장·--kinds·CODEOWNERS(#98·#100), EventChannel producer(#103), README 퇴고(#116)는
    이미 완료됐다. Completed·Verification·감사 backlog의 처분 원장을 다시 열지 않는다.
-3. **2026-09-18 미커밋 후속은 완료됐다**: 구현·문서·검증·GLM 리뷰 반영까지 끝났고
-   게이트는 최종 트리에서 통과했다. 남은 것은 커밋·PR·푸시뿐이며 명시적 요청 없이
-   실행하지 않는다. 승인되면 브랜치에서 Conventional Commits로 진행한다.
+3. **2026-09-18 후속은 main에 머지됐다**(PR #117, `bc2dbd0`): 구현·문서·검증·
+   GLM 리뷰·CI·머지까지 완료. 다음 릴리스에 포함될 미릴리스 변경이다.
 4. 본 문서 정리는 완료했다. 그 외 명시적 지시가 없으면 다음 사용자 지시를 따른다.
    VS Code 아이콘 선택은 사용자 대기 항목이다.
 
@@ -908,12 +909,10 @@ review-fix PRs #110–#114, and the README polish (#116) are all done. The
 EventChannel `stream-listen` contract question is closed by user decision:
 calls are recorded as observed, and the README (en/ko) states that listening or
 receiving is not proven — do not reopen it. Read the 2026-09-18 section first:
-the improvement follow-up is complete but uncommitted — MCP session caching,
-runtime_query, runtime unverified-reason aggregation, and runtime
---kinds/--statuses filters are all implemented, documented, verified
-(dart analyze clean, dart test +577 all pass, contract/corpus/coverage gates
-pass), and GLM packet-reviewed. The only remaining step is commit/PR/push,
-which requires an explicit user request; work from a branch, never main.
+the improvement follow-up is merged to main via PR #117 (`bc2dbd0`, merge
+commit) — MCP session caching, runtime_query, runtime unverified-reason
+aggregation, and runtime --kinds/--statuses filters all shipped into main
+unreleased. Local main is at `bc2dbd0`; only this HANDOFF edit is uncommitted.
 Preserve HANDOFF-PROGRESS.md and icon drafts. Do not commit, push, or create
 a PR without an explicit request.
 
