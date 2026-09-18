@@ -6,6 +6,21 @@ import 'package:path/path.dart' as p;
 /// 스캐너가 같은 목록을 쓴다. 한쪽만 바뀌면 두 표면의 스캔 범위가 어긋난다.
 const indexExcludedDirectories = {'.dart_tool', '.git', 'build'};
 
+/// [root]에서 조상으로 올라가며 가장 가까운 `.dart_tool/package_config.json`을
+/// 돌려준다 — pub 워크스페이스 멤버는 자체 설정을 두지 않고 workspace 루트의
+/// 설정을 공유한다. 이 탐색은 `package:package_config`의 발견 규칙과 같아서
+/// analyzer·pub이 실제로 쓰는 파일과 같은 대상을 가리킨다. 찾지 못하면 null이다.
+File? nearestPackageConfigFile(String root) {
+  for (var directory = Directory(root); ; directory = directory.parent) {
+    final file = File(
+      p.join(directory.path, '.dart_tool', 'package_config.json'),
+    );
+    if (file.existsSync()) return file;
+    final parent = directory.parent;
+    if (p.equals(parent.path, directory.path)) return null;
+  }
+}
+
 /// [path]가 [root] 자체이거나 그 아래인지 플랫폼 구분자에 맞춰 확인한다.
 bool isPathWithinRoot(String path, String root, {p.Context? context}) {
   final paths = context ?? p.context;
