@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/cli/mcp_server.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
@@ -81,12 +82,188 @@ void main() {
         .toList();
   }
 
+  Future<List<Map<String, Object?>>> exchangeDefault(
+    Stream<Object?> messages, {
+    Future<Directory> Function()? createCacheDirectory,
+    IndexPackage? indexPackage,
+  }) async {
+    final output = StringBuffer();
+    await runMcpServer(
+      input: messages.map(jsonEncode),
+      output: output,
+      error: diagnostics,
+      allowedRootBase: directory.path,
+      createCacheDirectory: createCacheDirectory,
+      indexPackage: indexPackage,
+    );
+    return const LineSplitter()
+        .convert(output.toString())
+        .map((line) => jsonDecode(line) as Map<String, Object?>)
+        .toList();
+  }
+
+  String textOf(Map<String, Object?> response) =>
+      (((response['result'] as Map)['content'] as List).single as Map)['text']
+          as String;
+
+  File writeSource(String root, String source) =>
+      File(p.join(root, 'lib/a.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(source);
+
+  Future<Directory> createCache() async {
+    final created = await Directory.systemTemp.createTemp('mcp-cache-test.');
+    scratch.add(created);
+    addTearDown(() async {
+      if (await created.exists()) await created.delete(recursive: true);
+    });
+    return created;
+  }
+
   Object request(int id, String method, [Object? params]) => {
     'jsonrpc': '2.0',
     'id': id,
     'method': method,
     'params': ?params,
   };
+
+  Object query(int id, String root, [String symbol = 'Foo']) =>
+      request(id, 'tools/call', {
+        'name': dependencyToolName,
+        'arguments': {'packageRoot': root, 'symbol': symbol},
+      });
+
+  test('session cache reuses facts, refreshes edits and cleans up', () async {
+    final source = writeSource(directory.path, 'class Foo {}');
+    Stream<Object?> messages() async* {
+      yield request(1, 'ping');
+      expect(scratch, isEmpty);
+      yield query(2, directory.path);
+      final facts = File(p.join(scratch.single.path, 'package-0/facts.json'));
+      expect(facts.existsSync(), isTrue);
+      final saved = facts.readAsStringSync();
+      final timestamp = DateTime(2000);
+      facts.setLastModifiedSync(timestamp);
+      yield query(3, directory.path);
+      expect(facts.readAsStringSync(), saved);
+      expect(facts.lastModifiedSync(), timestamp);
+      source.writeAsStringSync('class Bar {}');
+      yield query(4, directory.path);
+      yield query(5, directory.path, 'Bar');
+    }
+
+    final responses = await exchangeDefault(
+      messages(),
+      createCacheDirectory: createCache,
+    );
+    expect(textOf(responses[1]), startsWith('exitCode: 0\n'));
+    expect(responses[1]['result'], responses[2]['result']);
+    expect(textOf(responses[3]), startsWith('exitCode: 64\n'));
+    expect(textOf(responses[4]), startsWith('exitCode: 0\n'));
+    expect(scratch.single.existsSync(), isFalse);
+    expect(diagnostics.toString(), isEmpty);
+  });
+
+  test('cache creation failure falls back to full analysis', () async {
+    writeSource(directory.path, 'class Foo {}');
+    final responses = await exchangeDefault(
+      Stream.fromIterable([request(1, 'ping'), query(2, directory.path)]),
+      createCacheDirectory: () async {
+        throw const FileSystemException('cache unavailable');
+      },
+    );
+    expect(textOf(responses[1]), startsWith('exitCode: 0\n'));
+    expect(diagnostics.toString(), contains('temporary cache unavailable'));
+  });
+
+  test('cache write failure falls back without changing the result', () async {
+    final source = writeSource(directory.path, 'class Foo {}');
+    Stream<Object?> messages() async* {
+      yield query(1, directory.path);
+      final facts = File(p.join(scratch.single.path, 'package-0/facts.json'));
+      facts.deleteSync();
+      Directory(facts.path).createSync();
+      source.writeAsStringSync('class Foo {}\nclass Bar {}');
+      yield query(2, directory.path, 'Bar');
+      yield query(3, directory.path, 'Bar');
+    }
+
+    final responses = await exchangeDefault(
+      messages(),
+      createCacheDirectory: createCache,
+    );
+    expect(textOf(responses[1]), startsWith('exitCode: 0\n'));
+    expect(responses[1]['result'], responses[2]['result']);
+    expect(diagnostics.toString(), contains('temporary cache unavailable'));
+    expect(diagnostics.toString(), isNot(contains(scratch.single.path)));
+    expect(scratch.single.existsSync(), isFalse);
+  });
+
+  test(
+    'injected indexer is called each time without creating a cache',
+    () async {
+      var calls = 0;
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          query(1, directory.path),
+          query(2, directory.path),
+        ]),
+        createCacheDirectory: () async => throw StateError('must stay lazy'),
+        indexPackage: (_) async {
+          calls++;
+          return indexed;
+        },
+      );
+      expect(calls, 2);
+      expect(responses[0]['result'], responses[1]['result']);
+      expect(textOf(responses[0]), startsWith('exitCode: 0\n'));
+      expect(diagnostics.toString(), isEmpty);
+    },
+  );
+  test('separate packageRoots get isolated cache directories', () async {
+    final other = Directory(p.join(directory.path, 'other'))
+      ..createSync(recursive: true);
+    writeSource(directory.path, 'class Foo {}');
+    writeSource(other.path, 'class Bar {}');
+    Stream<Object?> messages() async* {
+      yield query(1, directory.path);
+      final first = File(p.join(scratch.single.path, 'package-0/facts.json'));
+      final saved = first.readAsStringSync();
+      yield query(2, other.path, 'Bar');
+      expect(first.readAsStringSync(), saved);
+      expect(
+        File(p.join(scratch.single.path, 'package-1/facts.json')).existsSync(),
+        isTrue,
+      );
+      yield query(3, directory.path, 'Bar');
+      yield query(4, other.path, 'Foo');
+    }
+
+    final responses = await exchangeDefault(
+      messages(),
+      createCacheDirectory: createCache,
+    );
+    expect(textOf(responses[0]), startsWith('exitCode: 0\n'));
+    expect(textOf(responses[1]), startsWith('exitCode: 0\n'));
+    expect(textOf(responses[2]), startsWith('exitCode: 64\n'));
+    expect(textOf(responses[3]), startsWith('exitCode: 64\n'));
+    expect(scratch.single.existsSync(), isFalse);
+  });
+
+  test('abnormal server exit still deletes the cache directory', () async {
+    writeSource(directory.path, 'class Foo {}');
+    Stream<Object?> messages() async* {
+      yield query(1, directory.path);
+      expect(scratch.single.existsSync(), isTrue);
+      throw const FileSystemException('client hung up');
+    }
+
+    await expectLater(
+      exchangeDefault(messages(), createCacheDirectory: createCache),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(scratch.single.existsSync(), isFalse);
+  });
 
   test(
     'initialize negotiates the protocol and reports the server version',
@@ -408,7 +585,7 @@ void main() {
     expect(responses.single, isNot(contains('error')));
   });
 
-  test('tools/list exposes the three read-only tools with schemas', () async {
+  test('tools/list exposes the read-only tools with schemas', () async {
     final responses = await exchange([request(2, 'tools/list')]);
 
     final tools = ((responses.single['result'] as Map)['tools'] as List)
@@ -417,6 +594,7 @@ void main() {
       impactToolName,
       dependencyToolName,
       verifyToolName,
+      'runtime_query',
     ]);
     for (final tool in tools) {
       final schema = tool['inputSchema'] as Map<String, Object?>;
@@ -424,6 +602,139 @@ void main() {
       expect((schema['required'] as List), contains('packageRoot'));
     }
   });
+
+  test('runtime_query answers static facts and never executes code', () async {
+    File(p.join(directory.path, 'lib', 'env.dart'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        "import 'dart:io';\n"
+        "String? token() => Platform.environment['MCP_RUNTIME_TOKEN'];\n",
+      );
+
+    final responses = await exchange([
+      request(80, 'tools/call', {
+        'name': 'runtime_query',
+        'arguments': {'packageRoot': directory.path},
+      }),
+      request(81, 'tools/call', {
+        'name': 'runtime_query',
+        'arguments': {'packageRoot': directory.path, 'execute': true},
+      }),
+      request(82, 'tools/call', {
+        'name': 'runtime_query',
+        'arguments': {'packageRoot': directory.path, 'env': 'A=B'},
+      }),
+    ]);
+
+    final result = responses[0]['result'] as Map<String, Object?>;
+    expect(result['isError'], isFalse);
+    final text =
+        ((result['content'] as List)
+                .cast<Map<String, Object?>>()
+                .single['text'])
+            as String;
+    expect(text, startsWith('exitCode: 0'));
+    final report =
+        jsonDecode(text.substring(text.indexOf('\n'))) as Map<String, Object?>;
+    expect(report['version'], 1);
+    expect(
+      ((report['detected'] as Map)['env'] as List).single['name'],
+      'MCP_RUNTIME_TOKEN',
+    );
+    expect(report['execution'], isNull);
+    expect(report['verified'], {'present': [], 'defaulted': [], 'missing': []});
+    expect(report['unverified'], isEmpty);
+    final cliOutput = StringBuffer();
+    final cliError = StringBuffer();
+    final status = await runDartograph(
+      ['runtime', '--no-verify', '--format', 'json', directory.path],
+      output: cliOutput,
+      error: cliError,
+    );
+    expect(text, 'exitCode: $status\n$cliOutput');
+    expect(cliError.toString(), isEmpty);
+    final rejected = responses[1]['result'] as Map<String, Object?>;
+    expect(rejected['isError'], isTrue);
+    expect(
+      ((rejected['content'] as List).single as Map)['text'],
+      contains('Unsupported option'),
+    );
+    final rejectedEnv = responses[2]['result'] as Map<String, Object?>;
+    expect(rejectedEnv['isError'], isTrue);
+    expect(
+      ((rejectedEnv['content'] as List).single as Map)['text'],
+      contains('Unsupported option'),
+    );
+  });
+
+  test(
+    'runtime_query rejects all non-static options and invalid limits',
+    () async {
+      final invalid = <Map<String, Object?>>[
+        for (final key in [
+          'execute',
+          '--execute',
+          'verify',
+          'noVerify',
+          'env',
+          'dartDefine',
+          'dart-define',
+          'format',
+          'record',
+          'failOn',
+          'incremental',
+          'kinds',
+          'statuses',
+        ])
+          {key: 'private-input'},
+        for (final limit in [0, -1, '1', 1.5, true, null]) {'limit': limit},
+      ];
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          for (var index = 0; index < invalid.length; index++)
+            request(index, 'tools/call', {
+              'name': 'runtime_query',
+              'arguments': {'packageRoot': directory.path, ...invalid[index]},
+            }),
+        ]),
+        createCacheDirectory: () async => throw StateError('must stay lazy'),
+      );
+      for (final response in responses) {
+        expect((response['result'] as Map)['isError'], isTrue);
+        expect(textOf(response), startsWith('Invalid arguments:'));
+        expect(textOf(response), isNot(contains('private-input')));
+      }
+      expect(diagnostics.toString(), isEmpty);
+    },
+  );
+
+  test(
+    'runtime_query limits static facts without creating an index cache',
+    () async {
+      writeSource(
+        directory.path,
+        "import 'dart:io';\n"
+        "String? first() => Platform.environment['FIRST'];\n"
+        "String? second() => Platform.environment['SECOND'];\n",
+      );
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          request(1, 'tools/call', {
+            'name': 'runtime_query',
+            'arguments': {'packageRoot': directory.path, 'limit': 1},
+          }),
+        ]),
+        createCacheDirectory: createCache,
+      );
+      final text = textOf(responses.single);
+      expect(text, startsWith('exitCode: 0\n'));
+      final report = jsonDecode(text.substring(text.indexOf('\n'))) as Map;
+      expect((report['detected'] as Map)['env'], hasLength(1));
+      expect((report['truncated'] as Map)['detected'], 1);
+      expect(report['execution'], isNull);
+      expect(scratch, isEmpty);
+    },
+  );
 
   test(
     'impact_query answers a JSON impact document and cleans scratch files',

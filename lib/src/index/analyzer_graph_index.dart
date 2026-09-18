@@ -441,13 +441,16 @@ final class AnalyzerGraphIndex {
   }
 }
 
-/// 사실 캐시를 갱신하지 못했다는 limitation 문구다.
+/// 사실 캐시를 갱신하지 못했다는 limitation의 접두사다.
 ///
 /// 디렉터리 경로를 넣지 않는다 — 출력에 사용자 경로를 반향하지 않는다는 기존
-/// 경계를 따른다. 분석 결과 자체는 완전하다.
+/// 경계를 따른다. MCP 세션 캐시처럼 limitation 접두사로 쓰기 실패를 감지하는
+/// 소비자와 공유하므로 바꾸면 그쪽 감지도 함께 바뀐다. 분석 결과 자체는 완전하다.
+const incrementalCacheWriteFailurePrefix = 'incremental-cache-write-failed:';
+
 const _cacheWriteFailureDetail =
-    'incremental-cache-write-failed: analysis is complete but the fact cache '
-    'was not updated';
+    '$incrementalCacheWriteFailurePrefix analysis is complete but the fact '
+    'cache was not updated';
 
 /// [path]를 루트 기준 posix 상대 경로로 바꾼다. 루트 밖이면 null이다.
 String? _relativeSourcePath(String path, String root) {

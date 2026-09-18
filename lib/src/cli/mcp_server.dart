@@ -5,8 +5,10 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../core/fact_cache.dart';
 import '../core/tool_info.dart';
-import '../index/project_files.dart';
+import '../index/analyzer_graph_index.dart';
+import '../index/incremental_cache.dart';
 import 'agent_skill.dart';
 import 'configuration_template.dart';
 import 'dartograph_cli.dart';
@@ -32,6 +34,8 @@ const dependencyToolName = 'dependency_query';
 
 /// `verify_run` 도구 이름이다.
 const verifyToolName = 'verify_run';
+
+const _runtimeToolName = 'runtime_query';
 
 /// stdio 프레이밍의 JSON-RPC 메시지 한 줄 상한(바이트)이다. 개행 없는 입력이
 /// 라인 버퍼를 무제한으로 키우지 못하게 한다 — 다른 입력 경로(설정·배치
@@ -93,6 +97,7 @@ Future<int> runMcpServer({
   IndexPackage? indexPackage,
   ChangedFilesSince? changedFilesSince,
   Future<Directory> Function()? createScratch,
+  Future<Directory> Function()? createCacheDirectory,
   String? allowedRootBase,
 }) async {
   final scratchFactory =
@@ -102,6 +107,35 @@ Future<int> runMcpServer({
   final rootBoundary = Directory(
     allowedRootBase ?? Directory.current.path,
   ).absolute.resolveSymbolicLinksSync();
+  final session = _McpIndexSession(
+    createCacheDirectory ??
+        () => Directory.systemTemp.createTemp('dartograph-mcp-cache.'),
+    error,
+  );
+  try {
+    return await _serveMcpRequests(
+      input: input,
+      output: output,
+      error: error,
+      indexPackage: indexPackage ?? session.index,
+      changedFilesSince: changedFilesSince,
+      scratchFactory: scratchFactory,
+      rootBoundary: rootBoundary,
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+Future<int> _serveMcpRequests({
+  required Stream<String> input,
+  required StringSink output,
+  required StringSink error,
+  required IndexPackage indexPackage,
+  required ChangedFilesSince? changedFilesSince,
+  required Future<Directory> Function() scratchFactory,
+  required String rootBoundary,
+}) async {
   await for (final line in input) {
     if (line.trim().isEmpty) continue;
     Object? message;
@@ -258,6 +292,73 @@ Future<int> runMcpServer({
   return ExitStatus.success.code;
 }
 
+final class _McpIndexSession {
+  _McpIndexSession(this.createDirectory, this.error);
+
+  final Future<Directory> Function() createDirectory;
+  final StringSink error;
+  final directories = <String, String>{};
+  Directory? directory;
+  bool isDisabled = false;
+
+  Future<AnalyzerGraphResult> index(String root) async {
+    if (isDisabled) return _fullIndex(root);
+    try {
+      directory ??= await createDirectory();
+    } on Object {
+      return _fallback(root);
+    }
+    final cachePath = directories.putIfAbsent(
+      root,
+      () => p.join(directory!.path, 'package-${directories.length}'),
+    );
+    final result = await AnalyzerGraphIndex(
+      incremental: IncrementalCache(cachePath),
+    ).index(root);
+    if (result.limitationDetails.any(
+      (detail) => detail.startsWith(incrementalCacheWriteFailurePrefix),
+    )) {
+      return _fallback(root);
+    }
+    return result;
+  }
+
+  Future<AnalyzerGraphResult> _fallback(String root) {
+    isDisabled = true;
+    error.writeln(
+      'dartograph mcp: temporary cache unavailable; using full analysis for '
+      'this session. Check OS temporary storage permissions and free space.',
+    );
+    return _fullIndex(root);
+  }
+
+  Future<AnalyzerGraphResult> _fullIndex(String root) =>
+      AnalyzerGraphIndex(cache: const _McpUncachedFacts()).index(root);
+
+  Future<void> close() async {
+    final owned = directory;
+    if (owned == null) return;
+    try {
+      await owned.delete(recursive: true);
+    } on FileSystemException {
+      error.writeln(
+        'dartograph mcp: temporary cache cleanup failed; check OS temporary '
+        'storage permissions and clean up abandoned dartograph-mcp-cache directories.',
+      );
+    }
+  }
+}
+
+final class _McpUncachedFacts implements FactCache {
+  const _McpUncachedFacts();
+
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> write(String key, String payload) async {}
+}
+
 /// 도구 정의(이름·설명·입력 스키마)를 결정적 순서로 돌려준다.
 List<Map<String, Object?>> get _toolDefinitions => [
   {
@@ -378,6 +479,27 @@ List<Map<String, Object?>> get _toolDefinitions => [
         },
       },
       'required': ['packageRoot', 'command'],
+      'additionalProperties': false,
+    },
+  },
+  {
+    'name': _runtimeToolName,
+    'description':
+        'Look up static runtime dependency facts (environment variables, '
+        'dart-define, dynamic loading, config files, assets, external '
+        'services). Returns runtime --no-verify --format json output. '
+        'No host environment or file presence verification, and no code '
+        'execution. Read-only.',
+    'inputSchema': {
+      'type': 'object',
+      'properties': {
+        'packageRoot': {
+          'type': 'string',
+          'description': 'Package root directory to analyze.',
+        },
+        'limit': {'type': 'integer', 'minimum': 1},
+      },
+      'required': ['packageRoot'],
       'additionalProperties': false,
     },
   },
@@ -605,7 +727,8 @@ Future<Map<String, Object?>?> _callTool({
 }) async {
   if (name != impactToolName &&
       name != dependencyToolName &&
-      name != verifyToolName) {
+      name != verifyToolName &&
+      name != _runtimeToolName) {
     return null;
   }
   final root = arguments['packageRoot'];
@@ -642,6 +765,8 @@ Future<Map<String, Object?>?> _callTool({
         indexPackage: indexPackage,
         changedFilesSince: changedFilesSince,
       );
+    case _runtimeToolName:
+      return _runtimeTool(root: resolvedRoot, arguments: arguments);
     default:
       return null;
   }
@@ -874,6 +999,25 @@ Future<Map<String, Object?>> _verifyTool({
     indexPackage: indexPackage,
     changedFilesSince: changedFilesSince,
   );
+}
+
+Future<Map<String, Object?>> _runtimeTool({
+  required String root,
+  required Map<String, Object?> arguments,
+}) async {
+  if (arguments.keys.any((key) => key != 'packageRoot' && key != 'limit')) {
+    return _toolError(
+      'Unsupported option; only packageRoot and limit are allowed',
+    );
+  }
+  final args = <String>['runtime', '--no-verify', '--format', 'json'];
+  final limit = arguments['limit'];
+  if (arguments.containsKey('limit') && (limit is! int || limit < 1)) {
+    return _toolError('limit must be an integer >= 1');
+  }
+  if (limit != null) args.addAll(['--limit', '$limit']);
+  args.add(root);
+  return await _runCapture(args);
 }
 
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.
