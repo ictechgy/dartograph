@@ -21,6 +21,14 @@ dartograph mcp
   알 수 없는 리소스 URI는 `-32002`로 답하고 서버는 계속 동작한다.
 - 도구는 **읽기 전용**이다. 저장소를 수정하지 않으며 `changed`·`batch` 배열은 OS 임시
   디렉터리에 잠깐 쓰고 호출이 끝나면 지운다.
+- 세션 임시 캐시: `injected indexPackage`가 없으면 서버는 첫 색인 요청에서
+  `dartograph-mcp-cache.*` OS 임시 디렉터리를 만들고, 그 안의 패키지별 하위
+  디렉터리에 CLI의 파일 단위 증분 캐시(`IncrementalCache`)를 둔다. 반복 질의는
+  변경된 파일과 그 역방향 import 폐쇄만 다시 해석한다. 서버 세션이 끝나면
+  디렉터리를 지운다 — 임시 캐시는 서버가 소유하며 다른 세션이나 CLI와 공유하지
+  않는다. 다른 packageRoot는 서로 다른 하위 디렉터리를 써서 키가 섞이지 않게
+  분리된다. 캐시 생성·쓰기가 실패하면 그 세션은 전체 해석으로 폴백하고 결과는
+  동등하다(실패 사실은 stderr 진단으로만 남고 경로는 출력하지 않는다).
 
 ## 클라이언트 설정 예시
 
@@ -100,6 +108,24 @@ exitCode: 0
 `symbol`·`batch` 중 정확히 하나를 준다. `notFound`·`ambiguous`는 오류가 아니라 정상
 결과로 돌아오며 부분 미발견이면 `exitCode: 64`다.
 
+### `runtime_query`
+
+정적 런타임 의존성 사실 조회다. `runtime --no-verify --format json`과 완전히 같은
+출력·종료 코드를 돌려준다 — 탐지만 수행하고 호스트 환경·파일 존재 판정은
+하지 않는다. `--execute`, `--env`, `--dart-define`, `--fail-on`, `--record` 같은
+실행·환경 주입 인자는 이 도구 표면에 없으며 주면 인자 오류(`isError: true`)로
+거부된다. 이 도구는 어떤 경우에도 코드를 실행하지 않는다.
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `packageRoot` | string | ✔ | 분석할 패키지 루트 |
+| `limit` | integer ≥1 | | 카테고리별 보고 항목 수 제한 |
+
+응답 텍스트 첫 줄은 `exitCode: 0`이고 이어서 runtime-report version 1 JSON이
+온다. `detected`·`limitations`는 채워지고 `verified`·`unverified`·`execution`은
+비어 있다. 프로세스 환경은 판정에 쓰이지 않지만 탐지 결과에 환경 변수 **이름**은
+실린다 — 값은 이 도구에서도 CLI와 같이 절대 출력하지 않는다.
+
 ### `verify_run`
 
 검증을 실행하고 **종료 코드와 원시 출력**을 함께 돌려준다.
@@ -163,7 +189,7 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
 
 ## 도구 스키마 (`tools/list`)
 
-`tools/list`가 돌려주는 입력 스키마의 정본이다(설명 필드는 생략). 세 도구 모두
+`tools/list`가 돌려주는 입력 스키마의 정본이다(설명 필드는 생략). 네 도구 모두
 `additionalProperties: false`이고 `packageRoot`가 필수다.
 
 ```json
@@ -215,6 +241,18 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "format": {"type": "string", "enum": ["text", "json", "markdown", "github-actions", "sarif"]}
       },
       "required": ["packageRoot", "command"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "runtime_query",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "packageRoot": {"type": "string"},
+        "limit": {"type": "integer", "minimum": 1}
+      },
+      "required": ["packageRoot"],
       "additionalProperties": false
     }
   }
@@ -278,10 +316,15 @@ printf '%s\n' \
 
 ## 한계
 
-- 도구는 단일 호출마다 패키지를 다시 인덱싱한다(분석 캐시가 없으면 느리다). 반복
-  질의가 많으면 `dependency_query`의 `batch`로 왕복을 줄인다. CLI의 파일별 증분
-  캐시(`--incremental <dir>`)는 MCP 도구가 노출하지 않는다 — 호출 사이에 사실을
-  재사용해야 하면 CLI를 직접 쓴다([USAGE.md](USAGE.md)의 `--incremental`).
+- 서버 세션 임시 캐시가 있으면 그래프를 색인하는 도구(`impact_query`·
+  `dependency_query`·`verify_run`)는 파일 단위 증분 재해석으로 반복 질의를
+  빠르게 답한다. `runtime_query`는 이 캐시를 쓰지 않고 매 호출 정적 탐지를
+  새로 한다. 캐시는 세션 소유이므로 세션마다 처음 한 번은 전체 색인 비용이
+  들고, 서버를 자주 띄우는 호출 패턴에는 이득이 없다. 파일 변경은 다음 호출에서
+  최신 사실로 반영되지만 캐시 삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수
+  있다(stderr 진단으로 알린다). CLI의 파일별 증분 캐시(`--incremental <dir>`)는
+  MCP 도구가 노출하지 않는다 — 세션 간에 사실을 재사용해야 하면 CLI를 직접
+  쓴다([USAGE.md](USAGE.md)의 `--incremental`).
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.
   동적 디스패치·문자열 route·생성 코드는 근거를 제한할 수 있고, 그 사실은 각 문서의
   `limitations`에 실린다.

@@ -54,6 +54,7 @@ abstract final class RuntimeReporter {
       'missing': [for (final item in report.missing) item.toJson()],
     },
     'unverified': [for (final item in report.unverified) item.toJson()],
+    'unverifiedReasonCounts': report.unverifiedReasonCounts,
     'risk': report.risk.toJson(),
     'execution': report.execution?.toJson(),
     'limitations': report.limitations,
@@ -110,6 +111,14 @@ abstract final class RuntimeReporter {
         output.writeln(
           '  ${ReportEscapes.escapeText(item.fact.name)} at ${_location(item.fact)} '
           '(${item.fact.channel.key}) — ${ReportEscapes.escapeText(item.reason)}',
+        );
+      }
+      if (report.unverifiedReasonCounts.isNotEmpty) {
+        // 집계는 필터·--limit과 무관한 전체 미판정 기준이라 목록 수와 어긋날
+        // 수 있다 — 항목이 아니라 요약 줄로 둔다.
+        output.writeln(
+          'unverified reasons: '
+          '${report.unverifiedReasonCounts.entries.map((entry) => '${ReportEscapes.escapeText(entry.key)} ${entry.value}').join(', ')}',
         );
       }
       output.writeln('risk: ${report.risk.level} (${report.risk.score}/100)');
@@ -234,6 +243,12 @@ abstract final class RuntimeReporter {
           '`${ReportEscapes.mdCell(_location(item.fact))}` | ${ReportEscapes.mdCell(item.reason)} |',
         );
       }
+    }
+    if (report.unverifiedReasonCounts.isNotEmpty) {
+      output.writeln();
+      output.writeln(
+        '_By reason: ${report.unverifiedReasonCounts.entries.map((entry) => '${ReportEscapes.mdCell(entry.key)} ${entry.value}').join(', ')}._',
+      );
     }
     output.writeln();
     output.writeln('## Risk factors');
@@ -368,7 +383,7 @@ abstract final class RuntimeReporter {
           'invocations': [
             {
               'executionSuccessful': true,
-              'properties': {'execution': execution?.toJson(), 'limitations': report.limitations, 'risk': report.risk.toJson(), 'truncated': report.truncated.toJson()},
+              'properties': {'execution': execution?.toJson(), 'limitations': report.limitations, 'risk': report.risk.toJson(), 'truncated': report.truncated.toJson(), 'unverifiedReasonCounts': report.unverifiedReasonCounts},
             },
           ],
           'results': results,

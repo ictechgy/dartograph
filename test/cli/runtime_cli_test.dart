@@ -308,6 +308,200 @@ void main() {
     );
   });
 
+  test('--kinds는 보고 카테고리를 좁히고 위험도는 유지한다', () async {
+    writeTokenPackage();
+    write(
+      'lib/config.dart',
+      "import 'dart:io';\n"
+          "File settings() => File('config/app.yaml');\n",
+    );
+
+    final result = await run([
+      'runtime',
+      '--format',
+      'json',
+      '--kinds',
+      'env',
+      directory.path,
+    ]);
+
+    expect(result.status, 0);
+    final report = document(result.out);
+    expect(detected(report, 'env'), hasLength(1));
+    expect(detected(report, 'config'), isEmpty);
+    expect(
+      (report['detected']! as Map<String, Object?>).keys,
+      hasLength(5),
+      reason: '카테고리 키는 필터 아래에서도 유지된다',
+    );
+    final missing =
+        (report['verified']! as Map<String, Object?>)['missing']!
+            as List<Object?>;
+    expect(missing.map((item) => (item as Map<String, Object?>)['name']), [
+      'RUNTIME_CLI_TOKEN',
+    ]);
+    // 걸러진 config 미충족(12)까지 센 위험도 24 = medium이 유지된다.
+    expect((report['risk']! as Map<String, Object?>)['score'], 24);
+    expect((report['risk']! as Map<String, Object?>)['level'], 'medium');
+
+    // 위험도가 보존되므로 --fail-on 게이트는 필터와 무관하게 동작한다.
+    final gated = await run([
+      'runtime',
+      '--kinds',
+      'env',
+      '--fail-on',
+      'medium',
+      directory.path,
+    ]);
+    expect(gated.status, 1);
+  });
+
+  test('--statuses는 판정 절만 좁히고 탐지 목록은 유지한다', () async {
+    writeTokenPackage();
+    write(
+      'lib/computed.dart',
+      "import 'dart:io';\n"
+          "String? pick(String key) => Platform.environment[key];\n",
+    );
+
+    final result = await run([
+      'runtime',
+      '--format',
+      'json',
+      '--statuses',
+      'missing',
+      directory.path,
+    ]);
+
+    expect(result.status, 0);
+    final report = document(result.out);
+    final verified = report['verified']! as Map<String, Object?>;
+    expect(verified['present'], isEmpty);
+    expect(verified['defaulted'], isEmpty);
+    expect(
+      ((verified['missing']! as List<Object?>).single
+          as Map<String, Object?>)['name'],
+      'RUNTIME_CLI_TOKEN',
+    );
+    expect(report['unverified'], isEmpty);
+    // 탐지 목록은 판정 절 필터를 적용하지 않는다.
+    expect(detected(report, 'env'), hasLength(2));
+    // 미판정 사유 집계는 필터 전 전체 집합을 센다.
+    expect(report['unverifiedReasonCounts'], {'computed-target': 1});
+  });
+
+  test('--kinds는 --no-verify와 결합할 수 있다', () async {
+    writeTokenPackage();
+    write(
+      'lib/config.dart',
+      "import 'dart:io';\n"
+          "File settings() => File('config/app.yaml');\n",
+    );
+
+    final result = await run([
+      'runtime',
+      '--no-verify',
+      '--format',
+      'json',
+      '--kinds',
+      'env',
+      directory.path,
+    ]);
+
+    expect(result.status, 0);
+    final report = document(result.out);
+    expect(detected(report, 'env'), hasLength(1));
+    expect(detected(report, 'config'), isEmpty);
+    expect(report['verified'], {'present': [], 'defaulted': [], 'missing': []});
+  });
+
+  test('집계 요약을 text·markdown·sarif에도 렌더링한다', () async {
+    writeTokenPackage();
+    write(
+      'lib/computed.dart',
+      "import 'dart:io';\n"
+          "String? pick(String key) => Platform.environment[key];\n",
+    );
+
+    final text = await run(['runtime', directory.path]);
+    expect(text.out, contains('unverified reasons: computed-target 1'));
+
+    final markdown = await run([
+      'runtime',
+      '--format',
+      'markdown',
+      directory.path,
+    ]);
+    expect(markdown.out, contains('_By reason: computed-target 1._'));
+
+    final sarif = await run(['runtime', '--format', 'sarif', directory.path]);
+    final invocation =
+        (((document(sarif.out)['runs']! as List<Object?>).single
+                        as Map<String, Object?>)['invocations']!
+                    as List<Object?>)
+                .single
+            as Map<String, Object?>;
+    expect(
+      (invocation['properties']!
+          as Map<String, Object?>)['unverifiedReasonCounts'],
+      {'computed-target': 1},
+    );
+  });
+
+  test('--statuses는 --no-verify와 결합하지 않는다', () async {
+    writeTokenPackage();
+
+    final result = await run([
+      'runtime',
+      '--no-verify',
+      '--statuses',
+      'missing',
+      directory.path,
+    ]);
+
+    expect(result.status, 64);
+    expect(result.err, contains('--statuses requires verification'));
+    expect(result.out, isEmpty);
+  });
+
+  test('필터된 목록에 --limit이 적용된다', () async {
+    write(
+      'lib/env.dart',
+      "import 'dart:io';\n"
+          "String? a() => Platform.environment['RUNTIME_CLI_A'];\n"
+          "String? b() => Platform.environment['RUNTIME_CLI_B'];\n",
+    );
+    write(
+      'lib/config.dart',
+      "import 'dart:io';\n"
+          "File settings() => File('config/app.yaml');\n",
+    );
+
+    final result = await run([
+      'runtime',
+      '--format',
+      'json',
+      '--kinds',
+      'env',
+      '--limit',
+      '1',
+      directory.path,
+    ]);
+
+    final report = document(result.out);
+    expect(detected(report, 'env'), hasLength(1));
+    expect(detected(report, 'config'), isEmpty);
+    expect(
+      (report['verified']! as Map<String, Object?>)['missing'],
+      hasLength(1),
+    );
+    expect(report['truncated'], {
+      'detected': 1,
+      'unverified': 0,
+      'verified': 1,
+    });
+  });
+
   test('잘못된 인자는 usage(64)다', () async {
     final cases = <(String, List<String>)>[
       ('알 수 없는 포맷', ['runtime', '--format', 'xml', directory.path]),
@@ -319,6 +513,29 @@ void main() {
       ('limit 0', ['runtime', '--limit', '0', directory.path]),
       ('limit 누락', ['runtime', '--limit']),
       ('알 수 없는 fail-on', ['runtime', '--fail-on', 'sometimes', directory.path]),
+      ('알 수 없는 kinds', ['runtime', '--kinds', 'bogus', directory.path]),
+      ('빈 kinds 항목', ['runtime', '--kinds', 'env,,config', directory.path]),
+      ('빈 kinds 값', ['runtime', '--kinds', '', directory.path]),
+      ('옵션 모양 kinds 값', ['runtime', '--kinds', '--statuses', directory.path]),
+      (
+        '중복 kinds',
+        ['runtime', '--kinds', 'env', '--kinds', 'config', directory.path],
+      ),
+      ('kinds 값 누락', ['runtime', '--kinds']),
+      ('알 수 없는 statuses', ['runtime', '--statuses', 'bogus', directory.path]),
+      ('빈 statuses 항목', ['runtime', '--statuses', 'missing,', directory.path]),
+      (
+        '중복 statuses',
+        [
+          'runtime',
+          '--statuses',
+          'missing',
+          '--statuses',
+          'present',
+          directory.path,
+        ],
+      ),
+      ('statuses 값 누락', ['runtime', '--statuses']),
       ('중복 verify', ['runtime', '--verify', '--no-verify', directory.path]),
       ('루트 누락', ['runtime']),
       ('정의가 아닌 --env', ['runtime', '--env', 'NOEQUALS', directory.path]),

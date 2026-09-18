@@ -131,7 +131,7 @@ Full arguments, output formats, exit codes, and CI examples live in
   are counted as limitations rather than read as facts in the default command.
 - `bridges --messages` and `bridges --events` are opt-in development-source
   producers for BasicMessageChannel `send` calls and EventChannel
-  `receiveBroadcastStream` listens. They emit bridge-facts v2 with
+  `receiveBroadcastStream` calls. They emit bridge-facts v2 with
   `transport: "basic-message-channel"`/`"event-channel"`; they never turn a
   channel construction into a send or invent a MethodChannel method. Dynamic
   names retain their source expression. A `channelPrefix` is emitted only when
@@ -223,6 +223,10 @@ Limitations:
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.
+- `bridges --events` records a statically identified EventChannel
+  `receiveBroadcastStream()` call as a `stream-listen` fact, even if the
+  returned stream is never consumed. It does not prove that the call executes,
+  a listener is attached, a subscription is active, or an event is received.
 
 Guarantees:
 

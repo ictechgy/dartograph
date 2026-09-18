@@ -1,6 +1,74 @@
 # Handoff
 
-_Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·GitHub Release 발행, README 퇴고 #116 머지. 열린 PR 없음)_
+_Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구현·검증·GLM 리뷰까지 완료. main `bc2be20`, 릴리스 0.13.0; 아래 변경은 전부 미커밋 — 커밋·PR은 명시 요청 대기)_
+
+재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
+날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
+과거의 main·테스트 수·미릴리스·보류 표기를 현재에 적용하지 않는다. `HANDOFF-PROGRESS.md`는
+다른 세션의 미추적 원장으로 수정하지 않으며, 특정 옛 절을 현재 재개 지점으로 고정하지 않는다.
+
+## 2026-09-18 — 개선 후속(미커밋, 후속 세션에서 구현·검증·리뷰 완료)
+
+사용자가 "개선해줘"를 승인해 3순위 개선을 진행했다. 첫 세션은 집계 초안과 검증
+실패 2건을 남기고 중단됐고, 같은 날 후속 세션이 필터 구현·집계 연결·문서
+정합·게이트 검증·GLM 패킷 리뷰까지 마쳤다. 현재 작업 트리에 미커밋 15파일:
+`HANDOFF.md`, `README.md`, `README.ko.md`, `doc/MCP.md`, `doc/USAGE.md`,
+`lib/src/cli/agent_skill.dart`, `lib/src/cli/dartograph_cli.dart`,
+`lib/src/cli/mcp_server.dart`, `lib/src/export/runtime_reporter.dart`,
+`lib/src/index/analyzer_graph_index.dart`, `lib/src/runtime/runtime_verifier.dart`,
+`test/cli/mcp_server_test.dart`, `test/cli/runtime_cli_test.dart`,
+`test/runtime/runtime_verifier_test.dart`, `tool/verify-cli-contract.sh`.
+
+- **완료(구현·문서)**:
+  - **MCP 세션 증분 캐시**: `injected indexPackage`가 없으면 서버가 첫 색인 요청에서
+    `dartograph-mcp-cache.*` OS 임시 디렉터리를 만들고 packageRoot별 하위 디렉터리로
+    CLI의 `IncrementalCache`를 쓴다. 세션 종료 시 정리, 루트별 분리, 캐시 실패 시
+    전체 해석 폴백(진단은 stderr만, 경로 미출력). 결과 메모 없음 — 기존 입력 지문
+    무효화 재사용이라 파일 변경이 다음 호출에 반영된다.
+  - **`runtime_query` MCP 도구(신규, 4번째 도구)**: `runtime --no-verify --format json`
+    고정 argv의 읽기 전용 정적 조회. `--execute`·환경 주입·`--record`는 표면에 없고
+    주면 인자 오류. `packageRoot`+선택 `limit`만. 값은 절대 출력하지 않는다(환경 변수
+    **이름**은 탐지 결과에 실림).
+- **runtime 미판정 사유 집계 + `--kinds`/`--statuses` 필터(후속 세션 완료)**:
+  `RuntimeReport.unverifiedReasonCounts`는 미판정 사실의 `:` 앞 사유 접두사를
+  사전순으로 센다(빈 접두사는 `unspecified`로 묶는다). `runtime_reporter.dart`가
+  JSON·text·markdown·SARIF에 직렬화하므로 self-analysis 도달성이 확보됐고
+  dartdoc도 있다. `RuntimeVerifier.analyze`의 `kinds`/`statuses`는 보고 목록만
+  좁힌다 — 위험도·limitations·사유 집계는 필터 전 전체 분석 기준이고 `--limit`은
+  필터 후 목록에 적용된다. `--statuses`+`--no-verify`, 알 수 없는·빈·중복 값은
+  전부 usage 64다. 첫 세션의 실패 2건(`:208` 미문서화·도달 불가)은 둘 다 해소됐다.
+- **문서 및 남은 범위**:
+  - **문서**: doc/MCP.md(세션 캐시 수명 주기·`runtime_query` 절·tools/list 스키마 4개·
+    한계 절 — 세션 캐시는 색인 도구만 쓰고 `runtime_query`는 매 호출 재탐지),
+    doc/USAGE.md(필터 문법·`--fail-on`이 필터 전 위험도로 판정한다는 점·집계 의미),
+    README 양본의 EventChannel 호출 관측 한계, CLI help·생성 skill의 4도구·필터
+    안내(EventChannel 한계 문구도 USAGE/help에 실림).
+- **검증 상태(후속 세션 실측, 작업 트리 최종 상태)**: `dart format` clean,
+  `dart analyze` 이슈 0, `dart test` **+577 전부 통과(완주)**,
+  `tool/verify-cli-contract.sh`(필터 계약 케이스 포함)·
+  `tool/verify-false-positive-corpus.sh`·`tool/check-coverage.sh`(91.53%) 통과.
+  `tool/check-analyzer-boundary.sh`는 로컬에 rg가 없어 미실행 — 동등 스캔(lib·bin의
+  `package:analyzer` 임포트가 `lib/src/index`에만 존재)을 수동 확인했다.
+  `dart pub publish --dry-run`은 커밋된 브랜치에서 경고 0(미커밋 트리 기준
+  측정에서는 수정 파일 경고 8개였다). 첫 세션의 +560/-1 기록은 중단 시점 것이며
+  현재 트리와 무관하다. MCP 반복 질의 시간은 미측정이므로 성능 배수를 주장하지 않는다.
+- **독립 리뷰**: GLM 패킷 리뷰(미스테이징 diff 95KB) 완료 — 핵심 로직 무결 판정.
+  지적 6건(HANDOFF 정합·집계 키 이스케이프 비대칭·빈 접두사 `''` 키·USAGE의
+  exit-0 문구·MCP 캐시 limitation 문자열 결합·MCP.md 캐시 문구 범위)을 전부
+  코드·문서에 반영하고 리뷰가 제시한 테스트 공백(limitations 동등·합계 불변·
+  `--kinds`+`--no-verify` 허용·statuses+limit·옵션형 값·렌더링 핀·MCP
+  kinds/statuses 거부·계약 케이스)도 보강했다. 미반영: 실제 임시 디렉터리
+  접두사 핀(테스트는 팩토리 주입이라 `dartograph-mcp-cache.` 이름 미검증) —
+  테스트로 잡기 어려운 경계라 기록으로 남긴다.
+- **남은 일**: 커밋·PR·푸시는 아직 명시적으로 요청받지 않았으므로 임의 진행 금지.
+  사용자 승인 시 브랜치에서 Conventional Commits(본문 한국어)로 진행하고 main
+  직접 커밋 금지는 유지한다. JSON 문서는 additive 키(`unverifiedReasonCounts`)로
+  확장했으며 버전 범프 없이 v1을 유지하는 기존 방침을 따른다.
+- **주의**: `runtime_query`는 CLI runtime argv를 고정 문자열로 붙인다 — runtime 인자
+  파싱을 바꾸면 mcp_server.dart의 고정 argv도 확인한다. 세션 캐시는 요청마다 서버를
+  새로 띄우는 클라이언트 패턴에서 이득이 없다(doc/MCP.md 한계 절 기재됨).
+
+---
 
 ## 2026-09-17 — 0.13.0 릴리스 + Claude/GLM 리뷰 수정 묶음
 
@@ -39,23 +107,27 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
   `b6075aa` GLM 반영 — 생성자 초기자·`this.x`·cascade·외부 대입·최상위 재대입 전 형태 감지
   (enclosing 귀속과 외부 쓰기 분리로 같은 이름 무관 필드 과억제 방지).
 - `dart analyze` 무이슈, `dart test` 531개 전부 통과.
-- 후속 메모: `receiveBroadcastStream()`이 반환 스트림의 실제 수신과 무관하게 사실을 낸다 —
-  "경계 요청" 의미인지 "리스너 부착"인지 fact 계약 의도를 확인할 것(GLM 보류 지적).
+- **계약 미결 처분(2026-09-18, 구 HANDOFF:42의 GLM 보류 지적)**: 사용자 승인으로
+  **현행 호출 관측 유지 + README 양본의 한계 명확화**로 종결한다. 코드·교환 스키마는 바꾸지 않는다.
+  `lib/src/index/bridge_index.dart:678`의 호출 분기와 `:799`의 `_recordStreamListen`은
+  EventChannel로 식별한 `receiveBroadcastStream()` 호출을 `stream-listen`으로 기록한다.
+  반환 스트림을 소비하지 않아도 사실을 내며, 호출 실행·리스너 부착·활성 구독·이벤트 수신의
+  증명이 아니다. 이 문서 처분은 자매 저장소 계약 변경이나 소비자 검증 완료 주장이 아니다.
 - 활성 원장 `HANDOFF-PROGRESS.md`는 다른 세션 소유다 — 그쪽 갱신과 충돌하지 않는다.
 
 ---
 
 - **0.10.0 릴리스 완료**(2026-09-15): pub.dev latest 0.10.0, 태그 `v0.10.0` = `2b3a236`(PR #96 머지), GitHub Release 생성, 새 격리 PUB_CACHE 설치본 `--version` 0.10.0 + CLI 계약 passed 실측.
 - 0.10.0 내용: 증분 분석 `--incremental <dir>`(색인 명령 11), 검증 원장 `--record`/`history`, `dead --format markdown`/`codeowners`, PR 코멘트 CI 예시, MCP 문서. CI가 잡은 SARIF 업로드 결함 수정. main = `2b3a236`.
-- 활성 원장은 루트 `HANDOFF-PROGRESS.md` **§10.11** — 재개 전 그 절을 먼저 읽는다.
+- 당시 원장 위치는 `HANDOFF-PROGRESS.md` §10.11이었다. 현재 재개 지점은 위 최신현황 안내를 따른다.
 - 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재와 다르다.
 
 
 ## 2026-09-14 — 진행 중 기능 브랜치 인계 (programmer 세션)
 
-> 이 절은 아래 0.8.0 제품 이력과 **별개**다. 진행 중인 미릴리스 작업은
-> `feat/impact-precheck` 브랜치에 있고, 활성 원장은 루트의 `HANDOFF-PROGRESS.md`다.
-> 재개 전에 그 문서를 먼저 읽는다.
+> **역사 기록**: 아래 브랜치·미커밋·P0 상태는 2026-09-14 당시 기준이다.
+> `impact`·MCP·`runtime`은 #94/0.9.0, 증분 분석·검증 원장은 #96/0.10.0으로 후속 완료됐다.
+> 아래 재검증·커밋 지시를 현재 작업으로 재실행하지 않는다.
 
 - 브랜치 `feat/impact-precheck`에 미릴리스 기능 3건이 커밋되어 있다:
   `impact`(수정 전 영향 사전 점검), `mcp`(MCP 서버), `runtime`(런타임 의존성 검증).
@@ -72,9 +144,13 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **이번 세션(0.13.0 — Claude 리뷰 수정 5PR + 릴리스 + README 퇴고)**: 성능·보안·구조
+- **현재 목표**: MCP 반복 질의 효율, runtime 결과 활용성, EventChannel·인계 문서 정합을 개선한다.
+  사용자의 마지막 요청은 "handoff 업데이트, 나머지는 다음 세션"이다. 이번 세션에서는
+  구현·검증을 더 진행하지 않고 미커밋 상태를 보존한다. 다음 세션은 위 2026-09-18 절에서
+  이어받는다. 커밋·PR·푸시는 별도 명시적 승인 없이 실행하지 않는다.
+- **직전 완료 세션(0.13.0 — Claude 리뷰 수정 5PR + 릴리스 + README 퇴고)**: 성능·보안·구조
   Claude 리뷰 확정 19건을 PR #110~#114로 반영·머지하고 0.13.0을 발행(PR #115). README
-  en/ko 퇴고를 Claude 협업으로 PR #116에 머지. 남은 것은 VS Code 아이콘 선택뿐.
+  en/ko 퇴고를 PR #116에 머지했다. 아이콘 선택은 별도 대기이며 현재 제품 후속 작업과 구분한다.
 - 이전 세션(0.10.0 — 증분 분석·검증 원장·리포터·CI/MCP 문서, PR #96):
   P0의 증분 분석(`--incremental <dir>`)과 검증 원장(`--record`/`history`)을 완성하고,
   `dead --format markdown`·`codeowners` 리포터와 PR 코멘트 CI 예시, MCP 스키마·오류·예시
@@ -98,20 +174,35 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
   GitHub Release(tag=v0.13.0) 공개. `dart pub global activate` 설치본 `--version` 0.13.0
   실측. VS Code 확장 `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
   (이전 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`.)
-- main 기준: **`edbbe2b`** (PR #116 README 퇴고 머지). 열린 제품 PR 없음.
-- **미릴리스 누적 0건** — 모든 수정이 0.13.0으로 발행됐다.
-- 테스트 **546개**, 라인 커버리지는 CI의 check-coverage가 게이트한다.
+- 로컬 Git 확인(2026-09-18): **main / origin/main `bc2be20`**, `v0.13.0`은 `6a1abfb`.
+  릴리스 뒤 #116 README 퇴고(`edbbe2b`)와 HANDOFF 기록 커밋이 있다. 원격 게시·열린 PR 상태는
+  이번 문서 작업에서 재조회하지 않았다.
+- **개선 후속 완료·PR #117 오픈(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
+  MCP 세션 캐시·`runtime_query`·runtime 집계/필터를 브랜치
+  `feat/mcp-cache-runtime-filters`의 두 커밋으로 PR #117에 올렸다. GLM 리뷰 2회
+  (초기 지적 반영 + 후속 merge-ready 판정) 완료. 머지·0.13.0 포함 여부는 별개다.
+- **완료된 범위(재개발 금지)**: #94의 impact/MCP/runtime·BasicMessageChannel,
+  #96의 CLI 증분 분석·검증 원장·markdown/codeowners 리포터, #98/#100의 MCP 리소스/프롬프트·
+  yaml 확장·dead/deps/dup `--kinds`·CODEOWNERS 문법 확장, #103의 EventChannel producer,
+  #110~#114의 리뷰 수정. CLI 증분 분석과 현재 MCP 세션 증분 후속은 별개다.
+- **문서 처분**: EventChannel의 `stream-listen`은 호출 관측으로 유지하고 README 양본에
+  실제 구독·수신 증명이 아님을 명시했다(위 #103 기록). 구 계약 미결은 재개 대상이 아니다.
+- **별도 대기**: VS Code 아이콘 사용자 선택. `HANDOFF-PROGRESS.md`와
+  `editors/vscode/icon-drafts/`는 다른 세션의 미추적 파일로 보존한다.
+- 테스트 **546개**는 직전 릴리스 세션의 검증 기록이며 현재 미커밋 작업의 통과 근거가 아니다.
+  라인 커버리지는 CI의 check-coverage가 게이트한다.
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
   신선한 resolution으로 게이트를 돌린다.
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
-- 제품 배포 blocker 없음. HANDOFF가 Git 상태보다 우선하지 않으므로 재개 시 실제 상태 확인.
+- 현재 후속 작업의 완료·배포 가능 여부는 담당자의 최종 검증 대기다. HANDOFF보다 실제 Git 상태와
+  해당 변경의 검증 근거가 우선한다.
 
 ## Completed
 
-### 이번 세션 (0.10.0 — 증분 분석 · 검증 원장 · 리포터 · CI/MCP 문서, PR #96)
+### 이전 완료 세션 (0.10.0 — 증분 분석 · 검증 원장 · 리포터 · CI/MCP 문서, PR #96)
 
 - **증분 분석 + 최적화** (`00d22fa`·`941e595`): `--incremental <dir>`를 색인 명령 11개에
   배선. 파일별 사실 캐시 + 역방향 import 폐쇄 재해석, 7종 sha256이 전체 해석과 세 조건
@@ -477,7 +568,7 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
   lib/AGENTS.md(결정성 예외), doc/RESEARCH.md(Tier 2 마감·미채택 처분).
 - `example/main.dart`: 공개 라이브러리 API 시연(pub.dev example 점수). 모든 선언이 main에서
   도달해 자체 분석 findings 0 게이트를 유지한다.
-- 테스트: 308개. 신규 계열 — test/core/atomic_write_test(배타적 생성 fail-closed·링크 교체·
+- 0.8.0 당시 테스트: 308개. 당시 신규 계열 — test/core/atomic_write_test(배타적 생성 fail-closed·링크 교체·
   정리), test/core/config_source_test(1 MiB 경계), init·skill symlink 회귀, oversized
   rules config CLI 회귀, analyzer_version_contract_test(검증된 마이너 집합 모델).
 
@@ -648,7 +739,8 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
 
 ## Blockers & Open Questions
 
-- 필수 제품 작업 없음. 열린 제품 PR 없음.
+- 현재 MCP/runtime 후속은 PR #117로 열려 있으며 머지가 남은 상태다. 아래 종결·보류
+  기록을 새 필수 작업으로 되살리지 않는다.
 - **issue #38 — 양측 완전 종결·close 완료(2026-09-09, reason: completed)**:
   dartograph 측 (a)+(b) 구현·왕복 검증·0.5.0 릴리스(PR #52) + 의미론 코멘트
   (issuecomment-5599285065), isthmus 측 GRAPH-EXCHANGE 정본 갱신 완료 — isthmus
@@ -662,8 +754,11 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
   멤버십 검증·`unscanned-*` 복수형 문구)도 각각 PR #63·#69로 완료 — 이 이슈의 후속은 전부 소진.
 - external-retentions 구현 금지(GRAPH-EXCHANGE 계약, PR #27) 유지.
 
-### 남은 감사 backlog (2026-09-08/09 감사의 미처리분 — 근거는 위 기록과 PR 본문)
+### 남은 감사 backlog (2026-09-18 정리)
 
+즉시 재개할 미처리 감사 항목은 없다. 아래는 완료·현행 유지·측정 보류의 **처분 원장**이다.
+P7 및 설계 변경 후보는 새 근거·요청 없이는 재개하지 않는다. 현재 MCP/runtime 후속은
+이 과거 감사 backlog와 별개이며 [Current Status](#current-status)를 따른다.
 - **성능: P1~P6·P8~P10은 #48~#50으로 완료(측정·해시 동일성 포함)**. P7은
   **측정으로 보류 확정(2026-09-09 — 재도출·재측정 금지)**: GraphSnapshot factory의
   이미-Set인 간선 toSet 재해싱. 고립 측정(합성 Set<GraphEdge>·30회 최소) 결과 현실
@@ -686,7 +781,7 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
   ReachabilityExplanation은 내부 유지). CLI 출력·종료코드 무변경, 스모크 테스트로
   공개 표면 고정(배럴 import로 DeadFinding 이름 사용=export 증명 + 위임 내용 + 불변),
   커버리지 95.98%, GLM packet-review 차단 없음(비차단 getter 불변화·doc 일반화 반영,
-  DeadFinding primitive·잔존 없음은 코드/grep 검증). **미릴리스 — 다음 릴리스 때 기록.**
+  DeadFinding primitive·잔존 없음은 코드/grep 검증). **0.6.0 발행 완료(PR #66).**
 - **낮음/기록**: **감사 낮음 실행가능 subset 완료(PR #63)** — html `::` 파일명 오분류(`.dart::`
   판별자 휴리스틱; 잔여 `.dart::` 파일명 + kind threading은 **PR #71 완료로 소진**), SARIF `file:`·`package:`
   uri 손상(원본 source project: 접두 판정 → 절대 URI pass-through; Windows 전용 아님), workspace
@@ -705,7 +800,7 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
 - **`unscanned-*` 복수형 문구 — 완료(PR #69, 2026-09-10)**: 3개 family 일괄 정리(unscanned-*
   N≥2 복수형 + dynamic-* N=1 단수 문법[실측 발견]). 나머지 family 형식과 동일한 삼항식,
   N≥2 dynamic-*·N=1 unscanned-* 바이트 불변, 접두사 불변(GRAPH-EXCHANGE: limitations은
-  소비자가 검증하지 않는 자유 문장). 상세·검증은 Completed 이번 세션 절. **미릴리스.**
+  소비자가 검증하지 않는 자유 문장). 상세·검증은 Completed 당시 세션 절. **0.7.0 발행 완료(PR #78).**
 - **vacuous 확인(재도출 금지)**: dead findings 정렬 키 위치 무시(kind+id 동일·위치 다른
   finding은 ID 유일성으로 불가), mermaid 간선 null(snapshot endpoint 검증), N2/N4.
 
@@ -789,25 +884,38 @@ _Last updated: 2026-09-17 (0.13.0 릴리스 완료 — PR #115 머지·pub.dev·
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. 지금까지 완료: PR #39~#54(0.4.1·0.5.0 릴리스 + 성능 backlog + issue #38 dartograph 측)
-   + PR #57~#68(issue #38 종결 + 죽은 API 처분 + README 퇴고 + 0.6.0 릴리스)
-   + PR #69~#76(감사 낮음 처분 2건 + GraphNode isLibrary + Tier 4 4종 흡수)
-   + PR #78(0.7.0 릴리스) + PR #80(Tier 3 init 명령)
-   + **PR #82~#92(전체 개선 검토 반영 + 0.8.0 릴리스 — 미릴리스 전량 발행, 점수 160/160)**.
-   완료된 구현·감사·측정·릴리스·처분을 반복하지 않는다. **미릴리스 누적 0건.**
-3. **다음 세션 이월분**:
-   - 남은 흡수 범위 = RESEARCH **Tier 3**(yaml 확장·markdown/codeowners 리포터·issue-type
-     필터·MCP 서버) — 사용자 요청 시 PRD/PLAN에서 범위 결정.
-   - 검토에서 의도적 제외한 항목(재상정 금지는 아니지만 재검토 시 근거 필요): html 400노드
-     상한 플래그화(help·USAGE에 고정 문서화됨), `dead --explain` 종료 코드 동작(계약 문서화만
-     수행), NAME_MAX 인접 baseline 경로 temp 이름(기존 패턴), package_config rootUri의
-     저장소 밖 읽기(INFO — 내용은 로컬 sha256으로만 소비), 익명화의 그래프 밖 진입점 경로
-     남음(문서화된 보장 경계 — 인덱스 시점 치환표 등록이 해소안).
-4. 제품 배포 blocker 없음. 0.8.0 게시·검증까지 완료됐다. 다음 명시적인 사용자 지시를 따른다.
+2. **완료 재개발 금지**: 0.9.0(#94 impact·MCP·runtime·BasicMessageChannel)부터 0.13.0
+   (#110~#115 리뷰 수정·릴리스)까지, CLI 증분 분석·검증 원장(#96), MCP 리소스/프롬프트·
+   yaml 확장·--kinds·CODEOWNERS(#98·#100), EventChannel producer(#103), README 퇴고(#116)는
+   이미 완료됐다. Completed·Verification·감사 backlog의 처분 원장을 다시 열지 않는다.
+3. **2026-09-18 미커밋 후속은 완료됐다**: 구현·문서·검증·GLM 리뷰 반영까지 끝났고
+   게이트는 최종 트리에서 통과했다. 남은 것은 커밋·PR·푸시뿐이며 명시적 요청 없이
+   실행하지 않는다. 승인되면 브랜치에서 Conventional Commits로 진행한다.
+4. 본 문서 정리는 완료했다. 그 외 명시적 지시가 없으면 다음 사용자 지시를 따른다.
+   VS Code 아이콘 선택은 사용자 대기 항목이다.
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read `HANDOFF.md`, `HANDOFF-PROGRESS.md` (active ledger, section 10.11) and applicable `AGENTS.md` files, then continue from: Verify current Git state. Product 0.10.0 is released (pub.dev latest 0.10.0, tag v0.10.0 at 2b3a236 = PR #96 merge, GitHub Release, fresh isolated PUB_CACHE install verified incl. --version 0.10.0 and the CLI contract; the pub score has not been re-read). 0.10.0 shipped incremental analysis (`--incremental <dir>`, per-file fact cache), the verification ledger (`--record` + `history`), `dead --format markdown`/`codeowners`, a PR-comment CI example, and MCP schema/error/example docs; a follow-up SARIF fix made `impact --format sarif` acceptable to GitHub code scanning. main is at 2b3a236 with 0 unreleased changes and 451 passing tests. Next: a scope decision on the deferred items (dartograph.yaml expansion with thresholds/include/exclude/retained_*, an issue-type filter, and full CODEOWNERS syntax). Follow the next explicit user task.`
+Open this repository at `/Users/jinhongan/Desktop/dartograph`, read the top of
+`HANDOFF.md` (Current Status → Next Steps), applicable `AGENTS.md` files, and
+verify the real Git state — HANDOFF does not override Git. Released state:
+0.13.0 (pub.dev latest, tag `v0.13.0` at `6a1abfb` = PR #115 merge; #116 README
+polish merged on top). Do not redo shipped work: impact/MCP/runtime/BasicMessageChannel
+(#94), CLI incremental analysis and the verification ledger (#96), MCP
+resources/prompts plus `dartograph.yaml` include/exclude/retained_*/thresholds,
+`--kinds`, and CODEOWNERS syntax (#98/#100), EventChannel producer (#103),
+review-fix PRs #110–#114, and the README polish (#116) are all done. The
+EventChannel `stream-listen` contract question is closed by user decision:
+calls are recorded as observed, and the README (en/ko) states that listening or
+receiving is not proven — do not reopen it. Read the 2026-09-18 section first:
+the improvement follow-up is complete but uncommitted — MCP session caching,
+runtime_query, runtime unverified-reason aggregation, and runtime
+--kinds/--statuses filters are all implemented, documented, verified
+(dart analyze clean, dart test +577 all pass, contract/corpus/coverage gates
+pass), and GLM packet-reviewed. The only remaining step is commit/PR/push,
+which requires an explicit user request; work from a branch, never main.
+Preserve HANDOFF-PROGRESS.md and icon drafts. Do not commit, push, or create
+a PR without an explicit request.
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림

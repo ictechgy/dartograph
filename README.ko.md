@@ -89,7 +89,7 @@ dartograph mcp
 - `affected <git-ref>`는 어떤 라이브러리가 Git 리비전 이후 변경됐는지, 어떤 라이브러리가 그것들에 전이적으로 의존하는지를 보고하며, 각 의존자는 변경 라이브러리까지의 최단 의존 경로를 근거로 싣는다.
 - `compare <before> <after>`는 같은 패키지의 두 체크아웃을 비교해 추가·제거된 정점·간선·보존 루트와 새로 도달 불가능해지거나 도달 가능해진 것을 산출한다(새로 도달 불가능해진 선언은 before-path·제거된 간선·제거된 루트를 근거로 싣는다). `--since`와 달리 보고 위치를 필터링하는 게 아니라 두 그래프 전체를 비교한다.
 - `bridges`는 Flutter `MethodChannel` 생성과 `invokeMethod`·`invokeListMethod`·`invokeMapMethod` 사실을 [`GRAPH-EXCHANGE`](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md) v1 형식으로 출력한다 — [isthmus](https://github.com/ictechgy/isthmus)가 플랫폼 경계에 걸쳐 조인하는 브리지 사실 형식이며, cartograph도 같은 형식을 생산한다. 각 사실은 MethodChannel provenance, 어휘 범위, UTF-8 위치, UTC 밀리초 시각을 싣는다. 동적 채널 이름은 사실로 남고, 미귀속 호출·잘못된 형태의 호출·부분 파싱·EventChannel·BasicMessageChannel은 기본 명령에서 사실로 읽히지 않고 한계로 집계된다.
-- `bridges --messages`와 `bridges --events`는 BasicMessageChannel의 `send` 호출과 EventChannel의 `receiveBroadcastStream` 수신을 위한 개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`/`"event-channel"`의 bridge-facts v2를 내며, 채널 생성만 send로 바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을 유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은 선행 literal을 증명할 때만 내며, 완전한 runtime 주소나 instance identity의 증명이 아닌 후보 prefix다. `--messages`와 `--events`는 함께 쓸 수 없다.
+- `bridges --messages`와 `bridges --events`는 BasicMessageChannel의 `send` 호출과 EventChannel의 `receiveBroadcastStream` 호출을 위한 개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`/`"event-channel"`의 bridge-facts v2를 내며, 채널 생성만 send로 바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을 유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은 선행 literal을 증명할 때만 내며, 완전한 runtime 주소나 instance identity의 증명이 아닌 후보 prefix다. `--messages`와 `--events`는 함께 쓸 수 없다.
 - `impact`는 편집이 반영되기 전에 어떤 선언·테스트가 영향을 받는지 보고한다 — `--changed <file>`/`--symbol <id>`/`--since <ref>`로 시드를 주고 의존 경로를 근거로 싣는다. `runtime`은 실행 시점에만 드러나는 입력(환경변수·dart-define 읽기, 동적 로드, 설정 경로, 에셋, 외부 URL)을 찾아 현재 환경에 대해 판정하며, `--execute`는 진입점을 실행해 종료 코드와 stderr를 실행 증거로 남긴다.
 - `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고, `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
@@ -118,6 +118,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.
+- `bridges --events`는 정적으로 식별한 EventChannel의 `receiveBroadcastStream()` 호출을 반환 스트림의 소비 여부와 무관하게 `stream-listen` 사실로 기록한다. 호출 실행·리스너 부착·활성 구독·이벤트 수신을 증명하지 않는다.
 
 보장:
 

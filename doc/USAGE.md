@@ -49,7 +49,7 @@ dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--lim
 dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph setup [--install <package-root> [--force]]
-dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
 dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
@@ -210,9 +210,14 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 분석된 소스 안에서만 대조하므로 finding은 리뷰 후보이지 삭제·병합 지시가 아니다.
 
 `--kinds <csv>`는 `dead`(`declaration`,`file`)·`deps`(4종)·`dup`(`duplicate-block`)이
-보고하는 finding 종류를 좁힌다. 그래프·지문·baseline은 그대로이고 보고만 필터된다 —
-모두 걸러지면 종료 코드 0이다. 모르는 종류·빈 값은 usage(64)이고, `dead --explain`과는
-결합하지 않는다.
+보고하는 finding 종류를 좁힌다. `runtime`에서는 보고하는 사실 카테고리(`env`,
+`dynamicLoad`, `config`, `asset`, `external`)를 좁히고, `runtime --statuses <csv>`는
+판정 절(`present`,`defaulted`,`missing`,`unverified`)을 좁힌다 — 판정이 없으므로
+`--no-verify`와는 결합하지 않는다(usage 64). 그래프·지문·baseline·위험도는
+그대로이고 보고만 필터된다 — `dead`·`deps`·`dup`은 보고할 finding이 남지 않으면
+종료 코드 0이지만, `runtime --fail-on`은 필터 전 전체 위험도로 판정하므로 목록이
+비어도 종료 코드 1을 반환할 수 있다. 모르는 종류·빈 값은 usage(64)이고,
+`dead --explain`과는 결합하지 않는다. `--limit`은 필터된 목록에 적용된다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
@@ -225,6 +230,8 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 증명이 아니며, 이 경로는 0.9.0에 새로 추가되었다.
 `bridges --events`는 같은 opt-in 형태로 EventChannel `receiveBroadcastStream`
 호출만 bridge-facts v2(`transport: event-channel`, `kind: stream-listen`)로 낸다.
+정적으로 식별한 호출을 반환 스트림의 소비 여부와 무관하게 `stream-listen`으로
+기록한다 — 호출 실행·리스너 부착·활성 구독·이벤트 수신의 증명이 아니다.
 임의의 `.listen()`이나 EventChannel로 입증되지 않은 수신자에서 stream 사실을
 추론하지 않고, 미귀속 호출은 `unresolved-stream-listens`로 센다. `--messages`와
 `--events`는 서로 다른 transport 문서라 함께 쓸 수 없고(usage 64), 두 문서가
@@ -364,7 +371,9 @@ Dart SDK가 필요하다.
 `markdown`, CI는 `github-actions`(`missing` 항목은 위험이 `high`면 `error`, 아니면
 `warning`)·`sarif`를 쓴다. `--limit <n>`은 **보고** 항목 수 상한이다(탐지·판정·위험도는
 제한하지 않는다 — `--limit`이 종료 코드를 바꾸면 게이트가 아니다). 생략한 수는 목록별로
-`truncated`에 남는다. `--fail-on <level>`은 위험 등급이 그 수준 이상이면 종료 코드 1로
+`truncated`에 남는다. JSON 보고서의 `unverifiedReasonCounts`는 미판정 사실을 사유
+접두사별로 센다(접두사가 비는 사유는 `unspecified`로 묶는다) —
+`--kinds`·`--statuses`·`--limit`과 무관하게 판정된 전체 미판정 집합 기준이다. `--fail-on <level>`은 위험 등급이 그 수준 이상이면 종료 코드 1로
 만든다(기본 `none`은 임계를 0으로 두어 항상 0이다). 종료 코드는 0(보고 성공), 1(위험
 등급이 `--fail-on` 임계 이상), 2(분석 실패 — 없는 루트 등), 64(usage 오류, `--execute`
 경로 없음)다.
