@@ -4,6 +4,31 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.14.0
+
+- The MCP server keeps a per-session incremental cache in a
+  `dartograph-mcp-cache.*` temporary directory with one subdirectory per
+  `packageRoot`, so repeated queries in one session reuse file-level fact
+  caches. Cache creation or write failures fall back to equivalent full
+  analysis with a path-free diagnostic on stderr, and the cache directory
+  is removed when the session ends (#117).
+- New read-only MCP tool `runtime_query` runs `runtime --no-verify
+  --format json` detection with a fixed argument list: it accepts only
+  `packageRoot` and an optional `limit`, and rejects execution,
+  environment injection, recording, and filter arguments (#117).
+- `runtime --kinds <csv>` narrows the reported fact categories
+  (`env,dynamicLoad,config,asset,external`) and `runtime --statuses
+  <csv>` narrows the verdict sections
+  (`present,defaulted,missing,unverified`). Filters narrow reported lists
+  only — risk, limitations, and exit-code semantics still describe the
+  full analysis, and `--limit` applies to the filtered lists.
+  `--statuses` does not combine with `--no-verify`; unknown, empty, or
+  duplicated values are usage errors (#117).
+- Runtime reports carry `unverifiedReasonCounts`, a deterministic tally
+  of unverified facts grouped by their reason prefix (`unspecified` for
+  reasons without one), serialized in JSON, text, markdown, and SARIF
+  outputs (#117).
+
 ## 0.13.0
 
 - `runtime --execute` under `dart install`/`dart compile exe` builds resolves
