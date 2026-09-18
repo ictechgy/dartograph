@@ -49,9 +49,9 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
   `tool/verify-false-positive-corpus.sh`·`tool/check-coverage.sh`(91.53%) 통과.
   `tool/check-analyzer-boundary.sh`는 로컬에 rg가 없어 미실행 — 동등 스캔(lib·bin의
   `package:analyzer` 임포트가 `lib/src/index`에만 존재)을 수동 확인했다.
-  `dart pub publish --dry-run`은 미커밋 8파일 경고만(의도된 상태). 첫 세션의
-  +560/-1 기록은 중단 시점 것이며 현재 트리와 무관하다. MCP 반복 질의 시간은
-  미측정이므로 성능 배수를 주장하지 않는다.
+  `dart pub publish --dry-run`은 커밋된 브랜치에서 경고 0(미커밋 트리 기준
+  측정에서는 수정 파일 경고 8개였다). 첫 세션의 +560/-1 기록은 중단 시점 것이며
+  현재 트리와 무관하다. MCP 반복 질의 시간은 미측정이므로 성능 배수를 주장하지 않는다.
 - **독립 리뷰**: GLM 패킷 리뷰(미스테이징 diff 95KB) 완료 — 핵심 로직 무결 판정.
   지적 6건(HANDOFF 정합·집계 키 이스케이프 비대칭·빈 접두사 `''` 키·USAGE의
   exit-0 문구·MCP 캐시 limitation 문자열 결합·MCP.md 캐시 문구 범위)을 전부
@@ -177,9 +177,10 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
 - 로컬 Git 확인(2026-09-18): **main / origin/main `bc2be20`**, `v0.13.0`은 `6a1abfb`.
   릴리스 뒤 #116 README 퇴고(`edbbe2b`)와 HANDOFF 기록 커밋이 있다. 원격 게시·열린 PR 상태는
   이번 문서 작업에서 재조회하지 않았다.
-- **진행 중·완료 검증 전(2026-09-18 사용자 중단·인계)**: 위 2026-09-18 절의 미커밋 7파일 —
-  MCP 세션 증분 캐시·`runtime_query` 도구·runtime 미판정 집계 초안·문서 정합. 전체 게이트
-  독립 재검증·GLM 리뷰·커밋·PR이 남았다. 이 후속을 0.13.0에 포함시키거나 완료로 단정하지 않는다.
+- **개선 후속 완료·PR #117 오픈(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
+  MCP 세션 캐시·`runtime_query`·runtime 집계/필터를 브랜치
+  `feat/mcp-cache-runtime-filters`의 두 커밋으로 PR #117에 올렸다. GLM 리뷰 2회
+  (초기 지적 반영 + 후속 merge-ready 판정) 완료. 머지·0.13.0 포함 여부는 별개다.
 - **완료된 범위(재개발 금지)**: #94의 impact/MCP/runtime·BasicMessageChannel,
   #96의 CLI 증분 분석·검증 원장·markdown/codeowners 리포터, #98/#100의 MCP 리소스/프롬프트·
   yaml 확장·dead/deps/dup `--kinds`·CODEOWNERS 문법 확장, #103의 EventChannel producer,
@@ -738,8 +739,8 @@ _Last updated: 2026-09-18 (같은 날 후속 세션에서 개선 후속의 구�
 
 ## Blockers & Open Questions
 
-- 현재 MCP/runtime 후속은 구현 중이며 완료 검증 전이다. 새 차단 사항·원격 PR 상태는 이번
-  문서 작업에서 확인하지 않았다. 아래 종결·보류 기록을 새 필수 작업으로 되살리지 않는다.
+- 현재 MCP/runtime 후속은 PR #117로 열려 있으며 머지가 남은 상태다. 아래 종결·보류
+  기록을 새 필수 작업으로 되살리지 않는다.
 - **issue #38 — 양측 완전 종결·close 완료(2026-09-09, reason: completed)**:
   dartograph 측 (a)+(b) 구현·왕복 검증·0.5.0 릴리스(PR #52) + 의미론 코멘트
   (issuecomment-5599285065), isthmus 측 GRAPH-EXCHANGE 정본 갱신 완료 — isthmus
