@@ -15,10 +15,16 @@ The name blends **Dart** and cartograph.
 
 DCM (formerly dart_code_metrics) detects unused code and files in Flutter
 projects — and went paid in 2023. Its free tier covers **one seat and up to 50k
-lines of code**, so teams and larger projects have to pay.
+lines of code**, and the declaration-level unused-code and dependency checks
+closest to this tool's scope sit behind paid plans — so teams and larger
+projects have to pay.
 
 dartograph fills that gap: **permanently free (MIT), commercial use included** —
-just as cartograph does for Swift after Periphery went commercial.
+just as cartograph does for Swift after Periphery went commercial. Free
+alternatives now cover individual pieces — reference searches, lint rules,
+file-level graphs — but none combines symbol-level reachability *with its
+evidence*, pre-change impact analysis, runtime input verification, and an
+agent-queryable MCP surface in one tool.
 
 - The source of truth is `package:analyzer`, the Dart team's official analyzer
   package — not text search.
@@ -251,6 +257,7 @@ Repository design documents are written in Korean.
 | [`doc/RESEARCH.md`](doc/RESEARCH.md) | Confirmed facts, unconfirmed claims, sources |
 | [`doc/DECISION-analyzer.md`](doc/DECISION-analyzer.md) | Analyzer version, vertex IDs, generated code, caching decisions |
 | [`doc/USAGE.md`](doc/USAGE.md) | Install, commands, exit codes, CI usage |
+| [`doc/GRAPH-EXCHANGE.md`](doc/GRAPH-EXCHANGE.md) | `bridges` bridge-facts JSON producer spec — fields, join key, limitations |
 | [`doc/MCP.md`](doc/MCP.md) | MCP tools, resources, prompts, error codes |
 | [`doc/TROUBLESHOOTING.md`](doc/TROUBLESHOOTING.md) | Common failure modes and fixes |
 | [`doc/COMPETITIVE-ANALYSIS.md`](doc/COMPETITIVE-ANALYSIS.md) | Alternatives survey and the shipped gap list |

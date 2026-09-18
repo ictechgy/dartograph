@@ -30,6 +30,8 @@ If invocation details are unclear, inspect `dartograph --help`.
   shortest usage path, call sites into changed declarations, related test
   libraries, a risk score with factors, and a `coverage` block of what
   inspecting changed files alone would miss. Prefer it before an edit.
+  `--format test-list` emits only the affected test paths, one per line —
+  feed it to `dart test` (guard the empty list; bare `dart test` runs all).
 - Pubspec hygiene: `dartograph deps <package-root>` audits declared
   dependencies against observed `package:` imports — unused, unused dev,
   dev-from-lib, undeclared. Tool contracts (executables, build.yaml,

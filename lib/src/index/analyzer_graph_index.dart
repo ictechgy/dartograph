@@ -1173,6 +1173,16 @@ AnalyzerGraphResult _assembleResult({
       );
     }
   }
+  final workspaceMembers = _workspaceMemberPaths(pubspecContent);
+  if (workspaceMembers.isNotEmpty) {
+    // 워크스페이스 루트를 직접 스캔하면 멤버 패키지의 소스는 분석 대상
+    // 디렉터리 밖이라 결과에 나타나지 않는다 — 빈 그래프가 "소스 없음"과
+    // 구분되도록 선언된 멤버를 출력에 남긴다.
+    limitationDetails.add(
+      'workspace-members-not-indexed: ${workspaceMembers.join(', ')} are '
+      'separate workspace packages; run dartograph on each member root',
+    );
+  }
   return AnalyzerGraphResult(
     graph: graph,
     limitations: limitations.toList()..sort((a, b) => a.index - b.index),
@@ -1230,6 +1240,29 @@ _manifestFacts(String? pubspecContent) {
       document is YamlMap ? document['dependency_overrides'] : null,
     ),
   );
+}
+
+/// pubspec `workspace:` 키가 선언한 멤버 경로 목록이다(정렬).
+///
+/// pub 워크스페이스 루트는 자신의 패키지 소스와 별개로 멤버 패키지를 열거한다 —
+/// 멤버 소스는 스캔 루트의 분석 대상 디렉터리(lib·test 등) 밖에 있으므로 직접
+/// 스캔해도 결과에 나타나지 않는다. 목록 형태가 아니거나 파싱할 수 없으면
+/// 워크스페이스가 아닌 것으로 본다(잘못된 pubspec은 analyzer가 진단한다).
+List<String> _workspaceMemberPaths(String? pubspecContent) {
+  if (pubspecContent == null) return const [];
+  final Object? document;
+  try {
+    document = loadYaml(pubspecContent);
+  } on Object {
+    return const [];
+  }
+  if (document is! YamlMap) return const [];
+  final workspace = document['workspace'];
+  if (workspace is! YamlList) return const [];
+  return [
+    for (final entry in workspace)
+      if (entry is String) entry,
+  ]..sort();
 }
 
 /// `build.yaml`의 builder factory를 보존 루트로 삼는다. 읽을 수 있으면 true다.
@@ -1436,8 +1469,10 @@ const _cacheSchemaVersion = 6;
 // dup 입력용 정규화 토큰 추출(v10)로 다시 올린다. retained_names/retained_files
 // 설정 보존 루트(v11)로 다시 올린다 — 같은 dartograph.yaml 내용의 해석이 바뀐다.
 // 복잡도 카운터가 컬렉션 if 요소까지 세기 시작해(v12) 같은 소스의 점수가 바뀐다.
+// 워크스페이스 루트의 미색인 멤버 limitation(v13)으로 같은 입력의 결과가 바뀐다 —
+// 이전 캐시는 이 limitation 없이 재사용되므로 identity를 올려 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v12-if-element-complexity';
+    'dartograph-analysis-$toolVersion-cache-v13-workspace-members-limitation';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -1509,11 +1544,18 @@ Future<List<File>> _analysisInputFiles(
     addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
     addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
     addFile(File(p.join(packageRoot.path, 'dartograph.yaml')));
-    final packageConfiguration = File(
+    var packageConfiguration = File(
       p.join(packageRoot.path, '.dart_tool', 'package_config.json'),
     );
     addFile(packageConfiguration);
-    if (!packageConfiguration.existsSync()) return;
+    if (!packageConfiguration.existsSync()) {
+      // pub 워크스페이스 멤버는 자체 package_config를 두지 않는다 — 루트
+      // `pub get`이 멤버 캐시를 무효화하도록 조상의 실제 설정을 지문에 넣는다.
+      final ancestor = nearestPackageConfigFile(packageRoot.path);
+      if (ancestor == null) return;
+      packageConfiguration = ancestor;
+      addFile(packageConfiguration);
+    }
     final document =
         (jsonDecode(await packageConfiguration.readAsString()) as Map)
             .cast<String, Object?>();
@@ -2321,8 +2363,10 @@ List<Directory> _readSourcePackages(String root) {
 /// source_packages는 이 매핑이 있어야만 analyzer가 실제 package URI/element를
 /// 보존할 수 있으므로, 해석되지 않은 path dependency를 파일로 가장하지 않는다.
 Map<String, String> _packageConfigRoots(String root) {
-  final file = File(p.join(root, '.dart_tool', 'package_config.json'));
-  if (!file.existsSync()) {
+  // nearestPackageConfigFile은 root부터 조상으로 올라가므로 root 자체 검사를
+  // 앞에 중복할 필요가 없다.
+  final file = nearestPackageConfigFile(root);
+  if (file == null) {
     throw const FormatException(
       'source_packages requires .dart_tool/package_config.json',
     );

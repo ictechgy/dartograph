@@ -17,6 +17,15 @@
 - 이번 세션에서 네 갭을 메웠다: `deps`(pubspec 의존성 위생 감사), `dead --closed-app`
   (독립 앱 모드), MCP resources/prompts, build_runner·JS/FFI·sealed 정밀도. 남은 갭은
   중복 코드 탐지, 함수 수준 복잡도, IDE 표면이다.
+- **2026-09-18 추가 검증(ultra-research, Claude+Codex 2트랙·63개 소스)**: 직전 문단의
+  "남은 갭" 셋은 이후 전부 구현됐다(`dup` 0.12.0, `metrics` complexity 0.12.0, IDE
+  플러그인). 새로 확인한 경쟁자로 dcq_standalone(BSD-3, 375+ 룰 + dead-code +
+  모노레포)이 있고, DCM의 무료 플랜은 `check-unused-code`·`check-dependencies`를
+  **제외**한다(Pro+ 게이트) — dartograph와 가장 겹치는 DCM 명령이 유료라는 사실이
+  확인됐다. 공식 `dart_mcp_server` 1.1.1(24도구)에는 사망코드·그래프·영향 도구가
+  없어 경쟁이 아니라 보완 관계다. env/dart-define 도구(dart_define, define_env)는
+  선언된 변수의 코드젠·검증이며, 코드가 실제로 읽는 입력을 정적 탐지해 환경과 대조하는
+  출시 도구는 조사 범위에 없었다.
 
 ## 2. 방법과 한계
 
@@ -34,12 +43,20 @@
 | Serena | 언어 무관(LSP) | 시맨틱 검색·편집·리팩터링 | 없음 | 있음(MCP 툴킷) | 없음 | 오픈소스 |
 | ContextQA Impact Analysis | SaaS | PR 단위 영향 테스트·위험 점수 | 있음(CI 실행) | 미확인 | 없음 | 상용 SaaS |
 | Augment Code | SaaS | 서비스 간 시맨틱 영향 분석 | 있음 | 있음(에이전트 제품) | 없음 | 상용 SaaS |
-| DCM | Dart/Flutter | 미사용 코드·파일·lint·metrics·deps·duplication | 없음 | 없음 | 없음 | 무료 티어 50k LOC, 이후 유료 |
+| DCM | Dart/Flutter | 미사용 코드·파일·lint·metrics·deps·duplication | 없음 | 없음 | 없음 | 무료 티어 50k LOC(미사용 파일·l10n·exports만); `check-unused-code`·`check-dependencies`는 Pro+ 유료 |
 | dead_code_analyzer | Dart/Flutter | 미사용 코드 탐지 | 없음 | 없음 | 없음 | 오픈소스 |
 | undead | Dart/Flutter | analyzer 도달성·open/closed 모드·build.yaml/test/@JS 어댑터 | 없음 | 스킬(`npx skills add`) | 없음 | 오픈소스 |
 | ciach | Dart/Flutter | LSP 기반 미사용 코드 + `--remove` 삭제 | 없음 | 없음 | 없음 | 오픈소스 |
 | dallow | Dart/Flutter | dead-code·pubspec 드리프트·중복 블록·복잡도 | 없음 | 없음 | 없음 | 오픈소스 |
-| dart_sentinel | Dart/Flutter | analysis server 플러그인·MCP 10도구·Claude Code hooks | 파일 단위(hot spots) | 있음(MCP·hooks·VS Code) | 없음 | 오픈소스 |
+| dart_sentinel | Dart/Flutter | analysis server 플러그인·35룰·MCP 10도구·Claude Code hooks | 파일 단위(hot spots) | 있음(MCP·hooks·VS Code) | 없음 | 오픈소스 |
+| dcq_standalone | Dart/Flutter | 375+ 린트 룰 + `dead-code`(모노레포·nearly-unused·low-usage-deps) | 없음 | 없음 | 없음 | 오픈소스(BSD-3) |
+| dependency_validator | Dart | missing·under/over-promoted·unused deps·pub workspace | 없음 | 없음 | 없음 | 오픈소스 |
+| lakos | Dart | 파일 단위 라이브러리 그래프 dot/json·사이클·metrics | 없음 | 없음 | 없음 | 오픈소스 |
+| pubviz | Dart | 패키지(pubspec) 의존 시각화 dot/mermaid | 없음 | 없음 | 없음 | 오픈소스 |
+| `dart analyze`·`unreachable_from_main` | Dart(SDK 내장) | private 미사용 선언·main 포함 라이브러리 내부 도달성 | 없음 | — | 없음 | SDK 포함 |
+| dart_mcp_server (공식) | Dart/Flutter | SDK 내장 MCP 24도구(analyze·lsp·pub·tests·DTD) | 없음 | 있음(MCP) | 없음 | 오픈소스(SDK 포함) |
+| dart_define·define_env | Dart/Flutter | env/define 선언 → 설정 코드젠·필수값 검증 | 없음 | 없음 | 선언 기반만(코드가 읽는 입력을 탐지하지 않음) | 오픈소스 |
+| GlassWing | Flutter/Android(학술) | Dart↔Java 암시 호출 정적분석 프로토타입(ASE'25) | 해당 없음 | 없음 | 없음 | 연구 |
 | kivgraph | 다언어(Dart 포함) | 크로스-레포 영속 그래프 DB·MCP | 있음(`get_blast_radius`) | 있음(MCP) | 없음 | 오픈소스 |
 | Periphery | Swift | 미사용 코드 | 없음 | 없음 | 없음 | 오픈소스 |
 | Turborepo / Nx / Bazel | 모노레포 빌드 | 변경 영향분만 실행·캐시 | 있음(빌드 그래프) | 없음 | 없음 | 오픈소스/상용 혼합 |
@@ -55,13 +72,22 @@
    쓰고, 모든 답에 witness(근거 경로)를 붙인다. 삭제 판정을 내리지 않고 미도달·미발견·
    분석 불완전성을 구분한다(제품 계약). ciach는 `--remove`로 삭제를 수행하고 DCM은
    fix-from-CLI를 판다 — 삭제 금지는 선택이 아니라 dartograph의 계약이다.
+   2026-09-18 추가: ciach는 도달성이 아니라 LSP `textDocument/references` 검색이다 —
+   죽은 코드만 참조하는 선언은 여전히 "참조 있음"으로 남아 잡지 못한다. SDK 내장
+   `unreachable_from_main` 린트도 `main`을 포함한 라이브러리(와 parts) 내부에서만
+   도달성을 걷는다(라이브러리 로컬, stable since 3.1) — 프로젝트 전체·패키지 간
+   심볼 도달성은 어느 쪽도 하지 않는다.
 2. **세 요구의 결합.** "수정 전 사전 점검" + "AI 질의 도구" + "런타임 의존 검증"을 한 CLI로
    묶은 오픈소스는 확인되지 않았다. 경쟁 도구는 보통 이 중 하나만 한다. 심볼 단위 영향
    심볼·호출 지점·관련 테스트·위험도·coverage를 한 문서로 내는 것은 여전히 유일하다
-   (dart_sentinel의 impact는 파일 단위 hot spot 목록이다).
-3. **영구 무료·상업 이용 허용.** DCM이 무료 티어를 50k LOC로 묶은 뒤 Dart 생태계에 남은
-   빈틈을 겨냥한다. fallow(TS/JS)는 런타임 실행 증거 레이어를 유료로 묶었다 —
-   dartograph의 `runtime` 검증은 무료다.
+   (dart_sentinel의 impact는 파일 단위 hot spot 목록이다). 공식 `dart_mcp_server`의
+   24도구는 분석 실행·LSP·테스트·pub 관리 같은 개발 액션이며 사망코드·그래프·영향
+   도구가 없어 dartograph의 읽기 전용 근거 질의와 보완 관계다.
+3. **영구 무료·상업 이용 허용.** DCM 무료 플랜(1석·50k LOC·100룰)은 "미사용 파일·
+   unused l10n·exports 완결성"까지만 포함하고, dartograph와 가장 겹치는
+   `check-unused-code`(선언 단위)와 `check-dependencies`는 Pro+ 게이트다.
+   fallow(TS/JS)는 런타임 실행 증거 레이어를 유료로 묶었다 — dartograph의 `runtime`
+   검증은 무료다.
 4. **에이전트 소비를 전제로 한 계약.** MCP 도구 결과의 스키마·종료 코드가 CLI와 같고,
    생성 스킬이 질의 순서를 안내한다. 도구 외에 `dartograph://usage`·`skill`·`config`
    리소스와 `impact-precheck`·`dead-code-review`·`dependency-audit` 프롬프트를 노출해
@@ -69,16 +95,27 @@
 
 ### 4.2 갭과 리스크(정직하게)
 
-- **중복 코드 탐지가 없다.** dallow·DCM·fallow가 토큰/AST 수준 duplication을 낸다.
-  그래프 위의 근거 질의라는 제품 계약과는 다른 계열의 기능이라 도입 여부가 열려 있다.
-- **함수 수준 복잡도가 없다.** `metrics`는 아키텍처 수준(CCD·instability)만 낸다.
-  순환 복잡도는 dallow·DCM·dart_sentinel이 제공한다.
+- ~~중복 코드 탐지~~ — `dup` 명령으로 해소(0.12.0, 토큰 shingle 기반).
+- ~~함수 수준 복잡도~~ — `metrics` complexity·hotSpots로 해소(0.12.0).
 - **IDE 통합 깊이.** dart_sentinel은 analysis server 플러그인으로 실시간 진단·quick
   fix를 준다. dartograph도 `editors/analysis_plugin/`의 analysis server 플러그인이
   `dead`/`dup` 진단과 `dartograph:ignore` quick fix를 낸다 — 다만 CLI 결과를
   파일 위치로 옮기는 수준이며 실시간 AST 기반 quick fix 전체와는 결이 다르다.
 - **모노레포 스캔 표면.** dallow는 `--recursive`로 워크스페이스를 한 번에 훑는다.
   dartograph는 패키지 하나를 분석하고 `--project`/workspace 감지는 `bridges`에만 있다.
+  2026-09-18 추가: dcq_standalone은 멀티 패키지 인자로 모노레포 dead-code를 명시
+  지원하고, dependency_validator는 pub workspace를 네이티브 지원한다 — 워크스페이스
+  인식은 더 흔한 기대 기능이 됐다. (부분 구현) pub 워크스페이스 **멤버**는
+  `<package-root>`로 직접 분석되고 analyzer가 루트 package_config를 공유한다.
+  루트를 직접 지정하면 선언된 멤버가 `workspace-members-not-indexed` 한계로
+  나열된다. 남은 갭: 루트에서 하위 패키지를 한 번에 집계하는 표면은 아직 없다.
+- **영향 → 테스트 실행 연결.** (구현) `impact --format test-list`가 영향받는
+  테스트 라이브러리 경로를 한 줄 하나씩 내 `dart test` 인자로 곧바로 쓸 수 있다
+  (`--limit` 영향 없이 전체 유지). JS 생태계는 tia-js·sniffler 같은 test-impact
+  실행 도구가 이미 성숙해 있다 — dartograph는 실행 대신 선택 목록을 낸다.
+- **GRAPH-EXCHANGE 스펙의 공개 문서 부재.** `bridges`는 크로스랭귀지 채널 사실을
+  만들지만, 조인 계약(GRAPH-EXCHANGE v1/v2)의 스펙 문서·예제가 저장소 밖 사용자에게
+  열려 있지 않다. 채택 경로가 isthmus 자매 도구에 갇혀 있다.
 - **런타임 검증의 신호 대 잡음.** 자기 저장소 기준 `config` 탐지의 다수가 CLI 인자 경로라
   신호가 약하다. 오탐을 줄이는 보수적 판정이 계속 필요하다(`--execute`·미판정 사유).
 - **`dart install` 실측 완료(2026-09, Dart 3.13.3/macOS arm64).**
@@ -88,6 +125,45 @@
   문서는 doc/USAGE.md 설치 절 참조.
 
 ## 5. 출처
+
+2026-09-18 세션(ultra-research, Claude+Codex 2트랙 교차검증)에 확인한 것:
+
+- DCM 플랜 게이트 — Free(1석·50k LOC·100룰)는 미사용 파일·l10n·exports까지만;
+  `check-unused-code`·`check-dependencies` 문서 페이지는 Pro+ 배지.
+  https://dcm.dev/pricing/ , https://dcm.dev/docs/cli/code-quality-checks/unused-code/ ,
+  https://dcm.dev/docs/cli/code-quality-checks/check-dependencies/
+- `unreachable_from_main` — 라이브러리 로컬 도달성(main 포함 라이브러리+parts만),
+  stable since 3.1. https://dart.dev/tools/linter-rules/unreachable_from_main ,
+  https://github.com/dart-lang/sdk/blob/main/pkg/linter/lib/src/rules/unreachable_from_main.dart
+- `custom_lint` 아카이브(2026-03-24, GitHub 배너) → 공식 후계는 `analysis_server_plugin`
+  (Dart 3.10+). https://github.com/invertase/dart_custom_lint ,
+  https://dart.dev/tools/analyzer-plugins , https://pub.dev/packages/analysis_server_plugin
+- 공식 `dart_mcp_server` 1.1.1 — 24도구 전수, 사망코드·그래프·영향 없음.
+  https://pub.dev/packages/dart_mcp_server ,
+  https://github.com/dart-lang/ai/blob/main/pkgs/dart_mcp_server/README.md
+- ciach — LSP references + definition 이중 확인 방식, doc-only 분리, `--remove`.
+  https://pub.dev/packages/ciach , https://github.com/leancodepl/ciach
+- dcq_standalone/dart_code_quality(Bud-ro) — BSD-3, 375+ 룰, `dead-code` 모노레포·
+  nearly-unused·low-usage-deps. https://pub.dev/packages/dcq_standalone ,
+  https://github.com/Bud-ro/dart-code-quality
+- dart_sentinel — 파일 단위 impact(`impact_analyzer`), MCP 10도구, ratchet.
+  https://pub.dev/packages/dart_sentinel
+- dependency_validator 5.x — missing/under/over-promoted/unused + pub workspace.
+  https://pub.dev/packages/dependency_validator
+- env/define 도구는 코드젠·선언 검증(dart_define, define_env).
+  https://pub.dev/packages/dart_define , https://pub.dev/documentation/define_env/latest/
+- GlassWing — Flutter↔Java 암시 호출 정적분석(ASE 2025, 연구 프로토타입).
+  https://conf.researchr.org/details/ase-2025/ase-2025-papers/137/GlassWing-A-Tailored-Static-Analysis-Approach-for-Flutter-Android-Apps
+- pubviz 6.3.0 — 활발(kevmoo.com). https://pub.dev/packages/pubviz
+- JS test-impact 실행 도구: tia-js, sniffler, ast-impact-mapper-mcp.
+  https://github.com/psturc/tia-js , https://www.npmjs.com/package/sniffler
+- SonarQube Dart는 Developer Edition 이상, Semgrep Dart는 experimental, CodeQL은
+  Dart 미지원. https://docs.semgrep.dev/supported-languages ,
+  https://codeql.github.com/docs/codeql-overview/supported-languages-and-frameworks/
+- dart_pubdev_mcp(pub.dev 레지스트리+AST 슬라이스+OSV), Flutter_MCP_Knowledge(9개
+  분석기+공식 소스 인덱스). https://pub.dev/packages/dart_pubdev_mcp ,
+  https://github.com/Saad0149/Flutter_MCP_Knowledge
+- 반증된 주장: "Dart/Flutter 도구가 2026-07-16에 BSL로 전환" — 근거 없음, 채택 금지.
 
 이번 세션(2026-09-16)에 재확인한 것:
 
@@ -144,3 +220,7 @@
 | P2 | `dart install` AOT 설치 검증·문서화 | ciach 명시 지원 | 설치본으로 `--version`·`dead` 실측 + README 설치 절 | 완료(0.12.0 — AOT 설치·`--version`·`dead` 실측, USAGE·README 설치 절 갱신, 상대 path 제약 기록) |
 | P3 | Claude Code hooks·툴별 AI 설정 생성 | dart_sentinel `setup-hooks`·`generate-ai-config` | MCP 호출 없이 강제되는 훅 스크립트 | 구현(0.12.0 — `setup` 명령: PostToolUse 훅 스크립트·settings.json·`.mcp.json` 병합 설치, 기존 키 보존·깨진 설정 보호) |
 | P3 | IDE 표면(VS Code 확장·analysis server 플러그인) | dart_sentinel·Knip | 편집기 내 진단 | 구현(게시됨 — `ictechgy.dartograph` v0.1.0 Problems 진단 + `dartograph_analysis_plugin` v0.1.0 pub.dev 게시: `dartograph_dead_code`·`dartograph_duplicate_block` 진단·`dartograph:ignore` quick fix, `dart analyze`에서도 동작 확인. AST 수준 자동 수정은 미구현) |
+| P2 | 영향 → 테스트 실행 연결 | tia-js·sniffler(JS test-impact 성숙), dart_sentinel 미지원 | `impact` 산출물이 `dart test` 선택 인자로 곧바로 쓰이는지(목록 포맷 또는 실행 연결), 종료 코드 계약 유지 | 구현(`impact --format test-list` — 한 줄 한 테스트 경로, `--limit` 영향 없음, 빈 목록 가드 문서화) |
+| P2 | pub workspace·모노레포 스캔 표면 | dcq_standalone 멀티 패키지, dependency_validator workspace, dallow `--recursive` | 워크스페이스 루트에서 하위 패키지 분석 경로(단일 패키지 계약과 정합 여부 먼저 결정) | 부분 구현 — 멤버 직접 분석·조상 package_config 공유(캐시 지문·deps 감사·source_packages 포함), 루트 스캔 시 `workspace-members-not-indexed` 한계. 다중 패키지 집계는 미구현 |
+| P2 | GRAPH-EXCHANGE 스펙·예제 공개 | bridges+isthmus 유일 결합, 채택 경로가 자매 도구에 갇힘 | 저장소 밖 소비자가 스펙 문서만으로 조인 구현 가능 | 구현(`doc/GRAPH-EXCHANGE.md` — 봉투·fact·정렬·조인 키·limitations·예제, 조인 계약 정본은 isthmus 링크) |
+| P3 | SARIF·GitHub code scanning 연동 가이드 | DCM에도 SARIF 없음 — 결정적 SARIF가 차별점 | code scanning 업로드 예시 워크플로·문서 | 구현(USAGE `SARIF와 GitHub code scanning` 절 — 워크플로·`if: always()`·category 구분·상대 URI·무위치 결과 한계) |

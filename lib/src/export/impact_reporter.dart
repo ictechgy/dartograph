@@ -19,6 +19,15 @@ enum ImpactFormat {
 
   /// 정적 분석 도구 교환 형식 SARIF 2.1.0이다.
   sarif,
+
+  /// 영향받는 테스트 라이브러리 경로를 한 줄에 하나씩 낸다.
+  ///
+  /// `dart test`의 인자로 곧바로 쓰는 소비 형식이다. `--limit`은 `impacted`
+  /// 목록만 좁히고 이 목록은 항상 전체 테스트를 싣는다. 영향받는 테스트가
+  /// 없으면 빈 출력이다 — 인자 없는 `dart test`는 전체를 실행하므로 소비자는
+  /// 빈 출력을 걸러야 한다(GNU `xargs -r`, 또는 macOS/BSD `xargs`는 빈 입력을
+  /// 건너뛴다).
+  testList,
 }
 
 /// 영향 사전 점검 결과를 형식별로 손실 없이 직렬화한다.
@@ -47,7 +56,38 @@ abstract final class ImpactReporter {
       ImpactFormat.markdown => _markdown(report, limits),
       ImpactFormat.githubActions => _githubActions(report, limits),
       ImpactFormat.sarif => _sarif(report, limits),
+      ImpactFormat.testList => _testList(report),
     };
+  }
+
+  /// 테스트 라이브러리 경로를 한 줄에 하나씩 낸다.
+  ///
+  /// 소비자가 `dart test` 인자로 그대로 넘기는 형식이라 추가 장식·헤더·
+  /// limitations를 싣지 않는다. 경로만 경로 순으로 정렬해 결정적이다.
+  static String _testList(ImpactReport report) {
+    final paths = <String>{
+      for (final test in report.tests) ?_testPath(test),
+    }.toList()..sort();
+    return paths.isEmpty ? '' : '${paths.join('\n')}\n';
+  }
+
+  /// 테스트 라이브러리의 `dart test` 인자용 프로젝트 상대 경로다.
+  ///
+  /// `dart test` 인자가 될 수 없는 토큰(비프로젝트 스킴 URI)이면 null이다.
+  static String? _testPath(ImpactedTest test) {
+    // 소스가 없는 테스트는 정점 ID가 `project:` URI라 그대로 인자가 되지
+    // 못하므로 센티널을 벗긴다. ID의 `::symbol` 접미사도 경로가 아니므로
+    // 함께 벗긴다 — `project:test/a_test.dart::main` → `test/a_test.dart`.
+    var value = test.source ?? test.id;
+    if (value.startsWith('project:')) {
+      value = value.substring('project:'.length);
+    }
+    final separator = value.indexOf('::');
+    if (separator != -1) value = value.substring(0, separator);
+    // `package:`·`dart:` 등 남은 스킴은 파일시스템 경로가 아니라 `dart test`
+    // 인자로 쓸 수 없으므로 출력에서 제외한다.
+    if (RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:').hasMatch(value)) return null;
+    return value;
   }
 
   static Map<String, Object> _document(

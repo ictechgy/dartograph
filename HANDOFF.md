@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-18 (개선 후속이 PR #117로 main에 머지됨 `bc2dbd0`, 릴리스 0.13.0 유지 — 미릴리스. 이 문서 변경만 미커밋)_
+_Last updated: 2026-09-18 (개선 후속을 0.14.0으로 릴리스 — 태그 `v0.14.0` = `0978cde`, pub.dev·GitHub Release·설치본 검증 완료. main `0978cde`, 이 문서 변경만 미커밋)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
@@ -60,11 +60,13 @@ _Last updated: 2026-09-18 (개선 후속이 PR #117로 main에 머지됨 `bc2dbd
   kinds/statuses 거부·계약 케이스)도 보강했다. 미반영: 실제 임시 디렉터리
   접두사 핀(테스트는 팩토리 주입이라 `dartograph-mcp-cache.` 이름 미검증) —
   테스트로 잡기 어려운 경계라 기록으로 남긴다.
-- **머지 완료**: 사용자 승인으로 브랜치 `feat/mcp-cache-runtime-filters`의 두
-  커밋(+HANDOFF 정정)을 PR #117로 올려 CI 전부 통과·GLM 후속 리뷰 merge-ready
-  판정 뒤 머지했다(`bc2dbd0`, 머지 커밋). main이 `bc2dbd0`으로 갱신됐다.
-  JSON 문서는 additive 키(`unverifiedReasonCounts`)로 확장했으며 버전 범프
-  없이 v1을 유지하는 기존 방침을 따른다.
+- **머지·릴리스 완료**: 사용자 승인으로 브랜치 `feat/mcp-cache-runtime-filters`의
+  두 커밋(+HANDOFF 정정)을 PR #117로 올려 CI 전부 통과·GLM 후속 리뷰 merge-ready
+  판정 뒤 머지했다(`bc2dbd0`). 이어 `chore/release-0.14.0`(PR #118)으로 버전
+  범프·CHANGELOG를 머지하고 태그 `v0.14.0`(`0978cde`)·GitHub Release·pub.dev
+  게시·격리 캐시 설치본 `--version` 검증까지 완료했다. JSON 문서는 additive
+  키(`unverifiedReasonCounts`)로 확장했으며 버전 범프 없이 v1을 유지하는 기존
+  방침을 따른다.
 - **주의**: `runtime_query`는 CLI runtime argv를 고정 문자열로 붙인다 — runtime 인자
   파싱을 바꾸면 mcp_server.dart의 고정 argv도 확인한다. 세션 캐시는 요청마다 서버를
   새로 띄우는 클라이언트 패턴에서 이득이 없다(doc/MCP.md 한계 절 기재됨).
@@ -171,18 +173,24 @@ _Last updated: 2026-09-18 (개선 후속이 PR #117로 main에 머지됨 `bc2dbd
 
 ## Current Status
 
-- 릴리스 기준: **`v0.13.0` → `6a1abfb`** (게시 커밋 = PR #115 merge). pub.dev latest 0.13.0·
-  GitHub Release(tag=v0.13.0) 공개. `dart pub global activate` 설치본 `--version` 0.13.0
-  실측. VS Code 확장 `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
-  (이전 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`, 0.8.0→`8d8baa3`.)
-- 로컬 Git 확인(2026-09-18): **main / origin/main `bc2dbd0`**(PR #117 머지),
-  `v0.13.0`은 `6a1abfb`. 릴리스 뒤 #116 README 퇴고(`edbbe2b`)·HANDOFF 기록·
-  이번 개선 후속 머지가 있다. 원격 게시·열린 PR 상태는 이번 문서 작업에서
-  재조회하지 않았다.
-- **개선 후속 완료·PR #117 머지(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
+- 릴리스 기준: **`v0.14.0` → `0978cde`** (게시 커밋 = PR #118 merge). pub.dev latest
+  0.14.0·GitHub Release(tag=v0.14.0) 공개. 격리 PUB_CACHE 신규 `activate`로
+  `--version` 0.14.0 실측(게시 직후 버전 목록 전파 지연으로 첫 시도는 0.13.0을
+  받았고 명시 버전 재시도로 확인 — 재게시하지 않았다). VS Code 확장
+  `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
+  (이전 0.13.0→`6a1abfb`, 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`,
+  0.8.0→`8d8baa3`.)
+- 로컬 Git 확인(2026-09-18): **main / origin/main `0978cde`**(PR #118 릴리스 머지
+  = 태그 `v0.14.0` 타깃). `v0.13.0`은 `6a1abfb`. 원격 게시·열린 PR 상태는 이번
+  문서 작업에서 재조회하지 않았다.
+- **미커밋 작업(2026-09-18 후속 세션)**: 경쟁 갭 후보 4건 구현·검증 완료 — 본 문서
+  하단 "경쟁 갭 후보 구현(미커밋)" 절 참조(`impact --format test-list`, pub
+  workspace 멤버/루트 표면, `doc/GRAPH-EXCHANGE.md`, SARIF 가이드). 커밋·PR은
+  명시 요청 시 브랜치에서 진행한다.
+- **개선 후속 완료·릴리스됨(2026-09-18 후속 세션)**: 위 2026-09-18 절 참조 —
   MCP 세션 캐시·`runtime_query`·runtime 집계/필터가 PR #117(`bc2dbd0`)로 main에
-  들어갔다. GLM 리뷰 2회(초기 지적 반영 + 후속 merge-ready 판정)와 CI 전부 통과.
-  미릴리스 상태 — 0.13.0에 포함되지 않았고 다음 릴리스 대상이다.
+  들어가 0.14.0(PR #118, 태그 `v0.14.0` = `0978cde`)로 게시됐다. GLM 리뷰 2회
+  (초기 지적 반영 + 후속 merge-ready 판정)와 CI 전부 통과.
 - **완료된 범위(재개발 금지)**: #94의 impact/MCP/runtime·BasicMessageChannel,
   #96의 CLI 증분 분석·검증 원장·markdown/codeowners 리포터, #98/#100의 MCP 리소스/프롬프트·
   yaml 확장·dead/deps/dup `--kinds`·CODEOWNERS 문법 확장, #103의 EventChannel producer,
@@ -741,8 +749,8 @@ _Last updated: 2026-09-18 (개선 후속이 PR #117로 main에 머지됨 `bc2dbd
 
 ## Blockers & Open Questions
 
-- 현재 MCP/runtime 후속은 PR #117로 main에 머지됐다(`bc2dbd0`). 아래 종결·보류
-  기록을 새 필수 작업으로 되살리지 않는다.
+- 현재 MCP/runtime 후속은 PR #117 머지 후 0.14.0으로 릴리스됐다(`v0.14.0` =
+  `0978cde`). 아래 종결·보류 기록을 새 필수 작업으로 되살리지 않는다.
 - **issue #38 — 양측 완전 종결·close 완료(2026-09-09, reason: completed)**:
   dartograph 측 (a)+(b) 구현·왕복 검증·0.5.0 릴리스(PR #52) + 의미론 코멘트
   (issuecomment-5599285065), isthmus 측 GRAPH-EXCHANGE 정본 갱신 완료 — isthmus
@@ -886,13 +894,18 @@ P7 및 설계 변경 후보는 새 근거·요청 없이는 재개하지 않는�
 ## Next Steps
 
 1. 실제 branch/status/log를 확인하고 루트 및 작업 경로 AGENTS.md를 읽는다.
-2. **완료 재개발 금지**: 0.9.0(#94 impact·MCP·runtime·BasicMessageChannel)부터 0.13.0
-   (#110~#115 리뷰 수정·릴리스)까지, CLI 증분 분석·검증 원장(#96), MCP 리소스/프롬프트·
-   yaml 확장·--kinds·CODEOWNERS(#98·#100), EventChannel producer(#103), README 퇴고(#116)는
+2. **완료 재개발 금지**: 0.9.0(#94 impact·MCP·runtime·BasicMessageChannel)부터 0.14.0
+   (#110~#115 리뷰 수정·릴리스, #117 MCP 캐시·runtime_query·runtime 필터/집계·릴리스
+   #118)까지, CLI 증분 분석·검증 원장(#96), MCP 리소스/프롬프트·yaml 확장·
+   --kinds·CODEOWNERS(#98·#100), EventChannel producer(#103), README 퇴고(#116)는
    이미 완료됐다. Completed·Verification·감사 backlog의 처분 원장을 다시 열지 않는다.
-3. **2026-09-18 후속은 main에 머지됐다**(PR #117, `bc2dbd0`): 구현·문서·검증·
-   GLM 리뷰·CI·머지까지 완료. 다음 릴리스에 포함될 미릴리스 변경이다.
-4. 본 문서 정리는 완료했다. 그 외 명시적 지시가 없으면 다음 사용자 지시를 따른다.
+3. **2026-09-18 후속은 릴리스됐다**: PR #117 머지(`bc2dbd0`) → 0.14.0 릴리스
+   (PR #118, 태그 `v0.14.0` = `0978cde`, pub.dev·Release·설치본 검증 완료).
+4. **경쟁 갭 후보 구현은 미커밋이다**: main `0978cde` 위에서 `impact --format
+   test-list`·pub workspace 표면·`doc/GRAPH-EXCHANGE.md`·SARIF 가이드를 구현·검증
+   (+584 테스트·계약 스크립트 통과 — 본 문서 하단 해당 절 참조). 커밋·PR은 명시
+   요청 시 브랜치에서 진행한다.
+5. 본 문서 정리는 완료했다. 그 외 명시적 지시가 없으면 다음 사용자 지시를 따른다.
    VS Code 아이콘 선택은 사용자 대기 항목이다.
 
 ## Resume Prompt
@@ -909,12 +922,14 @@ review-fix PRs #110–#114, and the README polish (#116) are all done. The
 EventChannel `stream-listen` contract question is closed by user decision:
 calls are recorded as observed, and the README (en/ko) states that listening or
 receiving is not proven — do not reopen it. Read the 2026-09-18 section first:
-the improvement follow-up is merged to main via PR #117 (`bc2dbd0`, merge
-commit) — MCP session caching, runtime_query, runtime unverified-reason
-aggregation, and runtime --kinds/--statuses filters all shipped into main
-unreleased. Local main is at `bc2dbd0`; only this HANDOFF edit is uncommitted.
-Preserve HANDOFF-PROGRESS.md and icon drafts. Do not commit, push, or create
-a PR without an explicit request.
+the improvement follow-up shipped as **0.14.0** — PR #117 (`bc2dbd0`) merged
+the MCP session cache, runtime_query, unverified-reason aggregation, and
+runtime --kinds/--statuses filters; PR #118 cut the release with tag
+`v0.14.0` = `0978cde`, pub.dev latest 0.14.0, GitHub Release published, and
+a fresh isolated install verified (`--version` 0.14.0). Local main is at
+`0978cde`; only this HANDOFF edit is uncommitted. Preserve
+HANDOFF-PROGRESS.md and icon drafts. Do not commit, push, or create a PR
+without an explicit request.
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
@@ -1012,3 +1027,53 @@ Cartograph feature/change-impact-workflow의 미릴리스 후속 알림이다. �
 - 모델 상속·요청/context 변경·main 실행 파일의 정의 심볼을 확인한다. 동적 framework-only 클래스는
   연결 근거가 없어 보수적으로 거부한다. 기준: ../cartograph/docs/RUNTIME-CONTRACTS.md,
   ../cartograph/Skills/cartograph/SKILL.md. 구현한 언어별 기능만 안내하고 스킬 문구를 맹목 복사하지 않는다.
+
+## 2026-09-18 — 경쟁 도구 재검증(ultra-research)과 문서 반영
+
+Claude+Codex 2트랙 교차검증(63개 소스)으로 경쟁 지형을 재조사하고 `doc/COMPETITIVE-ANALYSIS.md`·
+`doc/RESEARCH.md`·README 양본에 반영했다. 구현 변경은 없다.
+
+- 새로 확인: dcq_standalone(BSD-3, dead-code+모노레포), dependency_validator 5.x(pub workspace),
+  공식 dart_mcp_server 1.1.1(24도구, 사망코드·그래프·영향 없음 → 보완 관계),
+  `unreachable_from_main` 린트(라이브러리 로컬만), custom_lint 아카이브 →
+  analysis_server_plugin(Dart 3.10+), env/define 도구는 코드젠·선언 검증(탐지 아님),
+  GlassWing(ASE'25 연구) 외 크로스랭귀지 채널 분석 출시 도구 없음.
+- DCM 정정: Free 플랜은 미사용 파일·l10n·exports까지만 — `check-unused-code`·
+  `check-dependencies`는 Pro+ 게이트. "DCM은 전부 유료"도 "무료에 미사용 코드 포함"도 부정확.
+- 신규 갭 후보(백로그 기록 → 후속 세션에서 구현됨, 아래 절 참조): impact→`dart test`
+  선택 실행 연결, pub workspace 스캔 표면, GRAPH-EXCHANGE 스펙 공개 문서,
+  SARIF·code scanning 가이드.
+- 반증된 주장: "Dart/Flutter 도구 2026-07-16 BSL 전환" — 1차 출처 근거 없음, 채택 금지.
+- 미검증 잔여: dart_sentinel·dcq 출력의 근거 체인 존재 여부(문서상 부재), DCM MCP
+  플랜 요구, Homebrew 탭 존재. (dartograph의 pub workspace 동작은 아래 후속에서
+  구현·검증됨)
+
+## 2026-09-18 — 경쟁 갭 후보 구현(미커밋)
+
+승인된 갭 후보 4건을 구현·검증했다. main `0978cde` 위 미커밋 상태다.
+
+- **`impact --format test-list`** — 영향받는 테스트 라이브러리 경로만 한 줄 하나씩
+  출력해 `dart test` 인자로 직결한다(`ImpactFormat.testList`·`_testList`). `--limit`은
+  impacted만 자르고 테스트 선택은 전체 유지, `project:` 센티넬은 벗겨 낸다. 빈 목록은
+  빈 출력 — bare `dart test` 실행 금지를 help·USAGE에 명시. 회귀 3건(경로만·limit 무시·
+  빈 출력)+ 계약 스크립트 케이스 추가.
+- **pub workspace** — 단일 패키지 계약 유지로 결정: 멤버는 `<package-root>`로 직접
+  분석(analyzer가 루트 package_config를 자체 해석 — 비워크스페이스 path-dep와 동일
+  출력 실측). 새 공용 헬퍼 `nearestPackageConfigFile`(project_files)로 조상
+  `.dart_tool/package_config.json` 탐색을 지문(addPackage)·`detectToolLikeDependencies`·
+  `_packageConfigRoots`(source_packages)에 적용 — 멤버의 잘못된 missing 보고·stale
+  캐시 방지. 루트 직접 스캔은 `workspace-members-not-indexed` limitation으로 멤버
+  나열(무음 빈 그래프 폐지). `_cacheIdentity` v12→v13(새 limitation이 같은 입력의
+  결과를 바꿈). 다중 패키지 집계는 미구현(계약상 opt-in 필요).
+- **`doc/GRAPH-EXCHANGE.md`** — `bridges` bridge-facts 생산자 스펙: 봉투·fact 필드·
+  v1/v2·transport·정렬·`project` 조인 키 우선순위·limitations 표·예제. 조인 계약
+  정본은 isthmus 링크로 위임(자매 저장소 선행 조건 금지 규칙 준수).
+- **SARIF·code scanning 가이드** — USAGE `SARIF와 GitHub code scanning` 절:
+  `--format sarif` 지원 명령(dead·deps·dup·impact·runtime), pinned 워크플로
+  (`security-events: write`·`if: always()`·`continue-on-error` 관계·category 구분),
+  패키지 루트 상대 URI, 무위치 결과 제외(`resultsWithoutLocation`)·region 없는 파일
+  finding·invocations properties 위치. CI 미실행 — 예시 검증 주장 없음.
+- **검증**: format·analyze 클린, `dart test` **+584 전부 통과**, verify-cli-contract
+  (test-list 케이스 포함)·false-positive corpus·coverage(91.87%) 통과.
+  check-analyzer-boundary는 `rg` 부재로 미실행 — 동등 스캔 수동 확인(lib·bin의
+  analyzer 임포트는 `src/index`에만 존재).

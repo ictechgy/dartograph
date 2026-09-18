@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../core/config_source.dart';
+import 'project_files.dart';
 
 /// 선언 패키지가 `package:` import 없이도 사용되는 도구 계약을 제공하는지 본다.
 ///
@@ -24,10 +25,15 @@ import '../core/config_source.dart';
 ) {
   final limitations = <String>[];
   if (declared.isEmpty) return (toolLike: const {}, limitations: limitations);
-  final configFile = File(p.join(root, '.dart_tool', 'package_config.json'));
+  // pub 워크스페이스 멤버는 자체 package_config를 두지 않는다 — 가장 가까운
+  // 조상 설정이 pub이 실제로 쓰는 파일이다(멤버에서 잘못된 missing 보고 방지).
+  final configFile =
+      File(p.join(root, '.dart_tool', 'package_config.json')).existsSync()
+      ? File(p.join(root, '.dart_tool', 'package_config.json'))
+      : nearestPackageConfigFile(root);
   final toolLike = <String>{};
   final packageRoots = <String, String>{};
-  if (configFile.existsSync()) {
+  if (configFile != null) {
     try {
       final document = (jsonDecode(configFile.readAsStringSync()) as Map)
           .cast<String, Object?>();

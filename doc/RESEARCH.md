@@ -179,6 +179,64 @@ dependency-cruiser `--focus`/`--reaches`/`--highlight`/`--max-depth`는 `query -
 따라서 `lib/`에 `externalBridge` 보존 이유가 없는 것은 결함이 아니라 계약상 범위다. isthmus
 선행 작업(producer + GRAPH-EXCHANGE 확장) 없이 dartograph에서 구현하지 않는다.
 
+### 경쟁 도구 생태계 재검증 (2026-09-18, ultra-research 2트랙·1차 출처)
+
+- **DCM 무료 플랜의 실제 범위**: Free(1석·50k LOC·100룰)는 "미사용 파일·unused
+  l10n·exports 완결성"까지만 포함하고, 선언 단위 `check-unused-code`와
+  `check-dependencies` 문서 페이지는 Pro+ 배지 — dartograph와 가장 겹치는 DCM
+  명령이 유료 게이트다. https://dcm.dev/pricing/ ,
+  https://dcm.dev/docs/cli/code-quality-checks/unused-code/ ,
+  https://dcm.dev/docs/cli/code-quality-checks/check-dependencies/
+- **`unreachable_from_main` 린트**: stable(Dart 3.1부터)이지만 `main` 또는
+  `vm:entry-point`를 포함한 라이브러리(와 parts) 내부에서만 도달성을 걷는다 —
+  프로젝트 전체·패키지 간 심볼 도달성이 아니다.
+  https://dart.dev/tools/linter-rules/unreachable_from_main ,
+  https://github.com/dart-lang/sdk/blob/main/pkg/linter/lib/src/rules/unreachable_from_main.dart
+- **`custom_lint` 아카이브**: GitHub 저장소가 2026-03-24 아카이브되고 배너가 공식
+  후계로 `analysis_server_plugin`(Dart 3.10+, pub.dev엔 discontinued 표시 없음)을
+  가리킨다. https://github.com/invertase/dart_custom_lint ,
+  https://dart.dev/tools/analyzer-plugins
+- **공식 `dart_mcp_server` 1.1.1**: 24도구 전수 확인 — analyze_files·lsp·pub·
+  run_tests·DTD 등 개발 액션이며 사망코드·의존 그래프·영향 도구가 없다.
+  dartograph MCP(읽기 전용 근거 질의)와 경쟁이 아니라 보완 관계.
+  https://pub.dev/packages/dart_mcp_server ,
+  https://github.com/dart-lang/ai/blob/main/pkgs/dart_mcp_server/README.md
+- **ciach의 방식**: 도달성이 아니라 LSP `textDocument/references`(+definition 이중
+  확인) 검색 — 죽은 코드만 참조하는 선언은 "참조 있음"으로 남는다. `dead`의
+  reachable-from-roots 판정과 의미가 다르다. `--remove` 자동 삭제 제공.
+  https://pub.dev/packages/ciach , https://github.com/leancodepl/ciach
+- **dcq_standalone(Bud-ro, BSD-3)**: 375+ 린트 + `dead-code` 서브커맨드(모노레포
+  멀티 패키지 인자·`--nearly-unused`·`--low-usage-deps`). 근거 체인·보존 루트
+  출력은 문서에 없다. https://pub.dev/packages/dcq_standalone ,
+  https://github.com/Bud-ro/dart-code-quality
+- **dart_sentinel**: dead-files·dead-exports·impact는 모두 파일 단위
+  (`impact_analyzer`의 blast radius = 파일 전이 의존). MCP 10도구는 규칙/설정 질의
+  위주. https://pub.dev/packages/dart_sentinel
+- **dependency_validator 5.x**: missing·under/over-promoted·unused + pub
+  workspace 네이티브 지원, 활발히 유지. https://pub.dev/packages/dependency_validator
+- **env/dart-define 도구**: dart_define·define_env는 선언된 변수의 설정 클래스
+  코드젠+필수값 검증. 코드가 실제로 읽는 입력을 정적 탐지해 현재 환경과 대조하는
+  출시 도구는 조사 범위에 없었다. https://pub.dev/packages/dart_define ,
+  https://pub.dev/documentation/define_env/latest/
+- **크로스랭귀지 채널 정적분석**: GlassWing(ASE 2025 연구 프로토타입) 외 출시 도구
+  없음 — bridges+isthmus 조인은 여전히 유일.
+  https://conf.researchr.org/details/ase-2025/ase-2025-papers/137/GlassWing-A-Tailored-Static-Analysis-Approach-for-Flutter-Android-Apps
+- **범용 SAST의 Dart 지원**: SonarQube는 Developer Edition 이상(유료),
+  Semgrep은 Dart experimental, CodeQL은 Dart 미지원.
+  https://docs.semgrep.dev/supported-languages ,
+  https://codeql.github.com/docs/codeql-overview/supported-languages-and-frameworks/
+- **MCP 생태계 주변**: dart_pubdev_mcp(pub.dev 레지스트리·AST 슬라이스·OSV),
+  Flutter_MCP_Knowledge(9개 분석기+공식 소스 로컬 인덱스) — 근거 질의와 다른 축.
+  https://pub.dev/packages/dart_pubdev_mcp ,
+  https://github.com/Saad0149/Flutter_MCP_Knowledge
+- **JS test-impact 실행 도구**: tia-js·sniffler·ast-impact-mapper-mcp가 "변경 →
+  실행할 테스트 선택"을 이미 제공. Dart 쪽은 dartograph `impact`의 affected test
+  libraries 산출까지며 실행 연결은 없다. https://github.com/psturc/tia-js ,
+  https://www.npmjs.com/package/sniffler
+- pubviz 6.3.0 활발(kevmoo.com, 2026-09-16경 발행). https://pub.dev/packages/pubviz
+- **반증**: "Dart/Flutter 도구가 2026-07-16에 BSL로 전환" 주장은 1차 출처에서 근거를
+  찾지 못했다 — 채택 금지.
+
 ## 확인 필요
 
 - **Pigeon 이 생성한 코드의 형태** — 채널 이름이 생성 코드 안의 상수로 들어가는지, 그러면 `bridges` 가 그것을 "정적 참조" 로 분류할 수 있는지. 아직 실측하지 않았다. `doc/PRD.md`와 HANDOFF 방침대로 Pigeon 정적 추출은 생성 API 형태를 측정한 뒤에만 추가한다
