@@ -65,9 +65,13 @@ void main() {
         incremental: IncrementalCache(cacheDirectory.path),
       );
 
-      // 첫 실행으로 증분 상태를 채운 뒤 두 번째 실행이 증분 경로를 탄다.
+      // 첫 실행으로 증분 상태를 채운 뒤 파일을 바꿔 두 번째 실행이 캐시된
+      // 결과를 통째로 재사용하지 못하고 증분 재분석을 하게 만든다.
       // limitation은 분석 경로가 아니라 결과 조립에서 나오므로 양쪽이 같아야 한다.
       final first = await index.index(workspace.path);
+      await File(
+        '${workspace.path}/lib/root.dart',
+      ).writeAsString('class RootPackage { int field = 1; }\n');
       final second = await index.index(workspace.path);
       for (final result in [first, second]) {
         expect(
