@@ -6,7 +6,7 @@ Dart/Flutter 코드베이스의 의존성 그래프를 공식 분석기로 만�
 
 ## 문제
 
-- **DCM(구 dart_code_metrics)** 이 미사용 코드 · 파일 검사를 갖고 있지만 2023 년 유료 전환했다. 무료 티어는 **1인, 50k LoC 이하** (dcm.dev/pricing, 2026-09-04 확인). 팀이거나 프로젝트가 크면 유료다
+- **DCM(구 dart_code_metrics)** 이 미사용 코드 · 파일 검사를 갖고 있지만 2023 년 유료 전환했다. 무료 티어는 **1인, 50k LoC 이하** (dcm.dev/pricing, 2026-09-04 확인)이고 선언 단위 미사용 코드·의존성 검사는 유료 플랜 게이트다(2026-09-18 확인). 팀이거나 프로젝트가 크면 유료다
 - **`dart analyze`** 의 `unused_element` · `unused_import` 는 라이브러리 · 파일 단위의 지역 판정이다. "이 public 클래스를 프로젝트 어디서도 안 쓴다" 는 못 말한다
 - 순환 의존(`lakos` 등 그래프 도구가 있으나 판정 · 근거 없음), 레이어 규칙, 아키텍처 지표를 한 곳에서 주는 도구가 없다
 
@@ -104,7 +104,7 @@ Flutter ↔ Swift이기 때문이다.
 
 | | `dart analyze` | `lakos` | DCM 무료 | DCM 유료 | dartograph |
 |---|---|---|---|---|---|
-| 미사용 코드 (전역) | 지역만 | — | ✅ ≤50k LoC, 1인 | ✅ | ✅ 무제한 |
+| 미사용 코드 (전역) | 지역만 | — | —² | ✅ | ✅ 무제한 |
 | 미사용 파일 | — | orphan만¹ | ✅ | ✅ | ✅ |
 | 왜 살아남았나 | — | — | — | — | `dead --explain` |
 | 순환 의존 + 끊을 후보 | — | 검출만 | — | — | ✅ |
@@ -113,5 +113,7 @@ Flutter ↔ Swift이기 때문이다.
 | 상업적 사용 | 무료 | 무료(MIT) | 제한 | 유료 | **영구 무료** |
 
 ¹ `lakos` orphan은 import하지도 어디서도 import되지도 않는 고립 라이브러리라 "어디서도 import되지 않는 파일"보다 좁다. lakos는 라이브러리 단위(`import`/`export`만, `library`·`part` 미지원) 시각화·순환(첫 순환 경로 표시)·metrics 도구이며 심볼 단위 미사용 코드·근거·에이전트 질의·platform channel은 다루지 않는다.
+
+² DCM Free는 "미사용 파일·unused l10n·exports 완결성"까지만 포함한다. 선언 단위 `check-unused-code`와 `check-dependencies` 문서 페이지는 Pro+ 배지다(2026-09-18, dcm.dev 가격표·명령 문서 확인).
 
 DCM 열의 사실은 게시 전에 dcm.dev 에서 다시 확인한다. `lakos` 열은 2026-09-06 pub.dev(2.0.7)에서 확인했다.

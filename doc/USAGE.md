@@ -44,9 +44,9 @@ dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit 
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
 dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
-dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph setup [--install <package-root> [--force]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
@@ -221,7 +221,8 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
-채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다. `bridges --messages`는 개발 소스
+채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다(문서 계약은
+[GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md) 참조). `bridges --messages`는 개발 소스
 전용 opt-in 경로로, 실제 BasicMessageChannel `send` 호출만 bridge-facts v2
 (`transport: basic-message-channel`, `kind: message-send`)로 낸다. 채널 생성은 send로
 세지 않으며 MethodChannel의 method 필드도 만들지 않는다. 동적 이름은 원래 표현식을
@@ -329,6 +330,25 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상�
 전체 위험도가 그 수준 이상이면 종료 코드 1로 만든다(기본 `none`은 항상 0). 출력에는
 `coverage` 블록이 있어 **변경 파일만 확인했을 때 누락됐을** 영향 심볼 수와 목록을
 제시한다 — 사전 점검의 가치를 수치로 남긴다.
+
+`--format test-list`는 영향받는 테스트 라이브러리의 프로젝트 상대 경로만 한 줄에
+하나씩 낸다 — `dart test`의 인자로 곧바로 쓰는 소비 형식이다. 테스트 선택은
+`--limit`의 영향을 받지 않고 항상 전체를 싣는다. 헤더·limitations를 붙이지 않으므로
+파이프에 안전하다:
+
+```bash
+# 영향받는 테스트만 실행 (GNU xargs는 빈 입력 실행을 막는 -r 필요)
+dartograph impact --since origin/main --format test-list . | xargs -r dart test
+
+# 이식 가능한 가드 — 빈 목록이면 실행하지 않는다
+tests=$(dartograph impact --since origin/main --format test-list .)
+[ -n "$tests" ] && dart test $tests
+```
+
+빈 출력은 "영향받는 테스트 없음"이다 — 인자 없는 `dart test`는 전체 스위트를
+실행하므로 빈 출력 가드는 필수다(macOS/BSD `xargs`는 빈 입력을 건너뛰지만 GNU는
+`-r`이 필요하다). 목록이 비는 것은 "테스트가 안전하다"의 증명이 아니라 관측된
+테스트 의존이 없다는 뜻이다.
 
 `--symbol`이 그래프에 없으면 `known:false`와 종료 코드 64로 구분한다(`query`·
 `dead --explain` 계열과 같다). `impact`는 관측된 의존 도달성이지 삭제 판정이 아니며,
@@ -510,6 +530,52 @@ plugins:
 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
 `cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다.
 
+### SARIF와 GitHub code scanning
+
+`dead`·`deps`·`dup`·`impact`·`runtime`은 `--format sarif`로 SARIF 2.1.0 문서를 낸다
+(`cycles`·`rules`·`metrics`에는 `--format`이 없다). 결과를 파일로 리다이렉트해
+`github/codeql-action/upload-sarif`에 올리면 code scanning 경고로 표시된다.
+
+```yaml
+permissions:
+  security-events: write  # code scanning 업로드에 필요
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0  # --since의 merge-base 계산에 필요
+  - uses: dart-lang/setup-dart@v1
+  - run: dart pub get
+  - run: dart pub global activate dartograph 0.14.0
+  # dead는 finding이 있으면 코드 1이다 — continue-on-error로 업로드 단계까지
+  # 도달하게 하고, 경고로 실패시키려면 이 줄을 빼면 된다(아래 참조).
+  - id: dead
+    continue-on-error: true
+    run: dartograph dead --format sarif . > dead.sarif
+  - uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with:
+      sarif_file: dead.sarif
+      category: dartograph-dead
+```
+
+- `if: always()`는 분석 단계가 코드 1로 실패해도 업로드가 실행되게 한다.
+  `continue-on-error`를 빼면 finding이 code scanning 경고 **와** CI 실패 둘 다가 된다.
+- 여러 보고를 올릴 때는 `category`를 보고 종류별로 구분한다(예: `dartograph-dead`,
+  `dartograph-impact`) — 구분 없이 올리면 같은 ruleId의 결과가 덮일 수 있다.
+- `artifactLocation.uri`는 **패키지 루트 기준 상대 경로**다. 저장소 루트에서
+  실행하면 URI가 저장소 상대 경로와 일치해 code scanning이 파일을 바로 연다.
+  하위 디렉터리에서 실행하면 그 하위 경로 기준 URI가 되므로 `working-directory`를
+  저장소 루트로 맞추거나 경로를 조정한다.
+- 물리 위치가 없는 결과는 SARIF에 들어가지 않는다 — `impact`의 `project:` 소스가
+  없는 피영향 심볼(`package:` URI id)은 제외되고 그 수가
+  `invocations[].properties.resultsWithoutLocation`에 남는다. 파일 수준 `dead`
+  finding은 위치는 있지만 `region`이 없다(발명된 1:1 위치를 만들지 않는다).
+- 실행 한계·억제 수는 결과가 아니라 `invocations[].properties`에 실린다 —
+  `limitations`·`suppressedCount`(dead), `coverage`·`risk`(impact)를 code scanning
+  결과 목록에서 찾지 말고 원본 파일에서 확인한다.
+- 위 예시의 액션 핀은 작성 시점 기준이며, 액션 버전은 저장소 정책에 맞춰 갱신한다.
+
 ## 분석 한계
 
 - 조건부 import/export는 공개 analyzer가 고른 단일 구성만 분석한다.
@@ -519,6 +585,15 @@ plugins:
   참조하지 않는 소비가 있으므로 enum→상수 `member` 간선만으로 미도달이라고 단정하지 않는다.
   `dead --explain`은 `retained by its reachable enum` 근거와 enum까지의 경로를 낸다.
 - `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다(템플릿은 `dartograph init`으로 생성할 수 있다).
+
+`<package-root>`는 하나의 패키지다. pub 워크스페이스(루트 pubspec의 `workspace:`
+멤버 목록과 멤버의 `resolution: workspace`)에서는 **멤버 루트를 직접** 지정한다.
+멤버는 자체 `.dart_tool/package_config.json`을 두지 않고 워크스페이스 루트의 것을
+공유하므로 루트에서 `dart pub get`을 한 번 실행하면 되고, 형제 멤버는 `project:`
+소스가 아니라 `package:` 의존으로 보인다 — 단일 패키지 경계는 일반 패키지와 같다.
+워크스페이스 루트를 직접 지정하면 루트 자신의 패키지 소스만 분석되고 선언된 멤버는
+분석 대상 디렉터리 밖이라 `workspace-members-not-indexed` 한계로 나열된다 —
+멤버 소스를 조용히 빠뜨리지 않고, 멤버별로 따로 실행한다는 뜻이다.
 
 ```yaml
 # dartograph.yaml (프로젝트 루트, 선택)

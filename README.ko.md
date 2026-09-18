@@ -10,9 +10,9 @@ Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [ca
 
 ## 왜 필요한가
 
-DCM(구 dart_code_metrics)은 Flutter 프로젝트의 미사용 코드·파일을 검사하던 도구였으나 2023년 유료로 전환했다. 무료 티어는 **1인·50k LoC 이하**라, 팀 단위로 쓰거나 프로젝트 규모가 크면 비용을 내야 한다.
+DCM(구 dart_code_metrics)은 Flutter 프로젝트의 미사용 코드·파일을 검사하던 도구였으나 2023년 유료로 전환했다. 무료 티어는 **1인·50k LoC 이하**이고, 이 도구와 가장 겹치는 선언 단위 미사용 코드·의존성 검사는 유료 플랜에 묶여 있어 팀 단위로 쓰거나 프로젝트 규모가 크면 비용을 내야 한다.
 
-dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 무료(MIT)** — Periphery가 상업화된 뒤 cartograph가 Swift에서 그랬던 것과 같다.
+dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 무료(MIT)** — Periphery가 상업화된 뒤 cartograph가 Swift에서 그랬던 것과 같다. 무료 대안들도 개별 조각(참조 검색·린트·파일 단위 그래프)은 커버하지만, 심볼 단위 도달성과 그 근거·변경 전 영향 분석·런타임 입력 검증·에이전트 질의 MCP를 한 도구로 묶은 사례는 없다.
 
 - 진실의 원천은 텍스트 검색이 아니라 `package:analyzer`, 즉 Dart 팀의 공식 분석기 패키지다.
 - 미사용 코드·미사용 파일·순환 의존·레이어 규칙·아키텍처 지표를 한 그래프에서 산출한다.
@@ -136,6 +136,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 | [`doc/RESEARCH.md`](doc/RESEARCH.md) | 확인된 사실·확인되지 않은 주장·출처 |
 | [`doc/DECISION-analyzer.md`](doc/DECISION-analyzer.md) | analyzer 버전·정점 ID·생성 코드·캐시 결정 |
 | [`doc/USAGE.md`](doc/USAGE.md) | 설치·명령·종료 코드·CI 사용법 |
+| [`doc/GRAPH-EXCHANGE.md`](doc/GRAPH-EXCHANGE.md) | `bridges` bridge-facts JSON 생산자 스펙 — 필드·조인 키·limitations |
 | [`doc/MCP.md`](doc/MCP.md) | MCP 도구·리소스·프롬프트·오류 코드 |
 | [`doc/TROUBLESHOOTING.md`](doc/TROUBLESHOOTING.md) | 흔한 실패 양상과 해결 |
 | [`doc/COMPETITIVE-ANALYSIS.md`](doc/COMPETITIVE-ANALYSIS.md) | 대체재 조사와 배포된 갭 목록 |
