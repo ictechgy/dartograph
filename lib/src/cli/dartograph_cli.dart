@@ -656,12 +656,14 @@ Future<int> _runImpact(
         'markdown' => ImpactFormat.markdown,
         'github-actions' => ImpactFormat.githubActions,
         'sarif' => ImpactFormat.sarif,
+        'test-list' => ImpactFormat.testList,
         _ => null,
       };
       if (parsed == null) {
         error.writeln(
           'Unknown report format: $value '
-          '(expected text, json, markdown, github-actions, or sarif).',
+          '(expected text, json, markdown, github-actions, sarif, '
+          'or test-list).',
         );
         return ExitStatus.usage.code;
       }
@@ -2968,9 +2970,9 @@ Usage: dartograph [--help] [--version]
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
        dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
-       dartograph impact --since <git-ref> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph impact --changed <changes.json> [--format <fmt>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph setup [--install <package-root> [--force]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
@@ -3124,6 +3126,9 @@ symbol that transitively uses it with a shortest usage path, the call sites
 into changed declarations, the test libraries that depend on the changed set,
 and a risk score with its factors. The coverage block counts the impacted
 symbols that inspecting only the changed files would have missed.
+--format test-list prints only the affected test library paths, one per line,
+ready to feed `dart test` (it is never truncated by --limit; an empty list
+means no affected tests — do not run bare `dart test` on empty output).
 --fail-on <level> turns a risk level of at least <level> into exit 1
 (default none). Impact is an observed dependency reachability, not a deletion
 verdict; an unlisted declaration is not proven unaffected.

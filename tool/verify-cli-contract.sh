@@ -136,6 +136,7 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "impact changed markdown" impact --changed "$CHANGES_FILE" --format markdown fixtures/phase5_contract
   expect_status 0 "impact changed sarif" impact --changed "$CHANGES_FILE" --format sarif fixtures/phase5_contract
   expect_status 0 "impact changed github-actions" impact --changed "$CHANGES_FILE" --format github-actions fixtures/phase5_contract
+  expect_status 0 "impact changed test-list" impact --changed "$CHANGES_FILE" --format test-list fixtures/phase5_contract
   expect_status 0 "impact symbol" impact --symbol project:lib/a.dart::a --format json fixtures/phase5_contract
   expect_status 0 "impact since" impact --since HEAD --format json fixtures/phase5_contract
   expect_status 64 "impact no seed" impact fixtures/phase5_contract

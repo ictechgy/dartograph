@@ -357,6 +357,61 @@ void main() {
     }
   });
 
+  test('impact --format test-list prints only affected test paths', () async {
+    final output = StringBuffer();
+    expect(
+      await run([
+        'impact',
+        '--changed',
+        changedFile(['lib/a.dart']).path,
+        '--format',
+        'test-list',
+        directory.path,
+      ], output: output),
+      0,
+    );
+    // lib/a.dart 변경 → test/a_test.dart가 전이 의존한다. 목록은 경로만
+    // 한 줄에 하나씩 싣고 헤더·limitations를 붙이지 않는다.
+    expect(output.toString(), 'test/a_test.dart\n');
+  });
+
+  test('impact --format test-list is not truncated by --limit', () async {
+    final output = StringBuffer();
+    expect(
+      await run([
+        'impact',
+        '--changed',
+        changedFile(['lib/a.dart']).path,
+        '--format',
+        'test-list',
+        '--limit',
+        '1',
+        directory.path,
+      ], output: output),
+      0,
+    );
+    // --limit은 impacted 목록만 자르고 테스트 선택은 항상 전체다.
+    expect(output.toString(), 'test/a_test.dart\n');
+  });
+
+  test('impact --format test-list is empty when no test is affected', () async {
+    final output = StringBuffer();
+    expect(
+      await run([
+        'impact',
+        '--changed',
+        // 테스트 파일 자체를 바꾸면 의존하는 테스트가 없어 빈 출력이다 —
+        // 소비자가 빈 출력으로 `dart test`를 실행하지 않게 가드해야 한다.
+        changedFile(['test/a_test.dart']).path,
+        '--format',
+        'test-list',
+        directory.path,
+      ], output: output),
+      0,
+    );
+    expect(output.toString(), isEmpty);
+  });
+
   test('impact output is byte-identical across runs', () async {
     final changes = changedFile(['lib/a.dart']).path;
     Future<String> render() async {
