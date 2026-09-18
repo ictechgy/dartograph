@@ -189,6 +189,15 @@ DART
   expect_status 64 "runtime zero limit" runtime --limit 0 fixtures/runtime_corpus
   expect_status 64 "runtime execute missing value" runtime --execute
   expect_status 64 "runtime execute unknown entrypoint" runtime --execute bin/nope.dart fixtures/runtime_corpus
+  expect_status 0 "runtime kinds filter" runtime --kinds env --format json fixtures/runtime_corpus
+  expect_status 0 "runtime statuses filter" runtime --statuses missing --format json fixtures/runtime_corpus
+  expect_status 1 "runtime kinds keeps risk gate" runtime --kinds env --fail-on high fixtures/runtime_corpus
+  expect_status 64 "runtime unknown kinds" runtime --kinds bogus fixtures/runtime_corpus
+  expect_status 64 "runtime unknown statuses" runtime --statuses bogus fixtures/runtime_corpus
+  expect_status 64 "runtime statuses without verify" runtime --no-verify --statuses missing fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate kinds" runtime --kinds env --kinds config fixtures/runtime_corpus
+  expect_status 64 "runtime duplicate statuses" runtime --statuses missing --statuses present fixtures/runtime_corpus
+  expect_status 64 "runtime empty kinds value" runtime --kinds "" fixtures/runtime_corpus
   expect_status 64 "runtime two roots" runtime fixtures/phase5_contract fixtures/runtime_corpus
   expect_status 2 "runtime failure" runtime --format json fixtures/does-not-exist
   LEDGER_DIR="$TEMPORARY_DIRECTORY/ledger"

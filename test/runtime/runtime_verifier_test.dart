@@ -56,6 +56,8 @@ RuntimeReport _analyze(
   RuntimeExecution? execution,
   int? limit,
   bool verify = true,
+  Set<RuntimeFactKind>? kinds,
+  Set<String>? statuses,
 }) => RuntimeVerifier.analyze(
   facts: facts,
   inputs: inputs,
@@ -63,6 +65,8 @@ RuntimeReport _analyze(
   execution: execution,
   limit: limit,
   verify: verify,
+  kinds: kinds,
+  statuses: statuses,
 );
 
 List<RuntimeFactKind> _kinds(
@@ -558,6 +562,199 @@ void main() {
       expect(report.risk.score, 0);
       expect(report.risk.level, 'none');
       expect(report.risk.factors, isEmpty);
+    });
+  });
+
+  group('필터·미판정 집계', () {
+    test('unverifiedReasonCounts는 사유 접두사를 사전순으로 센다', () {
+      final report = _analyze([
+        _fact(name: runtimeComputedName, literal: false),
+        _fact(name: runtimeComputedName, literal: false, line: 2),
+        _fact(
+          name: 'API_TOKEN',
+          line: 3,
+          unverifiableReason: 'whole-environment-map: every key is read',
+        ),
+        _fact(
+          kind: RuntimeFactKind.external,
+          channel: RuntimeFactChannel.externalUrl,
+          name: 'https://example.com',
+          line: 4,
+        ),
+      ]);
+
+      expect(report.unverifiedReasonCounts, {
+        'computed-target': 2,
+        'external-resource': 1,
+        'whole-environment-map': 1,
+      });
+      expect(report.unverifiedReasonCounts.keys.toList(), [
+        'computed-target',
+        'external-resource',
+        'whole-environment-map',
+      ]);
+    });
+
+    test('집계는 필터·limit과 무관한 전체 미판정 집합 기준이다', () {
+      final report = _analyze(
+        [
+          _fact(name: runtimeComputedName, literal: false),
+          _fact(
+            kind: RuntimeFactKind.external,
+            channel: RuntimeFactChannel.externalUrl,
+            name: 'https://example.com',
+            line: 2,
+          ),
+        ],
+        kinds: {RuntimeFactKind.env},
+        statuses: {'missing'},
+        limit: 1,
+      );
+
+      // 보고 목록은 비었지만 집계는 걸러지지 않은 미판정 둘을 센다.
+      expect(report.unverified, isEmpty);
+      expect(report.unverifiedReasonCounts, {
+        'computed-target': 1,
+        'external-resource': 1,
+      });
+    });
+
+    test('검증을 끄면 미판정이 없어 집계는 비어 있다', () {
+      final report = _analyze([_fact(name: 'TOKEN')], verify: false);
+
+      expect(report.unverifiedReasonCounts, isEmpty);
+    });
+
+    test('접두사가 비는 사유는 unspecified로 묶이고 합계가 보존된다', () {
+      final report = _analyze([
+        _fact(name: 'A', unverifiableReason: ''),
+        _fact(name: 'B', line: 2, unverifiableReason: ': orphan detail'),
+        _fact(name: runtimeComputedName, literal: false, line: 3),
+      ]);
+
+      expect(report.unverifiedReasonCounts, {
+        'computed-target': 1,
+        'unspecified': 2,
+      });
+      expect(
+        report.unverifiedReasonCounts.values.fold(0, (sum, n) => sum + n),
+        report.unverified.length,
+      );
+    });
+
+    test('필터 아래 limitations·위험도·집계는 전체 분석 기준으로 유지된다', () {
+      final facts = [
+        _fact(name: 'ENV_MISSING'),
+        _fact(
+          kind: RuntimeFactKind.config,
+          channel: RuntimeFactChannel.filePath,
+          name: 'config/x.yaml',
+          path: 'config/x.yaml',
+          line: 2,
+        ),
+        _fact(name: runtimeComputedName, literal: false, line: 3),
+      ];
+      final full = _analyze(facts);
+      final filtered = _analyze(
+        facts,
+        kinds: {RuntimeFactKind.env},
+        statuses: {'missing'},
+        limit: 1,
+      );
+
+      expect(filtered.limitations, full.limitations);
+      expect(filtered.risk.toJson(), full.risk.toJson());
+      expect(filtered.unverifiedReasonCounts, full.unverifiedReasonCounts);
+    });
+
+    test('statuses 필터도 limit보다 먼저 적용된다', () {
+      final report = _analyze(
+        [
+          _fact(name: 'A', line: 1),
+          _fact(name: 'B', line: 2),
+          _fact(name: runtimeComputedName, literal: false, line: 3),
+        ],
+        statuses: {'missing'},
+        limit: 1,
+      );
+
+      expect(report.missing, hasLength(1));
+      expect(report.unverified, isEmpty);
+      expect(report.truncated.verified, 1);
+      // 걸러진 미판정은 생략 수에도 들지 않는다.
+      expect(report.truncated.unverified, 0);
+    });
+
+    test('kinds는 탐지 카테고리와 모든 판정 목록을 좁힌다', () {
+      final report = _analyze(
+        [
+          _fact(name: 'ENV_MISSING'),
+          _fact(
+            kind: RuntimeFactKind.config,
+            channel: RuntimeFactChannel.filePath,
+            name: 'config/x.yaml',
+            path: 'config/x.yaml',
+            line: 2,
+          ),
+        ],
+        kinds: {RuntimeFactKind.env},
+      );
+
+      expect(_kinds(report.detected), [RuntimeFactKind.env]);
+      expect(report.detected.keys, RuntimeFactKind.values);
+      expect(report.missing.map((item) => item.fact.name), ['ENV_MISSING']);
+      // 필터는 보고 목록만 좁힌다 — 위험도는 걸러진 config 미충족까지 센다.
+      expect(report.risk.score, 24);
+      expect(report.risk.factors.single.name, 'missing-inputs');
+    });
+
+    test('statuses는 판정 절만 좁히고 탐지 목록은 유지한다', () {
+      final report = _analyze(
+        [
+          _fact(name: 'ENV_SET'),
+          _fact(name: 'ENV_MISSING', line: 2),
+          _fact(name: runtimeComputedName, literal: false, line: 3),
+        ],
+        inputs: const RuntimeInputs(environment: {'ENV_SET': 'x'}),
+        statuses: {'missing'},
+      );
+
+      expect(report.present, isEmpty);
+      expect(report.defaulted, isEmpty);
+      expect(report.missing.single.fact.name, 'ENV_MISSING');
+      expect(report.unverified, isEmpty);
+      expect(report.detected[RuntimeFactKind.env], hasLength(3));
+      // 위험도·사유 집계는 필터 전 전체 집합 기준을 유지한다.
+      expect(report.risk.factors.map((factor) => factor.name), [
+        'missing-inputs',
+        'unverified-facts',
+      ]);
+      expect(report.unverifiedReasonCounts, {'computed-target': 1});
+    });
+
+    test('필터는 limit보다 먼저 적용된다', () {
+      final report = _analyze(
+        [
+          _fact(name: 'A', line: 1),
+          _fact(name: 'B', line: 2),
+          _fact(
+            kind: RuntimeFactKind.config,
+            channel: RuntimeFactChannel.filePath,
+            name: 'config/x.yaml',
+            path: 'config/x.yaml',
+            line: 3,
+          ),
+        ],
+        kinds: {RuntimeFactKind.env},
+        limit: 1,
+      );
+
+      // 걸러진 config 사실은 생략 수에도 들지 않는다.
+      expect(report.detected[RuntimeFactKind.config], isEmpty);
+      expect(report.missing, hasLength(1));
+      expect(report.truncated.detected, 1);
+      expect(report.truncated.verified, 1);
+      expect(report.truncated.unverified, 0);
     });
   });
 

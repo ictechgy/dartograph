@@ -158,6 +158,18 @@ final class RuntimeTruncation {
   };
 }
 
+/// 보고서가 구분하는 판정 절 이름이다 — `runtime --statuses`의 유효값이다.
+///
+/// `unverified`는 미판정 목록을 가리킨다. 판정 enum의 이름은
+/// [RuntimeVerdict.unverifiable]이지만 보고서의 절·JSON 키는 `unverified`다 —
+/// 필터는 사용자가 보는 보고서 어휘를 따른다.
+const runtimeStatuses = <String>{
+  'present',
+  'defaulted',
+  'missing',
+  'unverified',
+};
+
 /// 런타임 의존성 보고서(`runtime-report` version 1)다.
 final class RuntimeReport {
   /// 보고서를 만든다.
@@ -172,6 +184,7 @@ final class RuntimeReport {
     required this.execution,
     required this.limitations,
     required this.verified,
+    this.unverifiedReasonCounts = const {},
   });
 
   /// 카테고리별 탐지 사실이다. 다섯 카테고리 키가 항상 모두 있다.
@@ -203,6 +216,16 @@ final class RuntimeReport {
 
   /// 검증을 수행했는지 여부다. false면 판정 목록들이 비어 있다.
   final bool verified;
+
+  /// 미판정 사실의 사유 접두사별 집계다.
+  ///
+  /// `reason`의 `:` 앞 접두사가 키이고 그 사유의 사실 수가 값이다. 접두사가
+  /// 비는 사유는 `unspecified` 키로 묶는다. 키는 사전순이다.
+  /// `--kinds`·`--statuses`·`--limit`이 보고 목록을 좁혀도 이 집계는 판정된
+  /// 전체 미판정 집합을 센다 — 위험도와 마찬가지로 분석의 요약이지 출력
+  /// 페이지의 요약이 아니다. 검증을 끄면(`--no-verify`) 미판정이 없으므로
+  /// 항상 비어 있다.
+  final Map<String, int> unverifiedReasonCounts;
 }
 
 /// 탐지 사실을 이 환경에 대해 판정한다.
@@ -249,6 +272,10 @@ abstract final class RuntimeVerifier {
   ///
   /// [limit]은 각 목록의 보고 항목 수 상한이다. 위험도는 상한을 적용하기 전의
   /// 전체 집합으로 계산한다 — `--limit`이 종료 코드를 바꾸면 게이트가 아니다.
+  /// [kinds]는 보고하는 탐지 카테고리를, [statuses]는 보고하는 판정 절
+  /// ([runtimeStatuses])을 좁힌다. 둘 다 [limit]보다 먼저 적용되고 보고
+  /// 목록만 좁힌다 — 판정·위험도·미판정 사유 집계·limitations은 필터 전
+  /// 전체 집합 기준을 유지한다.
   static RuntimeReport analyze({
     required List<RuntimeFact> facts,
     required RuntimeInputs inputs,
@@ -256,6 +283,8 @@ abstract final class RuntimeVerifier {
     RuntimeExecution? execution,
     int? limit,
     bool verify = true,
+    Set<RuntimeFactKind>? kinds,
+    Set<String>? statuses,
     List<String> extraLimitations = const [],
   }) {
     final limitations = <String>[
@@ -344,8 +373,36 @@ abstract final class RuntimeVerifier {
 
     final detected = {
       for (final kind in RuntimeFactKind.values)
-        kind: facts.where((fact) => fact.kind == kind).toList(),
+        kind: kinds == null || kinds.contains(kind)
+            ? facts.where((fact) => fact.kind == kind).toList()
+            : const <RuntimeFact>[],
     };
+    // 미판정 사유 집계는 필터·상한과 무관한 전체 미판정 집합을 센다 — 보고서가
+    // 목록을 좁혀도 "왜 판정하지 못했는가"의 총량은 분석 사실 그대로다.
+    final reasonCounts = <String, int>{};
+    for (final item in unverified) {
+      final reason = item.reason.split(':').first;
+      // 접두사가 비는 사유는 별도 토큰으로 묶어 합계와 키 유효성을 둘 다 지킨다.
+      reasonCounts.update(
+        reason.isEmpty ? 'unspecified' : reason,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+    // 필터는 상한보다 먼저 적용한다 — --limit은 필터된 목록의 보고 상한이다.
+    if (kinds != null) {
+      bool keepKind(RuntimeFact fact) => kinds.contains(fact.kind);
+      present.removeWhere((item) => !keepKind(item.fact));
+      defaulted.removeWhere((item) => !keepKind(item.fact));
+      missing.removeWhere((item) => !keepKind(item.fact));
+      unverified.removeWhere((item) => !keepKind(item.fact));
+    }
+    if (statuses != null) {
+      if (!statuses.contains('present')) present.clear();
+      if (!statuses.contains('defaulted')) defaulted.clear();
+      if (!statuses.contains('missing')) missing.clear();
+      if (!statuses.contains('unverified')) unverified.clear();
+    }
     final truncated = _truncate(
       detected: detected,
       present: present,
@@ -366,6 +423,10 @@ abstract final class RuntimeVerifier {
       execution: execution,
       limitations: limitations.toSet().toList()..sort(),
       verified: verify,
+      unverifiedReasonCounts: {
+        for (final reason in reasonCounts.keys.toList()..sort())
+          reason: reasonCounts[reason]!,
+      },
     );
   }
 

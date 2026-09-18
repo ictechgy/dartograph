@@ -1812,7 +1812,10 @@ Future<int> _runDead(
       }
       switch (argument) {
         case '--kinds':
-          kinds = _parseKinds(value, const {'declaration', 'file'}, error);
+          kinds = _parseCsvFilter(value, '--kinds', const {
+            'declaration',
+            'file',
+          }, error);
           if (kinds == null) return ExitStatus.usage.code;
         case '--explain':
           // 값은 경로가 아니라 심볼 ID다. `<no-library>`처럼 특수한 형태가
@@ -2092,7 +2095,7 @@ Future<int> _runDeps(
         error.write(_help);
         return ExitStatus.usage.code;
       }
-      kinds = _parseKinds(arguments[index], const {
+      kinds = _parseCsvFilter(arguments[index], '--kinds', const {
         'unused-dependency',
         'unused-dev-dependency',
         'dev-dependency-in-lib',
@@ -2234,25 +2237,31 @@ bool _inScope(
   return !scope.exclude.any((matcher) => matcher.hasMatch(path));
 }
 
-/// `--kinds <csv>`를 발견 종류 집합으로 파싱한다.
+/// `--kinds`·`--statuses` 같은 `<csv>` 옵션을 유효값 집합으로 파싱한다.
 ///
-/// 모르는 종류·빈 항목은 조용히 아무 발견도 내지 않는 필터가 되므로 유효
-/// 종류 목록과 함께 usage 오류로 거부한다.
-Set<String>? _parseKinds(String value, Set<String> valid, StringSink error) {
-  final kinds = value.split(',').map((item) => item.trim()).toSet();
-  if (kinds.isEmpty || kinds.any((item) => item.isEmpty)) {
-    error.writeln('Invalid --kinds: $value (expected comma-separated kinds).');
+/// 모르는 값·빈 항목은 조용히 아무 발견도 내지 않는 필터가 되므로 유효값
+/// 목록과 함께 usage 오류로 거부한다. [option]은 오류 메시지에 쓰는 옵션
+/// 이름이다.
+Set<String>? _parseCsvFilter(
+  String value,
+  String option,
+  Set<String> valid,
+  StringSink error,
+) {
+  final items = value.split(',').map((item) => item.trim()).toSet();
+  if (items.isEmpty || items.any((item) => item.isEmpty)) {
+    error.writeln('Invalid $option: $value (expected comma-separated values).');
     return null;
   }
-  final unknown = kinds.difference(valid).toList()..sort();
+  final unknown = items.difference(valid).toList()..sort();
   if (unknown.isNotEmpty) {
     error.writeln(
-      'Unknown --kinds: ${unknown.join(', ')} '
+      'Unknown $option: ${unknown.join(', ')} '
       '(expected ${valid.toList()..sort()}).',
     );
     return null;
   }
-  return kinds;
+  return items;
 }
 
 Future<int> _runDup(
@@ -2273,7 +2282,9 @@ Future<int> _runDup(
         error.write(_help);
         return ExitStatus.usage.code;
       }
-      kinds = _parseKinds(arguments[index], const {'duplicate-block'}, error);
+      kinds = _parseCsvFilter(arguments[index], '--kinds', const {
+        'duplicate-block',
+      }, error);
       if (kinds == null) return ExitStatus.usage.code;
     } else if (argument == '--format' && format == null) {
       if (++index >= arguments.length) {
@@ -2637,6 +2648,8 @@ Future<int> _runRuntime(
   final environment = <String, String>{};
   var environmentGiven = false;
   int? limitOption;
+  Set<RuntimeFactKind>? kinds;
+  Set<String>? statuses;
   String? failOn;
   String? entrypoint;
   String? rootPath;
@@ -2690,6 +2703,31 @@ Future<int> _runRuntime(
         return ExitStatus.usage.code;
       }
       limitOption = value;
+    } else if (argument == '--kinds' && kinds == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final keys = _parseCsvFilter(arguments[index], '--kinds', {
+        for (final kind in RuntimeFactKind.values) kind.key,
+      }, error);
+      if (keys == null) return ExitStatus.usage.code;
+      kinds = {
+        for (final key in keys)
+          RuntimeFactKind.values.firstWhere((kind) => kind.key == key),
+      };
+    } else if (argument == '--statuses' && statuses == null) {
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      statuses = _parseCsvFilter(
+        arguments[index],
+        '--statuses',
+        runtimeStatuses,
+        error,
+      );
+      if (statuses == null) return ExitStatus.usage.code;
     } else if (argument == '--fail-on' && failOn == null) {
       if (++index >= arguments.length) {
         error.write(_help);
@@ -2719,6 +2757,15 @@ Future<int> _runRuntime(
   }
   if (rootPath == null) {
     error.write(_help);
+    return ExitStatus.usage.code;
+  }
+  // 판정을 끈 실행에는 판정 절 필터가 걸릴 목록이 없다 — 조용한 no-op
+  // 옵션으로 두기보다 조합 오류로 알린다.
+  if (!verify && statuses != null) {
+    error.writeln(
+      '--statuses requires verification and does not combine with '
+      '--no-verify.',
+    );
     return ExitStatus.usage.code;
   }
   const thresholds = {'none': 0, 'low': 1, 'medium': 2, 'high': 3};
@@ -2768,6 +2815,8 @@ Future<int> _runRuntime(
       execution: execution,
       limit: limitOption,
       verify: verify,
+      kinds: kinds,
+      statuses: statuses,
       extraLimitations: [
         for (final escape in linkEscapes.toList()..sort())
           'symlink-escape: $escape resolves outside its package root; its '
@@ -2924,7 +2973,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --symbol <symbol-id> [--format <fmt>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph setup [--install <package-root> [--force]]
-       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
@@ -2993,8 +3042,14 @@ Findings are review candidates with evidence, not deletion instructions.
 
 --kinds <csv> restricts which finding kinds dead, deps, and dup report:
 dead takes declaration,file; deps takes the four kinds above; dup takes
-duplicate-block. Unknown kinds are usage errors. Filtering narrows the
-report — baselines, fingerprints, and exit-code semantics are unchanged.
+duplicate-block. For runtime it narrows the reported fact categories
+(env,dynamicLoad,config,asset,external) instead, and runtime --statuses
+<csv> narrows the verdict sections (present,defaulted,missing,unverified);
+--statuses does not combine with --no-verify since there is nothing to
+filter without a judgement. Unknown values are usage errors. Filtering
+narrows the reported lists — baselines, fingerprints, risk, limitations,
+and exit-code semantics are unchanged, and --limit applies to the filtered
+lists.
 
 cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
@@ -3020,8 +3075,12 @@ finding, including file findings.
 bridges --messages emits opt-in BasicMessageChannel send facts as bridge-facts
 version 2 with transport basic-message-channel. bridges --events emits
 EventChannel receiveBroadcastStream listen facts as version 2 with transport
-event-channel; the two flags are separate documents and do not combine. The
-default bridges command keeps the version 1 MethodChannel output.
+event-channel: a statically identified receiveBroadcastStream() call is
+recorded as stream-listen whether or not the returned stream is consumed —
+it does not prove the call executes, a listener is attached, a subscription
+is active, or an event is received. The two flags are separate documents
+and do not combine. The default bridges command keeps the version 1
+MethodChannel output.
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become
@@ -3070,15 +3129,17 @@ symbols that inspecting only the changed files would have missed.
 verdict; an unlisted declaration is not proven unaffected.
 
 mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
-clients. It exposes three read-only tools over the existing CLI paths:
-impact_query (the impact pre-check), dependency_query (query/--batch), and
+clients. It exposes four read-only tools over the existing CLI paths:
+impact_query (the impact pre-check), dependency_query (query/--batch),
 verify_run (dead, deps, dup, cycles, rules, metrics with exit code and raw
-output; closedApp selects dead --closed-app). It also serves three static
-resources (dartograph://usage, dartograph://skill, dartograph://config) and
-three prompts (impact-precheck, dead-code-review, dependency-audit) that
-walk through the common workflows. stdout carries only JSON-RPC;
-diagnostics stay on stderr. The caller passes packageRoot per call. Nothing
-is modified by these tools.
+output; closedApp selects dead --closed-app), and runtime_query (runtime
+--no-verify static detection). It also serves three static resources
+(dartograph://usage, dartograph://skill, dartograph://config) and four
+prompts (impact-precheck, dead-code-review, dependency-audit,
+duplication-review) that walk through the common workflows. Within one
+server session, indexing reuses a per-package temporary incremental cache.
+stdout carries only JSON-RPC; diagnostics stay on stderr. The caller
+passes packageRoot per call. Nothing is modified by these tools.
 
 runtime reports the dependencies that only appear at run time — environment
 variables and dart-defines, dynamic loading (Isolate.spawnUri, Process.run,
@@ -3089,8 +3150,11 @@ in `unverified` with its reason. Missing and unjudged facts feed a risk score.
 --env and --dart-define are repeatable and replace their channels hermetically
 (when --env is given, only those values are used and the process environment is
 ignored); the values themselves are never printed. --verify is on by default
-and --no-verify only detects. --fail-on <level> turns a risk level of at least
-<level> into exit 1. --execute <dart-entrypoint> RUNS ARBITRARY CODE: it starts
+and --no-verify only detects. --kinds narrows the reported categories and
+--statuses the verdict sections; both narrow only the reported lists — the
+risk score and the unverifiedReasonCounts tally still describe the full
+analysis. --fail-on <level> turns a risk level of at least <level> into
+exit 1. --execute <dart-entrypoint> RUNS ARBITRARY CODE: it starts
 `dart run <entrypoint>` in the package root (60s timeout), applies the --env
 values on top of the inherited environment, and reports the exit code and a
 stderr summary as execution evidence. A missing path is not proof that the
