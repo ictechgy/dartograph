@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, main `3ecabfd`; 0.14.0 이후 누적분 미발행)_
+_Last updated: 2026-09-20 (0.15.0 pub.dev·GitHub 발행/독립 설치 검증 완료)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
@@ -248,7 +248,6 @@ _Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, ma
 - 당시 원장 위치는 `HANDOFF-PROGRESS.md` §10.11이었다. 현재 재개 지점은 위 최신현황 안내를 따른다.
 - 아래 `## 2026-09-14` 절은 이전 브랜치(`feat/impact-precheck`) 인계 기록이며 현재와 다르다.
 
-
 ## 2026-09-14 — 진행 중 기능 브랜치 인계 (programmer 세션)
 
 > **역사 기록**: 아래 브랜치·미커밋·P0 상태는 2026-09-14 당시 기준이다.
@@ -297,6 +296,22 @@ _Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, ma
 - 이전 세션(0.7.0 릴리스, PR #78): 미릴리스 누적 6건(#69, #71~#75)을 semver minor(0.7.0)로 발행하고, pub.dev 게시·태그·GitHub Release·새 격리 캐시 설치본 검증 완료.
 
 ## Current Status
+
+### 0.15.0 발행 검증 — 2026-09-20
+
+- [PR #129](https://github.com/ictechgy/dartograph/pull/129), tag `v0.15.0`은 `b124839`다.
+  pub.dev 업로드 성공 후 정확한 버전 API를 확인했고 같은 커밋에 GitHub Release를 연결했다.
+  브리지 계약 커밋 `3ecabfd`가 이 태그에 포함됨을 Git으로 확인했다.
+- format/analyze, coverage 90.71%, 독립 activation·CLI·corpus·analyzer 경계, publish dry-run
+  경고 0을 확인했다. 별도 PUB_CACHE에서 발행 0.15.0을 설치해 --version을 대조했다.
+- 0.14.0 이후의 workspace·MCP 통합·setup·query source·보고 형식·test-list·계약 문서 누적분이
+  이 발행본에 포함된다. 아래 그 누적분의 미릴리스 표기는 이 발행으로 해소됐다.
+- 발행 native 도구와 isthmus 0.8.0 후보를 사용한 Flutter/public plugin 왕복을 확인했다.
+  isthmus npm 발행은 인증 갱신 대기다. 이 후보 검증을 npm 발행본 검증으로 혼동하지 않는다.
+- VS Code/analysis plugin을 재발행한 작업은 아니며, `HANDOFF-PROGRESS.md`·icon-drafts는
+  기존 사용자 파일로 유지한다. 새 기능 착수는 현재 사용자 요청 범위를 따른다.
+
+### 이전 릴리스·제품 상태 기록
 
 - 릴리스 기준: **`v0.14.0` → `0978cde`** (게시 커밋 = PR #118 merge). pub.dev latest
   0.14.0·GitHub Release(tag=v0.14.0) 공개. 격리 PUB_CACHE 신규 `activate`로
@@ -1123,7 +1138,6 @@ C1/C3/S2/C5 배선, C4 벤치마크·adoption, C2 통합 MCP, S5 workspace는 �
 HANDOFF에 미커밋 수정이 있으면 보존하고, `HANDOFF-PROGRESS.md`와
 `editors/vscode/icon-drafts/`도 유지하세요.
 
-
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
 
 자매 Cartograph 세션에서 `feature/change-impact-workflow`를 구현·검증 중이다. 기존 사용자 변경을
@@ -1146,7 +1160,6 @@ HANDOFF에 미커밋 수정이 있으면 보존하고, `HANDOFF-PROGRESS.md`와
 현재 자매 저장소에서도 동시 작업 중인 변경을 확인했다. 상호 연동 시 최신 스키마와 테스트를 다시
 확인하고, 이 알림의 작업 중 상태를 배포 계약으로 간주하지 말 것.
 
-
 ## 2026-09-14 — Cartograph 자동 런타임 발견·수집 후속 계약 알림
 
 Cartograph `feature/change-impact-workflow`의 미출시 후속 구현이다. query v1/기존 보존 의미는
@@ -1157,7 +1170,6 @@ Cartograph `feature/change-impact-workflow`의 미출시 후속 구현이다. qu
 분석 snapshot v2가 자동 runtime facts/freshness/외부 API anchors를 보존하고 v1의 정보 부재는
 한계로 표시한다. bridge-facts/GRAPH-EXCHANGE 형식은 변경하지 않았다. 자매 도구에 미구현인
 명령을 스킬에 복사하지 말고, 실제 기능이 생기면 의미/한계 표현을 맞춘다.
-
 
 ## 2026-09-14 — Cartograph Simulator·publisher 계약 추가 알림
 
@@ -1172,7 +1184,6 @@ Swift 전용 `runtime collect --simulator ... --bundle-id ...`는 설치된 debu
 성공처럼 보이지 않게 하는 것이다. 정본: ../cartograph/docs/RUNTIME-CONTRACTS.md 및
 ../cartograph/docs/WORKFLOW-VALIDATION.md. 이 알림은 이 저장소 기능 구현/배포 주장이 아니다.
 
-
 ## 2026-09-14 — Cartograph 관측 구간·framework binding 계약 알림
 
 Cartograph 미출시 후속: `runtime collect --duration`은 macOS/Simulator의 관측 prefix를 봉인한 뒤
@@ -1184,7 +1195,6 @@ observationWindow를 별도 표시한다. v1 exit 의미는 불변. 구간 봉�
 지원 범위이며 자매 도구가 구현했다고 문구만 복사하지 말 것. 기존 query/bridge exchange와
 retention 의미는 불변. 정본은 ../cartograph/docs/RUNTIME-CONTRACTS.md 및 WORKFLOW-VALIDATION.md.
 이 저장소의 코드·서명·배포는 바꾸지 않았고 이 항목은 로컬 계약 인계 알림이다.
-
 
 ## 2026-09-14 — Cartograph SDK notification·Core Data 확장 알림
 
@@ -1202,7 +1212,6 @@ retention 의미는 불변. 정본은 ../cartograph/docs/RUNTIME-CONTRACTS.md �
 - 스킬의 `--since` 경로 설명과 runtime 후속 확인 문장을 함께 갱신했다. 자매 도구는 각 언어에서
   실제 구현·검증된 기능만 안내한다. 기준 문서: `../cartograph/Skills/cartograph/SKILL.md`,
   `../cartograph/docs/RUNTIME-CONTRACTS.md`, 최신 검증·남은 범위는 `../cartograph/HANDOFF.md`.
-
 
 ## 2026-09-14 — Cartograph 런타임 후속 코드 개선 계약 알림
 
