@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:test/test.dart';
@@ -165,6 +166,38 @@ void main() {
     expect(sarif.status, ExitStatus.success.code);
     final document = jsonDecode(sarif.out) as Map<String, Object?>;
     expect(document['version'], '2.1.0');
+  });
+
+  test('compare text renders newly unreachable findings', () async {
+    // 도달성 손실의 비어 있지 않은 렌더링 경로다 — before만 helper를 쓴다.
+    final temporary = await Directory.systemTemp.createTemp('dartograph-cmp-');
+    addTearDown(() => temporary.delete(recursive: true));
+    for (final name in ['before', 'after']) {
+      File('${temporary.path}/$name/pubspec.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('name: cmp_$name\nenvironment:\n  sdk: ^3.0.0\n');
+      File('${temporary.path}/$name/lib/helper.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void helper() {}\n');
+      Directory('${temporary.path}/$name/bin').createSync(recursive: true);
+    }
+    File('${temporary.path}/before/bin/main.dart').writeAsStringSync(
+      "import '../lib/helper.dart';\nvoid main() { helper(); }\n",
+    );
+    File(
+      '${temporary.path}/after/bin/main.dart',
+    ).writeAsStringSync('void main() {}\n');
+
+    final result = await runCli([
+      'compare',
+      '--format',
+      'text',
+      '${temporary.path}/before',
+      '${temporary.path}/after',
+    ]);
+    expect(result.status, ExitStatus.success.code);
+    expect(result.out, contains('::helper: newly unreachable'));
+    expect(result.out, contains('newlyUnreachable: 1'));
   });
 
   test('affected and compare reject unknown formats', () async {
