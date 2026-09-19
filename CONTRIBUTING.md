@@ -64,3 +64,7 @@ CPU 경쟁을 줄입니다. 100개 이상의 wrapper 호출을 포함한 설치 
 승인된 릴리스에서는 pubspec.yaml·toolVersion·CHANGELOG.md(영어)와 CHANGELOG.ko.md(한국어)·설치 예제(README·README.ko·USAGE)·SECURITY.md의 버전을 맞추고,
 검증한 commit의 dry-run을 확인한 뒤 게시합니다. pub.dev 성공 후 같은 commit에 태그와 GitHub Release를 연결하고
 공개 패키지를 새 캐시에 설치해 확인합니다. 전파 지연 때 동일 버전을 다시 게시하지 않습니다.
+
+백로그 드리프트 방지 — 릴리스 준비에서 `doc/COMPETITIVE-ANALYSIS.md` §6 백로그 표의 상태 열을
+실제 구현·해소 상태로 갱신합니다(구현된 후보가 "후보"로 남지 않게). HANDOFF·CHANGELOG가 길어지면
+과거 세션·버전을 별도 아카이브 문서로 분리하는 것을 검토합니다.
