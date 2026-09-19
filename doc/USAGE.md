@@ -123,9 +123,10 @@ affected·baseline)은 빈 목록이다.
   (기본 `~/.codex/config.toml`)만 읽는다. 따라서 `<package-root>` 없이
   `--install`만 주면 전역 파일에 `[mcp_servers.dartograph]` TOML 표를
   병합한다 — `<package-root>`를 주면 usage(64)다. 다른 표·키는 그대로
-  보존한다. 점 키(`mcp_servers.dartograph.command = …`)·배열 표·인라인
-  표 등 표가 아닌 모양의 dartograph 정의가 있으면 중복 정의로 파일 전체가
-  깨지므로 덮어쓰지 않고 실패(exit 2)한다.
+  보존한다. 점 키(`mcp_servers.dartograph.command = …`)·배열 표 등
+  표가 아닌 모양의 dartograph 정의, 또는 `mcp_servers`가 표가 아닌
+  값(인라인 표·배열·스칼라)으로 정의돼 있으면 덧붙이는 것만으로 파일
+  전체가 깨지므로 덮어쓰지 않고 실패(exit 2)한다.
 
 `--uninstall [<package-root>]`은 `--install`이 만든 dartograph 항목만 되돌린다 —
 `claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지운다(내용이 우리

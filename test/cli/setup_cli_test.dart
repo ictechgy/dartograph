@@ -586,16 +586,24 @@ void main() {
   });
 
   test('mergeCodexConfig fails closed on foreign dartograph shapes', () {
-    // 점 키·배열 표·인라인 표·[mcp_servers] 하위 키로 적힌 dartograph 위에
-    // 표를 덧붙이면 같은 표의 중복 정의로 config.toml 전체가 파싱 에러가
-    // 된다 — 실패로 돌린다.
+    // 점 키·배열 표·인라인 표·[mcp_servers] 하위 키로 적힌 dartograph, 또는
+    // 표가 아닌 값으로 정의된 mcp_servers 위에 표를 덧붙이면 같은 표의
+    // 중복 정의로 config.toml 전체가 파싱 에러가 된다 — 실패로 돌린다.
     for (final existing in [
       'mcp_servers.dartograph.command = "dartograph"\n',
       'mcp_servers.dartograph = { command = "dartograph" }\n',
       'mcp_servers.dartograph = "x"\n',
       '[[mcp_servers.dartograph]]\ncommand = "dartograph"\n',
+      // `mcp_servers`의 값 정의는 인라인 표·배열·스칼라 모두 표 헤더로
+      // 확장할 수 없다 — dartograph 유무와 무관하게 덧붙이면 깨진다.
       'mcp_servers = { dartograph = { command = "dartograph" } }\n',
       'mcp_servers = { a = 1, dartograph = { x = 1 } }\n',
+      'mcp_servers = { linear = { x = 1 } } # TODO: dartograph 검토\n',
+      'mcp_servers = { note = "dartograph" }\n',
+      'mcp_servers = { xdartograph = 1 }\n',
+      'mcp_servers = { note = "dartograph = 1" }\n',
+      'mcp_servers = [{ command = "dartograph" }]\n',
+      'mcp_servers = "x"\n',
       '[mcp_servers."dartograph"]\ncommand = "dartograph"\n',
       '["mcp_servers".dartograph]\ncommand = "dartograph"\n',
       '"mcp_servers".dartograph.command = "dartograph"\n',
@@ -619,10 +627,8 @@ void main() {
       'mcp_servers.dartograph_cli = "x"\n',
       '[mcp_servers.dartograph_legacy]\ncommand = "x"\n',
       '[legacy]\nmcp_servers.dartograph.command = "old"\n',
-      'mcp_servers = { linear = { x = 1 } } # TODO: dartograph 검토\n',
-      'mcp_servers = { note = "dartograph" }\n',
-      'mcp_servers = { xdartograph = 1 }\n',
-      'mcp_servers = { note = "dartograph = 1" }\n',
+      // 이스케이프된 따옴표 안의 ]는 배열 깊이를 흔들지 않는다.
+      'args = ["--filter=\\"a]b\\""]\n',
     ]) {
       expect(
         mergeCodexConfig(existing, force: false),
@@ -634,6 +640,12 @@ void main() {
     const commented = '[mcp_servers.dartograph] # note\ncommand = "x"\n';
     expect(mergeCodexConfig(commented, force: false), isNull);
     expect(removeCodexConfig(commented), isNot(contains('command')));
+    const spaced = '[ mcp_servers . dartograph ]\ncommand = "x"\n';
+    expect(mergeCodexConfig(spaced, force: false), isNull);
+    expect(removeCodexConfig(spaced), isNot(contains('command')));
+    // 이스케이프된 따옴표가 있는 배열 뒤에 오는 표 헤더도 여전히 찾는다.
+    final escaped = 'args = ["--filter=\\"a]b\\""]\n$codexMcpTomlBlock';
+    expect(mergeCodexConfig(escaped, force: false), isNull);
   });
 
   test('codex strip keeps array brackets inside other tables', () {
@@ -648,6 +660,16 @@ void main() {
         '[mcp_servers.dartograph]\narr = [\n  [1]\n]\nx = """\n[a]\n"""\n'
         '[foo]\nbar = 1\n';
     expect(removeCodexConfig(nested), '[foo]\nbar = 1\n');
+    // 지우는 블록 뒤 표의 이스케이프된 따옴표가 깊이를 어긋내게 해
+    // 이후 표까지 삼키지 않는다.
+    const escaped =
+        '[mcp_servers.dartograph]\ncommand = "x"\n'
+        '[mcp_servers]\nargs = ["--filter=\\"a]b\\""]\n[foo]\nbar = 1\n';
+    final stripped = removeCodexConfig(escaped)!;
+    expect(stripped, contains('[mcp_servers]'));
+    expect(stripped, contains('args = ["--filter=\\"a]b\\""]'));
+    expect(stripped, contains('[foo]'));
+    expect(stripped, isNot(contains('mcp_servers.dartograph')));
   });
 
   test('codex merge keeps table-like lines inside multiline strings', () {

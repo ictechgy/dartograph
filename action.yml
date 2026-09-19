@@ -114,7 +114,9 @@ runs:
         # -f (noglob): args is word-split but never glob-expanded — a `*`
         # in the input stays literal instead of matching workspace files.
         set -euf -o pipefail
-        report="$DARTOGRAPH_OUTPUT_FILE"
+        # output-file input has a default, but keep a fallback so an unset
+        # env under `set -u` still writes the report instead of dying early.
+        report="${DARTOGRAPH_OUTPUT_FILE:-dartograph-report.txt}"
         if [[ -z "${DARTOGRAPH_COMMAND:-}" ]]; then
           # Usage errors still publish exit-code so report-only callers read
           # the same output contract (no report file is written, though).

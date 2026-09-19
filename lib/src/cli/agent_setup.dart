@@ -165,9 +165,9 @@ String agentOpenCodeConfigJson() =>
 ///
 /// Codex는 프로젝트 설정이 아니라 `$CODEX_HOME/config.toml`(기본
 /// `~/.codex/config.toml`)의 `mcp_servers` 표만 읽는다.
-/// 불변식: 이 블록에는 다중 행 문자열(`"""`·`'''`)을 넣지 않는다 —
-/// [_stripCodexBlock]은 지우는 행의 문자열 경계를 추적하지 않으므로
-/// 블록 안 구분자는 이후 스캔의 동기를 깬다.
+/// 불변식: 생성 블록은 단순하게 유지한다 — 다중 행 문자열(`"""`·`'''`)과
+/// 여러 줄 배열을 넣지 않는다. [_stripCodexBlock]이 경계를 추적하긴 하지만
+/// 블록이 단순할수록 제거가 정확하다.
 const codexMcpTomlBlock = '''
 [mcp_servers.dartograph]
 command = "dartograph"
@@ -193,91 +193,96 @@ final _codexDottedKey = RegExp(
   r'''^\s*["']?mcp_servers["']?\s*\.\s*["']?dartograph["']?\s*[=\.]''',
 );
 
-/// 최상위 한 줄 인라인 표 `mcp_servers = { dartograph = … }`다.
-/// `dartograph`는 `{` 바로 뒤나 `,` 뒤의 키 위치만 본다 — `xdartograph`
-/// 같은 접미 키나 문자열 값 안의 언급은 정의가 아니다.
-/// 한계: 중첩 인라인 표와 값 문자열 안 따옴표 앞의 키는 잡지 못한다.
-final _codexInlineTable = RegExp(
-  r'''^\s*["']?mcp_servers["']?\s*=\s*\{'''
-  r'''(?:\s*["']?dartograph["']?|[^}\n{#"']*?,\s*["']?dartograph["']?)\s*=''',
-);
+/// 최상위 `mcp_servers`의 값 정의다 — `mcp_servers = {…}` 인라인 표·
+/// `= […]` 배열·스칼라를 가리지 않는다. TOML은 값으로 정의된 키를 표
+/// 헤더로 확장하지 못하므로, 안에 무엇이 있든 표를 덧붙이면 파일이 깨진다.
+final _codexValueDefinition = RegExp(r'''^\s*["']?mcp_servers["']?\s*=''');
 
 /// `[mcp_servers]` 표 안에서 dartograph를 정의하는 키 행이다 —
 /// `dartograph = {…}` 또는 `dartograph.command = …`.
 final _codexNestedKey = RegExp(r'''^\s*["']?dartograph["']?\s*[=\.]''');
 
-/// TOML 다중 행 문자열(`"""`·`'''`) 안쪽에 있는지 추적한다.
-///
-/// 문자열 안의 `[mcp_servers.dartograph]` 같은 행은 헤더가 아니라 값이다.
-/// 구분자가 한 행에 홀수 번 나타나면 경계를 넘은 것으로 본다. 따옴표
-/// 이스케이프까지 해석하지 않는 단순 스캔이다 — `\"""`처럼 이스케이프된
-/// 구분자가 있는 드문 문서는 문자열 안을 밖으로 볼 수 있다.
+/// TOML 다중 행 문자열(`"""`·`'''`)의 열림 상태다.
 class _TomlStringTracker {
   String _marker = '';
 
   /// 다음 행이 문자열 안쪽에서 시작하는지다.
   bool get inside => _marker.isNotEmpty;
 
-  /// 현재 열려 있는 구분자다 — 닫힌 행의 나머지 코드를 찾을 때 쓴다.
+  /// 현재 열려 있는 구분자다.
   String get marker => _marker;
 
-  /// 한 행을 소비해 문자열 경계를 갱신한다.
-  void advance(String line) {
-    if (_marker.isNotEmpty) {
-      if ((line.split(_marker).length - 1).isOdd) _marker = '';
-      return;
-    }
-    for (final candidate in const ['"""', "'''"]) {
-      if ((line.split(candidate).length - 1).isOdd) {
-        _marker = candidate;
-        return;
-      }
-    }
-  }
+  void _open(String marker) => _marker = marker;
+
+  void _close() => _marker = '';
 }
 
-/// 행에서 주석과 문자열 내용을 뺀 코드 부분이다 — 괄호 깊이 계산용.
-///
-/// 다중 행 구분자(`"""`·`'''`)는 다음 같은 구분자까지를 문자열로 건너뛰고,
-/// 한 줄 문자열은 닫힘 따옴표까지 건너뛴다. 따옴표 이스케이프는 해석하지
-/// 않는다 — 이스케이프된 따옴표가 많은 행은 깊이를 흔들 수 있다.
-String _tomlCodePart(String line) {
-  final buffer = StringBuffer();
-  var index = 0;
+/// [start]의 [quote]로 여는 한 줄 문자열의 끝 인덱스다 — 닫힘이 없으면
+/// 행 끝이다. `"` 기본 문자열은 `\` 이스케이프 쌍을 건너뛰고 `'` 리터럴은
+/// 이스케이프가 없다.
+int _tomlSingleStringEnd(String line, int start, String quote) {
+  final basic = quote == '"';
+  var index = start + 1;
   while (index < line.length) {
-    if (line.startsWith('"""', index)) {
-      final close = line.indexOf('"""', index + 3);
-      index = close < 0 ? line.length : close + 3;
+    if (basic && line[index] == r'\') {
+      index += 2;
       continue;
     }
-    if (line.startsWith("'''", index)) {
-      final close = line.indexOf("'''", index + 3);
-      index = close < 0 ? line.length : close + 3;
+    if (line[index] == quote) return index + 1;
+    index++;
+  }
+  return line.length;
+}
+
+/// 한 행을 왼쪽부터 훑어 문자열 밖 코드의 `[`·`]` 균형을 돌려준다.
+///
+/// 문자열 안·주석 뒤의 내용은 코드가 아니다. 문자열 경계는 [strings]를
+/// 갱신해 다음 행에 이어진다 — 같은 행에서 닫히고 다시 열리는 경우도
+/// 추적한다. 기본 문자열(`"`·`"""`)의 `\` 이스케이프 쌍은 내용으로 본다 —
+/// `\"""`는 닫힘이 아니다.
+int _scanTomlLine(String line, _TomlStringTracker strings) {
+  var delta = 0;
+  var index = 0;
+  while (index < line.length) {
+    if (strings.inside) {
+      final marker = strings.marker;
+      final basic = marker.startsWith('"');
+      var closed = false;
+      while (index < line.length) {
+        if (basic && line[index] == r'\') {
+          index += 2;
+          continue;
+        }
+        if (line.startsWith(marker, index)) {
+          index += marker.length;
+          strings._close();
+          closed = true;
+          break;
+        }
+        index++;
+      }
+      if (!closed) return delta; // 행 전체가 문자열 내용이다.
       continue;
     }
     final char = line[index];
-    if (char == '"' || char == "'") {
-      index++;
-      while (index < line.length && line[index] != char) {
-        index++;
-      }
-      index++; // 닫힘 따옴표(없으면 행 끝)
+    if (char == '#') return delta;
+    if (line.startsWith('"""', index)) {
+      strings._open('"""');
+      index += 3;
       continue;
     }
-    if (char == '#') break;
-    buffer.write(char);
-    index++;
-  }
-  return buffer.toString();
-}
-
-/// 코드 부분의 `[`·`]` 균형이다 — 여러 줄 배열의 깊이 추적에 쓴다.
-int _tomlBracketDelta(String code) {
-  var delta = 0;
-  for (var index = 0; index < code.length; index++) {
-    final char = code[index];
+    if (line.startsWith("'''", index)) {
+      strings._open("'''");
+      index += 3;
+      continue;
+    }
+    if (char == '"' || char == "'") {
+      index = _tomlSingleStringEnd(line, index, char);
+      continue;
+    }
     if (char == '[') delta++;
     if (char == ']') delta--;
+    index++;
   }
   return delta;
 }
@@ -288,20 +293,8 @@ Iterable<String> _tomlDefinitionLines(String text) sync* {
   final strings = _TomlStringTracker();
   var depth = 0;
   for (final line in text.split('\n')) {
-    if (strings.inside) {
-      // 닫힌 행이면 구분자 이후의 코드 부분만 깊이에 반영한다.
-      final marker = strings.marker;
-      strings.advance(line);
-      if (!strings.inside) {
-        depth += _tomlBracketDelta(
-          _tomlCodePart(line.substring(line.indexOf(marker) + marker.length)),
-        );
-      }
-      continue;
-    }
-    if (depth == 0) yield line;
-    depth += _tomlBracketDelta(_tomlCodePart(line));
-    strings.advance(line);
+    if (!strings.inside && depth == 0) yield line;
+    depth += _scanTomlLine(line, strings);
   }
 }
 
@@ -332,7 +325,8 @@ Iterable<String> _tomlDefinitionLines(String text) sync* {
       continue;
     }
     if (table.isEmpty) {
-      if (_codexDottedKey.hasMatch(line) || _codexInlineTable.hasMatch(line)) {
+      if (_codexDottedKey.hasMatch(line) ||
+          _codexValueDefinition.hasMatch(line)) {
         foreign = true;
       }
     } else if (table == 'mcp_servers' && _codexNestedKey.hasMatch(line)) {
@@ -351,25 +345,19 @@ String _stripCodexBlock(String text) {
   final strings = _TomlStringTracker();
   var depth = 0;
   for (final line in text.split('\n')) {
-    if (strings.inside) {
-      final marker = strings.marker;
-      strings.advance(line);
+    final wasInside = strings.inside;
+    depth += _scanTomlLine(line, strings);
+    if (wasInside) {
+      // 문자열 내용 행 — 지우는 블록 안이면 함께 버리고 아니면 보존한다.
       if (!skipping) remaining.add(line);
-      if (!strings.inside) {
-        depth += _tomlBracketDelta(
-          _tomlCodePart(line.substring(line.indexOf(marker) + marker.length)),
-        );
-      }
       continue;
     }
     if (depth == 0 && _codexTableHeader.hasMatch(line)) {
       skipping = true;
       continue;
     }
-    depth += _tomlBracketDelta(_tomlCodePart(line));
-    strings.advance(line);
     if (skipping) {
-      // 배열 안의 [ 행은 값이라 표 경계가 아니다 — 깊이 0에서만 끝낸다.
+      // 배열·문자열 안의 [ 행은 값이라 표 경계가 아니다 — 깊이 0에서만 끝낸다.
       if (depth == 0 && line.trimLeft().startsWith('[')) {
         skipping = false;
         remaining.add(line);
@@ -388,16 +376,16 @@ String _stripCodexBlock(String text) {
 ///
 /// 이미 있으면 `force`일 때만 표준 블록으로 교체하고 아니면 `null`을 돌린다.
 /// TOML 전체를 해석하지 않고 표 블록만 다룬다 — 다른 표·키는 그대로 보존된다.
-/// 표가 아닌 모양(점 키·배열 표·인라인 표·`[mcp_servers]` 하위 키)으로 적힌
-/// dartograph 정의가 있으면 [FormatException]이다 — 덧붙이면 같은 표의
-/// 중복 정의로 파일 전체가 깨진다. 한계: 중첩 인라인 표는 잡지 못한다.
+/// 표가 아닌 모양(점 키·배열 표·`mcp_servers`의 값 정의·`[mcp_servers]`
+/// 하위 키)으로 적힌 dartograph 정의가 있으면 [FormatException]이다 —
+/// 덧붙이면 같은 표의 중복 정의로 파일 전체가 깨진다.
 String? mergeCodexConfig(String? existing, {required bool force}) {
   final text = existing ?? '';
   final definitions = _scanCodexDefinitions(text);
   if (definitions.foreign) {
     throw const FormatException(
-      'config.toml defines dartograph under mcp_servers in an unsupported '
-      'shape — merge it into a [mcp_servers.dartograph] table or remove it',
+      'config.toml defines mcp_servers in a shape dartograph cannot '
+      'extend — use [mcp_servers.dartograph] table form instead',
     );
   }
   if (definitions.standard) {
