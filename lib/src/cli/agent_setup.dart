@@ -135,6 +135,7 @@ code relationships:
   (read `usedBy`)
 - what breaks if a signature changes — `dartograph impact --symbol <name> .`
 - which source ships behind conditional exports — `dartograph query <name> .`
+  (read `location`)
 - file/package dependency structure — `dartograph graph .`
 
 Findings are graph evidence with stated limitations, not deletion proof —
@@ -578,7 +579,8 @@ String? mergeOpenCodeConfig(String? existing, {required bool force}) {
 /// 블록이 이미 있으면 `force`일 때만 현재 내용으로 교체하고 아니면 `null`을
 /// 돌린다. 표지가 짝 없이 있거나 중복이면 사람이 고친 흔적으로 보고
 /// [FormatException]을 던져 파일을 보존한다 — JSON 병합들과 같은
-/// fail-closed 규칙이다.
+/// fail-closed 규칙이다. 덧붙이는 경계는 끝 공백을 `\n\n`으로 정규화한다 —
+/// 비공백 내용은 절대 건드리지 않지만 끝 빈 행 수는 보존되지 않는다.
 String? mergeClaudeGuide(String? existing, {required bool force}) {
   final text = existing ?? '';
   final span = _guideSpan(text);

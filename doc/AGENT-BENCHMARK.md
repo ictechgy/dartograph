@@ -108,6 +108,26 @@ NotebookEdit`(읽기 전용 과제), `--no-session-persistence`,
 | 날짜 | 모델 | 런/arm | dartograph | 결과 |
 |---|---|---|---|---|---|
 | 2026-09-19 | claude haiku | 4 (nav-dead 5 — 파일럿 포함) | 0.14.0 (path activate, 4857136) | 오염 0/66. 정답률 차이는 nav-impact뿐(with 3/4, without 1/4). with arm의 dartograph 사용은 4/33 — 스킬·MCP가 있어도 에이전트가 안 부른 경우가 대부분 |
+| 2026-09-20 | claude haiku | 4, with만 (adoption 셀: nav-impact·inv-dead·inv-callers·inv-impact) | 0.14.0 (path activate, feat/agent-adoption a44f048+) | with arm의 dartograph 사용 11/16 (이전 같은 과제 2/16). inv-dead 4/4 사용·4/4 정답(이전 0/4 사용·3/4). inv-callers는 grep으로 충분해 0/4 사용·4/4 정답 유지 |
+
+### 2026-09-20 adoption 셀 해석
+
+처치 정의가 바뀌었다 — 이전 매트릭스의 with arm은 MCP+스킬뿐이었고,
+이번 셀부터 `setup --install`이 지시 파일(CLAUDE.md/AGENTS.md)에 싣는
+관리 라우팅 블록과 넓어진 스킬 description이 추가됐다. 결과는 별도
+`results-adoption/` 디렉터리에 기록해 이전 66런과 집계를 섞지 않는다.
+
+- **adoption은 확실히 올랐다**: with arm 사용률이 4/33(12%)에서
+  11/16(69%)로. inv-dead·nav-impact는 8/8, inv-impact는 3/4다.
+- **정답률은 inv-dead에서만 움직였다**(3/4→4/4). inv-callers는 사용 0인데
+  전부 정답 — 블록이 "grep으로 충분한 질문"까지 호출을 강제하지는
+  않았다는 신호다(불필요 호출 인플레이션 없음).
+- 사용 런의 비용은 올랐다(inv-dead 중앙 $0.168, 이전 without $0.217보다는
+  낮다) — 도구 호출이 턴·토큰을 늘리는 구조는 그대로다.
+- n=4라 정답률 차이는 여전히 통계적 신호가 아니다. **사용률 상승이
+  adoption 개선의 직접 증거**이고, 정답률 개선은 방향성 힌트로만 둔다.
+- 한계: 측정한 모델은 haiku 하나, 과제는 4개뿐이다. without arm은
+  재실행하지 않았다(처치와 무관해 이전 기록을 그대로 비교).
 
 ### 2026-09-19 첫 매트릭스 해석
 

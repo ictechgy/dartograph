@@ -1936,18 +1936,33 @@ Future<int> _uninstallClaudeSetup(
       }
     }
     // 설치가 고른 파일과 무관하게 양쪽 후보를 검사한다 — 블록이 어느 쪽에
-    // 들어갔어도 되돌린다.
+    // 들어갔어도 되돌린다. 설치와 같은 규칙으로 어느 파일도 쓰기 전에 두
+    // 파일의 제거 결과를 모두 계산해 부분 uninstall을 피한다.
+    final guideWrites = <File, ({String original, String remaining})>{};
     for (final name in const ['CLAUDE.md', 'AGENTS.md']) {
       final guide = File(p.join(root, name));
       if (!await guide.exists()) continue;
-      final remaining = removeClaudeGuide(await guide.readAsString());
-      if (remaining == null) continue;
-      if (remaining.trim().isEmpty) {
-        // 블록만 담긴 파일은 설치가 만든 것이다 — 빈 파일을 남기지 않는다.
+      final original = await guide.readAsString();
+      String? remaining;
+      try {
+        remaining = removeClaudeGuide(original);
+      } on FormatException {
+        throw FormatException('${guide.path}: malformed dartograph markers');
+      }
+      if (remaining != null) {
+        guideWrites[guide] = (original: original, remaining: remaining);
+      }
+    }
+    for (final entry in guideWrites.entries) {
+      final guide = entry.key;
+      // 파일 전체가 생성 블록 그대로일 때만 설치가 만든 파일로 보고 지운다 —
+      // 블록 안쪽을 사용자가 고쳤으면 내용은 관리 영역이라 벗기되 파일은
+      // 남긴다(빈 파일이 돼도 원래 파일이었는지 구분할 수 없다).
+      if (entry.value.original.trim() == agentGuideBlock.trim()) {
         await guide.delete();
         output.writeln('Removed ${guide.path}.');
       } else {
-        AtomicWrite.stringSync(guide, remaining);
+        AtomicWrite.stringSync(guide, entry.value.remaining);
         output.writeln('Removed the dartograph block from ${guide.path}.');
       }
       removed = true;
@@ -3606,8 +3621,10 @@ no package root and merges a [mcp_servers.dartograph] block. Existing keys are
 preserved; configs whose expected shape is wrong, or invalid JSON, fail
 instead of being overwritten. --force replaces an existing dartograph entry.
 --uninstall removes only the dartograph entries and, for claude, the generated
-hook script and the managed guide block (a guide file holding only the block
-is removed). The hook runs `dartograph impact --changed` after Dart file edits
+hook script and the managed guide block (a guide file holding exactly the
+generated block is removed; a block whose interior was edited is stripped
+but its file kept). The hook runs `dartograph impact --changed` after Dart
+file edits
 and requires dartograph on PATH; no paid service, login, or telemetry is
 involved.
 
