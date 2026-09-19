@@ -122,7 +122,10 @@ affected·baseline)은 빈 목록이다.
 - `codex`: Codex는 프로젝트 설정을 읽지 않고 전역 `$CODEX_HOME/config.toml`
   (기본 `~/.codex/config.toml`)만 읽는다. 따라서 `<package-root>` 없이
   `--install`만 주면 전역 파일에 `[mcp_servers.dartograph]` TOML 표를
-  병합한다. 다른 표·키는 그대로 보존한다.
+  병합한다 — `<package-root>`를 주면 usage(64)다. 다른 표·키는 그대로
+  보존한다. 점 키(`mcp_servers.dartograph.command = …`)·배열 표·인라인
+  표 등 표가 아닌 모양의 dartograph 정의가 있으면 중복 정의로 파일 전체가
+  깨지므로 덮어쓰지 않고 실패(exit 2)한다.
 
 `--uninstall [<package-root>]`은 `--install`이 만든 dartograph 항목만 되돌린다 —
 `claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지운다(내용이 우리
@@ -241,7 +244,7 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
 경우에도 `notFound`와 `limitations`를 함께 낸다.
-`--with-source`는 보고된 모든 선언 위치에 그 소스 줄을 `source`(줄 번호·텍스트 목록)로 덧붙이고, `--source-context <n>`은 위치 앞뒤 n줄까지 넓힌다(기본 0 — 선언 줄만). 프로젝트 안 파일만 읽고, 읽지 못한 위치는 조용히 생략한다. `--source-context`는 `--with-source` 없이 쓰면 usage 64다.
+`--with-source`는 보고된 모든 선언 위치에 그 소스 줄을 `source`(줄 번호·텍스트 목록)로 덧붙이고, `--source-context <n>`은 위치 앞뒤 n줄까지 넓힌다(기본 0 — 선언 줄만). `project:` 상대 경로만 읽는다 — 절대 경로와 `..`로 루트를 벗어나는 경로는 거부한다. 경계는 경로 기준이다 — 루트 안 심볼릭 링크가 밖을 가리키면 인덱서와 같은 대상을 읽는다. 읽지 못한 위치는 조용히 생략한다. `--source-context`는 `--with-source` 없이 쓰면 usage 64다.
 
 기본 `bridges`는 Flutter MethodChannel
 채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다(문서 계약은

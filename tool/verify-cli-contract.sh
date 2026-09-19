@@ -157,11 +157,14 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "setup opencode install" setup --target opencode --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup opencode uninstall" setup --target opencode --uninstall "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 64 "setup unknown target" setup --target vscode
+  expect_status 64 "setup duplicate target" setup --target cursor --target opencode
   export CODEX_HOME="$TEMPORARY_DIRECTORY/codex-home"
   expect_status 0 "setup codex print" setup --target codex
   expect_status 0 "setup codex install" setup --target codex --install
   expect_status 0 "setup codex install idempotent" setup --target codex --install
   expect_status 0 "setup codex install force" setup --target codex --install --force
+  # codex는 전역 설정만 다룬다 — 루트 인자는 usage 오류다.
+  expect_status 64 "setup codex install with root" setup --target codex --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup codex uninstall" setup --target codex --uninstall
   # 없는 항목의 해제는 성공으로 넘어간다(멱등).
   expect_status 0 "setup codex uninstall when absent" setup --target codex --uninstall

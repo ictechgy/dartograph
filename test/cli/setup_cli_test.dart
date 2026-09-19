@@ -333,6 +333,37 @@ void main() {
     expect(servers['dartograph'], containsPair('command', 'dartograph'));
   });
 
+  test('removeClaudeSettingsHook keeps unrelated hook entries', () {
+    const existing =
+        '{"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": []}, '
+        '{"matcher": "Edit", "hooks": [{"type": "command", '
+        '"command": "run dartograph-impact.sh"}]}]}}';
+    final remaining = removeClaudeSettingsHook(existing)!;
+    final postToolUse =
+        ((jsonDecode(remaining) as Map)['hooks'] as Map)['PostToolUse'] as List;
+    expect(postToolUse, hasLength(1));
+    expect((postToolUse.single as Map)['matcher'], 'Bash');
+  });
+
+  test('removeMcpServerEntry keeps unrelated servers', () {
+    const existing =
+        '{"mcpServers": {"other": {"command": "x"}, '
+        '"dartograph": {"command": "dartograph"}}}';
+    final remaining = removeMcpServerEntry(existing)!;
+    final servers =
+        (jsonDecode(remaining) as Map)['mcpServers'] as Map<String, Object?>;
+    expect(servers.keys, unorderedEquals(['other']));
+  });
+
+  test('removeOpenCodeEntry keeps unrelated mcp servers', () {
+    const existing =
+        '{"mcp": {"other": {"enabled": true}, '
+        '"dartograph": {"enabled": true}}}';
+    final remaining = removeOpenCodeEntry(existing)!;
+    final mcp = (jsonDecode(remaining) as Map)['mcp'] as Map<String, Object?>;
+    expect(mcp.keys, unorderedEquals(['other']));
+  });
+
   test('setup --target cursor prints the Cursor MCP document', () async {
     final output = StringBuffer();
     final error = StringBuffer();
@@ -510,6 +541,28 @@ void main() {
         await runDartograph(['setup', '--target'], error: StringBuffer()),
         ExitStatus.usage.code,
       );
+      // --target 중복은 다른 플래그와 같이 usage다 — 마지막 값을 쓰지 않는다.
+      expect(
+        await runDartograph([
+          'setup',
+          '--target',
+          'cursor',
+          '--target',
+          'opencode',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      // codex는 전역 설정만 다룬다 — 루트 인자를 조용히 무시하지 않는다.
+      expect(
+        await runDartograph([
+          'setup',
+          '--target',
+          'codex',
+          '--install',
+          '.',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
     },
   );
 
@@ -530,6 +583,38 @@ void main() {
     expect(removed, contains('[foo]'));
     expect(removed, contains('bar = 1'));
     expect(removeCodexConfig('model = "o3"\n'), isNull);
+  });
+
+  test('mergeCodexConfig fails closed on foreign dartograph shapes', () {
+    // 점 키·배열 표·인라인 표로 적힌 dartograph 위에 표를 덧붙이면 같은 표의
+    // 중복 정의로 config.toml 전체가 파싱 에러가 된다 — 실패로 돌린다.
+    for (final existing in [
+      'mcp_servers.dartograph.command = "dartograph"\n',
+      '[[mcp_servers.dartograph]]\ncommand = "dartograph"\n',
+      'mcp_servers = { dartograph = { command = "dartograph" } }\n',
+      '[mcp_servers."dartograph"]\ncommand = "dartograph"\n',
+    ]) {
+      expect(
+        () => mergeCodexConfig(existing, force: true),
+        throwsFormatException,
+        reason: existing,
+      );
+    }
+    // 다른 서버의 점 키 정의는 충돌이 아니다 — 표는 정상 병합된다.
+    expect(
+      mergeCodexConfig('mcp_servers.linear.command = "x"\n', force: false),
+      contains('[mcp_servers.dartograph]'),
+    );
+  });
+
+  test('codex merge keeps table-like lines inside multiline strings', () {
+    // 다른 표의 문자열 안 `[mcp_servers.dartograph]`는 헤더가 아니라 값이다 —
+    // 항목이 있는 것으로 오인해 건너뛰거나 지우면 안 된다.
+    const existing =
+        '[other]\ndoc = """\n[mcp_servers.dartograph]\nnot a table\n"""\n';
+    final merged = mergeCodexConfig(existing, force: false)!;
+    expect(merged, contains('not a table'));
+    expect(RegExp(r'\[mcp_servers\.dartograph\]').allMatches(merged).length, 2);
   });
 
   test('mergeOpenCodeConfig preserves other keys and is idempotent', () {

@@ -172,18 +172,76 @@ args = ["mcp"]
 ''';
 
 final _codexTableHeader = RegExp(
-  r'^\[mcp_servers\.dartograph\]',
+  r'^\s*\[\s*mcp_servers\s*\.\s*dartograph\s*\]\s*(#.*)?$',
   multiLine: true,
 );
 
-bool _hasCodexBlock(String text) => _codexTableHeader.hasMatch(text);
+/// dartograph를 `[mcp_servers.dartograph]` 표가 아닌 다른 모양으로 정의한
+/// 흔적이다 — 점 키(`mcp_servers.dartograph.command = …`)·배열 표
+/// (`[[mcp_servers.dartograph]]`)·따옴표 키·인라인 표. TOML은 같은 표를
+/// 두 번 정의할 수 없어 이런 정의 위에 표를 덧붙이면 config.toml 전체가
+/// 파싱 에러가 된다 — JSON 경로와 같이 실패로 돌린다.
+final _codexForeignDefinition = RegExp(
+  r'''^\s*(?:\[+\s*mcp_servers\s*\.\s*|mcp_servers\s*\.\s*|'''
+  r'''mcp_servers\s*=\s*\{[^\n]*)["']?dartograph''',
+  multiLine: true,
+);
+
+/// TOML 다중 행 문자열(`"""`·`'''`) 안쪽에 있는지 추적한다.
+///
+/// 문자열 안의 `[mcp_servers.dartograph]` 같은 행은 헤더가 아니라 값이다.
+/// 구분자가 한 행에 홀수 번 나타나면 경계를 넘은 것으로 본다 — 따옴표
+/// 이스케이프까지 해석하지 않는 단순 스캔이며, 오인은 내용 보존 방향으로만
+/// 작동한다.
+class _TomlStringTracker {
+  String _marker = '';
+
+  /// 다음 행이 문자열 안쪽에서 시작하는지다.
+  bool get inside => _marker.isNotEmpty;
+
+  /// 한 행을 소비해 문자열 경계를 갱신한다.
+  void advance(String line) {
+    if (_marker.isNotEmpty) {
+      if ((line.split(_marker).length - 1).isOdd) _marker = '';
+      return;
+    }
+    for (final candidate in const ['"""', "'''"]) {
+      if ((line.split(candidate).length - 1).isOdd) {
+        _marker = candidate;
+        return;
+      }
+    }
+  }
+}
+
+/// TOML 문서에서 다중 행 문자열 밖의 행만 돌려준다.
+Iterable<String> _tomlDefinitionLines(String text) sync* {
+  final strings = _TomlStringTracker();
+  for (final line in text.split('\n')) {
+    if (!strings.inside) yield line;
+    strings.advance(line);
+  }
+}
+
+bool _hasCodexBlock(String text) =>
+    _tomlDefinitionLines(text).any(_codexTableHeader.hasMatch);
+
+bool _hasForeignCodexDefinition(String text) =>
+    _tomlDefinitionLines(text).any(_codexForeignDefinition.hasMatch);
 
 /// TOML에서 dartograph 표 블록을 걷어낸다. 그 표의 키 줄은 다음 최상위
-/// `[table]`을 만나거나 파일이 끝날 때까지 이어진다.
+/// `[table]`을 만나거나 파일이 끝날 때까지 이어진다. 다른 표의 다중 행
+/// 문자열 안에 표 모양 행이 있어도 값으로 보고 지우지 않는다.
 String _stripCodexBlock(String text) {
   final remaining = <String>[];
   var skipping = false;
+  final strings = _TomlStringTracker();
   for (final line in text.split('\n')) {
+    if (strings.inside) {
+      strings.advance(line);
+      remaining.add(line);
+      continue;
+    }
     if (_codexTableHeader.hasMatch(line)) {
       skipping = true;
       continue;
@@ -192,9 +250,11 @@ String _stripCodexBlock(String text) {
       if (line.trimLeft().startsWith('[')) {
         skipping = false;
       } else {
+        // 지워지는 블록 안의 행은 문자열 추적 대상이 아니다.
         continue;
       }
     }
+    strings.advance(line);
     remaining.add(line);
   }
   while (remaining.isNotEmpty && remaining.last.trim().isEmpty) {
@@ -207,11 +267,19 @@ String _stripCodexBlock(String text) {
 ///
 /// 이미 있으면 `force`일 때만 표준 블록으로 교체하고 아니면 `null`을 돌린다.
 /// TOML 전체를 해석하지 않고 표 블록만 다룬다 — 다른 표·키는 그대로 보존된다.
+/// 표가 아닌 모양(점 키·배열 표·인라인 표)으로 적힌 dartograph 정의가 있으면
+/// [FormatException]이다 — 덧붙이면 같은 표의 중복 정의로 파일 전체가 깨진다.
 String? mergeCodexConfig(String? existing, {required bool force}) {
   final text = existing ?? '';
   if (_hasCodexBlock(text)) {
     if (!force) return null;
     return '${_stripCodexBlock(text)}$codexMcpTomlBlock';
+  }
+  if (_hasForeignCodexDefinition(text)) {
+    throw const FormatException(
+      'config.toml defines dartograph under mcp_servers in an unsupported '
+      'shape — merge it into a [mcp_servers.dartograph] table or remove it',
+    );
   }
   if (text.isEmpty) return codexMcpTomlBlock;
   final separator = text.endsWith('\n') ? '\n' : '\n\n';

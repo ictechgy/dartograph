@@ -1594,6 +1594,7 @@ Future<int> _runSetup(
   StringSink error,
 ) async {
   var target = setupTargetClaude;
+  var targetSet = false;
   var force = false;
   var install = false;
   var uninstall = false;
@@ -1603,8 +1604,10 @@ Future<int> _runSetup(
     if (argument == '--force' && !force) {
       force = true;
     } else if (argument == '--target' &&
+        !targetSet &&
         i + 1 < arguments.length &&
         !arguments[i + 1].startsWith('-')) {
+      targetSet = true;
       target = arguments[++i];
     } else if (argument == '--install' && !install && !uninstall) {
       install = true;
@@ -1626,7 +1629,9 @@ Future<int> _runSetup(
   if (!setupTargets.contains(target) ||
       (install && uninstall) ||
       (force && uninstall) ||
-      ((install || uninstall) && needsRoot && root == null)) {
+      ((install || uninstall) && needsRoot && root == null) ||
+      // Codex는 전역 설정만 다룬다 — 루트 인자를 조용히 무시하지 않는다.
+      (!needsRoot && root != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -1866,6 +1871,9 @@ Future<int> _installCodexSetup(
     AtomicWrite.stringSync(file, merged);
     output.writeln('Registered the MCP server in ${file.path}.');
     return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
   } on FileSystemException {
     error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
