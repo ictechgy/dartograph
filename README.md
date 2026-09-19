@@ -154,13 +154,19 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `--incremental <dir>` reuses cached analysis facts for CI-speed reruns, and
   `--record <dir>`/`history` keep an append-only ledger of run inputs,
   versions, and results.
+- A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
+  GitHub Actions: it activates a published release (or a checked-out source
+  path), analyzes a package, and writes one report file. See the pinned example
+  workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
-- `setup` prints — or installs with `--install <root>` — Claude Code
-  integration: a PostToolUse hook that runs an impact pre-check after Dart
-  edits (no MCP call needed), plus the project `.mcp.json` server entry.
-  Existing settings are merged, never overwritten.
+- `setup` prints — or installs with `--install [<root>]` — agent MCP
+  integration for `claude` (default), `cursor`, `codex`, or `opencode`
+  (`--target <agent>`). For Claude it also writes a PostToolUse hook that runs
+  an impact pre-check after Dart edits (no MCP call needed). Existing settings
+  are merged, never overwritten, and `--uninstall` removes only the dartograph
+  entries.
 - `dup` reports duplicated code blocks as token-structural review candidates,
   and `dead`/`deps`/`dup` accept `--kinds <csv>` to narrow reported finding
   kinds. `metrics` also reports function-level cyclomatic complexity and

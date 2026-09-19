@@ -1,0 +1,142 @@
+name: dartograph
+description: >-
+  Run dartograph in CI — impact pre-check, dead code, dependency hygiene,
+  duplication, cycles, rules, or metrics — and write one report file. Installs
+  the published CLI or a checked-out source path. Read-only: the action never
+  edits the analyzed package.
+author: dartograph contributors
+
+branding:
+  icon: search
+  color: purple
+
+# Composite action. It is a thin wrapper around the CLI: the exit code, report
+# format, and evidence live in dartograph, not in the action. Pin third-party
+# actions by commit SHA (the setup-dart step below follows the repository
+# convention). The action is documented by doc/USAGE.md and the example
+# workflow .github/workflows/impact-precheck.yml.
+inputs:
+  command:
+    description: >-
+      dartograph subcommand to run: impact, dead, deps, dup, runtime, cycles,
+      rules, or metrics.
+    required: false
+    default: impact
+  args:
+    description: >-
+      Extra CLI arguments, word-split by the shell. Quote values that contain
+      spaces. Example: --since origin/main --format github-actions --fail-on high
+    required: false
+    default: ''
+  package-root:
+    description: Package root to analyze.
+    required: false
+    default: .
+  version:
+    description: >-
+      dartograph version to activate from pub.dev. Leave empty for the latest
+      published release.
+    required: false
+    default: ''
+  source-path:
+    description: >-
+      Activate dartograph from this local path instead of pub.dev (for testing
+      this repository's own checkout). Takes precedence over version.
+    required: false
+    default: ''
+  pub-get:
+    description: Run `dart pub get` in package-root first so imports resolve.
+    required: false
+    default: 'true'
+  output-file:
+    description: Path to write the report to (relative to the workspace).
+    required: false
+    default: dartograph-report.txt
+
+outputs:
+  exit-code:
+    description: >-
+      Exit code from dartograph: 0 clean, 1 findings/gate, 2 analysis failure,
+      64 usage error.
+    value: ${{ steps.run.outputs.exit-code }}
+  output-file:
+    description: Path of the written report.
+    value: ${{ steps.run.outputs.output-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Dart
+      uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+      with:
+        sdk: stable
+    - name: Install dartograph
+      shell: bash
+      # Inputs reach the script through env only: interpolating ${{ }} inside
+      # run: expands before bash sees it, so a crafted value could inject
+      # shell syntax. The script body quotes every expansion instead.
+      env:
+        DARTOGRAPH_SOURCE_PATH: ${{ inputs.source-path }}
+        DARTOGRAPH_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [[ -n "$DARTOGRAPH_SOURCE_PATH" ]]; then
+          dart pub global activate --source path "$DARTOGRAPH_SOURCE_PATH"
+        elif [[ -n "$DARTOGRAPH_VERSION" ]]; then
+          dart pub global activate dartograph "$DARTOGRAPH_VERSION"
+        else
+          dart pub global activate dartograph
+        fi
+        echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+    - name: Resolve package dependencies
+      shell: bash
+      working-directory: ${{ inputs.package-root }}
+      env:
+        DARTOGRAPH_PUB_GET: ${{ inputs.pub-get }}
+      run: |
+        set -euo pipefail
+        if [[ "$DARTOGRAPH_PUB_GET" == "true" ]]; then
+          dart pub get
+        fi
+    - name: Run dartograph
+      id: run
+      shell: bash
+      env:
+        DARTOGRAPH_OUTPUT_FILE: ${{ inputs.output-file }}
+        DARTOGRAPH_COMMAND: ${{ inputs.command }}
+        DARTOGRAPH_ARGS: ${{ inputs.args }}
+        DARTOGRAPH_PACKAGE_ROOT: ${{ inputs.package-root }}
+      # The report is always written before the exit code is propagated, so a
+      # failing gate still leaves artifacts for the caller to upload. Callers
+      # that only want a report add `continue-on-error: true` and read
+      # steps.<id>.outputs.exit-code.
+      run: |
+        # -f (noglob): args is word-split but never glob-expanded — a `*`
+        # in the input stays literal instead of matching workspace files.
+        set -euf -o pipefail
+        # output-file input has a default, but keep a fallback so an unset
+        # env under `set -u` still writes the report instead of dying early.
+        report="${DARTOGRAPH_OUTPUT_FILE:-dartograph-report.txt}"
+        if [[ -z "${DARTOGRAPH_COMMAND:-}" ]]; then
+          # Usage errors still publish exit-code so report-only callers read
+          # the same output contract (no report file is written, though).
+          echo "dartograph action: command input is empty" >&2
+          echo "exit-code=64" >> "$GITHUB_OUTPUT"
+          exit 64
+        fi
+        set +e
+        # args is a documented free-form string of extra flags; it expands
+        # unquoted on purpose so the shell word-splits it. Variable content
+        # is never re-evaluated, so $(...) or backticks in it stay literal.
+        dartograph "$DARTOGRAPH_COMMAND" $DARTOGRAPH_ARGS "$DARTOGRAPH_PACKAGE_ROOT" \
+          > "$report" 2>&1
+        status=$?
+        set -e
+        echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+        echo "output-file=$report" >> "$GITHUB_OUTPUT"
+        if [[ "$status" -eq 2 || "$status" -eq 64 ]]; then
+          # Surface configuration/analysis failures in the job log; the report
+          # alone can hide them behind an artifact.
+          cat "$report" >&2
+        fi
+        exit "$status"

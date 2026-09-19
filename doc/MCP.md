@@ -104,9 +104,12 @@ exitCode: 0
 | `depth` | integer ≥1 | | 사용 관계 추적 깊이(기본 1) |
 | `limit` | integer ≥1 | | 방향별 이웃 수 제한 |
 | `baseline` | string | | `baseline --write`로 만든 파일 |
+| `withSource` | boolean | | 보고된 선언 위치의 소스 줄을 함께 돌려준다 |
+| `sourceContext` | integer ≥0 | | `withSource`일 때 위치 앞뒤 줄 수(기본 0) |
 
 `symbol`·`batch` 중 정확히 하나를 준다. `notFound`·`ambiguous`는 오류가 아니라 정상
-결과로 돌아오며 부분 미발견이면 `exitCode: 64`다.
+결과로 돌아오며 부분 미발견이면 `exitCode: 64`다. `sourceContext`는 `withSource: true`
+없이 주면 인자 오류다. 소스는 `project:` 파일만 읽고, 읽지 못한 위치는 생략된다.
 
 ### `runtime_query`
 
@@ -141,11 +144,12 @@ exitCode: 0
 | `since` | string | | `dead --since` |
 | `baseline` | string | | `dead --baseline` |
 | `config` | string | | `rules --config`의 layers.yaml |
-| `format` | enum | | `dead`·`deps`·`dup` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
+| `format` | enum | | `dead`·`deps`·`dup`: `text`·`json`·`markdown`·`github-actions`·`sarif`; `cycles`·`rules`·`metrics`: `text`·`json`·`sarif` |
 
 `closedApp: true`를 `dead`가 아닌 명령에 주면 인자 오류로 거절한다 — 다른 명령에서는
 의도 없이 무시되는 플래그를 받지 않는다. `minTokens`는 `dup` 전용, `kinds`는
-`dead`·`deps`·`dup` 전용으로 같은 규칙이다.
+`dead`·`deps`·`dup` 전용으로 같은 규칙이다. `cycles`·`rules`·`metrics`에
+`markdown`·`github-actions`를 주면 인자 오류다(CLI가 지원하지 않는다).
 
 응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead`·`deps` finding은 1), 이어서
 CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
@@ -220,7 +224,9 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "batch": {"type": "array", "items": {"type": "string"}},
         "depth": {"type": "integer", "minimum": 1},
         "limit": {"type": "integer", "minimum": 1},
-        "baseline": {"type": "string"}
+        "baseline": {"type": "string"},
+        "withSource": {"type": "boolean"},
+        "sourceContext": {"type": "integer", "minimum": 0}
       },
       "required": ["packageRoot"],
       "additionalProperties": false
@@ -321,8 +327,12 @@ printf '%s\n' \
   빠르게 답한다. `runtime_query`는 이 캐시를 쓰지 않고 매 호출 정적 탐지를
   새로 한다. 캐시는 세션 소유이므로 세션마다 처음 한 번은 전체 색인 비용이
   들고, 서버를 자주 띄우는 호출 패턴에는 이득이 없다. 파일 변경은 다음 호출에서
-  최신 사실로 반영되지만 캐시 삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수
-  있다(stderr 진단으로 알린다). CLI의 파일별 증분 캐시(`--incremental <dir>`)는
+  최신 사실로 반영된다 — 사실 캐시 키가 파일 내용 해시라 편집·삭제·신규 파일이 그
+  호출의 재해석 대상이 되고, 응답은 호출 시점의 작업 트리를 반영한다(별도의
+  staleness 배너가 필요 없다). 회귀는 `test/cli/mcp_server_test.dart`의
+  “session cache reuses facts, refreshes edits and cleans up”가 고정한다. 캐시
+  삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수 있다(stderr 진단으로 알린다).
+  CLI의 파일별 증분 캐시(`--incremental <dir>`)는
   MCP 도구가 노출하지 않는다 — 세션 간에 사실을 재사용해야 하면 CLI를 직접
   쓴다([USAGE.md](USAGE.md)의 `--incremental`).
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.

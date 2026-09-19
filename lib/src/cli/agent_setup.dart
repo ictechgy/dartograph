@@ -110,16 +110,369 @@ String agentHookConfigJson() =>
       },
     });
 
-/// 인쇄용 프로젝트 `.mcp.json` 문서를 결정적 순서로 돌려준다.
+/// `setup --target`이 받는 에이전트 이름이다.
+///
+/// Claude Code는 ·설정·`.mcp.json`을 모두 다루고, 나머지는 MCP 서버 항목만
+/// 만든다([_printSetup] 참조). Codex만 설정이 전역(`$CODEX_HOME/config.toml`)이다.
+const setupTargetClaude = 'claude';
+
+/// Cursor 프로젝트 `.cursor/mcp.json` 타깃이다.
+const setupTargetCursor = 'cursor';
+
+/// Codex 전역 `$CODEX_HOME/config.toml` 타깃이다.
+const setupTargetCodex = 'codex';
+
+/// opencode 프로젝트 `opencode.json` 타깃이다.
+const setupTargetOpenCode = 'opencode';
+
+/// 지원하는 타깃 이름 집합이다.
+const setupTargets = <String>{
+  setupTargetClaude,
+  setupTargetCursor,
+  setupTargetCodex,
+  setupTargetOpenCode,
+};
+
+/// MCP 서버 한 항목이다. Claude Code `.mcp.json`·Cursor `.cursor/mcp.json`이
+/// 같은 `command`/`args` 모양을 쓴다.
+Map<String, Object?> _mcpServerEntry() => <String, Object?>{
+  'command': 'dartograph',
+  'args': <String>['mcp'],
+};
+
+/// opencode `mcp` 항목이다. 로컬 서버는 `command`가 배열이다.
+Map<String, Object?> _openCodeServerEntry() => <String, Object?>{
+  'type': 'local',
+  'command': <String>['dartograph', 'mcp'],
+  'enabled': true,
+};
+
+/// 인쇄용 프로젝트 `.mcp.json`(그리고 Cursor `.cursor/mcp.json`) 문서를
+/// 결정적 순서로 돌려준다.
 String agentMcpConfigJson() =>
     const JsonEncoder.withIndent('  ').convert(<String, Object?>{
-      'mcpServers': <String, Object?>{
-        'dartograph': <String, Object?>{
-          'command': 'dartograph',
-          'args': <String>['mcp'],
-        },
-      },
+      'mcpServers': <String, Object?>{'dartograph': _mcpServerEntry()},
     });
+
+/// 인쇄용 opencode `opencode.json` 문서를 결정적 순서로 돌려준다.
+String agentOpenCodeConfigJson() =>
+    const JsonEncoder.withIndent('  ').convert(<String, Object?>{
+      r'$schema': 'https://opencode.ai/config.json',
+      'mcp': <String, Object?>{'dartograph': _openCodeServerEntry()},
+    });
+
+/// Codex 전역 `config.toml`에 넣을 dartograph MCP 블록이다.
+///
+/// Codex는 프로젝트 설정이 아니라 `$CODEX_HOME/config.toml`(기본
+/// `~/.codex/config.toml`)의 `mcp_servers` 표만 읽는다.
+/// 불변식: 생성 블록은 단순하게 유지한다 — 다중 행 문자열(`"""`·`'''`)과
+/// 여러 줄 배열을 넣지 않는다. [_stripCodexBlock]이 경계를 추적하긴 하지만
+/// 블록이 단순할수록 제거가 정확하다.
+const codexMcpTomlBlock = '''
+[mcp_servers.dartograph]
+command = "dartograph"
+args = ["mcp"]
+''';
+
+final _codexTableHeader = RegExp(
+  r'^\s*\[\s*mcp_servers\s*\.\s*dartograph\s*\]\s*(#.*)?$',
+  multiLine: true,
+);
+
+/// `[table]`·`[[array-table]]` 헤더 행이다 — 안쪽 표 이름을 잡는다.
+final _tomlTableHeader = RegExp(r'^\s*\[\s*\[?\s*([^\]]+?)\s*\]+\s*(#.*)?$');
+
+/// 비교용 표 이름 정규화에서 벗기는 따옴표·공백이다.
+final _tomlKeyNoise = RegExp(r'''["'\s]''');
+
+/// 최상위(표 헤더 전)에서 dartograph를 정의하는 점 키다 —
+/// `mcp_servers.dartograph = {…}` 또는 `mcp_servers.dartograph.command = …`.
+/// 따옴표 세그먼트도 같은 정의다. `dartograph` 우측은 `=`·`.` 경계가 필요하다 —
+/// `dartograph_cli` 같은 접두 이름은 다른 서버다.
+final _codexDottedKey = RegExp(
+  r'''^\s*["']?mcp_servers["']?\s*\.\s*["']?dartograph["']?\s*[=\.]''',
+);
+
+/// 최상위 `mcp_servers`의 값 정의다 — `mcp_servers = {…}` 인라인 표·
+/// `= […]` 배열·스칼라를 가리지 않는다. TOML은 값으로 정의된 키를 표
+/// 헤더로 확장하지 못하므로, 안에 무엇이 있든 표를 덧붙이면 파일이 깨진다.
+final _codexValueDefinition = RegExp(r'''^\s*["']?mcp_servers["']?\s*=''');
+
+/// `[mcp_servers]` 표 안에서 dartograph를 정의하는 키 행이다 —
+/// `dartograph = {…}` 또는 `dartograph.command = …`.
+final _codexNestedKey = RegExp(r'''^\s*["']?dartograph["']?\s*[=\.]''');
+
+/// TOML 다중 행 문자열(`"""`·`'''`)의 열림 상태다.
+class _TomlStringTracker {
+  String _marker = '';
+
+  /// 다음 행이 문자열 안쪽에서 시작하는지다.
+  bool get inside => _marker.isNotEmpty;
+
+  /// 현재 열려 있는 구분자다.
+  String get marker => _marker;
+
+  void _open(String marker) => _marker = marker;
+
+  void _close() => _marker = '';
+}
+
+/// [start]의 [quote]로 여는 한 줄 문자열의 끝 인덱스다 — 닫힘이 없으면
+/// 행 끝이다. `"` 기본 문자열은 `\` 이스케이프 쌍을 건너뛰고 `'` 리터럴은
+/// 이스케이프가 없다.
+int _tomlSingleStringEnd(String line, int start, String quote) {
+  final basic = quote == '"';
+  var index = start + 1;
+  while (index < line.length) {
+    if (basic && line[index] == r'\') {
+      index += 2;
+      continue;
+    }
+    if (line[index] == quote) return index + 1;
+    index++;
+  }
+  return line.length;
+}
+
+/// 한 행을 왼쪽부터 훑어 문자열 밖 코드의 `[`·`]` 균형을 돌려준다.
+///
+/// 문자열 안·주석 뒤의 내용은 코드가 아니다. 문자열 경계는 [strings]를
+/// 갱신해 다음 행에 이어진다 — 같은 행에서 닫히고 다시 열리는 경우도
+/// 추적한다. 기본 문자열(`"`·`"""`)의 `\` 이스케이프 쌍은 내용으로 본다 —
+/// `\"""`는 닫힘이 아니다.
+int _scanTomlLine(String line, _TomlStringTracker strings) {
+  var delta = 0;
+  var index = 0;
+  while (index < line.length) {
+    if (strings.inside) {
+      final marker = strings.marker;
+      final basic = marker.startsWith('"');
+      var closed = false;
+      while (index < line.length) {
+        if (basic && line[index] == r'\') {
+          index += 2;
+          continue;
+        }
+        if (line.startsWith(marker, index)) {
+          index += marker.length;
+          strings._close();
+          closed = true;
+          break;
+        }
+        index++;
+      }
+      if (!closed) return delta; // 행 전체가 문자열 내용이다.
+      continue;
+    }
+    final char = line[index];
+    if (char == '#') return delta;
+    if (line.startsWith('"""', index)) {
+      strings._open('"""');
+      index += 3;
+      continue;
+    }
+    if (line.startsWith("'''", index)) {
+      strings._open("'''");
+      index += 3;
+      continue;
+    }
+    if (char == '"' || char == "'") {
+      index = _tomlSingleStringEnd(line, index, char);
+      continue;
+    }
+    if (char == '[') delta++;
+    if (char == ']') delta--;
+    index++;
+  }
+  return delta;
+}
+
+/// TOML 문서에서 정의가 올 수 있는 행만 돌려준다 — 다중 행 문자열 안과
+/// 여러 줄 배열(`[…]` 값) 안의 행은 헤더도 키도 아니다.
+Iterable<String> _tomlDefinitionLines(String text) sync* {
+  final strings = _TomlStringTracker();
+  var depth = 0;
+  for (final line in text.split('\n')) {
+    if (!strings.inside && depth == 0) yield line;
+    depth += _scanTomlLine(line, strings);
+  }
+}
+
+/// TOML 문서를 한 번 스캔해 표준 표와 다른 모양의 dartograph 정의를 가른다.
+///
+/// 표 헤더 안쪽 이름은 따옴표·공백을 벗겨 비교한다 — `[mcp_servers."dartograph"]`
+/// 나 `[[mcp_servers.dartograph]]`도 같은 표의 정의다. 점 키·인라인 표는
+/// 최상위(어떤 표 헤더보다 앞)에서만 루트 `mcp_servers`를 정의한다 — 표 안의
+/// `mcp_servers.` 점 키는 그 표의 하위라 충돌이 아니다. `[mcp_servers]` 표
+/// 안의 `dartograph` 키도 같은 정의다.
+({bool standard, bool foreign}) _scanCodexDefinitions(String text) {
+  var standard = false;
+  var foreign = false;
+  var table = '';
+  for (final line in _tomlDefinitionLines(text)) {
+    final header = _tomlTableHeader.firstMatch(line);
+    if (header != null) {
+      table = header.group(1)!.replaceAll(_tomlKeyNoise, '');
+      if (table == 'mcp_servers.dartograph') {
+        if (_codexTableHeader.hasMatch(line)) {
+          standard = true;
+        } else {
+          foreign = true;
+        }
+      } else if (table.startsWith('mcp_servers.dartograph.')) {
+        foreign = true;
+      }
+      continue;
+    }
+    if (table.isEmpty) {
+      if (_codexDottedKey.hasMatch(line) ||
+          _codexValueDefinition.hasMatch(line)) {
+        foreign = true;
+      }
+    } else if (table == 'mcp_servers' && _codexNestedKey.hasMatch(line)) {
+      foreign = true;
+    }
+  }
+  return (standard: standard, foreign: foreign);
+}
+
+/// TOML에서 dartograph 표 블록을 걷어낸다. 그 표의 키 줄은 다음 최상위
+/// `[table]`을 만나거나 파일이 끝날 때까지 이어진다. 다른 표의 다중 행
+/// 문자열·배열 안의 표 모양 행은 값으로 보고 지우지 않는다.
+String _stripCodexBlock(String text) {
+  final remaining = <String>[];
+  var skipping = false;
+  final strings = _TomlStringTracker();
+  var depth = 0;
+  for (final line in text.split('\n')) {
+    final wasInside = strings.inside;
+    depth += _scanTomlLine(line, strings);
+    if (wasInside) {
+      // 문자열 내용 행 — 지우는 블록 안이면 함께 버리고 아니면 보존한다.
+      if (!skipping) remaining.add(line);
+      continue;
+    }
+    if (depth == 0 && _codexTableHeader.hasMatch(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      // 배열·문자열 안의 [ 행은 값이라 표 경계가 아니다 — 깊이 0에서만 끝낸다.
+      if (depth == 0 && line.trimLeft().startsWith('[')) {
+        skipping = false;
+        remaining.add(line);
+      }
+      continue;
+    }
+    remaining.add(line);
+  }
+  while (remaining.isNotEmpty && remaining.last.trim().isEmpty) {
+    remaining.removeLast();
+  }
+  return remaining.isEmpty ? '' : '${remaining.join('\n')}\n';
+}
+
+/// Codex `config.toml` 문자열에 dartograph MCP 블록을 병합한다.
+///
+/// 이미 있으면 `force`일 때만 표준 블록으로 교체하고 아니면 `null`을 돌린다.
+/// TOML 전체를 해석하지 않고 표 블록만 다룬다 — 다른 표·키는 그대로 보존된다.
+/// 표가 아닌 모양(점 키·배열 표·`mcp_servers`의 값 정의·`[mcp_servers]`
+/// 하위 키)으로 적힌 dartograph 정의가 있으면 [FormatException]이다 —
+/// 덧붙이면 같은 표의 중복 정의로 파일 전체가 깨진다.
+String? mergeCodexConfig(String? existing, {required bool force}) {
+  final text = existing ?? '';
+  final definitions = _scanCodexDefinitions(text);
+  if (definitions.foreign) {
+    throw const FormatException(
+      'config.toml defines mcp_servers in a shape dartograph cannot '
+      'extend — use [mcp_servers.dartograph] table form instead',
+    );
+  }
+  if (definitions.standard) {
+    if (!force) return null;
+    return '${_stripCodexBlock(text)}$codexMcpTomlBlock';
+  }
+  if (text.isEmpty) return codexMcpTomlBlock;
+  final separator = text.endsWith('\n') ? '\n' : '\n\n';
+  return '$text$separator$codexMcpTomlBlock';
+}
+
+/// Codex `config.toml` 문자열에서 dartograph MCP 블록을 제거한다.
+///
+/// 항목이 없으면 `null`이다. 남는 내용이 없으면 빈 문자열을 돌린다 — 호출자가
+/// 파일을 지울지 정한다. 표가 아닌 모양의 dartograph 정의는 우리가 쓴 것이
+/// 아니므로 건드리지 않는다.
+String? removeCodexConfig(String? existing) {
+  if (existing == null || !_scanCodexDefinitions(existing).standard) {
+    return null;
+  }
+  return _stripCodexBlock(existing);
+}
+
+/// `.claude/settings.json`에서 dartograph 훅 항목을 제거한다.
+///
+/// 없으면 `null`, `hooks` 모양이 다르면 [FormatException]이다. 빈 컨테이너는
+/// 함께 지워 원래 설정을 최대한 되돌린다.
+String? removeClaudeSettingsHook(String? existing) {
+  final settings = _decodeObject(existing);
+  final hooks = settings['hooks'];
+  if (hooks is! Map<String, Object?>) {
+    if (settings.containsKey('hooks') && hooks != null) {
+      throw const FormatException('"hooks" is not a JSON object');
+    }
+    return null;
+  }
+  final postToolUse = hooks['PostToolUse'];
+  if (postToolUse is! List) {
+    if (hooks.containsKey('PostToolUse') && postToolUse != null) {
+      throw const FormatException('"hooks.PostToolUse" is not a JSON array');
+    }
+    return null;
+  }
+  final before = postToolUse.length;
+  postToolUse.removeWhere(
+    (entry) =>
+        entry is Map<String, Object?> &&
+        jsonEncode(entry).contains(agentHookScriptName),
+  );
+  if (postToolUse.length == before) return null;
+  if (postToolUse.isEmpty) hooks.remove('PostToolUse');
+  if (hooks.isEmpty) settings.remove('hooks');
+  return '${const JsonEncoder.withIndent('  ').convert(settings)}\n';
+}
+
+/// `mcpServers` 항목을 담는 JSON 설정(`.mcp.json`·`.cursor/mcp.json`)에서
+/// dartograph 항목을 제거한다. 없으면 `null`, 모양이 다르면 [FormatException].
+String? removeMcpServerEntry(String? existing) {
+  final config = _decodeObject(existing);
+  final servers = config['mcpServers'];
+  if (servers is! Map<String, Object?>) {
+    if (config.containsKey('mcpServers') && servers != null) {
+      throw const FormatException('"mcpServers" is not a JSON object');
+    }
+    return null;
+  }
+  if (!servers.containsKey('dartograph')) return null;
+  servers.remove('dartograph');
+  if (servers.isEmpty) config.remove('mcpServers');
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
+
+/// opencode `opencode.json`에서 dartograph `mcp` 항목을 제거한다.
+String? removeOpenCodeEntry(String? existing) {
+  final config = _decodeObject(existing);
+  final mcp = config['mcp'];
+  if (mcp is! Map<String, Object?>) {
+    if (config.containsKey('mcp') && mcp != null) {
+      throw const FormatException('"mcp" is not a JSON object');
+    }
+    return null;
+  }
+  if (!mcp.containsKey('dartograph')) return null;
+  mcp.remove('dartograph');
+  if (mcp.isEmpty) config.remove('mcp');
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
 
 Map<String, Object?> _decodeObject(String? existing) {
   if (existing == null) return <String, Object?>{};
@@ -168,9 +521,22 @@ String? mergeMcpConfig(String? existing, {required bool force}) {
     throw const FormatException('"mcpServers" is not a JSON object');
   }
   if (servers.containsKey('dartograph') && !force) return null;
-  servers['dartograph'] = <String, Object?>{
-    'command': 'dartograph',
-    'args': <String>['mcp'],
-  };
+  servers['dartograph'] = _mcpServerEntry();
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
+
+/// 기존 `opencode.json` 내용에 dartograph `mcp` 항목을 병합한다.
+///
+/// `dartograph` 항목이 이미 있으면 `force`일 때만 생성 내용으로 교체하고
+/// 아니면 `null`을 돌린다. `mcp`가 객체가 아닌 기존 설정과 깨진 JSON은
+/// [FormatException]을 던진다. 다른 전역 키는 그대로 보존한다.
+String? mergeOpenCodeConfig(String? existing, {required bool force}) {
+  final config = _decodeObject(existing);
+  final mcp = config['mcp'] ??= <String, Object?>{};
+  if (mcp is! Map<String, Object?>) {
+    throw const FormatException('"mcp" is not a JSON object');
+  }
+  if (mcp.containsKey('dartograph') && !force) return null;
+  mcp['dartograph'] = _openCodeServerEntry();
   return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
 }

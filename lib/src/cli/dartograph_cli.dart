@@ -549,14 +549,29 @@ Future<int> _runAffected(
 ) async {
   // 위치 인자 두 개: <git-ref> <package-root>. Git ref는 `-`로 시작하지 않으므로
   // 옵션 모양 값은 오타다. `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
-  if (arguments.length != 2 ||
-      arguments[0].startsWith('-') ||
-      arguments[1].startsWith('-')) {
+  String? formatName;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+      continue;
+    }
+    positional.add(argument);
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (positional.length != 2 ||
+      positional.any((item) => item.startsWith('-')) ||
+      format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
-  final reference = arguments[0];
-  final rootPath = arguments[1];
+  final reference = positional[0];
+  final rootPath = positional[1];
   try {
     // 인덱싱을 먼저 시도해 패키지 루트 부재를 Git 실패로 오귀인하지 않는다
     // (dead --since와 같은 순서).
@@ -585,7 +600,14 @@ Future<int> _runAffected(
         'file(s) are not part of any analyzed library',
       );
     }
-    output.write(AnalysisReporter.affected(result, limitations: limitations));
+    output.write(
+      AnalysisReporter.affected(
+        result,
+        limitations: limitations,
+        format: format,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
+      ),
+    );
     return ExitStatus.success.code;
   } on ChangedFilesException {
     error.writeln(
@@ -906,23 +928,43 @@ Future<int> _runCompare(
 ) async {
   // 단일 대시도 거부한다. `--`만 보면 `compare -h .`처럼 실재하는 짧은 옵션이
   // 경로가 되어 usage(64) 대신 분석 실패(2)로 보고된다.
-  if (arguments.length != 2 || arguments.any((a) => a.startsWith('-'))) {
+  String? formatName;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+      continue;
+    }
+    positional.add(argument);
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (positional.length != 2 ||
+      positional.any((item) => item.startsWith('-')) ||
+      format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final before = await indexPackage(arguments[0]);
-    final after = await indexPackage(arguments[1]);
+    final before = await indexPackage(positional[0]);
+    final after = await indexPackage(positional[1]);
+    final beforeSnapshot = before.graph.snapshot();
     output.write(
-      encodeSymbolQueryDocument(
+      AnalysisReporter.compare(
         compareGraphs(
-          before: before.graph.snapshot(),
+          before: beforeSnapshot,
           after: after.graph.snapshot(),
           beforeRoots: before.retentionRoots,
           afterRoots: after.retentionRoots,
           beforeLimitations: _limitations(before),
           afterLimitations: _limitations(after),
         ),
+        format: format,
+        nodeSources: {for (final node in beforeSnapshot.nodes) node.id: node},
       ),
     );
     return ExitStatus.success.code;
@@ -942,6 +984,7 @@ Future<int> _runCycles(
 ) async {
   var strict = false;
   String? explainId;
+  String? formatName;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -951,6 +994,12 @@ Future<int> _runCycles(
         return ExitStatus.usage.code;
       }
       strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
     } else if (argument == '--explain') {
       // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
       // 않는다. 값이 빠진 오타는 뒤따르는 위치 인자가 남아 usage(64)로 떨어진다.
@@ -970,20 +1019,23 @@ Future<int> _runCycles(
       return ExitStatus.usage.code;
     }
   }
-  // --explain은 한 정점의 근거를 묻는 질의라 finding 게이트(--strict)와 결합하지
-  // 않는다. dead --explain이 --baseline/--since를 배제하는 것과 같은 철학이다.
-  if (root == null || (strict && explainId != null)) {
+  final format = _parseAnalysisFormat(formatName);
+  // --explain은 한 정점의 근거를 는 고정 JSON 질의라 finding 게이트(--strict)·
+  // 다른 출력 형식과 결합하지 않는다. dead --explain이 --baseline/--since를
+  // 배제하는 것과 같은 철학이다.
+  if (root == null ||
+      format == null ||
+      (strict && explainId != null) ||
+      (explainId != null && format != AnalysisFormat.json)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
     final indexed = await indexPackage(root);
     final limitations = _limitations(indexed);
+    final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
-      final explanation = CycleDetector().explain(
-        indexed.graph.snapshot(),
-        explainId,
-      );
+      final explanation = CycleDetector().explain(snapshot, explainId);
       output.write(
         AnalysisReporter.cyclesExplain(explanation, limitations: limitations),
       );
@@ -991,8 +1043,15 @@ Future<int> _runCycles(
           ? ExitStatus.success.code
           : ExitStatus.usage.code;
     }
-    final cycles = CycleDetector().detect(indexed.graph.snapshot());
-    output.write(AnalysisReporter.cycles(cycles, limitations: limitations));
+    final cycles = CycleDetector().detect(snapshot);
+    output.write(
+      AnalysisReporter.cycles(
+        cycles,
+        limitations: limitations,
+        format: format,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
+      ),
+    );
     failedItems.addAll([
       for (final cycle in cycles)
         '${cycle.breakCandidate.from}->${cycle.breakCandidate.to}',
@@ -1021,6 +1080,7 @@ Future<int> _runRules(
   var strict = false;
   String? config;
   String? explainId;
+  String? formatName;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -1030,6 +1090,12 @@ Future<int> _runRules(
         return ExitStatus.usage.code;
       }
       strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
     } else if (argument == '--config' && config == null) {
       // 값이 빠진 호출에서 다음 옵션이 config 파일 경로가 되면 안 된다.
       if (++index >= arguments.length || arguments[index].startsWith('-')) {
@@ -1052,9 +1118,15 @@ Future<int> _runRules(
       return ExitStatus.usage.code;
     }
   }
-  // --explain은 한 정점의 레이어 배치를 묻는 질의라 finding 게이트(--strict)와
-  // 결합하지 않는다. 레이어 배치는 ruleset에 의존하므로 --config는 계속 필요하다.
-  if (config == null || root == null || (strict && explainId != null)) {
+  final format = _parseAnalysisFormat(formatName);
+  // --explain은 한 정점의 레이어 배치를 묻는 고정 JSON 질의라 finding 게이트
+  // (--strict)·다른 출력 형식과 결합하지 않는다. 레이어 배치는 ruleset에
+  // 의존하므로 --config는 계속 필요하다.
+  if (config == null ||
+      root == null ||
+      format == null ||
+      (strict && explainId != null) ||
+      (explainId != null && format != AnalysisFormat.json)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -1088,7 +1160,13 @@ Future<int> _runRules(
     final violations = LayerRuleEvaluator(
       ruleSet,
     ).evaluate(indexed.graph.snapshot());
-    output.write(AnalysisReporter.rules(violations, limitations: limitations));
+    output.write(
+      AnalysisReporter.rules(
+        violations,
+        limitations: limitations,
+        format: format,
+      ),
+    );
     failedItems.addAll([
       for (final violation in violations)
         '${violation.ruleName}:${violation.edge.sourceId}'
@@ -1113,13 +1191,37 @@ Future<int> _runMetrics(
   IndexPackage indexPackage,
   List<String> failedItems,
 ) async {
-  final parsed = _strictRoot(arguments);
-  if (parsed == null) {
+  var strict = false;
+  String? formatName;
+  String? root;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--strict') {
+      if (strict) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+    } else if (!argument.startsWith('-') && root == null) {
+      root = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (root == null || format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final indexed = await indexPackage(parsed.root);
+    final indexed = await indexPackage(root);
     final snapshot = indexed.graph.snapshot();
     final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
     // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의
@@ -1141,6 +1243,8 @@ Future<int> _runMetrics(
         tolerance: tolerance,
         complexity: indexed.complexity,
         nodeSources: {for (final node in snapshot.nodes) node.id: node},
+        complexityLimit: complexityLimit,
+        format: format,
       ),
     );
     final exceedsTolerance = metrics.any(
@@ -1159,7 +1263,7 @@ Future<int> _runMetrics(
         }
       }
     }
-    return parsed.strict && (exceedsTolerance || exceedsComplexity)
+    return strict && (exceedsTolerance || exceedsComplexity)
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
   } on FileSystemException {
@@ -1173,16 +1277,84 @@ Future<int> _runMetrics(
   }
 }
 
-({String root, bool strict})? _strictRoot(List<String> arguments) {
-  if (arguments.length == 1 && !arguments.single.startsWith('-')) {
-    return (root: arguments.single, strict: false);
+/// `--format` 값을 분석 형식으로 해석한다. 값이 없으면 기존 JSON 기본값이고,
+/// 알 수 없는 값이면 null을 돌려 호출자가 usage(64)로 처리하게 한다.
+AnalysisFormat? _parseAnalysisFormat(String? name) {
+  if (name == null) return AnalysisFormat.json;
+  return switch (name) {
+    'text' => AnalysisFormat.text,
+    'json' => AnalysisFormat.json,
+    'sarif' => AnalysisFormat.sarif,
+    _ => null,
+  };
+}
+
+/// 질의 문서의 모든 `location`에 선언 위치 소스 줄을 덧붙인다.
+///
+/// `--with-source`가 있을 때만 호출한다. `project:` 경로만 읽고(루트 밖·비프로젝트
+/// 스킴은 건너뛴다), 파일은 경로별로 한 번만 읽는다. 파일을 읽지 못하면 그 위치만
+/// 조용히 생략한다 — 소스 덧붙이기는 부가 정보다. 위치 경로는 이미 프로젝트 상대라
+/// 절대 경로·`..` 탈출을 방어로 한 번 더 막는다.
+void _attachQuerySource(
+  Object? value,
+  String root,
+  int context,
+  Map<String, List<String>?> files,
+) {
+  if (value is Map<String, Object?>) {
+    final location = value['location'];
+    if (location is Map<String, Object?>) {
+      final path = location['path'];
+      final line = location['line'];
+      if (path is String && line is int) {
+        final source = _querySourceLines(root, path, line, context, files);
+        if (source != null) value['source'] = source;
+      }
+    }
+    for (final entry in value.entries) {
+      _attachQuerySource(entry.value, root, context, files);
+    }
+  } else if (value is List) {
+    for (final item in value) {
+      _attachQuerySource(item, root, context, files);
+    }
   }
-  if (arguments.length == 2 &&
-      arguments.where((item) => item == '--strict').length == 1) {
-    final root = arguments.firstWhere((item) => item != '--strict');
-    if (!root.startsWith('-')) return (root: root, strict: true);
+}
+
+/// 한 선언 위치의 소스 줄(`line` 앞뒤 [context]줄)을 읽는다. 읽을 수 없으면 null.
+List<Map<String, Object?>>? _querySourceLines(
+  String root,
+  String path,
+  int line,
+  int context,
+  Map<String, List<String>?> files,
+) {
+  const prefix = 'project:';
+  if (!path.startsWith(prefix)) return null;
+  final relative = path.substring(prefix.length);
+  if (p.isAbsolute(relative) || p.normalize(relative).startsWith('..')) {
+    return null;
   }
-  return null;
+  final filePath = p.join(root, relative);
+  final lines = files.putIfAbsent(filePath, () {
+    final file = File(filePath);
+    try {
+      return file.existsSync() ? file.readAsLinesSync() : null;
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      // 잘못된 UTF-8 소스도 분석 대상이 될 수 있다 — 소스 표시만 생략한다.
+      return null;
+    }
+  });
+  if (lines == null || lines.isEmpty) return null;
+  final start = (line - context).clamp(1, lines.length);
+  final end = (line + context).clamp(1, lines.length);
+  if (start > end) return null;
+  return [
+    for (var current = start; current <= end; current++)
+      {'line': current, 'text': lines[current - 1]},
+  ];
 }
 
 Future<int> _runQuery(
@@ -1202,32 +1374,54 @@ Future<int> _runQuery(
   // `--baseline` 중복 거부와 일관되게 usage(64)다.
   int? depthOption;
   int? limitOption;
+  int? sourceContext;
+  var withSource = false;
   final positional = <String>[];
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument != '--depth' && argument != '--limit') {
+    if (argument == '--with-source') {
+      if (withSource) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      withSource = true;
+      continue;
+    }
+    if (argument != '--depth' &&
+        argument != '--limit' &&
+        argument != '--source-context') {
       positional.add(argument);
       continue;
     }
-    if ((argument == '--depth' && depthOption != null) ||
-        (argument == '--limit' && limitOption != null)) {
-      error.write(_help);
-      return ExitStatus.usage.code;
-    }
-    if (index + 1 >= arguments.length) {
+    final duplicate = switch (argument) {
+      '--depth' => depthOption != null,
+      '--limit' => limitOption != null,
+      _ => sourceContext != null,
+    };
+    if (duplicate || index + 1 >= arguments.length) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
     final value = int.tryParse(arguments[++index]);
-    if (value == null || value < 1) {
+    // `--source-context 0`은 선언 줄만 보여주는 유효한 값이다.
+    final minimum = argument == '--source-context' ? 0 : 1;
+    if (value == null || value < minimum) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
-    if (argument == '--depth') {
-      depthOption = value;
-    } else {
-      limitOption = value;
+    switch (argument) {
+      case '--depth':
+        depthOption = value;
+      case '--limit':
+        limitOption = value;
+      default:
+        sourceContext = value;
     }
+  }
+  // 의도 없는 소스 문맥 지정을 조용히 무시하지 않는다.
+  if (sourceContext != null && !withSource) {
+    error.write(_help);
+    return ExitStatus.usage.code;
   }
   final depth = depthOption ?? 1;
   final limit = limitOption;
@@ -1315,6 +1509,9 @@ Future<int> _runQuery(
             'version': 1,
             'results': results,
           };
+    if (withSource) {
+      _attachQuerySource(document, rootPath, sourceContext ?? 0, {});
+    }
     output.write(encodeSymbolQueryDocument(document));
     return results.any((result) => result['status'] == 'notFound')
         ? ExitStatus.usage.code
@@ -1369,48 +1566,181 @@ Future<int> _runSkill(
   }
 }
 
-/// `dartograph setup` — Claude Code 훅·프로젝트 MCP 설정을 생성한다.
+/// Codex 전역 MCP 설정 파일이다. `$CODEX_HOME/config.toml`, 없으면
+/// `~/.codex/config.toml`이다(Codex는 프로젝트 설정을 읽지 않는다).
+File _codexConfigFile() {
+  final codexHome = Platform.environment['CODEX_HOME']?.trim();
+  final home = (codexHome != null && codexHome.isNotEmpty)
+      ? codexHome
+      : p.join(
+          Platform.environment['HOME'] ??
+              Platform.environment['USERPROFILE'] ??
+              '.',
+          '.codex',
+        );
+  return File(p.join(home, 'config.toml'));
+}
+
+/// `dartograph setup` — 에이전트 MCP·훅 연동 설정을 생성·설치·해제한다.
 ///
-/// 인쇄 경로는 세 결과물을 검토용으로 보여주고, `--install`은 훅 스크립트를
-/// `.claude/hooks/`에 쓰고 `.claude/settings.json`·`.mcp.json`에 병합한다.
-/// 기존 파일은 절대 통째로 덮어쓰지 않는다 — 병합할 수 없는 기존 설정은
-/// 그대로 두고 실패한다. 유료 서비스·로그인·텔레메트리 의존은 없다.
+/// 인쇄 경로는 검토용 결과물을 보여주고, `--install`은 타깃별 설정 파일에
+/// dartograph 항목만 병합한다. 기존 파일은 절대 통째로 덮어쓰지 않는다 —
+/// 병합할 수 없는 기존 설정은 그대로 두고 실패한다. `--uninstall`은 생성한
+/// 항목만 되돌린다. Codex만 설정이 전역이라 프로젝트 루트가 필요 없다.
+/// 유료 서비스·로그인·텔레메트리 의존은 없다.
 Future<int> _runSetup(
   List<String> arguments,
   StringSink output,
   StringSink error,
 ) async {
-  bool force = false;
-  String? installRoot;
+  var target = setupTargetClaude;
+  var targetSet = false;
+  var force = false;
+  var install = false;
+  var uninstall = false;
+  String? root;
   for (var i = 0; i < arguments.length; i++) {
     final argument = arguments[i];
     if (argument == '--force' && !force) {
       force = true;
-    } else if (argument == '--install' &&
-        installRoot == null &&
+    } else if (argument == '--target' &&
+        !targetSet &&
         i + 1 < arguments.length &&
         !arguments[i + 1].startsWith('-')) {
-      installRoot = arguments[++i];
+      targetSet = true;
+      target = arguments[++i];
+    } else if (argument == '--install' && !install && !uninstall) {
+      install = true;
+      // Codex는 프로젝트 루트가 필요 없다 — 값이 없어도 받는다.
+      if (i + 1 < arguments.length && !arguments[i + 1].startsWith('-')) {
+        root = arguments[++i];
+      }
+    } else if (argument == '--uninstall' && !uninstall && !install) {
+      uninstall = true;
+      if (i + 1 < arguments.length && !arguments[i + 1].startsWith('-')) {
+        root = arguments[++i];
+      }
     } else {
       error.write(_help);
       return ExitStatus.usage.code;
     }
   }
-  if (installRoot == null) {
-    output
-      ..writeln('# .claude/hooks/$agentHookScriptName')
-      ..write(agentHookScript)
-      ..writeln('# .claude/settings.json — merge this block')
-      ..writeln(agentHookConfigJson())
-      ..writeln('# .mcp.json')
-      ..writeln(agentMcpConfigJson());
-    return ExitStatus.success.code;
+  final needsRoot = target != setupTargetCodex;
+  if (!setupTargets.contains(target) ||
+      (install && uninstall) ||
+      (force && uninstall) ||
+      ((install || uninstall) && needsRoot && root == null) ||
+      // Codex는 전역 설정만 다룬다 — 루트 인자를 조용히 무시하지 않는다.
+      (!needsRoot && root != null)) {
+    error.write(_help);
+    return ExitStatus.usage.code;
   }
-  final root = installRoot;
-  if (!Directory(root).existsSync()) {
+  if (root != null && !Directory(root).existsSync()) {
     error.writeln('Setup failed: $root is not a directory.');
     return ExitStatus.usage.code;
   }
+  if (!install && !uninstall) {
+    _printSetupArtifacts(target, output);
+    return ExitStatus.success.code;
+  }
+  return uninstall
+      ? _uninstallSetup(target, root, output, error)
+      : _installSetup(target, root, force, output, error);
+}
+
+/// 타깃별 검토용 결과물을 결정적 순서로 인쇄한다.
+void _printSetupArtifacts(String target, StringSink output) {
+  switch (target) {
+    case setupTargetClaude:
+      output
+        ..writeln('# .claude/hooks/$agentHookScriptName')
+        ..write(agentHookScript)
+        ..writeln('# .claude/settings.json — merge this block')
+        ..writeln(agentHookConfigJson())
+        ..writeln('# .mcp.json')
+        ..writeln(agentMcpConfigJson());
+    case setupTargetCursor:
+      output
+        ..writeln('# .cursor/mcp.json')
+        ..writeln(agentMcpConfigJson());
+    case setupTargetOpenCode:
+      output
+        ..writeln('# opencode.json')
+        ..writeln(agentOpenCodeConfigJson());
+    case setupTargetCodex:
+      output
+        ..writeln('# ${_codexConfigFile().path}')
+        ..write(codexMcpTomlBlock)
+        ..writeln('# or: codex mcp add dartograph -- dartograph mcp');
+    default:
+      // 위에서 타깃을 검증하므로 도달하지 않는다.
+      output.writeln('# unknown setup target');
+  }
+}
+
+Future<int> _installSetup(
+  String target,
+  String? root,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  switch (target) {
+    case setupTargetClaude:
+      return _installClaudeSetup(root!, force, output, error);
+    case setupTargetCursor:
+      return _installMcpJsonSetup(
+        File(p.join(root!, '.cursor', 'mcp.json')),
+        force,
+        output,
+        error,
+      );
+    case setupTargetOpenCode:
+      return _installOpenCodeSetup(
+        File(p.join(root!, 'opencode.json')),
+        force,
+        output,
+        error,
+      );
+    case setupTargetCodex:
+      return _installCodexSetup(force, output, error);
+  }
+  return ExitStatus.usage.code;
+}
+
+Future<int> _uninstallSetup(
+  String target,
+  String? root,
+  StringSink output,
+  StringSink error,
+) async {
+  switch (target) {
+    case setupTargetClaude:
+      return _uninstallClaudeSetup(root!, output, error);
+    case setupTargetCursor:
+      return _uninstallMcpJsonSetup(
+        File(p.join(root!, '.cursor', 'mcp.json')),
+        output,
+        error,
+      );
+    case setupTargetOpenCode:
+      return _uninstallOpenCodeSetup(
+        File(p.join(root!, 'opencode.json')),
+        output,
+        error,
+      );
+    case setupTargetCodex:
+      return _uninstallCodexSetup(output, error);
+  }
+  return ExitStatus.usage.code;
+}
+
+Future<int> _installClaudeSetup(
+  String root,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
   final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
   // init·skill과 같은 가드다. 링크 자체도 검사해 매달린 링크를 잡는다.
   if (!force && (await script.exists() || await Link(script.path).exists())) {
@@ -1457,6 +1787,230 @@ Future<int> _runSetup(
   } on FormatException catch (exception) {
     error.writeln('Setup failed: ${exception.message}');
     return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `mcpServers` JSON 설정(Cursor)에 dartograph 항목을 병합한다.
+Future<int> _installMcpJsonSetup(
+  File file,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  try {
+    final merged = mergeMcpConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// opencode `opencode.json`에 dartograph 항목을 병합한다.
+Future<int> _installOpenCodeSetup(
+  File file,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  try {
+    final merged = mergeOpenCodeConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Codex 전역 `config.toml`에 dartograph MCP 블록을 병합한다.
+Future<int> _installCodexSetup(
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  final file = _codexConfigFile();
+  try {
+    final merged = mergeCodexConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Claude Code 훅·MCP 항목과 생성한 훅 스크립트를 되돌린다.
+Future<int> _uninstallClaudeSetup(
+  String root,
+  StringSink output,
+  StringSink error,
+) async {
+  final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
+  final settings = File(p.join(root, '.claude', 'settings.json'));
+  final mcpConfig = File(p.join(root, '.mcp.json'));
+  try {
+    var removed = false;
+    if (await settings.exists()) {
+      final remaining = removeClaudeSettingsHook(await settings.readAsString());
+      if (remaining != null) {
+        AtomicWrite.stringSync(settings, remaining);
+        output.writeln('Removed the dartograph hook from ${settings.path}.');
+        removed = true;
+      }
+    }
+    if (await mcpConfig.exists()) {
+      final remaining = removeMcpServerEntry(await mcpConfig.readAsString());
+      if (remaining != null) {
+        AtomicWrite.stringSync(mcpConfig, remaining);
+        output.writeln(
+          'Removed the dartograph MCP server from ${mcpConfig.path}.',
+        );
+        removed = true;
+      }
+    }
+    // 생성한 훅 스크립트만 지운다 — 내용이 우리 것이 아니면 남긴다.
+    final type = await FileSystemEntity.type(script.path, followLinks: false);
+    if (type == FileSystemEntityType.file &&
+        (await script.readAsString()).contains(
+          'Generated by `dartograph setup --install`',
+        )) {
+      await script.delete();
+      output.writeln('Removed ${script.path}.');
+      removed = true;
+    }
+    if (!removed) {
+      output.writeln('Nothing to uninstall for Claude Code in $root.');
+    }
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `mcpServers` JSON 설정(Cursor)에서 dartograph 항목을 되돌린다.
+Future<int> _uninstallMcpJsonSetup(
+  File file,
+  StringSink output,
+  StringSink error,
+) async {
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeMcpServerEntry(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    AtomicWrite.stringSync(file, remaining);
+    output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// opencode `opencode.json`에서 dartograph 항목을 되돌린다.
+Future<int> _uninstallOpenCodeSetup(
+  File file,
+  StringSink output,
+  StringSink error,
+) async {
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeOpenCodeEntry(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    AtomicWrite.stringSync(file, remaining);
+    output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Codex 전역 `config.toml`에서 dartograph MCP 블록을 되돌린다.
+Future<int> _uninstallCodexSetup(StringSink output, StringSink error) async {
+  final file = _codexConfigFile();
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeCodexConfig(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    if (remaining.trim().isEmpty) {
+      await file.delete();
+      output.writeln(
+        'Removed the dartograph MCP server and deleted empty ${file.path}.',
+      );
+    } else {
+      AtomicWrite.stringSync(file, remaining);
+      output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    }
+    return ExitStatus.success.code;
   } on FileSystemException {
     error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
@@ -2966,26 +3520,26 @@ Usage: dartograph [--help] [--version]
        dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-       dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
        dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
-       dartograph setup [--install <package-root> [--force]]
+       dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
-       dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
@@ -2994,17 +3548,22 @@ skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
 
-setup prints or installs Claude Code integration without MCP calls: with no
-options it prints the PostToolUse hook script, the settings.json hook block,
-and the .mcp.json document for review. --install writes
-<package-root>/.claude/hooks/dartograph-impact.sh, merges the hook into
-<package-root>/.claude/settings.json, and merges the dartograph MCP server
-into <package-root>/.mcp.json. Existing keys are preserved; settings whose
-hooks are not the expected JSON shape, or invalid JSON, fail instead of being
-overwritten. --force overwrites the generated script and replaces an existing
-dartograph MCP entry. The hook runs `dartograph impact --changed` after Dart
-file edits and requires dartograph on PATH; no paid service, login, or
-telemetry is involved.
+setup prints or installs agent MCP integration without MCP calls. --target
+selects claude (default), cursor, codex, or opencode. With no options it
+prints the target's artifacts for review. For claude, --install writes
+<package-root>/.claude/hooks/dartograph-impact.sh, merges the PostToolUse hook
+into <package-root>/.claude/settings.json, and merges the dartograph MCP
+server into <package-root>/.mcp.json. cursor merges
+<package-root>/.cursor/mcp.json and opencode merges
+<package-root>/opencode.json. Codex reads only the global
+\$CODEX_HOME/config.toml (default ~/.codex/config.toml), so its --install takes
+no package root and merges a [mcp_servers.dartograph] block. Existing keys are
+preserved; configs whose expected shape is wrong, or invalid JSON, fail
+instead of being overwritten. --force replaces an existing dartograph entry.
+--uninstall removes only the dartograph entries and, for claude, the generated
+hook script. The hook runs `dartograph impact --changed` after Dart file edits
+and requires dartograph on PATH; no paid service, login, or telemetry is
+involved.
 
 
 dead --format codeowners groups findings by the owners of their source paths

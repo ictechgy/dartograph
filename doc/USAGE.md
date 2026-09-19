@@ -40,26 +40,26 @@ dartograph dead --report-redundant-public --format <text|json|markdown|codeowner
 dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
 dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
-dartograph setup [--install <package-root> [--force]]
+dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
 dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
-dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 ```
 
 `--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
@@ -101,16 +101,40 @@ affected·baseline)은 빈 목록이다.
 표시한다. 기존 파일이나 링크가 있으면 exit 64로 중단하며 `--force`로 덮어쓴다.
 그 자리의 심볼릭 링크는 대상을 따라가지 않고 링크 자체를 교체한다.
 
-`setup`은 Claude Code 연동 설정을 만든다. 인자 없이 실행하면 세 결과물을
-검토용으로 출력한다 — PostToolUse 훅 스크립트(`dartograph-impact.sh`),
-`settings.json`에 병합할 hooks 블록, `.mcp.json` 문서. `--install <package-root>`는
-`.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여), `.claude/settings.json`의
-`hooks.PostToolUse` 목록과 `.mcp.json`의 `mcpServers`에 dartograph 항목을 **병합**한다 —
-기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의 설정은
-덮어쓰지 않고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
-`dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
-에이전트에게 보고한다. PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·
-로그인·텔레메트리는 없다. `--force`는 생성 스크립트와 dartograph MCP 항목을 교체한다.
+`setup`은 에이전트 MCP 연동 설정을 만든다. `--target`은 `claude`(기본),
+`cursor`, `codex`, `opencode` 중 하나를 고른다. 인자 없이 실행하면 그 타깃의
+결과물을 검토용으로 출력한다 — `claude`는 PostToolUse 훅
+스크립트(`dartograph-impact.sh`), `settings.json`에 병합할 hooks 블록,
+`.mcp.json` 문서를 보여준다.
+
+`--install [<package-root>]`은 타깃별 설정 파일에 dartograph 항목을 **병합**한다 —
+기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의
+설정은 덮어쓰지 않고 실패(exit 2)한다.
+
+- `claude`: `.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여),
+  `.claude/settings.json`의 `hooks.PostToolUse` 목록과 `.mcp.json`의
+  `mcpServers`에 병합한다. 생성된 훅은 Dart 파일 편집마다
+  `dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
+  에이전트에게 보고한다. `<package-root>`가 필요하다.
+- `cursor`: `<package-root>/.cursor/mcp.json`의 `mcpServers`에 병합한다.
+- `opencode`: `<package-root>/opencode.json`의 `mcp`에 `type: local` 항목을
+  병합한다.
+- `codex`: Codex는 프로젝트 설정을 읽지 않고 전역 `$CODEX_HOME/config.toml`
+  (기본 `~/.codex/config.toml`)만 읽는다. 따라서 `<package-root>` 없이
+  `--install`만 주면 전역 파일에 `[mcp_servers.dartograph]` TOML 표를
+  병합한다 — `<package-root>`를 주면 usage(64)다. 다른 표·키는 그대로
+  보존한다. 점 키(`mcp_servers.dartograph.command = …`)·배열 표 등
+  표가 아닌 모양의 dartograph 정의, 또는 `mcp_servers`가 표가 아닌
+  값(인라인 표·배열·스칼라)으로 정의돼 있으면 덧붙이는 것만으로 파일
+  전체가 깨지므로 덮어쓰지 않고 실패(exit 2)한다.
+
+`--uninstall [<package-root>]`은 `--install`이 만든 dartograph 항목만 되돌린다 —
+`claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지운다(내용이 우리
+것일 때만). 없는 파일·항목은 성공으로 넘어간다. `--force`는 생성 스크립트와
+dartograph MCP 항목을 교체한다.
+
+PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·로그인·텔레메트리는 없다.
+Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로
@@ -220,7 +244,10 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 `dead --explain`과는 결합하지 않는다. `--limit`은 필터된 목록에 적용된다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
-경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
+경우에도 `notFound`와 `limitations`를 함께 낸다.
+`--with-source`는 보고된 모든 선언 위치에 그 소스 줄을 `source`(줄 번호·텍스트 목록)로 덧붙이고, `--source-context <n>`은 위치 앞뒤 n줄까지 넓힌다(기본 0 — 선언 줄만). `project:` 상대 경로만 읽는다 — 절대 경로와 `..`로 루트를 벗어나는 경로는 거부한다. 경계는 경로 기준이다 — 루트 안 심볼릭 링크가 밖을 가리키면 인덱서와 같은 대상을 읽는다. 읽지 못한 위치는 조용히 생략한다. `--source-context`는 `--with-source` 없이 쓰면 usage 64다.
+
+기본 `bridges`는 Flutter MethodChannel
 채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다(문서 계약은
 [GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md) 참조). `bridges --messages`는 개발 소스
 전용 opt-in 경로로, 실제 BasicMessageChannel `send` 호출만 bridge-facts v2
@@ -455,7 +482,7 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 | 도구 | 입력 | 답 |
 |---|---|---|
 | `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
-| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
+| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline`, `withSource`, `sourceContext` | `query`/`query --batch` 문서 |
 | `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`dup`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `minTokens`, `kinds`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
 
 도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
@@ -532,13 +559,15 @@ plugins:
 ```
 
 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
-`cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다.
+`cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다. 세 명령은 `--format <text|json|sarif>`를 받는다(기본 `json` — 플래그가 없으면 기존 출력과 바이트 동일). `text`는 finding을 한 줄씩, `sarif`는 아키텍처 게이트를 code scanning 경고로 낸다. `--explain`(cycles·rules)은 고정 JSON 질의라 `--format json` 외에는 usage 64다.
 
 ### SARIF와 GitHub code scanning
 
-`dead`·`deps`·`dup`·`impact`·`runtime`은 `--format sarif`로 SARIF 2.1.0 문서를 낸다
-(`cycles`·`rules`·`metrics`에는 `--format`이 없다). 결과를 파일로 리다이렉트해
-`github/codeql-action/upload-sarif`에 올리면 code scanning 경고로 표시된다.
+다음 명령은 `--format sarif`로 SARIF 2.1.0 문서를 낸다 — `dead`·`deps`·`dup`·`impact`·`runtime`·`cycles`·`rules`·`metrics`·`affected`·`compare`.
+결과를 파일로 리다이렉트해 `github/codeql-action/upload-sarif`에 올리면 code scanning 경고로 표시된다.
+`cycles`는 순환마다, `rules`는 위반마다, `metrics`는 허용 오차를 넘은 라이브러리와(설정된 경우)
+복잡도 상한을 넘은 선언마다 결과를 하나씩 낸다. `affected`는 피영향 라이브러리마다, `compare`는
+새로 도달 불가능해진 선언마다 결과를 낸다.
 
 ```yaml
 permissions:

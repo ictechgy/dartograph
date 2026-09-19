@@ -424,6 +424,19 @@ List<Map<String, Object?>> get _toolDefinitions => [
           'type': 'string',
           'description': 'Baseline file written by `dartograph baseline`.',
         },
+        'withSource': {
+          'type': 'boolean',
+          'description':
+              'Include the source lines at each reported declaration '
+              'location (project files only).',
+        },
+        'sourceContext': {
+          'type': 'integer',
+          'minimum': 0,
+          'description':
+              'With withSource: lines before and after each declaration line. '
+              'Omit for 0.',
+        },
       },
       'required': ['packageRoot'],
       'additionalProperties': false,
@@ -897,6 +910,26 @@ Future<Map<String, Object?>> _dependencyTool({
       }
       args.addAll(['--baseline', baseline]);
     }
+    final withSource = arguments['withSource'];
+    final sourceContext = arguments['sourceContext'];
+    if (withSource != null && withSource is! bool) {
+      return _toolError('withSource must be a boolean');
+    }
+    if (sourceContext != null) {
+      // 의도 없는 소스 문맥 지정을 조용히 무시하지 않는다.
+      if (withSource != true) {
+        return _toolError('sourceContext requires withSource true');
+      }
+      if (sourceContext is! int || sourceContext < 0) {
+        return _toolError('sourceContext must be an integer >= 0');
+      }
+    }
+    if (withSource == true) {
+      args.add('--with-source');
+      if (sourceContext != null) {
+        args.addAll(['--source-context', '$sourceContext']);
+      }
+    }
     args.add(root);
     return await _runCapture(args, indexPackage: indexPackage);
   } finally {
@@ -987,10 +1020,17 @@ Future<Map<String, Object?>> _verifyTool({
     }
     args.addAll(['--kinds', kinds.join(',')]);
   }
-  // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
-  // `dead`·`deps`·`dup`만 text·json·markdown·github-actions·sarif를 받는다.
+  // `dead`·`deps`·`dup`는 5형식을, `cycles`·`rules`·`metrics`는 text·json·sarif를
+  // 받는다. 후자에 markdown·github-actions를 주면 CLI가 usage(64)로 거부하지만,
+  // 도구가 먼저 인자 오류로 해 원인을 분명히 한다.
   if (format != null &&
       (command == 'dead' || command == 'deps' || command == 'dup')) {
+    args.addAll(['--format', '$format']);
+  } else if (format != null &&
+      (command == 'cycles' || command == 'rules' || command == 'metrics')) {
+    if (format != 'text' && format != 'json' && format != 'sarif') {
+      return _toolError('format for $command must be one of text, json, sarif');
+    }
     args.addAll(['--format', '$format']);
   }
   args.add(root);

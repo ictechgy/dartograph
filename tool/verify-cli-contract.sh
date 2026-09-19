@@ -48,6 +48,16 @@ expect_status 1 "cycles strict findings" cycles --strict fixtures/phase5_contrac
 expect_status 1 "cycles trailing strict" cycles fixtures/phase5_contract --strict
   expect_status 0 "rules report" rules --config fixtures/phase5_contract/layers.yaml fixtures/phase5_contract
   expect_status 1 "rules strict findings" rules --config fixtures/phase5_contract/layers.yaml --strict fixtures/phase5_contract
+  expect_status 0 "cycles format text" cycles --format text fixtures/phase5_contract
+  expect_status 0 "cycles format sarif" cycles --format sarif fixtures/phase5_contract
+  expect_status 1 "cycles format sarif strict" cycles --format sarif --strict fixtures/phase5_contract
+  expect_status 64 "cycles unknown format" cycles --format xml fixtures/phase5_contract
+  expect_status 64 "cycles explain with sarif" cycles --explain project:lib/a.dart::a --format sarif fixtures/phase5_contract
+  expect_status 0 "rules format text" rules --config fixtures/phase5_contract/layers.yaml --format text fixtures/phase5_contract
+  expect_status 0 "rules format sarif" rules --config fixtures/phase5_contract/layers.yaml --format sarif fixtures/phase5_contract
+  expect_status 0 "metrics format text" metrics --format text fixtures/phase5_contract
+  expect_status 0 "metrics format sarif" metrics --format sarif fixtures/phase5_contract
+  expect_status 64 "metrics unknown format" metrics --format yaml fixtures/phase5_contract
   expect_status 0 "cycles explain" cycles --explain project:lib/a.dart::a fixtures/phase5_contract
   expect_status 64 "cycles explain unknown" cycles --explain project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "cycles explain with strict" cycles --explain project:lib/a.dart::a --strict fixtures/phase5_contract
@@ -64,9 +74,19 @@ expect_status 64 "usage error" no-such-command
   expect_status 0 "query limit" query a --limit 1 fixtures/phase5_contract
   expect_status 64 "query depth below one" query a --depth 0 fixtures/phase5_contract
   expect_status 64 "query limit missing value" query a --limit fixtures/phase5_contract
+  expect_status 0 "query with source" query a --with-source fixtures/phase5_contract
+  expect_status 0 "query with source context" query a --with-source --source-context 1 fixtures/phase5_contract
+  expect_status 64 "query source context without source" query a --source-context 1 fixtures/phase5_contract
+  expect_status 64 "query duplicate with source" query a --with-source --with-source fixtures/phase5_contract
 expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
+expect_status 0 "compare format text" compare --format text fixtures/phase5_contract fixtures/phase5_contract
+expect_status 0 "compare format sarif" compare --format sarif fixtures/phase5_contract fixtures/phase5_contract
+expect_status 64 "compare unknown format" compare --format xml fixtures/phase5_contract fixtures/phase5_contract
 expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
 expect_status 0 "affected report" affected HEAD fixtures/phase5_contract
+  expect_status 0 "affected format text" affected HEAD --format text fixtures/phase5_contract
+  expect_status 0 "affected format sarif" affected HEAD --format sarif fixtures/phase5_contract
+  expect_status 64 "affected unknown format" affected HEAD --format xml fixtures/phase5_contract
 expect_status 2 "affected index failure" affected HEAD fixtures/does-not-exist
 expect_status 64 "affected missing root" affected HEAD
 expect_status 64 "affected option-shaped ref" affected --strict fixtures/phase5_contract
@@ -129,6 +149,25 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "setup install" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 64 "setup install conflict without force" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup install force" setup --install "$TEMPORARY_DIRECTORY/setup-target" --force
+  expect_status 0 "setup cursor print" setup --target cursor
+  expect_status 0 "setup cursor install" setup --target cursor --install "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 0 "setup cursor uninstall" setup --target cursor --uninstall "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 64 "setup cursor install missing directory" setup --target cursor --install "$TEMPORARY_DIRECTORY/no-such-dir"
+  expect_status 0 "setup opencode print" setup --target opencode
+  expect_status 0 "setup opencode install" setup --target opencode --install "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 0 "setup opencode uninstall" setup --target opencode --uninstall "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 64 "setup unknown target" setup --target vscode
+  expect_status 64 "setup duplicate target" setup --target cursor --target opencode
+  export CODEX_HOME="$TEMPORARY_DIRECTORY/codex-home"
+  expect_status 0 "setup codex print" setup --target codex
+  expect_status 0 "setup codex install" setup --target codex --install
+  expect_status 0 "setup codex install idempotent" setup --target codex --install
+  expect_status 0 "setup codex install force" setup --target codex --install --force
+  # codex는 전역 설정만 다룬다 — 루트 인자는 usage 오류다.
+  expect_status 64 "setup codex install with root" setup --target codex --install "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 0 "setup codex uninstall" setup --target codex --uninstall
+  # 없는 항목의 해제는 성공으로 넘어간다(멱등).
+  expect_status 0 "setup codex uninstall when absent" setup --target codex --uninstall
   CHANGES_FILE="$TEMPORARY_DIRECTORY/changes.json"
   printf '["lib/a.dart"]' > "$CHANGES_FILE"
   expect_status 0 "impact changed" impact --changed "$CHANGES_FILE" --format json fixtures/phase5_contract

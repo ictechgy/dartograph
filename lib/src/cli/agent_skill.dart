@@ -52,10 +52,11 @@ If invocation details are unclear, inspect `dartograph --help`.
   plus `dartograph://usage|skill|config` resources and
   `impact-precheck`/`dead-code-review`/`dependency-audit`/`duplication-review`
   prompts; it reuses the same analysis paths and modifies nothing.
-- Claude Code wiring: `dartograph setup` prints (or `--install <root>`
-  installs) a PostToolUse impact hook and the project `.mcp.json` entry.
-  It merges into existing config, never overwrites other keys, and involves
-  no paid service, login, or telemetry.
+- Agent wiring: `dartograph setup [--target <claude|cursor|codex|opencode>]`
+  prints (or `--install <root>` installs) the target's MCP config; claude also
+  gets a PostToolUse impact hook. `--uninstall` removes only the dartograph
+  entries. It merges into existing config, never overwrites other keys, and
+  involves no paid service, login, or telemetry.
 - Traceable runs: add `--record <dir>` to an analysis command to append one
   JSON line per run to `<dir>/ledger.jsonl` (command, exit code, observed Git
   HEAD, input flags, reported problem ids); existing lines are never rewritten.
