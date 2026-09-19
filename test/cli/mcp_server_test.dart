@@ -71,6 +71,9 @@ void main() {
         return created;
       },
       allowedRootBase: Directory.systemTemp.path,
+      // 호스트 환경 변수(DARTOGRAPH_MCP_LEGACY_TOOLS 등)가 테스트 결과를
+      // 바꾸지 않게 빈 환경을 주입한다.
+      environment: const {},
     );
     expect(status, 0);
     return output
@@ -95,6 +98,7 @@ void main() {
       allowedRootBase: directory.path,
       createCacheDirectory: createCacheDirectory,
       indexPackage: indexPackage,
+      environment: const {},
     );
     return const LineSplitter()
         .convert(output.toString())
@@ -1054,6 +1058,7 @@ void main() {
         Stream.fromIterable([
           explore(1, directory.path, {'symbol': 'Foo'}),
           explore(2, directory.path, {'symbol': 'Foo', 'withSource': false}),
+          explore(3, directory.path, {'symbol': 'Foo', 'sourceContext': 0}),
         ]),
         indexPackage: (_) async => local,
       );
@@ -1078,6 +1083,17 @@ void main() {
       final off = textOf(responses[1]);
       expect(off, startsWith('routed: dependency_query\n'));
       expect(off, isNot(contains('"source"')));
+      // 명시적 sourceContext: 0도 기본 3을 덮어써 선언 줄만 온다.
+      final zero = textOf(responses[2]);
+      expect(zero, startsWith(prefix));
+      final zeroDocument =
+          jsonDecode(zero.substring(prefix.length)) as Map<String, Object?>;
+      final zeroSubject =
+          (zeroDocument['result'] as Map<String, Object?>)['subject']
+              as Map<String, Object?>;
+      expect(zeroSubject['source'], [
+        {'line': 1, 'text': 'class Foo {'},
+      ]);
     },
   );
 
@@ -1089,6 +1105,13 @@ void main() {
       }),
       explore(3, directory.path, {'command': 'dead'}),
       explore(4, directory.path, {'command': 'runtime', 'limit': 5}),
+      // limit 없는 runtime 호출 — 재배치된 인자에 null이 새면 안 된다.
+      explore(5, directory.path, {'command': 'runtime'}),
+      explore(6, directory.path, {
+        'batch': ['project:lib/a.dart'],
+      }),
+      // since는 command 없이 오면 impact seed다.
+      explore(7, directory.path, {'since': 'HEAD~1'}),
     ]);
 
     expect(
@@ -1100,12 +1123,21 @@ void main() {
       startsWith('routed: impact_query\nexitCode: 0\n'),
     );
     expect(textOf(responses[2]), startsWith('routed: verify_run\nexitCode: '));
-    final runtimeText = textOf(responses[3]);
-    expect(runtimeText, startsWith('routed: runtime_query\nexitCode: 0\n'));
-    final report =
-        jsonDecode(runtimeText.substring(runtimeText.indexOf('{')))
-            as Map<String, Object?>;
-    expect(report['version'], 1);
+    for (final response in responses.sublist(3, 5)) {
+      final runtimeText = textOf(response);
+      expect(runtimeText, startsWith('routed: runtime_query\nexitCode: 0\n'));
+      final report =
+          jsonDecode(runtimeText.substring(runtimeText.indexOf('{')))
+              as Map<String, Object?>;
+      expect(report['version'], 1);
+    }
+    expect(
+      textOf(responses[5]),
+      startsWith('routed: dependency_query\nexitCode: 0\n'),
+    );
+    // 임시 디렉터리는 git 저장소가 아니므로 since 해석은 실패할 수 있다 —
+    // 라우팅 표지만 확인한다.
+    expect(textOf(responses[6]), startsWith('routed: impact_query\n'));
   });
 
   test(
@@ -1125,6 +1157,16 @@ void main() {
         expect(text, contains('impactSymbol'));
         expect(text, contains('command'));
       }
+      // 형태를 이루지 못한 인자는 메뉴에 함께 적힌다 — 오타(`symbols` 같은)와
+      // 빈 호출이 구분된다.
+      expect(
+        textOf(responses[0]),
+        isNot(contains('arguments received without a question shape:')),
+      );
+      expect(
+        textOf(responses[1]),
+        contains('arguments received without a question shape: depth'),
+      );
     },
   );
 
@@ -1151,6 +1193,14 @@ void main() {
         explore(4, directory.path, {'command': 'deps', 'symbol': 'Foo'}),
         // runtime + symbol — runtime 경로도 마찬가지다.
         explore(5, directory.path, {'command': 'runtime', 'symbol': 'Foo'}),
+        // runtime + 수정자 — limit만 허용된다.
+        explore(6, directory.path, {'command': 'runtime', 'strict': true}),
+        // 여러 stray는 정렬돼 함께 보고된다.
+        explore(7, directory.path, {
+          'command': 'dead',
+          'changed': ['lib/a.dart'],
+          'symbol': 'Foo',
+        }),
       ]);
 
       expect(textOf(responses[0]), contains('cannot combine'));
@@ -1169,6 +1219,14 @@ void main() {
       expect(
         textOf(responses[4]),
         contains('cannot combine symbol with command "runtime"'),
+      );
+      expect(
+        textOf(responses[5]),
+        contains('cannot combine strict with command "runtime"'),
+      );
+      expect(
+        textOf(responses[6]),
+        contains('cannot combine changed, symbol with command'),
       );
       for (final response in responses) {
         expect((response['result'] as Map)['isError'], isTrue);
@@ -1226,4 +1284,35 @@ void main() {
       expect((responses[2]['result'] as Map)['isError'], isFalse);
     },
   );
+
+  test('DARTOGRAPH_MCP_LEGACY_TOOLS gates only on 0 or false', () async {
+    Future<List<String>> listedToolNames(String value) async {
+      final output = StringBuffer();
+      await runMcpServer(
+        input: Stream.fromIterable([jsonEncode(request(1, 'tools/list'))]),
+        output: output,
+        error: diagnostics,
+        indexPackage: (_) async => indexed,
+        allowedRootBase: Directory.systemTemp.path,
+        environment: {legacyToolsEnvName: value},
+      );
+      final tools =
+          (((jsonDecode(output.toString().trim()) as Map)['result']
+                      as Map)['tools']
+                  as List)
+              .cast<Map<String, Object?>>();
+      return tools.map((tool) => tool['name'] as String).toList();
+    }
+
+    // 끄는 값은 '0'·'false'뿐 — 대소문자 무관하고 그 외 값은 전부 광고한다.
+    expect(await listedToolNames('false'), [exploreToolName]);
+    expect(await listedToolNames('FALSE'), [exploreToolName]);
+    expect(await listedToolNames('1'), [
+      exploreToolName,
+      impactToolName,
+      dependencyToolName,
+      verifyToolName,
+      'runtime_query',
+    ]);
+  });
 }

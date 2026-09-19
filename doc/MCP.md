@@ -64,7 +64,10 @@ stdio 프레이밍은 JSON-RPC 메시지 한 줄당 1MiB 상한이 있다. 상�
 `DARTOGRAPH_MCP_LEGACY_TOOLS=0`(또는 `false`, 대소문자 무관)이면
 `dartograph_explore`만 광고한다 — 나머지 도구는 목록에서 빠지지만
 `tools/call`은 계속 받으므로 기존 클라이언트 설정과 프롬프트 안내가 깨지지
-않는다.
+않는다. `0`·`false` 외의 값(미설정·`1` 등)은 전부 광고하며, 목록을
+줄였을 때 `dartograph_explore` 응답의 `routed:` 표지는 목록에 없는 도구
+이름을 가리킬 수 있다(라우팅된 경로의 이름이며 그 도구는 여전히 호출
+가능하다).
 
 ### `dartograph_explore`
 

@@ -662,7 +662,9 @@ List<Map<String, Object?>> get _toolDefinitions => [
 /// 절충이다.
 List<Map<String, Object?>> _listedTools(Map<String, String> environment) {
   final value = environment[legacyToolsEnvName];
-  if (value != null && {'0', 'false'}.contains(value.toLowerCase())) {
+  // '0'·'false' 외의 값(미설정·'1' 등)은 전부 광고 — 끄는 값만 명시적으로
+  // 해석한다.
+  if (value != null && {'0', 'false'}.contains(value.trim().toLowerCase())) {
     return _toolDefinitions
         .where((tool) => tool['name'] == exploreToolName)
         .toList();
@@ -1245,7 +1247,11 @@ Future<Map<String, Object?>> _exploreTool({
       return _routed(
         await _runtimeTool(
           root: root,
-          arguments: {'limit': arguments['limit']},
+          arguments: {
+            // 명시된 키만 넘긴다 — {'limit': null}은 _runtimeTool의
+            // containsKey 검사를 건드려 limit 없는 호출이 깨진다.
+            if (arguments['limit'] != null) 'limit': arguments['limit'],
+          },
         ),
         _runtimeToolName,
       );
@@ -1342,7 +1348,7 @@ Future<Map<String, Object?>> _exploreTool({
       dependencyToolName,
     );
   }
-  return _exploreHelp();
+  return _exploreHelp(arguments);
 }
 
 /// [allowed]·`packageRoot` 밖의 인자 키를 정렬된 문자열로 돌려준다 — 없으면
@@ -1360,47 +1366,73 @@ String? _strayKeys(Map<String, Object?> arguments, Set<String> allowed) {
 ///
 /// 통합 진입점이 어떤 경로로 답했는지를 결과 안에 남긴다 — 라우팅이 호출자의
 /// 기대와 다를 때 출력 형태만 보고 해석을 어긋내는 대신 표지로 바로 알 수
-/// 있게 한다.
+/// 있게 한다. 위임 도구의 결과를 변경하지 않고 새 맵을 만든다 — 공유·캐시된
+/// 결과 맵이 생겨도 표지가 누적되거나 다른 요청에 새지 않는다.
 Map<String, Object?> _routed(Map<String, Object?> result, String tool) {
   final content = result['content'];
-  if (content is List && content.isNotEmpty) {
-    final first = content.first;
-    if (first is Map && first['text'] is String) {
-      first['text'] = 'routed: $tool\n${first['text']}';
-    }
+  final items = content is List ? content : const <Object?>[];
+  final first = items.isEmpty ? null : items.first;
+  if (first is Map && first['text'] is String) {
+    return {
+      ...result,
+      'content': [
+        {
+          ...first.cast<String, Object?>(),
+          'text': 'routed: $tool\n${first['text']}',
+        },
+        ...items.skip(1),
+      ],
+    };
   }
-  return result;
+  // 위임 도구는 항상 단일 text 콘텐츠를 돌려준다 — 그 계약이 깨져도 표지 없는
+  // 응답을 내보내는 대신 방어적으로 표지 콘텐츠를 앞에 둔다.
+  return {
+    ...result,
+    'content': [
+      {'type': 'text', 'text': 'routed: $tool'},
+      ...items,
+    ],
+  };
 }
 
 /// 질문 형태 없이 호출된 `dartograph_explore`의 안내 응답이다.
 ///
 /// 오류가 아니라 메뉴다 — 이 도구의 존재 이유가 안내(steering)라서, 비어
-/// 있는 호출에는 다음 호출이 바로 쓸 수 있는 형태 목록을 돌려준다.
-Map<String, Object?> _exploreHelp() => {
-  'content': [
-    {
-      'type': 'text',
-      'text':
-          'routed: help\n'
-          'dartograph_explore needs packageRoot plus exactly one question '
-          'shape:\n'
-          '- symbol "<name or id>" or batch ["a", "b"] — declarations, '
-          'members, callers/dependents (usedBy), retention evidence, and '
-          'the source lines in one response.\n'
-          '- impactSymbol "<id>" — what depends on one declaration '
-          '(pre-change blast radius).\n'
-          '- since "<git-rev>" or changed ["lib/a.dart"] — what a change '
-          'set affects: impacted symbols, call sites, related tests, risk '
-          'score.\n'
-          '- command "dead" | "deps" | "dup" | "cycles" | "rules" | '
-          '"metrics" — run a verification; command "runtime" lists static '
-          'runtime facts.\n'
-          'Findings are graph evidence with stated limitations, not '
-          'deletion proof.',
-    },
-  ],
-  'isError': false,
-};
+/// 있는 호출에는 다음 호출이 바로 쓸 수 있는 형태 목록을 돌려준다. 형태를
+/// 이루지 못한 인자가 있으면 함께 적어 오타(`symbols` 같은)도 구분된다.
+Map<String, Object?> _exploreHelp(Map<String, Object?> arguments) {
+  final extras = arguments.keys.where((key) => key != 'packageRoot').toList()
+    ..sort();
+  final shapeless = extras.isEmpty
+      ? ''
+      : '\narguments received without a question shape: '
+            '${extras.join(', ')}';
+  return {
+    'content': [
+      {
+        'type': 'text',
+        'text':
+            'routed: help\n'
+            'dartograph_explore needs packageRoot plus exactly one question '
+            'shape:\n'
+            '- symbol "<name or id>" or batch ["a", "b"] — declarations, '
+            'members, callers/dependents (usedBy), retention evidence, and '
+            'the source lines in one response.\n'
+            '- impactSymbol "<id>" — what depends on one declaration '
+            '(pre-change blast radius).\n'
+            '- since "<git-rev>" or changed ["lib/a.dart"] — what a change '
+            'set affects: impacted symbols, call sites, related tests, risk '
+            'score.\n'
+            '- command "dead" | "deps" | "dup" | "cycles" | "rules" | '
+            '"metrics" — run a verification; command "runtime" lists static '
+            'runtime facts.\n'
+            'Findings are graph evidence with stated limitations, not '
+            'deletion proof.$shapeless',
+      },
+    ],
+    'isError': false,
+  };
+}
 
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.
 Future<Map<String, Object?>> _runCapture(
