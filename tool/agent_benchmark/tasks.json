@@ -1,0 +1,72 @@
+{
+  "repos": [
+    {
+      "name": "samples",
+      "url": "https://github.com/flutter/samples.git",
+      "revision": "463e365e4842f252ffab9c6198594a504d69469f",
+      "packageRoot": "navigation_and_routing"
+    },
+    {
+      "name": "packages",
+      "url": "https://github.com/flutter/packages.git",
+      "revision": "9af9c6076d79680faee0cd7e63c2ed4afd7c6e00",
+      "packageRoot": "packages/path_provider/path_provider_foundation"
+    },
+    {
+      "name": "invoiceninja",
+      "url": "https://github.com/invoiceninja/flutter.git",
+      "revision": "59fa2c8f39fdbd38c7ad780e47266faef5d24b9c",
+      "packageRoot": "."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "nav-dead",
+      "repo": "samples",
+      "prompt": "Which top-level declarations in lib/main.dart are unreachable from `main`? List each dead declaration with evidence for why it cannot be reached.",
+      "expected": ["windowHeight", "windowWidth"]
+    },
+    {
+      "id": "nav-impact",
+      "repo": "samples",
+      "prompt": "If the signature of `Library.getBook` changed, which declaration(s) would be impacted? Name the impacted symbol(s) and their file path(s).",
+      "expected": ["_BookstoreState", "lib/src/app.dart"]
+    },
+    {
+      "id": "nav-callers",
+      "repo": "samples",
+      "prompt": "Which build methods read `libraryInstance`? List each caller with its file path.",
+      "expected": ["lib/src/app.dart", "lib/src/screens/authors.dart"]
+    },
+    {
+      "id": "ppf-export",
+      "repo": "packages",
+      "prompt": "This package declares `PathProviderFoundation` in two files (a stub and a real implementation). Which one actually ships on iOS/macOS and what decides it? Name the file and the deciding condition.",
+      "expected": ["path_provider_foundation_real.dart", "dart.library.ffi"]
+    },
+    {
+      "id": "ppf-ffi",
+      "repo": "packages",
+      "prompt": "Trace how `getApplicationSupportPath` reaches the filesystem: list the private helper methods it calls and the generated binding file the chain goes through.",
+      "expected": ["_getDirectoryPath", "_getUserDirectory", "ffi_bindings.g.dart"]
+    },
+    {
+      "id": "inv-dead",
+      "repo": "invoiceninja",
+      "prompt": "In lib/app/shortcuts/key_binding.dart, which members of the `KeyBinding` class are unreachable dead code (no caller anywhere in lib/ or test/)? Answer with the member names only.",
+      "expected": ["isCharacter", "logicalKey"]
+    },
+    {
+      "id": "inv-callers",
+      "repo": "invoiceninja",
+      "prompt": "Which production (non-test) code calls `DiagnosticsLog.appendOutboxSnapshot`? Give the file path and the enclosing method that contains the call.",
+      "expected": ["system_logs_screen.dart", "_appendSnapshot"]
+    },
+    {
+      "id": "inv-impact",
+      "repo": "invoiceninja",
+      "prompt": "If the signature of `planGateFor` in lib/domain/plan_gate.dart changed, which production (non-test) callers outside plan_gate.dart would break? Give the file path and the enclosing member.",
+      "expected": ["settings_screen.dart", "_gateLevelFor"]
+    }
+  ]
+}
