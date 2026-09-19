@@ -368,7 +368,9 @@ Future<Map<String, Object?>> _runOnce({
   var inputTokens = 0;
   var outputTokens = 0;
   // 이벤트 사이 유휴가 timeout을 넘으면 자식을 kill하고 스트림에 에러를 싣는다 —
-  // 매달린 claude 한 대가 매트릭스 전체를 세우지 않게 한다.
+  // 매달린 claude 한 대가 매트릭스 전체를 세우지 않게 한다. sink.close()는
+  // 부르지 않는다 — 닫힌 컨트롤러에 늦게 도착한 소스 이벤트가 add를 던져
+  // 처리 불가 async 에러로 프로세스를 죽인다. kill 후 스트림은 자연 종료한다.
   final lineStream = process.stdout
       .transform(utf8.decoder)
       .transform(const LineSplitter())
@@ -376,9 +378,7 @@ Future<Map<String, Object?>> _runOnce({
         timeout,
         onTimeout: (sink) {
           process.kill();
-          sink
-            ..addError(TimeoutException('run exceeded $timeout'))
-            ..close();
+          sink.addError(TimeoutException('run exceeded $timeout'));
         },
       );
   try {
