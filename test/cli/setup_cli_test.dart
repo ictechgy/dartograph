@@ -591,13 +591,18 @@ void main() {
     // 된다 — 실패로 돌린다.
     for (final existing in [
       'mcp_servers.dartograph.command = "dartograph"\n',
+      'mcp_servers.dartograph = { command = "dartograph" }\n',
+      'mcp_servers.dartograph = "x"\n',
       '[[mcp_servers.dartograph]]\ncommand = "dartograph"\n',
       'mcp_servers = { dartograph = { command = "dartograph" } }\n',
+      'mcp_servers = { a = 1, dartograph = { x = 1 } }\n',
       '[mcp_servers."dartograph"]\ncommand = "dartograph"\n',
       '["mcp_servers".dartograph]\ncommand = "dartograph"\n',
       '"mcp_servers".dartograph.command = "dartograph"\n',
       '[mcp_servers]\ndartograph = { command = "dartograph" }\n',
       '[mcp_servers]\ndartograph.command = "dartograph"\n',
+      // 배열 안의 [ 행은 표 경계를 리셋하지 않는다 — 하위 키는 여전히 잡힌다.
+      '[mcp_servers]\nflags = [\n  [1]\n]\ndartograph = { command = "d" }\n',
       '[mcp_servers.dartograph.sub]\nkey = 1\n',
     ]) {
       expect(
@@ -606,15 +611,18 @@ void main() {
         reason: existing,
       );
     }
-    // 다른 서버의 정의·접두어 이름·다른 표 안의 점 키·주석·문자열 값의
+    // 다른 서버의 정의·접두어·접미 이름·다른 표 안의 점 키·주석·문자열 값의
     // dartograph 언급은 충돌이 아니다 — 표는 정상 병합된다.
     for (final existing in [
       'mcp_servers.linear.command = "x"\n',
       'mcp_servers.dartograph_cli.command = "x"\n',
+      'mcp_servers.dartograph_cli = "x"\n',
       '[mcp_servers.dartograph_legacy]\ncommand = "x"\n',
       '[legacy]\nmcp_servers.dartograph.command = "old"\n',
       'mcp_servers = { linear = { x = 1 } } # TODO: dartograph 검토\n',
       'mcp_servers = { note = "dartograph" }\n',
+      'mcp_servers = { xdartograph = 1 }\n',
+      'mcp_servers = { note = "dartograph = 1" }\n',
     ]) {
       expect(
         mergeCodexConfig(existing, force: false),
@@ -622,6 +630,24 @@ void main() {
         reason: existing,
       );
     }
+    // 표 헤더의 끝 주석·공백 변형도 표준 정의다 — 건너뛰고 되돌릴 수 있다.
+    const commented = '[mcp_servers.dartograph] # note\ncommand = "x"\n';
+    expect(mergeCodexConfig(commented, force: false), isNull);
+    expect(removeCodexConfig(commented), isNot(contains('command')));
+  });
+
+  test('codex strip keeps array brackets inside other tables', () {
+    // 다른 표의 여러 줄 배열 안 [ 행은 표 경계가 아니다 — 값으로 보존한다.
+    const existing =
+        '[other]\narr = [\n  [1]\n]\n\n[mcp_servers.dartograph]\ncommand = "x"\n';
+    final removed = removeCodexConfig(existing)!;
+    expect(removed, contains('[1]'));
+    expect(removed, isNot(contains('mcp_servers.dartograph')));
+    // 지우는 블록 안의 배열·문자열도 끝을 잘못 읽지 않는다.
+    const nested =
+        '[mcp_servers.dartograph]\narr = [\n  [1]\n]\nx = """\n[a]\n"""\n'
+        '[foo]\nbar = 1\n';
+    expect(removeCodexConfig(nested), '[foo]\nbar = 1\n');
   });
 
   test('codex merge keeps table-like lines inside multiline strings', () {

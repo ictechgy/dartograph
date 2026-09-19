@@ -115,8 +115,11 @@ runs:
         # in the input stays literal instead of matching workspace files.
         set -euf -o pipefail
         report="$DARTOGRAPH_OUTPUT_FILE"
-        if [[ -z "$DARTOGRAPH_COMMAND" ]]; then
+        if [[ -z "${DARTOGRAPH_COMMAND:-}" ]]; then
+          # Usage errors still publish exit-code so report-only callers read
+          # the same output contract (no report file is written, though).
           echo "dartograph action: command input is empty" >&2
+          echo "exit-code=64" >> "$GITHUB_OUTPUT"
           exit 64
         fi
         set +e
