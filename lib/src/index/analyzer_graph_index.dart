@@ -1512,6 +1512,9 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
     }
     final rel = p.posix.normalize(entry);
     final abs = p.normalize(p.joinAll([root, ...rel.split('/')]));
+    final canonicalMember = p.normalize(
+      p.joinAll([canonicalRoot, ...rel.split('/')]),
+    );
     if (p.isAbsolute(rel) ||
         rel == '.' ||
         rel.split('/').contains('..') ||
@@ -1523,7 +1526,15 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
         // source_packages와 같은 비symlink 계약으로 건너뛴다.
         !p.equals(
           p.normalize(Directory(abs).resolveSymbolicLinksSync()),
-          p.normalize(p.joinAll([canonicalRoot, ...rel.split('/')])),
+          canonicalMember,
+        ) ||
+        // 멤버 pubspec만 바깥을 가리키는 symlink여도 같은 탈출 읽기다 —
+        // 이름 검증·매니페스트·plugin 스캔이 전부 그 내용을 먹는다.
+        !p.equals(
+          p.normalize(
+            File(p.join(abs, 'pubspec.yaml')).resolveSymbolicLinksSync(),
+          ),
+          p.join(canonicalMember, 'pubspec.yaml'),
         )) {
       skipped.add(rel);
       skippedAbsPaths.add(abs);

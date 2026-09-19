@@ -298,6 +298,9 @@ workspace:
         result.graph.nodes.keys.any((id) => id.contains('escaped')),
         isFalse,
       );
+      // 일반 멤버는 루트의 symlink 조상 유무와 무관하게 색인된다 —
+      // 해석된 루트 기준 비교가 아니면 이 멤버도 함께 건너뛰어진다.
+      expect(result.graph.nodes.keys, contains('package:pkg_a/a.dart::Foo'));
     });
 
     test(
@@ -355,6 +358,11 @@ workspace:
         expect(skipped, contains('example/demo'));
         expect(
           result.graph.nodes.keys.any((id) => id.contains('example/demo')),
+          isFalse,
+        );
+        // 노드 ID 형식에 의존하지 않는 선언 이름 기준 확인이다.
+        expect(
+          result.graph.nodes.keys.any((id) => id.contains('DemoSkipped')),
           isFalse,
         );
       },
