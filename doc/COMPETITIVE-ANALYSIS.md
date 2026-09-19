@@ -213,6 +213,7 @@
 | P1 | `dead --closed-app` | undead `--mode=closed-app` — 앱 시장(라이브러리보다 큰 사용자층) | 공개 API 보존만 끄고 나머지 루트 유지, limitation 명시, baseline 짝 | 구현(0.11.0 — `dead`·`baseline --write`·`--report-test-only`에 적용, `--report-redundant-public` 결합 거부) |
 | P1 | MCP resources/prompts | Knip `knip://docs/`·`knip-configure`, dart_sentinel `sentinel://` 리소스 | `resources/list·read` + `prompts/list·get` + capabilities | 구현(0.11.0 — 정적 리소스 3종·프롬프트 3종, `-32002` 미지 URI) |
 | P1 | 보존 정밀도: build_runner·JS/FFI·sealed | undead framework adapters | build.yaml 팩토리 루트, `externalBinding` 보존, sealed 하위 전이 구제 | 구현(0.11.0 — `RetentionReason.buildRunner`·`externalBinding`, `GraphNode.isSealed`, analyzer 14 `ClassBody` 순회 수정) |
+| P2 | Flutter 프레임워크 바인딩(DI·bloc·router) 정밀도 | codegraph 17개 프레임워크 라우트 + `navigates` 간선 | DI/bloc/router가 참조하는 선언이 dead 도달성에서 누락되지 않을 것 | 측정 완료 — 실제 `get_it`·`bloc`과 스텁 픽스처에서 오탐 0, `impact --symbol`이 구현체에 도달. `visitNamedType`(타입 인자)·`visitInstanceCreationExpression`(생성)이 이미 간선을 만든다 — 별도 보존 사유 불필요, 회귀 `test/index/framework_bindings_test.dart`. 문자열/리플렉션 조회는 남는 한계 |
 | P2 | 0.9.0 릴리스 패키징 | 오픈소스 배포 | 태그·CHANGELOG·`pub publish --dry-run` 통과 | 완료(게시 0.9.0, 태그 v0.9.0 = b2aad3a) |
 | P2 | 다음 릴리스(0.10.0) 패키징 | 증분 발행 | 태그·CHANGELOG·dry-run | 완료(게시 0.10.0, 태그 v0.10.0 = 2b3a236) |
 | P2 | 중복 코드 탐지 | dallow·DCM·fallow | 토큰/AST 수준 duplication + limitation | 구현(0.12.0 — `dup` 명령·토큰 shingle 기반 duplicate-block finding·`--min-tokens`·MCP `verify_run`, 리뷰 후보일 뿐 삭제 지시 아님) |
