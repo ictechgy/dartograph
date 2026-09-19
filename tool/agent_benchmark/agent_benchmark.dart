@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,7 +14,7 @@ import 'dart:io';
 /// 절대 수치는 SLA가 아니며 같은 arm끼리의 중앙값 비교만 의미 있다.
 void main(List<String> args) async {
   if (args.isEmpty || args.first == '--help' || args.first == '-h') {
-    stdout.writeln(_usage);
+    (args.isEmpty ? stderr : stdout).writeln(_usage);
     exit(args.isEmpty ? 64 : 0);
   }
   final command = args.first;
@@ -40,7 +41,7 @@ agent_benchmark — with/without dartograph agent benchmark
   dart run tool/agent_benchmark/agent_benchmark.dart run
       --repos <dir> --tasks <file> --out <dir> [--arm with|without]
       [--runs <n=4>] [--model <m>] [--max-turns <n=24>]
-      [--only <task,task>] [--runs-offset <n>]
+      [--timeout-secs <n=900>] [--only <task,task>] [--runs-offset <n>]
 
   dart run tool/agent_benchmark/agent_benchmark.dart score
       --out <dir> [--include-invalid]
@@ -58,6 +59,7 @@ class _Options {
   int get runs => int.tryParse(values['runs'] ?? '') ?? 4;
   int get runsOffset => int.tryParse(values['runs-offset'] ?? '') ?? 0;
   int get maxTurns => int.tryParse(values['max-turns'] ?? '') ?? 24;
+  int get timeoutSecs => int.tryParse(values['timeout-secs'] ?? '') ?? 900;
   String get model => values['model'] ?? 'sonnet';
   String? get only => values['only'];
   String? get flutterBin => values['flutter-bin'];
@@ -162,7 +164,17 @@ Future<void> _runPrepare(_Options options) async {
   for (final repo in specs.repos) {
     if (only != null && !only.contains(repo.name)) continue;
     final dir = '$reposDir/${repo.name}';
-    if (!Directory(dir).existsSync()) {
+    if (Directory(dir).existsSync()) {
+      // 기존 checkout은 핀 리비전과 대조한다 — tasks.json의 핀이 바뀌었는데
+      // 옛 checkout을 재사용하면 측정 조건이 조용히 어긋난다.
+      final head = await _execOut('git', ['-C', dir, 'rev-parse', 'HEAD']);
+      if (head != repo.revision) {
+        _die(
+          '${repo.name} checkout이 핀 리비전과 다르다: $head != '
+          '${repo.revision} — $dir 를 지우거나 핀을 맞춘 뒤 다시 실행',
+        );
+      }
+    } else {
       stdout.writeln('== clone ${repo.name} @ ${repo.revision}');
       await _exec('git', ['clone', '--depth', '1', repo.url, dir], quiet: true);
       await _exec('git', [
@@ -223,29 +235,56 @@ Future<void> _runBenchmark(_Options options) async {
   final summaryFile = File('$outDir/summary.jsonl');
   final summarySink = summaryFile.openWrite(mode: FileMode.append);
   final only = options.onlySet;
+  const validArms = {'with', 'without', 'both'};
+  if (!validArms.contains(options.arm)) {
+    _die('unknown arm ${options.arm} — with|without|both');
+  }
   final arms = options.arm == 'both'
       ? const ['without', 'with']
       : [options.arm];
   for (final task in specs.tasks) {
     if (only != null && !only.contains(task.id)) continue;
     final repo = repoByName[task.repo] ?? _die('unknown repo ${task.repo}');
-    for (final arm in arms) {
-      final root = _packageRoot(reposDir, repo, arm);
-      for (
-        var i = options.runsOffset;
-        i < options.runsOffset + options.runs;
-        i++
-      ) {
+    // 런 인덱스를 바깥에 두고 arm을 교번한다 — without 전부 → with 전부 순서면
+    // 시간에 따라 변하는 API 조건이 arm과 상관한다.
+    for (
+      var i = options.runsOffset;
+      i < options.runsOffset + options.runs;
+      i++
+    ) {
+      for (final arm in arms) {
+        final root = _packageRoot(reposDir, repo, arm);
         final name = '${task.id}-$arm-$i';
         stdout.writeln('== $name');
-        final record = await _runOnce(
-          task: task,
-          root: root,
-          arm: arm,
-          model: options.model,
-          maxTurns: options.maxTurns,
-          transcript: File('${transcripts.path}/$name.jsonl'),
-        );
+        Map<String, Object?> record;
+        try {
+          record = await _runOnce(
+            task: task,
+            root: root,
+            arm: arm,
+            model: options.model,
+            maxTurns: options.maxTurns,
+            run: i,
+            timeout: Duration(seconds: options.timeoutSecs),
+            transcript: File('${transcripts.path}/$name.jsonl'),
+          );
+        } on Object catch (e) {
+          // 한 런의 파싱·프로세스 예외가 매트릭스 전체를 죽이지 않게 한다 —
+          // 실패는 레코드로 남겨 집계에서 보이게 한다.
+          stderr.writeln('$name failed: $e');
+          record = <String, Object?>{
+            'task': task.id,
+            'arm': arm,
+            'model': options.model,
+            'run': i,
+            'runError': '$e',
+            'correct': false,
+            'contaminated': false,
+            'dartographCalls': 0,
+            'expectedTotal': task.expected.length,
+            'at': DateTime.now().toIso8601String(),
+          };
+        }
         summarySink.writeln(jsonEncode(record));
         await summarySink.flush();
       }
@@ -262,6 +301,8 @@ Future<Map<String, Object?>> _runOnce({
   required String arm,
   required String model,
   required int maxTurns,
+  required int run,
+  required Duration timeout,
   required File transcript,
 }) async {
   final isWith = arm == 'with';
@@ -293,13 +334,17 @@ Future<Map<String, Object?>> _runOnce({
     args.addAll(['--mcp-config', '$root/.mcp.json']);
   }
   // without arm: PATH에서 pub cache를 빼 dartograph를 부르지 못하게 하고,
-  // strict-mcp-config가 빈 MCP 목록을 강제한다.
+  // strict-mcp-config가 빈 MCP 목록을 강제한다. PATH 필터는 best-effort다 —
+  // 실제 불변식은 아래 dartograph 호출 검출(contaminated)이다.
   final env = Map<String, String>.from(Platform.environment);
   if (!isWith) {
-    env['PATH'] = (env['PATH'] ?? '')
+    final filtered = (env['PATH'] ?? '')
         .split(':')
-        .where((p) => !p.contains('.pub-cache'))
+        .where((p) => p.isNotEmpty && !p.contains('.pub-cache'))
         .join(':');
+    // PATH가 원래 비어 있었으면 빈 값으로 덮어쓰지 않는다 — 자식이 아무
+    // 명령도 못 찾는 꼬인 실패가 된다.
+    if (filtered.isNotEmpty) env['PATH'] = filtered;
   }
   final process = await Process.start(
     'claude',
@@ -307,6 +352,9 @@ Future<Map<String, Object?>> _runOnce({
     workingDirectory: root,
     environment: env,
   );
+  // stderr는 즉시 드레인한다 — stdout 루프가 끝난 뒤에야 읽으면 자식이
+  // 파이프 버퍼 한계를 넘는 stderr 출력에서 블록돼 stdout이 EOF되지 않는다.
+  final stderrDrain = process.stderr.drain<void>();
   final sink = transcript.openWrite();
   final toolCalls = <String, int>{};
   var dartographCalls = 0;
@@ -319,54 +367,68 @@ Future<Map<String, Object?>> _runOnce({
   var costUsd = 0.0;
   var inputTokens = 0;
   var outputTokens = 0;
-  await for (final line
-      in process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
-    sink.writeln(line);
-    Object? event;
-    try {
-      event = jsonDecode(line);
-    } on FormatException {
-      continue;
-    }
-    if (event is! Map<String, Object?>) continue;
-    switch (event['type']) {
-      case 'assistant':
-        final message = event['message'];
-        if (message is! Map) break;
-        for (final content in message['content'] as List? ?? const []) {
-          if (content is! Map || content['type'] != 'tool_use') continue;
-          final name = content['name'] as String? ?? '?';
-          toolCalls[name] = (toolCalls[name] ?? 0) + 1;
-          if (name == 'Read') fileReads++;
-          if (name == 'Bash') {
-            bashCalls++;
-            final input = content['input'];
-            final command = input is Map
-                ? input['command'] as String? ?? ''
-                : '';
-            if (RegExp(r'\bdartograph\b').hasMatch(command)) {
-              dartographCalls++;
+  // 이벤트 사이 유휴가 timeout을 넘으면 자식을 kill하고 스트림에 에러를 싣는다 —
+  // 매달린 claude 한 대가 매트릭스 전체를 세우지 않게 한다.
+  final lineStream = process.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .timeout(
+        timeout,
+        onTimeout: (sink) {
+          process.kill();
+          sink
+            ..addError(TimeoutException('run exceeded $timeout'))
+            ..close();
+        },
+      );
+  try {
+    await for (final line in lineStream) {
+      sink.writeln(line);
+      Object? event;
+      try {
+        event = jsonDecode(line);
+      } on FormatException {
+        continue;
+      }
+      if (event is! Map<String, Object?>) continue;
+      switch (event['type']) {
+        case 'assistant':
+          final message = event['message'];
+          if (message is! Map) break;
+          for (final content in message['content'] as List? ?? const []) {
+            if (content is! Map || content['type'] != 'tool_use') continue;
+            final name = content['name'] as String? ?? '?';
+            toolCalls[name] = (toolCalls[name] ?? 0) + 1;
+            if (name == 'Read') fileReads++;
+            if (name == 'Bash') {
+              bashCalls++;
+              final input = content['input'];
+              final command = input is Map
+                  ? input['command'] as String? ?? ''
+                  : '';
+              if (RegExp(r'\bdartograph\b').hasMatch(command)) {
+                dartographCalls++;
+              }
             }
+            if (name.startsWith('mcp__dartograph')) dartographCalls++;
           }
-          if (name.startsWith('mcp__dartograph')) dartographCalls++;
-        }
-      case 'result':
-        resultText = event['result'] as String? ?? '';
-        isError = event['is_error'] as bool? ?? false;
-        numTurns = event['num_turns'] as int? ?? 0;
-        durationMs = event['duration_ms'] as int? ?? 0;
-        costUsd = (event['total_cost_usd'] as num?)?.toDouble() ?? 0;
-        final usage = event['usage'];
-        if (usage is Map) {
-          inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? 0;
-          outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
-        }
+        case 'result':
+          resultText = event['result'] as String? ?? '';
+          isError = event['is_error'] as bool? ?? false;
+          numTurns = event['num_turns'] as int? ?? 0;
+          durationMs = event['duration_ms'] as int? ?? 0;
+          costUsd = (event['total_cost_usd'] as num?)?.toDouble() ?? 0;
+          final usage = event['usage'];
+          if (usage is Map) {
+            inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? 0;
+            outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
+          }
+      }
     }
+  } finally {
+    await sink.close();
   }
-  await sink.close();
-  await process.stderr.drain<void>();
+  await stderrDrain;
   final exitCode = await process.exitCode;
   final hits = [
     for (final expected in task.expected)
@@ -378,6 +440,7 @@ Future<Map<String, Object?>> _runOnce({
     'task': task.id,
     'arm': arm,
     'model': model,
+    'run': run,
     'exitCode': exitCode,
     'isError': isError,
     'numTurns': numTurns,
@@ -399,7 +462,7 @@ Future<Map<String, Object?>> _runOnce({
   };
 }
 
-/// summary.jsonl을 task × arm 중앙값으로 집계해 마크다운 표를 낸다.
+/// summary.jsonl을 task × arm × model 중앙값으로 집계해 마크다운 표를 낸다.
 void _runScore(_Options options) {
   final outDir = options.out ?? _die('--out is required');
   final file = File('$outDir/summary.jsonl');
@@ -408,12 +471,29 @@ void _runScore(_Options options) {
     for (final line in file.readAsLinesSync())
       if (line.trim().isNotEmpty) jsonDecode(line) as Map<String, Object?>,
   ];
+  // 모델이 다른 기록을 한 표에서 섞으면 비교가 무효다 — 그룹 키에 넣는다.
   final groups = <String, List<Map<String, Object?>>>{};
   for (final record in records) {
     if (record['contaminated'] == true && !options.includeInvalid) continue;
     groups
-        .putIfAbsent('${record['task']}\t${record['arm']}', () => [])
+        .putIfAbsent(
+          '${record['task']}\t${record['arm']}\t${record['model'] ?? '?'}',
+          () => [],
+        )
         .add(record);
+  }
+  // 같은 (task, arm, model, run) 레코드가 두 번이면 append 모드의 재실행
+  // 중복이다 — 중앙값이 조용히 밀리니 경고한다. run 필드가 없는 옛 레코드는
+  // 구분할 수 없으니 건너뛴다.
+  final seen = <String>{};
+  var duplicates = 0;
+  for (final record in records) {
+    if (record['run'] == null) continue;
+    if (!seen.add(
+      '${record['task']}\t${record['arm']}\t${record['model']}\t${record['run']}',
+    )) {
+      duplicates++;
+    }
   }
   num median(List<num> xs) {
     if (xs.isEmpty) return 0;
@@ -425,15 +505,26 @@ void _runScore(_Options options) {
   }
 
   stdout.writeln(
-    '| task | arm | n | correct | turns | sec | cost | reads | dgraph |',
+    '| task | arm | model | n | correct | err | turns | sec | cost | '
+    'reads | dgraph |',
   );
-  stdout.writeln('|---|---|---|---|---|---|---|---|---|');
+  stdout.writeln('|---|---|---|---|---|---|---|---|---|---|---|');
   final keys = groups.keys.toList()..sort();
   for (final key in keys) {
     final rows = groups[key]!;
     final task = key.split('\t');
     final n = rows.length;
     final correct = rows.where((r) => r['correct'] == true).length;
+    // isError·runError·비정상 exitCode 런을 따로 세어, 오답이 하네스
+    // 실패인지 에이전트 실패인지 구분한다.
+    final errors = rows
+        .where(
+          (r) =>
+              r['isError'] == true ||
+              r['runError'] != null ||
+              (r['exitCode'] as num? ?? 0) != 0,
+        )
+        .length;
     final turns = median([for (final r in rows) r['numTurns'] as num? ?? 0]);
     final secs = median([
       for (final r in rows) (r['durationMs'] as num? ?? 0) / 1000,
@@ -444,14 +535,20 @@ void _runScore(_Options options) {
       for (final r in rows) r['dartographCalls'] as num? ?? 0,
     ]);
     stdout.writeln(
-      '| ${task[0]} | ${task[1]} | $n | $correct/$n | $turns | '
-      '${secs.toStringAsFixed(1)} | \$${cost.toStringAsFixed(3)} | '
-      '$reads | $dgraph |',
+      '| ${task[0]} | ${task[1]} | ${task[2]} | $n | $correct/$n | $errors | '
+      '$turns | ${secs.toStringAsFixed(1)} | '
+      '\$${cost.toStringAsFixed(3)} | $reads | $dgraph |',
     );
   }
   final contaminated = records.where((r) => r['contaminated'] == true).length;
   if (contaminated > 0) {
     stdout.writeln('\ncontaminated without-arm runs excluded: $contaminated');
+  }
+  if (duplicates > 0) {
+    stdout.writeln(
+      '\nduplicate (task, arm, model, run) records: $duplicates — '
+      'append 모드 재실행 중복, medians shifted',
+    );
   }
 }
 
@@ -475,6 +572,18 @@ Future<int> _exec(
     exit(code);
   }
   return code;
+}
+
+/// 명령의 stdout을 다듬어 돌려준다 — 핀 리비전 대조처럼 출력이 필요한 검사용.
+Future<String> _execOut(String command, List<String> args) async {
+  final process = await Process.start(command, args);
+  final out = await process.stdout.transform(utf8.decoder).join();
+  await process.stderr.drain<void>();
+  final code = await process.exitCode;
+  if (code != 0) {
+    _die('$command ${args.join(' ')} failed: $code');
+  }
+  return out.trim();
 }
 
 Never _die(String message) {

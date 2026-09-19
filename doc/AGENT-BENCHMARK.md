@@ -11,7 +11,7 @@
 | | without | with |
 |---|---|---|
 | checkout | `<repos>/<name>` — 클론 그대로 | `<repos>/<name>-with` — 복사본 + 배선 |
-| PATH | `.pub-cache` 항목 제거 — `dartograph` 호출 불가 | 그대로 |
+| PATH | `.pub-cache` 항목 제거 — 예방 수단, 검출이 불변식 | 그대로 |
 | MCP | `--strict-mcp-config`로 서버 0개 강제 | `--mcp-config <root>/.mcp.json` — `dartograph setup --install` 산출물 |
 | skill | 없음 | `.claude/skills/dartograph/SKILL.md` (`skill --install`) |
 | 나머지 | 동일 — `--setting-sources project`, 동일 모델·턴 상한·도구 제한 | |
@@ -25,18 +25,38 @@ mcp_servers `[]`). 레포 자체의 AGENTS.md·CLAUDE.md는 두 팔이 동일하
 
 - without 런에서 `dartograph` Bash 호출이나 `mcp__dartograph*` 호출이
   하나라도 잡히면 **contaminated** — 집계에서 제외하고 수를 공개한다.
+- PATH 필터는 best-effort 예방이다(`dart pub global run` 등 우회가 남는다).
+  실제 불변식은 **검출**이다 — 위의 contaminated 규칙이 without arm의
+  dartograph 사용을 잡아내 제외한다.
 - with 런에서 dartograph 호출 0이면 **treatment-not-delivered** — 제외하지
   않고 `usedDartograph`로 기록한다. "도구가 있어도 안 쓴" 경우 자체가 결과다.
 - 모든 런의 원시 트랜스크립트(`results/transcripts/*.jsonl`)를 보존한다.
+- `--setting-sources project`는 사용자 설정·메모리를 제외하지만 checkout의
+  **부모 디렉터리**에서 발견되는 CLAUDE.md 계열은 막지 않는다 — reposDir 위의
+  조상 경로에 지시 파일이 없는지 실행 전 확인한다(현재 측정 경로는 없음).
 
 ## 지표
 
-런당: `correct`(expected 근거 문자열 전부 포함), `numTurns`, `durationMs`,
-`costUsd`, `fileReads`, `toolCalls` 종류별 수, `dartographCalls`.
-task × arm 집계는 중앙값 — 첫 런의 콜드 인덱싱 편향을 줄인다.
+런당: `correct`(expected 근거 문자열 전부 포함 **및** `isError == false`),
+`numTurns`, `durationMs`, `costUsd`, `fileReads`, `bashCalls`, `toolCalls`
+종류별 수, `dartographCalls`, `inputTokens`/`outputTokens`, `exitCode`,
+`isError`, `runError`, `run` 인덱스.
+task × arm × model 집계는 중앙값 — 첫 런의 콜드 인덱싱 편향을 줄인다.
 절대 시간·비용은 SLA가 아니며 같은 조건의 상대 비교만 의미 있다.
 **with arm이 더 느리거나 비싼 수치도 그대로 공개한다**(codegraph가
 residual context +80%를 공개한 것과 같은 규칙).
+
+알려진 채점 한계:
+
+- `correct`는 **재현율만** 본다 — expected 문자열이 다 들어가면 엉뚱한
+  후보를 추가로 나열한 답도 정답이다(2026-09-19 측정에서 inv-dead의
+  `hashCode`·`toString` 부가 나열이 관찰됐다). 트랜스크립트 감사 없이
+  정답률 차이를 강하게 주장하면 안 된다.
+- `fileReads`는 `Read` 호출만 센다 — Grep·Glob 등 다른 읽기 도구는
+  `toolCalls` 원시 집계에서만 보인다.
+- 런마다 without·with를 교번 실행해 시간 의존 API 조건이 arm과 상관하지
+  않게 한다(첫 매트릭스는 task 내 without 전부 → with 전부 순서였다 —
+  n=4 중앙값으로 완화만 한 한계).
 
 ## 과제(task)와 정답
 
@@ -67,10 +87,16 @@ dart run tool/agent_benchmark/agent_benchmark.dart run \
 dart run tool/agent_benchmark/agent_benchmark.dart score --out <dir>
 ```
 
-런 인자는 고정이다: `--model`, `--max-turns 24`,
+런 인자의 기본값: `--max-turns 24`, `--timeout-secs 900`,
 `--permission-mode bypassPermissions`, `--disallowedTools Edit Write
-NotebookEdit`(읽기 전용 과제), `--no-session-persistence`.
-모델은 런 기록에 남는다 — 팔끼리 다른 모델로 섞어 돌리면 비교가 무효다.
+NotebookEdit`(읽기 전용 과제), `--no-session-persistence`,
+`--output-format stream-json --verbose`(파싱용).
+모델·런 인덱스는 레코드에 남고 집계는 task × arm × model로 나뉜다 —
+모델을 바꿔 돌려도 옛 기록과 섞이지 않는다.
+`--disallowedTools`는 Edit/Write 도구만 막을 뿐 Bash 자체는 막지 않는다 —
+"bypassPermissions + 프롬프트의 수정 금지" 조합이라 파일 수정 가능성은
+남지만 두 팔 대칭이다. prepare는 기존 checkout의 `HEAD`가 tasks.json의
+핀 리비전과 다르면 실패한다.
 
 ## 측정 기록
 
@@ -87,11 +113,16 @@ NotebookEdit`(읽기 전용 과제), `--no-session-persistence`.
   (nav-dead 2/5, nav-impact 2/4). invoiceninja처럼 grep 비용이 큰
   대형 레포에서조차 haiku는 스킬을 로드하지 않고 grep·Read로 풀었다 —
   treatment-not-delivered가 이 측정의 주된 발견이다.
-- **dartograph가 실제로 쓰인 곳에서만 차이가 났다.** nav-impact에서
-  without arm은 `_BookstoreState.build` 대신 익명 GoRoute builder를
-  답해 1/4만 정답이었고, with arm의 dartograph 사용 런은 선언을 정확히
-  지목했다(3/4). 도달성·호출자·조건부 export 등 나머지 과제는 두 팔이
-  사실상 동률이다 — grep으로 충분히 풀리는 질문에는 오버헤드만 남는다.
+- **dartograph 사용 런과 정답이 겹친 과제는 nav-impact뿐이다.** without
+  arm은 `_BookstoreState.build` 대신 익명 GoRoute builder를 답해 1/4만
+  정답이었다. with arm은 3/4 정답인데, 그중 dartograph 사용 런은 2런이고
+  둘 다 정답, 미사용 런은 2런 중 1런 정답이다 — arm 수준(3/4)과 실제
+  사용 런 수준(2/2)을 구분해 읽어야 한다. 다만 n=4로는 이 차이가 통계적
+  신호가 아니다(Fisher exact p≈0.46) — 셀당 ~10런 이상 전에는 방향성
+  힌트로만 둔다.
+- 도달성·호출자·조건부 export 등 나머지 과제는 두 팔이 사실상 동률이다 —
+  grep으로 충분히 풀리는 질문에는 도구 오버헤드만 남는다(파일럿의
+  nav-dead with 런은 턴·비용이 약 2배였다).
 - inv-dead의 오답 2건은 양 팔 1건씩 max-turns(24) 초과다 — 대칭 실패.
 - 이 측정은 **스킬 노출 방식의 개선 여지**(CLAUDE.md 안내·훅 제안 등)를
   시사하지, "dartograph가 에이전트를 빠르게 한다"는 근거로 쓸 수 없다.
