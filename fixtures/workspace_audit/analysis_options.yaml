@@ -1,0 +1,8 @@
+analyzer:
+  errors:
+    # 미선언 import가 의도된 검증 입력이다.
+    uri_does_not_exist: ignore
+    undefined_class: ignore
+    undefined_function: ignore
+    undefined_method: ignore
+    depend_on_referenced_packages: ignore

@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartograph/src/core/fact_cache.dart';
+import 'package:analyzer/dart/analysis/results.dart';
+import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:dartograph/src/index/dependency_tools.dart';
 import 'package:dartograph/src/index/incremental_cache.dart';
@@ -103,6 +104,290 @@ void main() {
       );
     },
   );
+
+  group('workspace aggregation (--workspace)', () {
+    test('member sources join one graph with cross-member edges', () async {
+      final workspace = await _makeWorkspace();
+      addTearDown(() => workspace.delete(recursive: true));
+
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+      ).index(workspace.path);
+
+      // 루트 + 두 멤버의 선언이 한 그래프에 있다 — 소스 ID는 루트 기준
+      // project: 경로이고 라이브러리 ID는 package: 정규 URI다.
+      expect(result.graph.nodes.keys, contains('package:ws_root/root.dart'));
+      expect(result.graph.nodes.keys, contains('package:pkg_a/a.dart::Foo'));
+      expect(result.graph.nodes.keys, contains('package:pkg_b/b.dart::main'));
+      expect(
+        result.graph.nodes.values.any(
+          (node) => node.sourceUri == 'project:pkgs/pkg_a/lib/a.dart',
+        ),
+        isTrue,
+      );
+      // 멤버 간 package: 간선은 analyzer 정규 URI로 그대로 연결된다.
+      expect(
+        result.graph.edges.any(
+          (edge) =>
+              edge.sourceId == 'package:pkg_b/b.dart' &&
+              edge.targetId == 'package:pkg_a/a.dart',
+        ),
+        isTrue,
+      );
+      // 집계된 멤버가 출력에 남고 미색인 보고는 사라진다.
+      expect(
+        result.limitationDetails.where(
+          (detail) => detail.startsWith('workspace-members-indexed:'),
+        ),
+        isNotEmpty,
+      );
+      expect(
+        result.limitationDetails.where(
+          (detail) => detail.startsWith('workspace-members-not-indexed:'),
+        ),
+        isEmpty,
+      );
+      expect(result.workspacePackages.map((package) => package.path), [
+        'pkgs/pkg_a',
+        'pkgs/pkg_b',
+      ]);
+      expect(result.workspacePackages.map((package) => package.name), [
+        'pkg_a',
+        'pkg_b',
+      ]);
+    });
+
+    test(
+      'member barrel, main, and test sources keep package-relative retention',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        // pkg_a에 대표 라이브러리를 추가한다 — export된 Foo가 공개 API 보존
+        // 루트를 받아야 한다(다른 멤버가 import하지 않아도 살아 있는 근거).
+        await File(
+          '${workspace.path}/pkgs/pkg_a/lib/pkg_a.dart',
+        ).writeAsString("export 'a.dart';\n");
+        await Directory(
+          '${workspace.path}/pkgs/pkg_a/test',
+        ).create(recursive: true);
+        await File(
+          '${workspace.path}/pkgs/pkg_a/test/a_test.dart',
+        ).writeAsString('''
+import 'package:pkg_a/a.dart';
+
+void testMain() { Foo(); }
+''');
+
+        final result = await AnalyzerGraphIndex(
+          aggregateWorkspace: true,
+        ).index(workspace.path);
+
+        expect(
+          result.retentionRoots['package:pkg_a/a.dart::Foo'],
+          RetentionReason.publicApi,
+        );
+        // 멤버 lib/ 안의 main도 루트와 같은 진입점 보존을 받는다 —
+        // 루트 기준 상대 경로가 아니라 멤버 패키지 기준으로 판정됐다는 증거다.
+        expect(
+          result.retentionRoots['package:pkg_b/b.dart::main'],
+          RetentionReason.mainEntryPoint,
+        );
+        // test/ 소스는 package: 밖이라 루트 기준 project: ID를 갖는다.
+        expect(
+          result
+              .retentionRoots['project:pkgs/pkg_a/test/a_test.dart::testMain'],
+          RetentionReason.visibleForTesting,
+        );
+      },
+    );
+
+    test(
+      'requires a pub workspace root when aggregation is explicit',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        // 멤버 자체는 workspace:를 선언하지 않는다 — 명시 플래그는 조용히 단일
+        // 패키지로 내려가지 않고 루트와 같은 FormatException 계약으로 실패한다.
+        final member = Directory('${workspace.path}/pkgs/pkg_b');
+
+        await expectLater(
+          AnalyzerGraphIndex(aggregateWorkspace: true).index(member.path),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
+
+    test('missing or invalid member paths are skipped and reported', () async {
+      final workspace = await _makeWorkspace();
+      addTearDown(() => workspace.delete(recursive: true));
+      await File('${workspace.path}/pubspec.yaml').writeAsString('''
+name: ws_root
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/pkg_a
+  - pkgs/missing
+  - ../outside
+  - pkgs/no_pubspec
+''');
+      await Directory(
+        '${workspace.path}/pkgs/no_pubspec/lib',
+      ).create(recursive: true);
+      await File(
+        '${workspace.path}/pkgs/no_pubspec/lib/x.dart',
+      ).writeAsString('class X {}\n');
+
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+      ).index(workspace.path);
+
+      expect(result.graph.nodes.keys, contains('package:pkg_a/a.dart::Foo'));
+      final skipped = result.limitationDetails.singleWhere(
+        (detail) => detail.startsWith('workspace-members-not-indexed:'),
+      );
+      expect(skipped, contains('../outside'));
+      expect(skipped, contains('pkgs/missing'));
+      expect(skipped, contains('pkgs/no_pubspec'));
+      // 건너뛴 멤버의 소스는 그래프에 없다.
+      expect(
+        result.graph.nodes.keys.any(
+          (id) => id.startsWith('package:pkg_a/../') || id.contains('/x.dart'),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'member pubspec with invalid name fails like the root contract',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        await File('${workspace.path}/pkgs/pkg_a/pubspec.yaml').writeAsString(
+          '''
+name: not-a-valid-name!
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+''',
+        );
+
+        await expectLater(
+          AnalyzerGraphIndex(aggregateWorkspace: true).index(workspace.path),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
+
+    test(
+      'member dartograph.yaml is not read and its skip is reported',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        await File(
+          '${workspace.path}/pkgs/pkg_a/dartograph.yaml',
+        ).writeAsString('''
+include:
+  - 'pkgs/pkg_a/lib/**'
+''');
+
+        final result = await AnalyzerGraphIndex(
+          aggregateWorkspace: true,
+        ).index(workspace.path);
+
+        expect(
+          result.limitationDetails.where(
+            (detail) => detail.startsWith('workspace-member-config-ignored:'),
+          ),
+          isNotEmpty,
+        );
+        // 멤버 설정이 적용됐다면 루트·pkg_b 소스는 범위 밖이었을 것이다.
+        expect(result.graph.nodes.keys, contains('package:pkg_b/b.dart::main'));
+      },
+    );
+
+    test(
+      'aggregated and single-package runs do not share cache entries',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        final cache = _MemoryCache();
+
+        await AnalyzerGraphIndex(cache: cache).index(workspace.path);
+        expect(cache.writes, 1);
+        await AnalyzerGraphIndex(
+          cache: cache,
+          aggregateWorkspace: true,
+        ).index(workspace.path);
+        expect(
+          cache.writes,
+          2,
+          reason: 'workspace and single-package cache keys must differ',
+        );
+        expect(cache.values.length, 2);
+        // 단일 패키지 항목은 워크스페이스 집계 결과로 덮어쓰이지 않았다.
+        for (final payload in cache.values.values) {
+          final document = (jsonDecode(payload) as Map).cast<String, Object?>();
+          expect(document['schemaVersion'], isA<int>());
+        }
+      },
+    );
+
+    test('incremental aggregation matches a fresh full analysis', () async {
+      final workspace = await _makeWorkspace();
+      addTearDown(() => workspace.delete(recursive: true));
+      final cacheDirectory = await Directory.systemTemp.createTemp(
+        'dartograph-incr-ws.',
+      );
+      addTearDown(() => cacheDirectory.delete(recursive: true));
+      final index = AnalyzerGraphIndex(
+        incremental: IncrementalCache(cacheDirectory.path),
+        aggregateWorkspace: true,
+      );
+
+      final first = await index.index(workspace.path);
+      // 멤버 파일을 바꿔 증분 재분석을 유도한다.
+      await File(
+        '${workspace.path}/pkgs/pkg_a/lib/a.dart',
+      ).writeAsString('class Foo { void call() {} int extra = 1; }\n');
+      final second = await index.index(workspace.path);
+
+      for (final result in [first, second]) {
+        expect(result.graph.nodes.keys, contains('package:pkg_b/b.dart::main'));
+        expect(result.workspacePackages.map((package) => package.path), [
+          'pkgs/pkg_a',
+          'pkgs/pkg_b',
+        ]);
+      }
+      expect(
+        second.graph.nodes.keys.toList()..sort(),
+        isNot(contains('package:pkg_b/nope.dart')),
+      );
+      // 증분 결과의 멤버 매니페스트는 전체 해석과 같다.
+      expect(
+        second.workspacePackages.first.dependencies,
+        first.workspacePackages.first.dependencies,
+      );
+    });
+
+    test(
+      'resolveProjectUnits sees member sources only when opted in',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+
+        final aggregated = await resolveProjectUnits(
+          workspace.path,
+          aggregateWorkspace: true,
+        );
+        final single = await resolveProjectUnits(workspace.path);
+
+        bool hasMember(ResolvedUnitResult unit) =>
+            unit.path.contains('/pkgs/pkg_a/lib/a.dart');
+        expect(aggregated.any(hasMember), isTrue);
+        expect(single.any(hasMember), isFalse);
+      },
+    );
+  });
 
   test(
     'member analysis cache key includes the workspace root package_config',

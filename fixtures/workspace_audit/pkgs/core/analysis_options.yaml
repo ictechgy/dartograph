@@ -1,0 +1,5 @@
+analyzer:
+  errors:
+    uri_does_not_exist: ignore
+    undefined_class: ignore
+    depend_on_referenced_packages: ignore

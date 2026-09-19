@@ -1,0 +1,12 @@
+name: app
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+dependencies:
+  core:
+    path: ../core
+  app_unused:
+    path: ../../stubs/app_unused
+dev_dependencies:
+  app_dev:
+    path: ../../stubs/app_dev

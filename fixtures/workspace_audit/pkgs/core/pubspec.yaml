@@ -1,0 +1,9 @@
+name: core
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+dependencies:
+  core_unused:
+    path: ../../stubs/core_unused
+  shared_dep:
+    path: ../../stubs/shared_dep

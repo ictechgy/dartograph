@@ -32,34 +32,34 @@ Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
 
 ```text
 dartograph init [--force] [<package-root>]
-dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
-dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
+dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
-dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--workspace] [--record <dir>] <package-root>
 dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
-dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 ```
 
 `--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
@@ -69,6 +69,17 @@ impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일�
 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면
 폐쇄가 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
+
+같은 명령에 `runtime`을 더해 `--workspace`를 받는다 — pub workspace 집계를
+옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께
+분석한다(집계하지 않으면 기존처럼 `workspace-members-not-indexed`로 보고된다).
+각 멤버의 표준 소스 디렉터리(lib·bin·example·integration_test·test)가 분석에 합류하고
+멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며, `deps`는 패키지마다 자기
+pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인지 표시한다.
+디렉터리·pubspec이 없는 멤버는 건너뛰고 보고한다. `workspace:` 멤버를 선언하지 않은
+루트나 잘못된 패키지 이름의 멤버 pubspec은 분석 실패(exit 2)다. 멤버의
+`dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
+설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 
 ## 검증 원장
 
@@ -228,6 +239,16 @@ override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단�
 (dev 의존을 `lib/` 안에서 참조 — 게시 패키지가 깨지는 배선), `undeclared-dependency`
 (참조하는데 어느 선언에도 없음). `--format`은 `text`(기본)·`json`·`markdown`·
 `github-actions`·`sarif`다.
+
+`deps --workspace`는 루트와 각 멤버를 **자기 pubspec 기준으로 따로** 감사한다 —
+멤버 소스의 `package:` 관측은 그 멤버의 선언·dev 선언·tool 근거와 대조되고,
+finding은 소유 pubspec의 `manifest` 필드(`pubspec.yaml`,
+`pkgs/core/pubspec.yaml` 등 프로젝트 상대 경로)를 싣는다. JSON의 finding 객체에만
+필드가 추가되고, text는 각 warning 줄이 그 pubspec 경로로 시작하며,
+Markdown은 manifest가 있는 finding이 있을 때만 Manifest 열을, GitHub
+Actions의 `file=`과 SARIF의 artifact URI는 해당 pubspec을 가리킨다.
+`--workspace` 없이는 출력 형태가 그대로다 — `manifest` 필드·열은 나타나지
+않는다.
 
 사용은 **관측**으로만 판정한다 — `package:` 지시문이 없어도 도구 계약이 요구하는
 의존은 사용으로 친다: pubspec `executables`에 노출된 실행 파일, `build.yaml`의

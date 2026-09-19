@@ -1,0 +1,3 @@
+name: shared_dep
+environment:
+  sdk: ^3.8.0

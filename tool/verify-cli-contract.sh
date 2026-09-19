@@ -143,6 +143,11 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "dead kinds file" dead --format json --kinds file fixtures/test_only_corpus
   expect_status 64 "dead kinds with explain" dead --explain project:lib/prod.dart::onlyReachedByTest --kinds file --format json fixtures/test_only_corpus
   expect_status 64 "deps unknown kind" deps --kinds declaration fixtures/closed_app
+  expect_status 1 "deps workspace audit" deps --workspace --format json fixtures/workspace_audit
+  expect_status 2 "deps workspace without root" deps --workspace fixtures/closed_app
+  expect_status 64 "deps duplicate workspace" deps --workspace --workspace fixtures/closed_app
+  expect_status 0 "runtime workspace" runtime --workspace fixtures/workspace_audit
+  expect_status 64 "runtime duplicate workspace" runtime --workspace --workspace fixtures/workspace_audit
   expect_status 0 "setup prints" setup
   expect_status 64 "setup install missing directory" setup --install "$TEMPORARY_DIRECTORY/no-such-dir"
   mkdir -p "$TEMPORARY_DIRECTORY/setup-target"

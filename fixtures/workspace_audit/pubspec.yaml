@@ -1,0 +1,9 @@
+name: ws_audit
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/core
+  - pkgs/app
+dependencies:
+  root_unused:
+    path: stubs/root_unused

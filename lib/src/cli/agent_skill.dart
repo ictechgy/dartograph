@@ -45,6 +45,10 @@ If invocation details are unclear, inspect `dartograph --help`.
   which finding kinds are reported; graph and fingerprints are unchanged.
   `runtime --kinds` narrows fact categories and `runtime --statuses`
   narrows verdict sections; both narrow only the reported lists.
+- Pub workspaces: `--workspace` aggregates the root pubspec's `workspace:`
+  members into one graph — member sources keep package-level retention and
+  `deps` audits each package against its own pubspec (`manifest` on each
+  finding). Opt-in only; member `dartograph.yaml` files are ignored.
 - Standalone apps: `dartograph dead --closed-app <package-root>` drops
   public-API retention so unreachable exported declarations are reported.
   Pair baselines with `baseline --write --closed-app`. Never use it on a

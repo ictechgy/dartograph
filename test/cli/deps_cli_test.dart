@@ -145,6 +145,122 @@ void main() {
     );
     expect(await runDartograph(['deps']), ExitStatus.usage.code);
   });
+
+  test('deps --workspace audits each member against its own pubspec', () async {
+    final fixture = await copyFixture('workspace_audit');
+    final output = StringBuffer();
+
+    final status = await runDartograph([
+      'deps',
+      '--format',
+      'json',
+      '--workspace',
+      fixture.path,
+    ], output: output);
+
+    expect(status, ExitStatus.findings.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final findings = (document['findings']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+    final byKey = {
+      for (final f in findings) '${f['manifest']}:${f['kind']}:${f['name']}': f,
+    };
+
+    // 각 발견은 자기 패키지의 pubspec에 귀속된다 — 루트 매니페스트를 멤버에
+    // 적용하면 core·app의 선언이 전부 미선언으로 오판됐을 것이다.
+    expect(byKey, hasLength(6));
+    expect(
+      byKey.containsKey('pubspec.yaml:unused-dependency:root_unused'),
+      isTrue,
+    );
+    expect(
+      byKey.containsKey('pubspec.yaml:undeclared-dependency:core'),
+      isTrue,
+      reason: 'root lib imports member core without declaring it',
+    );
+    expect(
+      byKey.containsKey('pkgs/core/pubspec.yaml:unused-dependency:core_unused'),
+      isTrue,
+    );
+    expect(
+      byKey.containsKey('pkgs/core/pubspec.yaml:undeclared-dependency:ghost'),
+      isTrue,
+    );
+    expect(
+      byKey.containsKey('pkgs/app/pubspec.yaml:unused-dependency:app_unused'),
+      isTrue,
+    );
+    final dev = byKey['pkgs/app/pubspec.yaml:dev-dependency-in-lib:app_dev'];
+    expect(
+      (dev?['sources']! as List<Object?>).cast<String>(),
+      contains('project:pkgs/app/lib/app.dart'),
+    );
+    // 사용 중인 의존은 발견이 아니다 — shared_dep는 core가 쓰고 core는 app이 쓴다.
+    expect(findings.where((f) => f['name'] == 'shared_dep'), isEmpty);
+    expect(
+      findings.where(
+        (f) => f['name'] == 'core' && f['manifest'] != 'pubspec.yaml',
+      ),
+      isEmpty,
+    );
+    expect(
+      (document['limitations']! as List<Object?>).cast<String>().any(
+        (item) => item.startsWith('workspace-members-indexed:'),
+      ),
+      isTrue,
+    );
+  });
+
+  test('deps without --workspace keeps the single-package contract', () async {
+    final fixture = await copyFixture('workspace_audit');
+    final output = StringBuffer();
+
+    final status = await runDartograph([
+      'deps',
+      '--format',
+      'json',
+      fixture.path,
+    ], output: output);
+
+    expect(status, ExitStatus.findings.code);
+    final document = jsonDecode(output.toString()) as Map<String, Object?>;
+    final findings = (document['findings']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+    // 단일 패키지 실행은 manifest 키를 싣지 않고 멤버 선언을 감사하지 않는다.
+    expect(findings.every((f) => !f.containsKey('manifest')), isTrue);
+    expect(
+      (document['limitations']! as List<Object?>).cast<String>().any(
+        (item) => item.startsWith('workspace-members-not-indexed:'),
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'deps --workspace fails the analysis without a workspace root',
+    () async {
+      final fixture = await copyFixture('dependency_audit');
+      final output = StringBuffer();
+      final error = StringBuffer();
+
+      expect(
+        await runDartograph(
+          ['deps', '--workspace', fixture.path],
+          output: output,
+          error: error,
+        ),
+        ExitStatus.failure.code,
+      );
+      expect(
+        await runDartograph(
+          ['deps', '--workspace', '--workspace', fixture.path],
+          output: output,
+          error: error,
+        ),
+        ExitStatus.usage.code,
+      );
+    },
+  );
 }
 
 Future<void> _copyTree(Directory source, Directory target) async {

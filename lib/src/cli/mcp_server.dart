@@ -492,6 +492,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
               'For symbol/batch questions with source: lines before and '
               'after each declaration line. Default 3.',
         },
+        'workspace': {
+          'type': 'boolean',
+          'description':
+              'Analyze the root pubspec\'s `workspace:` member packages '
+              'together (pub workspaces). Default off.',
+        },
       },
       'required': ['packageRoot'],
       'additionalProperties': false,
@@ -529,6 +535,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
         },
         'depth': {'type': 'integer', 'minimum': 1},
         'limit': {'type': 'integer', 'minimum': 1},
+        'workspace': {
+          'type': 'boolean',
+          'description':
+              'Analyze the root pubspec\'s `workspace:` member packages '
+              'together (pub workspaces). Default off.',
+        },
       },
       'required': ['packageRoot'],
       'additionalProperties': false,
@@ -572,6 +584,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
           'description':
               'With withSource: lines before and after each declaration line. '
               'Omit for 0.',
+        },
+        'workspace': {
+          'type': 'boolean',
+          'description':
+              'Analyze the root pubspec\'s `workspace:` member packages '
+              'together (pub workspaces). Default off.',
         },
       },
       'required': ['packageRoot'],
@@ -626,6 +644,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
           'type': 'string',
           'enum': ['text', 'json', 'markdown', 'github-actions', 'sarif'],
         },
+        'workspace': {
+          'type': 'boolean',
+          'description':
+              'Analyze the root pubspec\'s `workspace:` member packages '
+              'together (pub workspaces). Default off.',
+        },
       },
       'required': ['packageRoot', 'command'],
       'additionalProperties': false,
@@ -647,6 +671,12 @@ List<Map<String, Object?>> get _toolDefinitions => [
           'description': 'Package root directory to analyze.',
         },
         'limit': {'type': 'integer', 'minimum': 1},
+        'workspace': {
+          'type': 'boolean',
+          'description':
+              'Analyze the root pubspec\'s `workspace:` member packages '
+              'together (pub workspaces). Default off.',
+        },
       },
       'required': ['packageRoot'],
       'additionalProperties': false,
@@ -1012,6 +1042,8 @@ Future<Map<String, Object?>> _impactTool({
     if (depth != null) args.addAll(['--depth', '$depth']);
     final limit = _positiveInt(arguments['limit']);
     if (limit != null) args.addAll(['--limit', '$limit']);
+    final workspaceError = _appendWorkspace(args, arguments);
+    if (workspaceError != null) return workspaceError;
     args.addAll(['--format', 'json', root]);
     return await _runCapture(
       args,
@@ -1093,6 +1125,8 @@ Future<Map<String, Object?>> _dependencyTool({
         args.addAll(['--source-context', '$sourceContext']);
       }
     }
+    final workspaceError = _appendWorkspace(args, arguments);
+    if (workspaceError != null) return workspaceError;
     args.add(root);
     return await _runCapture(args, indexPackage: indexPackage);
   } finally {
@@ -1196,6 +1230,8 @@ Future<Map<String, Object?>> _verifyTool({
     }
     args.addAll(['--format', '$format']);
   }
+  final workspaceError = _appendWorkspace(args, arguments);
+  if (workspaceError != null) return workspaceError;
   args.add(root);
   return await _runCapture(
     args,
@@ -1208,9 +1244,12 @@ Future<Map<String, Object?>> _runtimeTool({
   required String root,
   required Map<String, Object?> arguments,
 }) async {
-  if (arguments.keys.any((key) => key != 'packageRoot' && key != 'limit')) {
+  if (arguments.keys.any(
+    (key) => key != 'packageRoot' && key != 'limit' && key != 'workspace',
+  )) {
     return _toolError(
-      'Unsupported option; only packageRoot and limit are allowed',
+      'Unsupported option; only packageRoot, limit, and workspace are '
+      'allowed',
     );
   }
   final args = <String>['runtime', '--no-verify', '--format', 'json'];
@@ -1219,6 +1258,8 @@ Future<Map<String, Object?>> _runtimeTool({
     return _toolError('limit must be an integer >= 1');
   }
   if (limit != null) args.addAll(['--limit', '$limit']);
+  final workspaceError = _appendWorkspace(args, arguments);
+  if (workspaceError != null) return workspaceError;
   args.add(root);
   return await _runCapture(args);
 }
@@ -1240,7 +1281,11 @@ Future<Map<String, Object?>> _exploreTool({
   final command = arguments['command'];
   if (command != null) {
     if (command == 'runtime') {
-      final strays = _strayKeys(arguments, const {'command', 'limit'});
+      final strays = _strayKeys(arguments, const {
+        'command',
+        'limit',
+        'workspace',
+      });
       if (strays != null) {
         return _toolError('cannot combine $strays with command "runtime"');
       }
@@ -1251,6 +1296,8 @@ Future<Map<String, Object?>> _exploreTool({
             // 명시된 키만 넘긴다 — {'limit': null}은 _runtimeTool의
             // containsKey 검사를 건드려 limit 없는 호출이 깨진다.
             if (arguments['limit'] != null) 'limit': arguments['limit'],
+            if (arguments['workspace'] != null)
+              'workspace': arguments['workspace'],
           },
         ),
         _runtimeToolName,
@@ -1266,6 +1313,7 @@ Future<Map<String, Object?>> _exploreTool({
       'baseline',
       'config',
       'format',
+      'workspace',
     };
     final strays = _strayKeys(arguments, verifyKeys);
     if (strays != null) {
@@ -1287,7 +1335,14 @@ Future<Map<String, Object?>> _exploreTool({
     'impactSymbol',
   ].where((key) => arguments[key] != null).toList();
   if (impactSeeds.isNotEmpty) {
-    const impactKeys = {'since', 'changed', 'impactSymbol', 'depth', 'limit'};
+    const impactKeys = {
+      'since',
+      'changed',
+      'impactSymbol',
+      'depth',
+      'limit',
+      'workspace',
+    };
     final strays = _strayKeys(arguments, impactKeys);
     if (strays != null) {
       return _toolError(
@@ -1311,6 +1366,8 @@ Future<Map<String, Object?>> _exploreTool({
           if (arguments['changed'] != null) 'changed': arguments['changed'],
           if (arguments['depth'] != null) 'depth': arguments['depth'],
           if (arguments['limit'] != null) 'limit': arguments['limit'],
+          if (arguments['workspace'] != null)
+            'workspace': arguments['workspace'],
         },
         indexPackage: indexPackage,
         changedFilesSince: changedFilesSince,
@@ -1328,6 +1385,7 @@ Future<Map<String, Object?>> _exploreTool({
       'baseline',
       'withSource',
       'sourceContext',
+      'workspace',
     };
     final strays = _strayKeys(arguments, queryKeys);
     if (strays != null) {
@@ -1349,6 +1407,26 @@ Future<Map<String, Object?>> _exploreTool({
     );
   }
   return _exploreHelp(arguments);
+}
+
+/// `workspace` 인자를 검사해 참이면 `--workspace`를 인자 목록에 붙인다.
+///
+/// 불리언이 아닌 값·`'true'`가 아닌 문자열은 의도 없는 옵션과 같이 오류로
+/// 답한다 — 그래프 범위를 바꾸는 플래그를 조용히 무시하지 않기 위해서다.
+/// `closedApp`과 같은 기준으로 `'true'` 문자열도 참으로 해석한다.
+Map<String, Object?>? _appendWorkspace(
+  List<String> args,
+  Map<String, Object?> arguments,
+) {
+  final workspace = arguments['workspace'];
+  if (workspace == true || workspace == 'true') {
+    args.add('--workspace');
+    return null;
+  }
+  if (workspace != null && workspace != false && workspace != 'false') {
+    return _toolError('workspace must be a boolean');
+  }
+  return null;
 }
 
 /// [allowed]·`packageRoot` 밖의 인자 키를 정렬된 문자열로 돌려준다 — 없으면
