@@ -326,9 +326,13 @@ printf '%s\n' \
   `dependency_query`·`verify_run`)는 파일 단위 증분 재해석으로 반복 질의를
   빠르게 답한다. `runtime_query`는 이 캐시를 쓰지 않고 매 호출 정적 탐지를
   새로 한다. 캐시는 세션 소유이므로 세션마다 처음 한 번은 전체 색인 비용이
-  들고, 서버를 자주 띄우는 호출 패턴에는 이득이 없다. 파일 변경은 다음 호출에서
-  최신 사실로 반영되지만 캐시 삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수
-  있다(stderr 진단으로 알린다). CLI의 파일별 증분 캐시(`--incremental <dir>`)는
+들고, 서버를 자주 띄우는 호출 패턴에는 이득이 없다. 파일 변경은 다음 호출에서
+  최신 사실로 반영된다 — 사실 캐시 키가 파일 내용 해시라 편집·삭제·신규 파일이 그
+  호출의 재해석 대상이 되고, 응답은 호출 시점의 작업 트리를 반영한다(별도의
+  staleness 배너가 필요 없다). 회귀는 `test/cli/mcp_server_test.dart`의
+  “session cache reuses facts, refreshes edits and cleans up”가 고정한다. 캐시
+  삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수 있다(stderr 진단으로 알린다).
+  CLI의 파일별 증분 캐시(`--incremental <dir>`)는
   MCP 도구가 노출하지 않는다 — 세션 간에 사실을 재사용해야 하면 CLI를 직접
   쓴다([USAGE.md](USAGE.md)의 `--incremental`).
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.
