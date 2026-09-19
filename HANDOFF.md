@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #120 다중 타깃/형식/S2, #121 C4 에이전트 벤치마크, #122 adoption 개선, #123 C2 `dartograph_explore`, #124 S5 `--workspace` 멤버 집계. main `9da4123`)_
+_Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #120 다중 타깃/형식/S2, #121 C4 에이전트 벤치마크, #122 adoption 개선, #123 C2 `dartograph_explore`, #124 S5 `--workspace` 멤버 집계, #125 본 문서 정합. main `418c220`)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
@@ -87,6 +87,7 @@ _Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #
 - **검증·리뷰**: 테스트 658 전부 통과, analyze 0, 계약 스크립트 passed(workspace
   케이스 5종 포함), CI 4체크 green. GLM 리뷰 각 PR 초회+델타 — #124는 멤버 symlink
   탈출·전원 skip 퇴화·표준 디렉터리 내 skip 멤버 색인을 잡아 델타로 반영.
+- **PR #125(머지 `418c220`, docs)**: 본 문서를 머지 후 상태로 갱신했다.
 - 남은 백로그는 수동/외부 조치뿐: C5①(verified publisher)·③(asciinema), S7 문서
   아카이브. 후속 가능 작업은 adoption 셀 확대(다른 모델·과제)와 0.15.0 릴리스 판단.
 
@@ -279,8 +280,9 @@ _Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #
   `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
   (이전 0.13.0→`6a1abfb`, 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`,
   0.8.0→`8d8baa3`.)
-- 로컬 Git 확인(2026-09-19): **main / origin/main `9da4123`**(PR #124 머지,
-  S5 `--workspace` 멤버 집계). `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
+- 로컬 Git 확인(2026-09-19): **main / origin/main `418c220`**(PR #125 머지,
+  본 문서 정합 — 직전 제품 머지는 PR #124 `9da4123`, S5 `--workspace` 멤버
+  집계). `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
 - **경쟁 갭 후보 4건 머지됨(2026-09-18)**: PR #119 머지 커밋 `8168650` —
   본 문서 하단 "경쟁 갭 후보 구현·머지(PR #119)" 절 참조(`impact --format
   test-list`, pub workspace 멤버/루트 표면, `doc/GRAPH-EXCHANGE.md`, SARIF
