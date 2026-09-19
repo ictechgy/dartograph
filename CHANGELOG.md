@@ -4,6 +4,14 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.15.0
+
+- `setup --target claude|cursor|codex|opencode` and `setup --uninstall` configure or remove agent integrations while preserving unrelated settings. Claude setup also maintains the repository routing block for tool discovery.
+- `query --with-source [--source-context N]` includes declaration source lines. `cycles`, `rules`, `metrics`, `affected`, and `compare` support text/JSON/SARIF report formats; query remains JSON-only.
+- `impact --format test-list` emits test paths for selected test execution. The repository includes a composite GitHub Action and SARIF setup guidance.
+- Publish the bridge-facts exchange guide and align its RN global-event and external-retention contracts with the sister tools. This does not add RN source extraction to dartograph.
+- Add an agent benchmark harness and record tool-adoption experiments; observed adoption is specific to the recorded models/tasks and is not a general coding-performance claim.
+
 - Opt-in `--workspace` aggregates a pub workspace: when the root
   `pubspec.yaml` declares `workspace:` members, index-consuming commands
   (`graph`, `query`, `dead`, `deps`, `dup`, `cycles`, `rules`, `metrics`,

@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+## 0.15.0
+
+- `setup --target claude|cursor|codex|opencode`와 `setup --uninstall`이 기존 설정을 보존하면서 에이전트 연동을 설치·제거한다. Claude setup은 도구 발견용 저장소 라우팅 블록도 관리한다.
+- `query --with-source [--source-context N]`가 선언의 소스 줄을 포함한다. `cycles`·`rules`·`metrics`·`affected`·`compare`는 text/JSON/SARIF를 지원하고 query는 JSON 전용을 유지한다.
+- `impact --format test-list`가 선택 실행용 테스트 경로를 낸다. 저장소에 합성 GitHub Action과 SARIF 설정 가이드를 추가했다.
+- bridge-facts 교환 가이드를 공개하고 RN 전역 이벤트·외부 보존 계약을 자매 도구와 맞췄다. dartograph에 RN 소스 추출을 추가한 것은 아니다.
+- 에이전트 벤치마크 하네스와 도구 사용률 실험을 기록했다. 사용률은 기록된 모델·과제의 관찰이며 일반적인 코딩 성능 향상 주장이 아니다.
+
 - 옵트인 `--workspace`가 pub 워크스페이스를 집계한다: 루트
   `pubspec.yaml`이 `workspace:` 멤버를 선언하면 인덱스 소비 명령
   (`graph`, `query`, `dead`, `deps`, `dup`, `cycles`, `rules`,
