@@ -257,6 +257,109 @@ workspace:
       );
     });
 
+    test('a symlinked member directory is skipped, not followed', () async {
+      final workspace = await _makeWorkspace();
+      addTearDown(() => workspace.delete(recursive: true));
+      // 멤버 디렉터리가 루트 밖을 가리키는 symlink면 어휘적 멤버 접두사는
+      // 루트 안에 있지만 실제 읽기는 밖에서 일어난다 — source_packages와
+      // 같은 비symlink 계약으로 건너뛰고 보고해야 한다.
+      final outside = await Directory.systemTemp.createTemp(
+        'dartograph-ws-outside.',
+      );
+      addTearDown(() => outside.delete(recursive: true));
+      await Directory('${outside.path}/lib').create();
+      await File('${outside.path}/pubspec.yaml').writeAsString('''
+name: pkg_link
+environment:
+  sdk: ^3.8.0
+''');
+      await File(
+        '${outside.path}/lib/escaped.dart',
+      ).writeAsString('class Escaped {}\n');
+      await Link('${workspace.path}/pkgs/pkg_link').create(outside.path);
+      await File('${workspace.path}/pubspec.yaml').writeAsString('''
+name: ws_root
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/pkg_a
+  - pkgs/pkg_link
+''');
+
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+      ).index(workspace.path);
+
+      final skipped = result.limitationDetails.singleWhere(
+        (detail) => detail.startsWith('workspace-members-not-indexed:'),
+      );
+      expect(skipped, contains('pkgs/pkg_link'));
+      expect(
+        result.graph.nodes.keys.any((id) => id.contains('escaped')),
+        isFalse,
+      );
+    });
+
+    test(
+      'a workspace whose members are all unreadable fails explicitly',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        // 선언된 멤버가 전부 건너뛰어지면 명시 요구가 조용히 단일 패키지
+        // 감사로 내려가지 않도록 루트 계약과 같은 FormatException이다.
+        await File('${workspace.path}/pubspec.yaml').writeAsString('''
+name: ws_root
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/missing
+''');
+
+        await expectLater(
+          AnalyzerGraphIndex(aggregateWorkspace: true).index(workspace.path),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
+
+    test(
+      'a skipped member inside a standard directory stays unindexed',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        // example/은 루트 표준 디렉터리라 pubspec 없는 선언 멤버의 소스도
+        // 루트 스코프로 잡힐 수 있다 — 건너뛴 멤버로 보고하면서 루트 소스로
+        // 색인하면 보고가 거짓이 되므로 스코프에서 제외돼야 한다.
+        await Directory(
+          '${workspace.path}/example/demo/lib',
+        ).create(recursive: true);
+        await File(
+          '${workspace.path}/example/demo/lib/demo.dart',
+        ).writeAsString('class DemoSkipped {}\n');
+        await File('${workspace.path}/pubspec.yaml').writeAsString('''
+name: ws_root
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/pkg_a
+  - example/demo
+''');
+
+        final result = await AnalyzerGraphIndex(
+          aggregateWorkspace: true,
+        ).index(workspace.path);
+
+        final skipped = result.limitationDetails.singleWhere(
+          (detail) => detail.startsWith('workspace-members-not-indexed:'),
+        );
+        expect(skipped, contains('example/demo'));
+        expect(
+          result.graph.nodes.keys.any((id) => id.contains('example/demo')),
+          isFalse,
+        );
+      },
+    );
+
     test(
       'member pubspec with invalid name fails like the root contract',
       () async {

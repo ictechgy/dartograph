@@ -13,10 +13,11 @@
   `deps --workspace`는 각 패키지를 자기 pubspec 기준으로 감사하고
   발견에 `manifest` 필드를 붙인다(text·Markdown 열, GitHub Actions
   `file=`, SARIF artifact URI가 소유 pubspec을 가리킨다). 멤버의
-  `dartograph.yaml`은 무시하고 보고한다. 루트 pubspec이 `workspace:`
-  멤버를 선언하지 않으면 분석 실패(exit 2)이고, 집계 결과는 단일
-  패키지 스캔과 다른 캐시 키를 쓴다. MCP 도구는 같은 `workspace`
-  불리언을 받는다.
+  `dartograph.yaml`은 무시하고 보고한다. 읽을 수 없거나 symlink인 멤버
+  경로는 건너뛰고 보고하며, 루트 pubspec이 `workspace:` 멤버를 선언하지
+  않거나 선언된 멤버가 전부 건너뛰어지면 분석 실패(exit 2)다. 집계
+  결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다. MCP 도구는 같은
+  `workspace` 불리언을 받는다.
 - 새 읽기 전용 MCP 도구 `dartograph_explore`는 단일 진입점이다:
   `packageRoot`에 질문 형태 하나를 붙이면 내부적으로 라우팅한다 —
   `symbol`/`batch`는 `dependency_query`(`withSource` 기본 켜짐,

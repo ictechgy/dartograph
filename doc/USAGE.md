@@ -76,8 +76,10 @@ impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일�
 각 멤버의 표준 소스 디렉터리(lib·bin·example·integration_test·test)가 분석에 합류하고
 멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며, `deps`는 패키지마다 자기
 pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인지 표시한다.
-디렉터리·pubspec이 없는 멤버는 건너뛰고 보고한다. `workspace:` 멤버를 선언하지 않은
-루트나 잘못된 패키지 이름의 멤버 pubspec은 분석 실패(exit 2)다. 멤버의
+디렉터리·pubspec이 없는 멤버와 symlink인 멤버 경로는 건너뛰고 보고한다(건너뛴
+멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
+선언하지 않은 루트, 선언된 멤버가 전부 건너뛰어진 경우, 잘못된 패키지 이름의 멤버
+pubspec은 분석 실패(exit 2)다. 멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 

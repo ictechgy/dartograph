@@ -260,6 +260,7 @@ final class AnalyzerGraphIndex {
       collection,
       sourcePackages,
       memberAbsPaths,
+      workspace?.skippedAbsPaths ?? const [],
     );
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
@@ -1217,19 +1218,20 @@ AnalyzerGraphResult _assembleResult({
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
   for (final entry in [
-    (root, pubspecContent),
+    ('build.yaml', root, pubspecContent),
     for (final member in workspace?.members ?? const <_WorkspaceMember>[])
-      (member.absPath, member.pubspecContent),
+      ('${member.relPath}/build.yaml', member.absPath, member.pubspecContent),
   ]) {
     if (!_addBuildRunnerRoots(
-      entry.$1,
+      entry.$2,
       graph,
       retentionRoots,
-      entry.$2,
+      entry.$3,
       limitationDetails,
     )) {
       limitationDetails.add(
-        'build-yaml-unparsed: builder entry points could not be read',
+        'build-yaml-unparsed: builder entry points could not be read '
+        '(${entry.$1})',
       );
     }
   }
@@ -1457,21 +1459,32 @@ final class _WorkspaceMember {
 
 /// `--workspace` 집계 해석 결과다.
 final class _WorkspaceSpec {
-  const _WorkspaceSpec({required this.members, required this.skipped});
+  const _WorkspaceSpec({
+    required this.members,
+    required this.skipped,
+    required this.skippedAbsPaths,
+  });
 
   /// 색인된 멤버다(relPath 정렬).
   final List<_WorkspaceMember> members;
 
-  /// 선언됐지만 색인하지 못한 항목의 표기다(정렬).
+  /// 선언됐지만 색인하지 못한 항목의 표기다(정렬, 중복 제거).
   final List<String> skipped;
+
+  /// [skipped] 항목의 절대 경로다 — 비문자열 항목 등 경로로 정규화할 수
+  /// 없는 표기는 들어 있지 않을 수 있다.
+  final List<String> skippedAbsPaths;
 }
 
 /// `--workspace` 집계가 쓸 워크스페이스 멤버를 해석한다.
 ///
 /// 루트 pubspec이 `workspace:` 멤버 목록을 선언하지 않으면 [FormatException]이다
 /// — 플래그를 명시적으로 요구한 분석이 조용히 단일 패키지로 내려가지 않는다.
-/// 경로가 잘못됐거나 디렉터리·pubspec이 없는 멤버는 건너뛰고 `skipped`에 남긴다.
-/// 멤버 pubspec 이름 검증은 루트와 같은 [FormatException] 계약이다.
+/// 경로가 잘못됐거나 디렉터리·pubspec이 없는 멤버와 symlink 멤버 경로는
+/// 건너뛰고 `skipped`에 남긴다 — symlink는 해석 경로가 어휘적 접두사와
+/// 어긋나 루트 밖 읽기로 이어진다. 선언된 멤버가 전부 건너뛰어지면 같은
+/// 이유로 [FormatException]이다. 멤버 pubspec 이름 검증은 루트와 같은
+/// [FormatException] 계약이다.
 _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
   Object? document;
   try {
@@ -1487,7 +1500,11 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
     );
   }
   final members = <String, _WorkspaceMember>{};
-  final skipped = <String>[];
+  final skipped = <String>{};
+  final skippedAbsPaths = <String>{};
+  // 루트 자체는 symlink 조상을 가질 수 있다(/var→/private/var) — 멤버가
+  // 자기 경로 안에 링크를 숨기는지만 검사하려면 해석된 루트를 기준으로 비교한다.
+  final canonicalRoot = p.normalize(Directory(root).resolveSymbolicLinksSync());
   for (final entry in workspace) {
     if (entry is! String || entry.trim().isEmpty) {
       skipped.add('$entry');
@@ -1500,8 +1517,16 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
         rel.split('/').contains('..') ||
         !isPathWithinRoot(abs, root) ||
         !Directory(abs).existsSync() ||
-        !File(p.join(abs, 'pubspec.yaml')).existsSync()) {
+        !File(p.join(abs, 'pubspec.yaml')).existsSync() ||
+        // 멤버 경로 자체가 symlink면 analyzer가 보고하는 해석 경로와 어휘적
+        // 멤버 접두사가 어긋나 루트 밖 파일을 탈출 기록 없이 읽는다 —
+        // source_packages와 같은 비symlink 계약으로 건너뛴다.
+        !p.equals(
+          p.normalize(Directory(abs).resolveSymbolicLinksSync()),
+          p.normalize(p.joinAll([canonicalRoot, ...rel.split('/')])),
+        )) {
       skipped.add(rel);
+      skippedAbsPaths.add(abs);
       continue;
     }
     final memberPubspec = readConfigurationSync(
@@ -1529,11 +1554,17 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
       ),
     );
   }
+  if (members.isEmpty) {
+    throw FormatException(
+      '--workspace resolved no members: every declared workspace entry was '
+      'skipped (${(skipped.toList()..sort()).join(', ')})',
+    );
+  }
   final ordered = members.keys.toList()..sort();
-  skipped.sort();
   return _WorkspaceSpec(
     members: [for (final rel in ordered) members[rel]!],
-    skipped: skipped,
+    skipped: skipped.toList()..sort(),
+    skippedAbsPaths: skippedAbsPaths.toList()..sort(),
   );
 }
 
@@ -1727,15 +1758,13 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     await _analysisInputFiles(root, linkEscapes: linkEscapes);
   }
   final sourcePackages = _readSourcePackages(root);
-  final memberAbsPaths = aggregateWorkspace
-      ? [
-          for (final member in _resolveWorkspace(
-            root,
-            _readPubspec(root),
-          ).members)
-            member.absPath,
-        ]
-      : const <String>[];
+  final workspace = aggregateWorkspace
+      ? _resolveWorkspace(root, _readPubspec(root))
+      : null;
+  final memberAbsPaths = [
+    for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+      member.absPath,
+  ];
   final collection = AnalysisContextCollection(
     includedPaths: [root],
     sdkPath: _dartSdkPath(),
@@ -1747,6 +1776,7 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
       collection,
       sourcePackages,
       memberAbsPaths,
+      workspace?.skippedAbsPaths ?? const [],
     )) {
       final result = await _contextIncluding(
         collection,
@@ -3478,16 +3508,26 @@ List<String> _dartFilesUnder(
   AnalysisContextCollection collection,
   List<Directory> sourcePackages,
   List<String> memberAbsPaths,
+  List<String> skippedMemberAbsPaths,
 ) {
   final paths = <String>{};
   bool inAnalysisScope(String path) {
-    if (_isStandardSourcePath(path, root)) return true;
     for (final member in memberAbsPaths) {
       if (!isPathWithinRoot(path, member)) continue;
       final relative = p.split(p.relative(path, from: member));
       if (relative.isNotEmpty && _sourceDirectories.contains(relative.first)) {
         return true;
       }
+    }
+    if (_isStandardSourcePath(path, root)) {
+      // 표준 디렉터리 안에 든 skip 멤버(예: example/nope)는 선언된 패키지인데
+      // 루트 소스로 색인되면 소유가 뒤바뀐다 — skipped 보고가 참이 되도록
+      // 루트 스코프에서 제외한다. skip 안쪽의 색인 멤버는 위 멤버 검사가
+      // 먼저 잡아낸다.
+      for (final skipped in skippedMemberAbsPaths) {
+        if (isPathWithinRoot(path, skipped)) return false;
+      }
+      return true;
     }
     final package = sourcePackages.where(
       (item) => isPathWithinRoot(path, p.join(item.path, 'lib')),
