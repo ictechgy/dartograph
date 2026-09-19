@@ -63,6 +63,7 @@ final class AnalyzerGraphResult {
     this.excludeGlobs = const [],
     this.metricsDistanceThreshold,
     this.metricsComplexityThreshold,
+    this.workspacePackages = const [],
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -122,6 +123,37 @@ final class AnalyzerGraphResult {
   /// `dartograph.yaml` `thresholds.complexity`다 — `metrics --strict`가
   /// 실패로 바꾸는 최대 순환 복잡도다. 미설정이면 null이다.
   final int? metricsComplexityThreshold;
+
+  /// `--workspace` 집계로 함께 분석된 워크스페이스 멤버의 매니페스트 사실
+  /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
+  final List<WorkspacePackage> workspacePackages;
+}
+
+/// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
+final class WorkspacePackage {
+  /// 멤버 매니페스트 사실을 보존한다.
+  const WorkspacePackage({
+    required this.path,
+    required this.name,
+    this.dependencies = const [],
+    this.devDependencies = const [],
+    this.dependencyOverrides = const [],
+  });
+
+  /// 스캔 루트 기준 posix 상대 경로다(예: `pkgs/pkg_a`).
+  final String path;
+
+  /// 멤버 pubspec의 패키지 이름이다.
+  final String name;
+
+  /// 멤버 pubspec `dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> dependencies;
+
+  /// 멤버 pubspec `dev_dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> devDependencies;
+
+  /// 멤버 pubspec `dependency_overrides` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> dependencyOverrides;
 }
 
 /// analyzer 14.3.0 resolved unit을 안정적인 core 그래프로 바꾼다.
@@ -131,12 +163,23 @@ final class AnalyzerGraphIndex {
   /// [incremental]이 주어지면 파일 단위 사실 캐시를 쓰는 증분 경로를 탄다. 이때는
   /// 전체 결과 캐시를 읽지도 쓰지도 않는다 — 입력 해시를 두 번 계산하지 않고,
   /// 사실 캐시가 같은 역할을 더 좁은 단위로 한다.
-  AnalyzerGraphIndex({FactCache? cache, IncrementalCache? incremental})
-    : _cache = cache,
-      _incremental = incremental;
+  ///
+  /// [aggregateWorkspace]가 true이면 스캔 루트의 pubspec `workspace:` 멤버를
+  /// 하나의 그래프로 함께 색인한다. 멤버의 표준 소스 디렉터리가 분석 대상에
+  /// 포함되고, 각 멤버의 `lib/<name>.dart`가 대표 라이브러리로 공개 API 보존
+  /// 근거를 제공한다. 루트가 pub workspace를 선언하지 않으면
+  /// [FormatException]이다.
+  AnalyzerGraphIndex({
+    FactCache? cache,
+    IncrementalCache? incremental,
+    bool aggregateWorkspace = false,
+  }) : _cache = cache,
+       _incremental = incremental,
+       _aggregateWorkspace = aggregateWorkspace;
 
   final FactCache? _cache;
   final IncrementalCache? _incremental;
+  final bool _aggregateWorkspace;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
@@ -150,7 +193,7 @@ final class AnalyzerGraphIndex {
     final linkEscapes = <String>{};
     final initialCacheKey = cache == null
         ? null
-        : await _tryAnalysisCacheKey(root, linkEscapes);
+        : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
     if (cache == null && _incremental == null) {
       // 캐시가 전혀 없는 경로는 입력 열거가 안 돌아 여기서 탈출 링크를 기록한다.
       await _analysisInputFiles(root, linkEscapes: linkEscapes);
@@ -158,7 +201,8 @@ final class AnalyzerGraphIndex {
     if (cache != null && initialCacheKey != null) {
       final cached = await _readCachedAnalysis(cache, initialCacheKey);
       if (cached != null &&
-          await _tryAnalysisCacheKey(root) == initialCacheKey) {
+          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+              initialCacheKey) {
         return cached;
       }
     }
@@ -175,7 +219,8 @@ final class AnalyzerGraphIndex {
       );
       if (cache != null &&
           initialCacheKey != null &&
-          await _tryAnalysisCacheKey(root) == initialCacheKey) {
+          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+              initialCacheKey) {
         await _writeCachedAnalysis(cache, initialCacheKey, result);
       }
       return result;
@@ -195,13 +240,37 @@ final class AnalyzerGraphIndex {
     List<Directory> sourcePackages, {
     Set<String>? linkEscapes,
   }) async {
-    final unitPaths = _dartFilesUnder(root, collection, sourcePackages);
+    final pubspecContent = _readPubspec(root);
+    final workspace = _aggregateWorkspace
+        ? _resolveWorkspace(root, pubspecContent)
+        : null;
+    final memberAbsPaths = [
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        member.absPath,
+    ];
+    // 보존 판정의 멤버 접두사 매칭은 긴 경로 먼저다 — 중첩 멤버
+    // (pkgs/a 안의 pkgs/a/b)에서 짧은 접두사가 먼저 잡히면 안쪽 멤버의
+    // 소스가 바깥 멤버 기준 상대 경로로 잘못 정규화된다.
+    final memberRelPaths = [
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        member.relPath,
+    ]..sort((a, b) => b.length - a.length);
+    final unitPaths = _dartFilesUnder(
+      root,
+      collection,
+      sourcePackages,
+      memberAbsPaths,
+      workspace?.skippedAbsPaths ?? const [],
+    );
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
-    final pubspecContent = _readPubspec(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
     // (잘못된 이름은 조립 단계의 FormatException, 종료 코드 2다).
-    final entryLibraryPath = _entryLibraryPath(root, pubspecContent);
+    final entryLibraryPaths = _entryLibraryPaths(
+      root,
+      pubspecContent,
+      workspace?.members ?? const [],
+    );
     final incremental = _incremental;
     if (incremental == null) {
       final facts = <String, _UnitFacts>{};
@@ -212,7 +281,8 @@ final class AnalyzerGraphIndex {
           collection: collection,
           path: path,
           entryPoints: entryPoints,
-          entryLibraryPath: entryLibraryPath,
+          entryLibraryPaths: entryLibraryPaths,
+          memberRelPaths: memberRelPaths,
         );
         if (extracted == null) continue;
         facts[extracted.source] = extracted;
@@ -226,6 +296,7 @@ final class AnalyzerGraphIndex {
         pubspecContent: pubspecContent,
         scope: scope,
         linkEscapes: linkEscapes,
+        workspace: workspace,
       );
     }
     return _analyzeIncrementally(
@@ -234,10 +305,12 @@ final class AnalyzerGraphIndex {
       unitPaths: unitPaths,
       entryPoints: entryPoints,
       pubspecContent: pubspecContent,
-      entryLibraryPath: entryLibraryPath,
+      entryLibraryPaths: entryLibraryPaths,
+      memberRelPaths: memberRelPaths,
       incremental: incremental,
       scope: scope,
       linkEscapes: linkEscapes,
+      workspace: workspace,
     );
   }
 
@@ -251,9 +324,11 @@ final class AnalyzerGraphIndex {
     required List<String> unitPaths,
     required Set<String>? entryPoints,
     required String? pubspecContent,
-    required String? entryLibraryPath,
+    required Set<String> entryLibraryPaths,
+    required List<String> memberRelPaths,
     required IncrementalCache incremental,
     required _ScopeConfig scope,
+    required _WorkspaceSpec? workspace,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -263,6 +338,7 @@ final class AnalyzerGraphIndex {
       root,
       sourcesOf.values.toSet(),
       linkEscapes: linkEscapes,
+      aggregateWorkspace: _aggregateWorkspace,
     );
     final resolutionKey = IncrementalCache.resolutionKey(
       toolVersion: toolVersion,
@@ -319,7 +395,8 @@ final class AnalyzerGraphIndex {
         collection: collection,
         path: path,
         entryPoints: entryPoints,
-        entryLibraryPath: entryLibraryPath,
+        entryLibraryPaths: entryLibraryPaths,
+        memberRelPaths: memberRelPaths,
       );
       if (extracted != null) facts[extracted.source] = extracted;
     }
@@ -349,7 +426,8 @@ final class AnalyzerGraphIndex {
           collection: collection,
           path: path,
           entryPoints: entryPoints,
-          entryLibraryPath: entryLibraryPath,
+          entryLibraryPaths: entryLibraryPaths,
+          memberRelPaths: memberRelPaths,
         );
         if (extracted == null) continue;
         facts[extracted.source] = extracted;
@@ -366,7 +444,8 @@ final class AnalyzerGraphIndex {
         collection: collection,
         path: path,
         entryPoints: entryPoints,
-        entryLibraryPath: entryLibraryPath,
+        entryLibraryPaths: entryLibraryPaths,
+        memberRelPaths: memberRelPaths,
       );
       if (extracted != null) {
         facts[extracted.source] = extracted;
@@ -384,6 +463,7 @@ final class AnalyzerGraphIndex {
       pubspecContent: pubspecContent,
       scope: scope,
       linkEscapes: linkEscapes,
+      workspace: workspace,
     );
     incremental.stats
       ..resolvedFiles = resolved.length
@@ -466,21 +546,41 @@ String? _readPubspec(String root) {
   return file.existsSync() ? readConfigurationSync(file) : null;
 }
 
-/// 대표 라이브러리(`lib/<패키지 이름>.dart`)의 루트 기준 상대 경로다.
+/// 루트와 집계된 워크스페이스 멤버의 대표 라이브러리(`lib/<패키지 이름>.dart`)
+/// 루트 기준 상대 경로 집합이다.
 ///
-/// pubspec이 없으면 null이다. 이름이 없거나 패키지 이름 규칙을 어기면
-/// [FormatException]이다 — 기존 `_addPublicApiRoots`와 같은 계약(종료 코드 2)을
-/// 유지해야 하고, 증분 경로도 해석 전에 같은 시점에 실패해야 캐시가 그 실패를
-/// 가리지 않는다.
-String? _entryLibraryPath(String root, String? pubspecContent) {
-  if (pubspecContent == null) return null;
-  final document = loadYaml(pubspecContent);
-  final packageName = document is YamlMap ? document['name'] : null;
-  if (packageName is! String ||
-      !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
-    throw const FormatException('pubspec name must be a valid package name');
+/// pubspec이 없으면 그 패키지의 항목만 비어 있다. 이름이 없거나 패키지 이름
+/// 규칙을 어기면 [FormatException]이다 — 기존 `_addPublicApiRoots`와 같은
+/// 계약(종료 코드 2)을 유지해야 하고, 증분 경로도 해석 전에 같은 시점에
+/// 실패해야 캐시가 그 실패를 가리지 않는다. 멤버의 `lib/<name>.dart`도 대표
+/// 라이브러리로 공개 API 보존 근거를 제공해야 워크스페이스 안에서 쓰이지 않는
+/// 멤버 공개 API가 미도달로 오인되지 않는다.
+Set<String> _entryLibraryPaths(
+  String root,
+  String? pubspecContent,
+  List<_WorkspaceMember> members,
+) {
+  final paths = <String>{};
+  void addEntry(String packageRoot, String? packagePubspec) {
+    if (packagePubspec == null) return;
+    final document = loadYaml(packagePubspec);
+    final packageName = document is YamlMap ? document['name'] : null;
+    if (packageName is! String ||
+        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
+      throw const FormatException('pubspec name must be a valid package name');
+    }
+    final relative = _relativeSourcePath(
+      p.join(packageRoot, 'lib', '$packageName.dart'),
+      root,
+    );
+    if (relative != null) paths.add(relative);
   }
-  return _relativeSourcePath(p.join(root, 'lib', '$packageName.dart'), root);
+
+  addEntry(root, pubspecContent);
+  for (final member in members) {
+    addEntry(member.absPath, member.pubspecContent);
+  }
+  return paths;
 }
 
 /// resolved unit 하나에서 그 파일에 국한된 사실을 뽑는다.
@@ -496,7 +596,8 @@ Future<_UnitFacts?> _resolveUnitFacts({
   required AnalysisContextCollection collection,
   required String path,
   required Set<String>? entryPoints,
-  required String? entryLibraryPath,
+  required Set<String> entryLibraryPaths,
+  required List<String> memberRelPaths,
 }) async {
   final resolved = await _contextIncluding(
     collection,
@@ -518,6 +619,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
       entryPoints,
       mainEntrySources,
       complexity,
+      memberRelPaths,
     ),
   );
   final edges = <GraphEdge>[];
@@ -558,7 +660,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
       source,
       generated: _isGenerated(resolved.path),
     ),
-    libraryFacts: _libraryFacts(root, library, entryLibraryPath),
+    libraryFacts: _libraryFacts(root, library, entryLibraryPaths),
     librarySource: _relativeSourcePath(
       library.firstFragment.source.fullName,
       root,
@@ -720,7 +822,7 @@ int _fnv1a(String text) {
 _LibraryFacts _libraryFacts(
   String root,
   LibraryElement library,
-  String? entryLibraryPath,
+  Set<String> entryLibraryPaths,
 ) {
   final imports = <String>[];
   for (final import in library.firstFragment.libraryImports) {
@@ -733,10 +835,10 @@ _LibraryFacts _libraryFacts(
     if (!exports.contains(target)) exports.add(target);
   }
   final publicApi = <String>[];
-  final entry = entryLibraryPath;
-  if (entry != null &&
-      p.normalize(library.firstFragment.source.fullName) ==
-          p.normalize(p.join(root, entry))) {
+  final librarySource = p.normalize(library.firstFragment.source.fullName);
+  if (entryLibraryPaths.any(
+    (entry) => librarySource == p.normalize(p.join(root, entry)),
+  )) {
     final exported = library.exportNamespace.definedNames2.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     for (final symbol in exported) {
@@ -1032,6 +1134,7 @@ AnalyzerGraphResult _assembleResult({
   required Set<String>? entryPoints,
   required String? pubspecContent,
   required _ScopeConfig scope,
+  _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
 }) {
   final graph = CodeGraph();
@@ -1090,9 +1193,17 @@ AnalyzerGraphResult _assembleResult({
       }
     }
   }
-  final limitations = <AnalyzerLimitation>{
-    ..._addPluginRoots(root, graph, retentionRoots, pubspecContent),
-  };
+  final limitations = <AnalyzerLimitation>{};
+  // 집계된 멤버의 pubspec도 플러그인 진입점을 선언할 수 있다 — federated
+  // plugin 모노레포가 pub workspace의 대표 배치라 멤버 클래스가 미보존으로
+  // 죽은 코드가 되지 않게 패키지마다 같은 스캔을 적용한다.
+  for (final content in [
+    pubspecContent,
+    for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+      member.pubspecContent,
+  ]) {
+    limitations.addAll(_addPluginRoots(root, graph, retentionRoots, content));
+  }
   if (sources.any((source) => facts[source]!.conditionalDirectives > 0)) {
     limitations.add(AnalyzerLimitation.conditionalConfiguration);
   }
@@ -1106,16 +1217,23 @@ AnalyzerGraphResult _assembleResult({
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
-  if (!_addBuildRunnerRoots(
-    root,
-    graph,
-    retentionRoots,
-    pubspecContent,
-    limitationDetails,
-  )) {
-    limitationDetails.add(
-      'build-yaml-unparsed: builder entry points could not be read',
-    );
+  for (final entry in [
+    ('build.yaml', root, pubspecContent),
+    for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+      ('${member.relPath}/build.yaml', member.absPath, member.pubspecContent),
+  ]) {
+    if (!_addBuildRunnerRoots(
+      entry.$2,
+      graph,
+      retentionRoots,
+      entry.$3,
+      limitationDetails,
+    )) {
+      limitationDetails.add(
+        'build-yaml-unparsed: builder entry points could not be read '
+        '(${entry.$1})',
+      );
+    }
   }
   final manifest = _manifestFacts(pubspecContent);
   final packageImports = <String, List<String>>{};
@@ -1173,15 +1291,45 @@ AnalyzerGraphResult _assembleResult({
       );
     }
   }
-  final workspaceMembers = _workspaceMemberPaths(pubspecContent);
-  if (workspaceMembers.isNotEmpty) {
-    // 워크스페이스 루트를 직접 스캔하면 멤버 패키지의 소스는 분석 대상
-    // 디렉터리 밖이라 결과에 나타나지 않는다 — 빈 그래프가 "소스 없음"과
-    // 구분되도록 선언된 멤버를 출력에 남긴다.
-    limitationDetails.add(
-      'workspace-members-not-indexed: ${workspaceMembers.join(', ')} are '
-      'separate workspace packages; run dartograph on each member root',
-    );
+  if (workspace == null) {
+    final workspaceMembers = _workspaceMemberPaths(pubspecContent);
+    if (workspaceMembers.isNotEmpty) {
+      // 워크스페이스 루트를 직접 스캔하면 멤버 패키지의 소스는 분석 대상
+      // 디렉터리 밖이라 결과에 나타나지 않는다 — 빈 그래프가 "소스 없음"과
+      // 구분되도록 선언된 멤버를 출력에 남긴다.
+      limitationDetails.add(
+        'workspace-members-not-indexed: ${workspaceMembers.join(', ')} are '
+        'separate workspace packages; run dartograph on each member root',
+      );
+    }
+  } else {
+    // 집계된 범위를 출력에 남긴다 — 같은 루트의 단일 패키지 결과와 합집합
+    // 결과가 limitation으로 구별돼야 스코프를 알 수 있다.
+    if (workspace.members.isNotEmpty) {
+      limitationDetails.add(
+        'workspace-members-indexed: '
+        '${workspace.members.map((member) => member.relPath).join(', ')} '
+        'were analyzed as part of this workspace',
+      );
+    }
+    if (workspace.skipped.isNotEmpty) {
+      limitationDetails.add(
+        'workspace-members-not-indexed: ${workspace.skipped.join(', ')} are '
+        'declared but were not indexed (unreadable member directory or '
+        'pubspec)',
+      );
+    }
+    // 멤버의 dartograph.yaml은 읽지 않는다 — 설정 경로는 스캔 루트 하나라
+    // 멤버가 자체 설정을 두고도 적용되지 않는 사실을 출력에 남긴다.
+    for (final member in workspace.members) {
+      if (File(p.join(member.absPath, 'dartograph.yaml')).existsSync()) {
+        limitationDetails.add(
+          'workspace-member-config-ignored: ${member.relPath} has '
+          'dartograph.yaml; member configs are not read during workspace '
+          'aggregation',
+        );
+      }
+    }
   }
   return AnalyzerGraphResult(
     graph: graph,
@@ -1197,6 +1345,16 @@ AnalyzerGraphResult _assembleResult({
     includeGlobs: List.unmodifiable(scope.includeGlobs),
     excludeGlobs: List.unmodifiable(scope.excludeGlobs),
     metricsDistanceThreshold: scope.distanceThreshold,
+    workspacePackages: [
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        WorkspacePackage(
+          path: member.relPath,
+          name: member.name,
+          dependencies: member.dependencies,
+          devDependencies: member.devDependencies,
+          dependencyOverrides: member.dependencyOverrides,
+        ),
+    ],
     metricsComplexityThreshold: scope.complexityThreshold,
     tokenSegments: List.unmodifiable(tokenSegments),
   );
@@ -1263,6 +1421,176 @@ List<String> _workspaceMemberPaths(String? pubspecContent) {
     for (final entry in workspace)
       if (entry is String) entry,
   ]..sort();
+}
+
+/// `--workspace` 집계에서 분석할 워크스페이스 멤버 하나다.
+final class _WorkspaceMember {
+  const _WorkspaceMember({
+    required this.relPath,
+    required this.absPath,
+    required this.name,
+    required this.pubspecContent,
+    required this.dependencies,
+    required this.devDependencies,
+    required this.dependencyOverrides,
+  });
+
+  /// 스캔 루트 기준 posix 상대 경로다(예: `pkgs/pkg_a`).
+  final String relPath;
+
+  /// 정규화된 절대 경로다(심볼릭 링크는 풀지 않는다 — 어휘적 경계).
+  final String absPath;
+
+  /// 멤버 pubspec의 패키지 이름이다.
+  final String name;
+
+  /// 멤버 pubspec 내용이다(플러그인·build.yaml 보존과 deps 감사 입력).
+  final String pubspecContent;
+
+  /// 멤버 pubspec `dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> dependencies;
+
+  /// 멤버 pubspec `dev_dependencies` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> devDependencies;
+
+  /// 멤버 pubspec `dependency_overrides` 섹션의 선언 패키지 이름이다(정렬).
+  final List<String> dependencyOverrides;
+}
+
+/// `--workspace` 집계 해석 결과다.
+final class _WorkspaceSpec {
+  const _WorkspaceSpec({
+    required this.members,
+    required this.skipped,
+    required this.skippedAbsPaths,
+  });
+
+  /// 색인된 멤버다(relPath 정렬).
+  final List<_WorkspaceMember> members;
+
+  /// 선언됐지만 색인하지 못한 항목의 표기다(정렬, 중복 제거).
+  final List<String> skipped;
+
+  /// [skipped] 항목의 절대 경로다 — 비문자열 항목 등 경로로 정규화할 수
+  /// 없는 표기는 들어 있지 않을 수 있다.
+  final List<String> skippedAbsPaths;
+}
+
+/// `--workspace` 집계가 쓸 워크스페이스 멤버를 해석한다.
+///
+/// 루트 pubspec이 `workspace:` 멤버 목록을 선언하지 않으면 [FormatException]이다
+/// — 플래그를 명시적으로 요구한 분석이 조용히 단일 패키지로 내려가지 않는다.
+/// 경로가 잘못됐거나 디렉터리·pubspec이 없는 멤버와 symlink 멤버 경로는
+/// 건너뛰고 `skipped`에 남긴다 — symlink는 해석 경로가 어휘적 접두사와
+/// 어긋나 루트 밖 읽기로 이어진다. 선언된 멤버가 전부 건너뛰어지면 같은
+/// 이유로 [FormatException]이다. 멤버 pubspec 이름 검증은 루트와 같은
+/// [FormatException] 계약이다.
+_WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
+  Object? document;
+  try {
+    document = pubspecContent == null ? null : loadYaml(pubspecContent);
+  } on Object {
+    document = null;
+  }
+  final workspace = document is YamlMap ? document['workspace'] : null;
+  if (workspace is! YamlList || workspace.isEmpty) {
+    throw const FormatException(
+      '--workspace requires a pub workspace root: pubspec.yaml declares no '
+      'workspace members',
+    );
+  }
+  final members = <String, _WorkspaceMember>{};
+  final skipped = <String>{};
+  final skippedAbsPaths = <String>{};
+  // 루트 자체는 symlink 조상을 가질 수 있다(/var→/private/var) — 멤버가
+  // 자기 경로 안에 링크를 숨기는지만 검사하려면 해석된 루트를 기준으로 비교한다.
+  final canonicalRoot = p.normalize(Directory(root).resolveSymbolicLinksSync());
+  for (final entry in workspace) {
+    if (entry is! String || entry.trim().isEmpty) {
+      skipped.add('$entry');
+      continue;
+    }
+    final rel = p.posix.normalize(entry);
+    final abs = p.normalize(p.joinAll([root, ...rel.split('/')]));
+    final canonicalMember = p.normalize(
+      p.joinAll([canonicalRoot, ...rel.split('/')]),
+    );
+    if (p.isAbsolute(rel) ||
+        rel == '.' ||
+        rel.split('/').contains('..') ||
+        !isPathWithinRoot(abs, root) ||
+        !Directory(abs).existsSync() ||
+        !File(p.join(abs, 'pubspec.yaml')).existsSync() ||
+        // 멤버 경로 자체가 symlink면 analyzer가 보고하는 해석 경로와 어휘적
+        // 멤버 접두사가 어긋나 루트 밖 파일을 탈출 기록 없이 읽는다 —
+        // source_packages와 같은 비symlink 계약으로 건너뛴다.
+        !p.equals(
+          p.normalize(Directory(abs).resolveSymbolicLinksSync()),
+          canonicalMember,
+        ) ||
+        // 멤버 pubspec만 바깥을 가리키는 symlink여도 같은 탈출 읽기다 —
+        // 이름 검증·매니페스트·plugin 스캔이 전부 그 내용을 먹는다.
+        !p.equals(
+          p.normalize(
+            File(p.join(abs, 'pubspec.yaml')).resolveSymbolicLinksSync(),
+          ),
+          p.join(canonicalMember, 'pubspec.yaml'),
+        )) {
+      skipped.add(rel);
+      skippedAbsPaths.add(abs);
+      continue;
+    }
+    final memberPubspec = readConfigurationSync(
+      File(p.join(abs, 'pubspec.yaml')),
+    );
+    final memberDocument = loadYaml(memberPubspec);
+    final name = memberDocument is YamlMap ? memberDocument['name'] : null;
+    if (name is! String ||
+        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
+      throw FormatException(
+        'workspace member pubspec name must be a valid package name: $rel',
+      );
+    }
+    final manifest = _manifestFacts(memberPubspec);
+    members.putIfAbsent(
+      rel,
+      () => _WorkspaceMember(
+        relPath: rel,
+        absPath: abs,
+        name: name,
+        pubspecContent: memberPubspec,
+        dependencies: manifest.dependencies,
+        devDependencies: manifest.devDependencies,
+        dependencyOverrides: manifest.dependencyOverrides,
+      ),
+    );
+  }
+  if (members.isEmpty) {
+    throw FormatException(
+      '--workspace resolved no members: every declared workspace entry was '
+      'skipped (${(skipped.toList()..sort()).join(', ')})',
+    );
+  }
+  final ordered = members.keys.toList()..sort();
+  return _WorkspaceSpec(
+    members: [for (final rel in ordered) members[rel]!],
+    skipped: skipped.toList()..sort(),
+    skippedAbsPaths: skippedAbsPaths.toList()..sort(),
+  );
+}
+
+/// 멤버 소스의 `project:` ID를 그 멤버 패키지 기준 상대 경로로 바꾼다.
+///
+/// [memberRelPaths]는 긴 것 먼저 정렬돼 있어야 한다(중첩 경로 방어).
+/// 멤버 밖 소스는 입력을 그대로 돌려준다.
+String _packageRelativeSource(String source, List<String> memberRelPaths) {
+  for (final rel in memberRelPaths) {
+    final prefix = 'project:$rel/';
+    if (source.startsWith(prefix)) {
+      return 'project:${source.substring(prefix.length)}';
+    }
+  }
+  return source;
 }
 
 /// `build.yaml`의 builder factory를 보존 루트로 삼는다. 읽을 수 있으면 true다.
@@ -1366,6 +1694,7 @@ _incrementalInputs(
   String root,
   Set<String> unitSources, {
   Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
 }) async {
   final unitHashes = <String, String>{};
   final inputs = <String>[];
@@ -1392,7 +1721,10 @@ _incrementalInputs(
   }
   final fingerprint = sha256
       .convert(
-        utf8.encode('$_cacheIdentity\u0000${inputs.join('\u0000')}\u0000'),
+        utf8.encode(
+          '$_cacheIdentity\u0000${aggregateWorkspace ? 'w1' : 'w0'}\u0000'
+          '${inputs.join('\u0000')}\u0000',
+        ),
       )
       .toString();
   return (unitHashes: unitHashes, configFingerprint: fingerprint);
@@ -1424,9 +1756,12 @@ Future<bool> _incrementalInputsUnchanged(
 /// 파일 열거·SDK 탐색·컨텍스트 선택 규칙을 공유해, 그래프와 다른 사실이 서로
 /// 다른 파일 집합을 보지 않게 한다. 그래프 캐시는 그래프 전용이므로 여기서는
 /// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
+/// [aggregateWorkspace]는 `AnalyzerGraphIndex`의 같은 이름과 같은 계약이다 —
+/// 선언된 워크스페이스 멤버의 표준 소스 디렉터리도 열거한다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(
   String rootPath, {
   Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
 }) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   if (linkEscapes != null) {
@@ -1434,13 +1769,26 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     await _analysisInputFiles(root, linkEscapes: linkEscapes);
   }
   final sourcePackages = _readSourcePackages(root);
+  final workspace = aggregateWorkspace
+      ? _resolveWorkspace(root, _readPubspec(root))
+      : null;
+  final memberAbsPaths = [
+    for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+      member.absPath,
+  ];
   final collection = AnalysisContextCollection(
     includedPaths: [root],
     sdkPath: _dartSdkPath(),
   );
   try {
     final units = <ResolvedUnitResult>[];
-    for (final path in _dartFilesUnder(root, collection, sourcePackages)) {
+    for (final path in _dartFilesUnder(
+      root,
+      collection,
+      sourcePackages,
+      memberAbsPaths,
+      workspace?.skippedAbsPaths ?? const [],
+    )) {
       final result = await _contextIncluding(
         collection,
         path,
@@ -1459,7 +1807,8 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
 // (packageImports·manifest) 추가로 v4가 됐다 — 추출 의미 변화 없이 필드만 늘었다.
 // 선언별 순환 복잡도 필드 추가로 v5다 — 역시 형식만 바뀐다.
 // include/exclude·thresholds 필드 추가로 v6다 — 역시 형식만 바뀐다.
-const _cacheSchemaVersion = 6;
+// workspacePackages 필드 추가로 v7다 — 역시 형식만 바뀐다.
+const _cacheSchemaVersion = 7;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
@@ -1471,15 +1820,22 @@ const _cacheSchemaVersion = 6;
 // 복잡도 카운터가 컬렉션 if 요소까지 세기 시작해(v12) 같은 소스의 점수가 바뀐다.
 // 워크스페이스 루트의 미색인 멤버 limitation(v13)으로 같은 입력의 결과가 바뀐다 —
 // 이전 캐시는 이 limitation 없이 재사용되므로 identity를 올려 폐기한다.
+// --workspace 멤버 집계(v14)로 같은 입력의 분석 대상·보존 루트가 바뀐다 — 플래그
+// 값도 키에 섞어 두 모드의 캐시 항목이 서로를 대신하지 않게 한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v13-workspace-members-limitation';
+    'dartograph-analysis-$toolVersion-cache-v14-workspace-aggregation';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
   Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
 ]) async {
   try {
-    return await _analysisCacheKey(root, linkEscapes: linkEscapes);
+    return await _analysisCacheKey(
+      root,
+      linkEscapes: linkEscapes,
+      aggregateWorkspace: aggregateWorkspace,
+    );
   } on Object {
     return null;
   }
@@ -1488,6 +1844,7 @@ Future<String?> _tryAnalysisCacheKey(
 Future<String> _analysisCacheKey(
   String root, {
   Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
 }) async {
   final files = await _analysisInputFiles(root, linkEscapes: linkEscapes);
   late Digest digest;
@@ -1495,7 +1852,12 @@ Future<String> _analysisCacheKey(
     (digests) => digest = digests.single,
   );
   final bytes = sha256.startChunkedConversion(digestSink);
-  bytes.add(utf8.encode('$_cacheIdentity\u0000${Platform.version}\u0000'));
+  bytes.add(
+    utf8.encode(
+      '$_cacheIdentity\u0000${Platform.version}\u0000'
+      '${aggregateWorkspace ? 'w1' : 'w0'}\u0000',
+    ),
+  );
   for (final file in files) {
     final relative = p.posix.joinAll(
       p.relative(file.path, from: root).split(p.separator),
@@ -1748,6 +2110,16 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'retentionRoots': {
       for (final id in rootIds) id: result.retentionRoots[id]!.name,
     },
+    'workspacePackages': [
+      for (final package in result.workspacePackages)
+        {
+          'dependencies': package.dependencies,
+          'dependencyOverrides': package.dependencyOverrides,
+          'devDependencies': package.devDependencies,
+          'name': package.name,
+          'path': package.path,
+        },
+    ],
     'schemaVersion': _cacheSchemaVersion,
   });
 }
@@ -1832,11 +2204,33 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
             ],
           ),
       ],
+      workspacePackages: [
+        for (final value in document['workspacePackages']! as List<Object?>)
+          _workspacePackageFromJson((value! as Map).cast<String, Object?>()),
+      ],
     );
   } on Object {
     return null;
   }
 }
+
+WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
+    WorkspacePackage(
+      path: json['path']! as String,
+      name: json['name']! as String,
+      dependencies: [
+        for (final name in json['dependencies']! as List<Object?>)
+          name! as String,
+      ],
+      devDependencies: [
+        for (final name in json['devDependencies']! as List<Object?>)
+          name! as String,
+      ],
+      dependencyOverrides: [
+        for (final name in json['dependencyOverrides']! as List<Object?>)
+          name! as String,
+      ],
+    );
 
 List<String> _agentLimitations(
   String root,
@@ -2007,6 +2401,7 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
     this.entryPoints,
     this.mainEntrySources,
     this.complexity,
+    this.memberRelPaths,
   );
 
   final CodeGraph graph;
@@ -2015,6 +2410,11 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
 
   /// 본문이 있는 실행 선언의 순환 복잡도다(선언 ID → 점수).
   final Map<String, int> complexity;
+
+  /// `--workspace` 집계 시 스캔 루트 기준 멤버 상대 경로다(긴 것 먼저 정렬).
+  /// 멤버 소스의 보존 판정은 그 멤버 패키지 기준 상대 경로로 한다 — 멤버의
+  /// `lib/`·`test/` 등이 루트 표준 디렉터리와 같은 보존 규칙을 받는다.
+  final List<String> memberRelPaths;
 
   /// null이면 `lib/`·`bin/`·`example/`의 모든 main을 보수적으로 보존한다.
   /// 값이 있으면 나열된 진입점 파일의 main만 보존 루트로 삼는다.
@@ -2059,6 +2459,7 @@ final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
         source,
         entryPoints,
         mainEntrySources,
+        memberRelPaths,
       );
       if (reason != null) retentionRoots[id] = reason;
       // 사용자의 명시적 억제 지시(인라인 주석)가 다른 보존 이유를 덮는다.
@@ -2636,28 +3037,37 @@ RetentionReason? _retentionReason(
   String source,
   Set<String>? entryPoints,
   Set<String> mainEntrySources,
+  List<String> memberRelPaths,
 ) {
+  // 워크스페이스 멤버 소스의 보존 판정은 그 멤버 패키지 기준 상대 경로로 한다 —
+  // `pkgs/pkg_a/lib/x.dart`는 pkg_a 패키지의 `lib/x.dart`로 평가된다.
+  final packageSource = _packageRelativeSource(source, memberRelPaths);
+  final isMemberSource = packageSource != source;
   if (element is TopLevelFunctionElement &&
       element.displayName == 'main' &&
       const [
         'project:lib/',
         'project:bin/',
         'project:example/',
-      ].any(source.startsWith)) {
+      ].any(packageSource.startsWith)) {
     mainEntrySources.add(source);
-    if (entryPoints == null || entryPoints.contains(source)) {
+    // 설정된 진입점의 축소는 스캔 루트 패키지에만 적용한다 — 멤버 패키지는
+    // 자체 entry_points 설정 경로가 없어 기본 보수 정책을 유지한다.
+    if (isMemberSource || entryPoints == null || entryPoints.contains(source)) {
       return RetentionReason.mainEntryPoint;
     }
     // 설정된 진입점이 아닌 main은 강제 루트로 보존하지 않는다.
     // 다른 보존 근거(pragma·생성 코드 등)는 계속 검사한다.
   }
-  if (source.startsWith('project:test/') ||
-      source.startsWith('project:integration_test/') ||
-      source.startsWith('project:example/test/') ||
-      source.startsWith('project:example/integration_test/')) {
+  if (packageSource.startsWith('project:test/') ||
+      packageSource.startsWith('project:integration_test/') ||
+      packageSource.startsWith('project:example/test/') ||
+      packageSource.startsWith('project:example/integration_test/')) {
     return RetentionReason.visibleForTesting;
   }
-  if (_isGenerated(source)) return RetentionReason.generatedCode;
+  if (_isGenerated(packageSource)) {
+    return RetentionReason.generatedCode;
+  }
   for (final annotation in node.metadata) {
     final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
@@ -3108,10 +3518,28 @@ List<String> _dartFilesUnder(
   String root,
   AnalysisContextCollection collection,
   List<Directory> sourcePackages,
+  List<String> memberAbsPaths,
+  List<String> skippedMemberAbsPaths,
 ) {
   final paths = <String>{};
   bool inAnalysisScope(String path) {
-    if (_isStandardSourcePath(path, root)) return true;
+    for (final member in memberAbsPaths) {
+      if (!isPathWithinRoot(path, member)) continue;
+      final relative = p.split(p.relative(path, from: member));
+      if (relative.isNotEmpty && _sourceDirectories.contains(relative.first)) {
+        return true;
+      }
+    }
+    if (_isStandardSourcePath(path, root)) {
+      // 표준 디렉터리 안에 든 skip 멤버(예: example/nope)는 선언된 패키지인데
+      // 루트 소스로 색인되면 소유가 뒤바뀐다 — skipped 보고가 참이 되도록
+      // 루트 스코프에서 제외한다. skip 안쪽의 색인 멤버는 위 멤버 검사가
+      // 먼저 잡아낸다.
+      for (final skipped in skippedMemberAbsPaths) {
+        if (isPathWithinRoot(path, skipped)) return false;
+      }
+      return true;
+    }
     final package = sourcePackages.where(
       (item) => isPathWithinRoot(path, p.join(item.path, 'lib')),
     );

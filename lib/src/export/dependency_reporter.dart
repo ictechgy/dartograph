@@ -16,7 +16,11 @@ abstract final class DependencyReporter {
     Iterable<String> limitations = const [],
   }) {
     final findings = input.toList()
-      ..sort((a, b) => '${a.kind} ${a.name}'.compareTo('${b.kind} ${b.name}'));
+      ..sort(
+        (a, b) => '${a.kind} ${a.name} ${a.manifest ?? ''}'.compareTo(
+          '${b.kind} ${b.name} ${b.manifest ?? ''}',
+        ),
+      );
     final limits = limitations.toSet().toList()..sort();
     return switch (format) {
       ReportFormat.text => _text(findings, limits),
@@ -32,7 +36,8 @@ abstract final class DependencyReporter {
     final output = StringBuffer();
     for (final finding in findings) {
       output.writeln(
-        'pubspec.yaml: warning: ${ReportEscapes.escapeText(finding.kind)} '
+        '${ReportEscapes.escapeText(finding.manifest ?? 'pubspec.yaml')}: '
+        'warning: ${ReportEscapes.escapeText(finding.kind)} '
         '${ReportEscapes.escapeText(finding.name)} — '
         '${ReportEscapes.escapeText(finding.reason)}',
       );
@@ -61,8 +66,16 @@ abstract final class DependencyReporter {
     output.writeln('| Report | deps |');
     output.writeln('| Findings | ${findings.length} |');
     output.writeln();
-    output.writeln('| Severity | Kind | Package | Reason | Evidence |');
-    output.writeln('|---|---|---|---|---|');
+    // 워크스페이스 집계만 Manifest 열을 연다 — 단일 패키지 출력은 그대로다.
+    final manifests = findings.any((finding) => finding.manifest != null);
+    output.writeln(
+      manifests
+          ? '| Severity | Kind | Package | Manifest | Reason | Evidence |'
+          : '| Severity | Kind | Package | Reason | Evidence |',
+    );
+    output.writeln(
+      manifests ? '|---|---|---|---|---|---|' : '|---|---|---|---|---|',
+    );
     for (final finding in findings) {
       final evidence = finding.sources.isEmpty
           ? '—'
@@ -70,9 +83,12 @@ abstract final class DependencyReporter {
                 .map(ReportEscapes.sourcePath)
                 .map(ReportEscapes.mdCode)
                 .join(', ');
+      final manifestCell = manifests
+          ? '${ReportEscapes.mdCode(finding.manifest ?? 'pubspec.yaml')} | '
+          : '';
       output.writeln(
         '| warning | ${ReportEscapes.mdCell(finding.kind)} | '
-        '${ReportEscapes.mdCode(finding.name)} | '
+        '${ReportEscapes.mdCode(finding.name)} | $manifestCell'
         '${ReportEscapes.mdCell(finding.reason)} | $evidence |',
       );
     }
@@ -95,7 +111,8 @@ abstract final class DependencyReporter {
           '${finding.kind} ${finding.name}: ${finding.reason}'
           '${finding.sources.isEmpty ? '' : '; evidence: sources=${finding.sources.map(ReportEscapes.sourcePath).join(',')}'}';
       output.writeln(
-        '::warning file=pubspec.yaml,title=dartograph deps::${ReportEscapes.githubMessage(message)}',
+        '::warning file=${ReportEscapes.githubProperty(finding.manifest ?? 'pubspec.yaml')},'
+        'title=dartograph deps::${ReportEscapes.githubMessage(message)}',
       );
     }
     for (final limitation in limits) {
@@ -116,7 +133,11 @@ abstract final class DependencyReporter {
             'locations': [
               {
                 'physicalLocation': {
-                  'artifactLocation': {'uri': 'pubspec.yaml'},
+                  'artifactLocation': {
+                    'uri': ReportEscapes.sarifUri(
+                      'project:${finding.manifest ?? 'pubspec.yaml'}',
+                    ),
+                  },
                 },
               },
             ],
@@ -127,6 +148,7 @@ abstract final class DependencyReporter {
               'kind': finding.kind,
               'name': finding.name,
               'sources': finding.sources,
+              if (finding.manifest != null) 'manifest': finding.manifest,
             },
             'ruleId': 'deps-${finding.kind}',
           },

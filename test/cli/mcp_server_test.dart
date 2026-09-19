@@ -611,6 +611,7 @@ void main() {
       final schema = tool['inputSchema'] as Map<String, Object?>;
       expect(schema['type'], 'object');
       expect((schema['required'] as List), contains('packageRoot'));
+      expect((schema['properties'] as Map).keys, contains('workspace'));
     }
   });
 
@@ -1315,4 +1316,94 @@ void main() {
       'runtime_query',
     ]);
   });
+
+  test(
+    'tools validate the workspace flag and forward --workspace to the CLI',
+    () async {
+      writeSource(directory.path, 'class Foo {}');
+      final responses = await exchange([
+        // 불리언이 아닌 workspace는 모든 도구에서 인자 오류다.
+        request(1, 'tools/call', {
+          'name': dependencyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'symbol': 'Foo',
+            'workspace': 'yes',
+          },
+        }),
+        request(2, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'cycles',
+            'workspace': 'yes',
+          },
+        }),
+        request(3, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'symbol': 'Foo',
+            'workspace': 'yes',
+          },
+        }),
+        request(4, 'tools/call', {
+          'name': 'runtime_query',
+          'arguments': {'packageRoot': directory.path, 'workspace': 'yes'},
+        }),
+        // workspace: true — indexPackage 주입 경로에서는 플래그가 소비되고
+        // 정상 응답이 돌아온다.
+        request(5, 'tools/call', {
+          'name': dependencyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'symbol': 'Foo',
+            'workspace': true,
+          },
+        }),
+        request(6, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'cycles',
+            'workspace': true,
+          },
+        }),
+        // runtime은 indexPackage를 타지 않는다 — --workspace가 실제로
+        // 전달돼야 workspace 없는 루트에서 분석 실패(exit 2)가 된다.
+        request(7, 'tools/call', {
+          'name': 'runtime_query',
+          'arguments': {'packageRoot': directory.path, 'workspace': true},
+        }),
+        // 통합 진입점 — 형태별 허용 키와 재배치에 workspace가 포함된다.
+        explore(8, directory.path, {'symbol': 'Foo', 'workspace': true}),
+        explore(9, directory.path, {'command': 'cycles', 'workspace': true}),
+        explore(10, directory.path, {'command': 'runtime', 'workspace': true}),
+        explore(11, directory.path, {'command': 'runtime', 'workspace': 'yes'}),
+      ]);
+
+      for (var index = 0; index < 4; index++) {
+        expect(
+          textOf(responses[index]),
+          contains('workspace must be a boolean'),
+        );
+      }
+      expect(textOf(responses[4]), startsWith('exitCode: 0\n'));
+      expect(textOf(responses[5]), startsWith('exitCode: 0\n'));
+      expect(textOf(responses[6]), startsWith('exitCode: 2\n'));
+      expect(
+        textOf(responses[7]),
+        startsWith('routed: dependency_query\nexitCode: 0\n'),
+      );
+      expect(
+        textOf(responses[8]),
+        startsWith('routed: verify_run\nexitCode: 0\n'),
+      );
+      expect(
+        textOf(responses[9]),
+        startsWith('routed: runtime_query\nexitCode: 2\n'),
+      );
+      expect(textOf(responses[10]), contains('workspace must be a boolean'));
+    },
+  );
 }

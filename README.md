@@ -151,9 +151,11 @@ Full arguments, output formats, exit codes, and CI examples live in
   time (environment/dart-define reads, dynamic loads, config paths, assets,
   external URLs) and judges them against the current environment; `--execute`
   runs an entrypoint and records exit code and stderr as execution evidence.
-- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns, and
-  `--record <dir>`/`history` keep an append-only ledger of run inputs,
-  versions, and results.
+- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns,
+  `--workspace` opts into pub workspace aggregation (members listed in the
+  root pubspec's `workspace:` are analyzed together; `deps` audits each
+  package against its own pubspec), and `--record <dir>`/`history` keep an
+  append-only ledger of run inputs, versions, and results.
 - A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
   GitHub Actions: it activates a published release (or a checked-out source
   path), analyzes a package, and writes one report file. See the pinned example

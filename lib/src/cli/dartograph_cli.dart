@@ -330,11 +330,13 @@ final class _IndexedArguments {
   final IndexPackage index;
 }
 
-/// 색인 명령 인자에서 `--incremental <dir>`를 떼어내고 색인 함수를 고른다.
+/// 색인 명령 인자에서 `--incremental <dir>`와 `--workspace`를 떼어내고 색인
+/// 함수를 고른다.
 ///
 /// 디렉터리는 호출자가 정한다(없으면 만든다). 옵션 모양의 값·중복·값 누락은
-/// usage(64)다 — 다른 옵션과 같은 규칙이다. 옵션이 없으면 기존 경로 그대로
-/// 기본 색인을 쓴다.
+/// usage(64)다 — 다른 옵션과 같은 규칙이다. `--workspace`는 값을 받지 않는
+/// 스위치다 — pub workspace 멤버를 같은 그래프로 집계한다(중복 지정은
+/// usage다). 옵션이 없으면 기존 경로 그대로 기본 색인을 쓴다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
@@ -342,7 +344,18 @@ _IndexedArguments? _indexArguments(
 ) {
   final remaining = arguments.skip(1).toList();
   String? directory;
+  var workspace = false;
   for (var index = 0; index < remaining.length; index++) {
+    if (remaining[index] == '--workspace') {
+      if (workspace) {
+        error.write(_help);
+        return null;
+      }
+      workspace = true;
+      remaining.removeAt(index);
+      index--;
+      continue;
+    }
     if (remaining[index] != '--incremental') continue;
     if (directory != null ||
         index + 1 >= remaining.length ||
@@ -358,9 +371,10 @@ _IndexedArguments? _indexArguments(
   final target = directory;
   return _IndexedArguments(
     remaining,
-    target == null
-        ? AnalyzerGraphIndex().index
-        : AnalyzerGraphIndex(incremental: IncrementalCache(target)).index,
+    AnalyzerGraphIndex(
+      incremental: target == null ? null : IncrementalCache(target),
+      aggregateWorkspace: workspace,
+    ).index,
   );
 }
 
@@ -2746,27 +2760,99 @@ Future<int> _runDeps(
   try {
     final indexed = await indexPackage(rootPath);
     final limitations = _limitations(indexed);
-    final declared = <String>{
-      ...indexed.declaredDependencies,
-      ...indexed.declaredDevDependencies,
-      ...indexed.declaredDependencyOverrides,
-    };
-    final toolCheck = detectToolLikeDependencies(rootPath, declared);
-    limitations.addAll(toolCheck.limitations);
     limitations.add(
       'package-usage: usage is observed from package: import/export directives '
       'only; runtime loading, generated-code, and asset references are '
       'invisible to this audit',
     );
-    var findings = DependencyAudit()
-        .audit(
+    var findings = <DependencyFinding>[];
+    if (indexed.workspacePackages.isEmpty) {
+      final declared = <String>{
+        ...indexed.declaredDependencies,
+        ...indexed.declaredDevDependencies,
+        ...indexed.declaredDependencyOverrides,
+      };
+      final toolCheck = detectToolLikeDependencies(rootPath, declared);
+      limitations.addAll(toolCheck.limitations);
+      findings = DependencyAudit()
+          .audit(
+            packageName: indexed.packageName,
+            dependencies: indexed.declaredDependencies,
+            devDependencies: indexed.declaredDevDependencies,
+            dependencyOverrides: indexed.declaredDependencyOverrides,
+            packageImports: indexed.packageImports,
+            toolLike: toolCheck.toolLike,
+          )
+          .toList();
+    } else {
+      // 패키지마다 자기 pubspec 선언과 자기 소스로 감사한다 — 루트 매니페스트를
+      // 멤버 소스에 적용하면 멤버의 선언·사용이 모두 잘못 판정된다.
+      final memberPaths = [
+        for (final member in indexed.workspacePackages) member.path,
+      ]..sort((a, b) => b.length - a.length);
+      String ownerOf(String source) {
+        for (final path in memberPaths) {
+          if (source.startsWith('project:$path/')) return path;
+        }
+        return '';
+      }
+
+      Map<String, List<String>> importsFor(String owner) {
+        final scoped = <String, List<String>>{};
+        for (final entry in indexed.packageImports.entries) {
+          final sources = [
+            for (final source in entry.value)
+              if (ownerOf(source) == owner) source,
+          ];
+          if (sources.isNotEmpty) scoped[entry.key] = sources;
+        }
+        return scoped;
+      }
+
+      final rootDeclared = <String>{
+        ...indexed.declaredDependencies,
+        ...indexed.declaredDevDependencies,
+        ...indexed.declaredDependencyOverrides,
+      };
+      final rootToolCheck = detectToolLikeDependencies(rootPath, rootDeclared);
+      limitations.addAll(rootToolCheck.limitations);
+      findings.addAll(
+        DependencyAudit().audit(
           packageName: indexed.packageName,
           dependencies: indexed.declaredDependencies,
           devDependencies: indexed.declaredDevDependencies,
           dependencyOverrides: indexed.declaredDependencyOverrides,
-          packageImports: indexed.packageImports,
-          toolLike: toolCheck.toolLike,
-        )
+          packageImports: importsFor(''),
+          toolLike: rootToolCheck.toolLike,
+          manifest: 'pubspec.yaml',
+        ),
+      );
+      for (final member in indexed.workspacePackages) {
+        final declared = <String>{
+          ...member.dependencies,
+          ...member.devDependencies,
+          ...member.dependencyOverrides,
+        };
+        final memberToolCheck = detectToolLikeDependencies(
+          p.join(rootPath, member.path),
+          declared,
+        );
+        limitations.addAll(memberToolCheck.limitations);
+        findings.addAll(
+          DependencyAudit().audit(
+            packageName: member.name,
+            dependencies: member.dependencies,
+            devDependencies: member.devDependencies,
+            dependencyOverrides: member.dependencyOverrides,
+            packageImports: importsFor(member.path),
+            toolLike: memberToolCheck.toolLike,
+            productionPrefix: 'project:${member.path}/lib/',
+            manifest: '${member.path}/pubspec.yaml',
+          ),
+        );
+      }
+    }
+    findings = findings
         .where((finding) => kinds == null || kinds.contains(finding.kind))
         .toList();
     final scope = _scopeMatchers(indexed.includeGlobs, indexed.excludeGlobs);
@@ -2794,6 +2880,7 @@ Future<int> _runDeps(
             kind: finding.kind,
             reason: finding.reason,
             sources: sources,
+            manifest: finding.manifest,
           ),
         );
       }
@@ -2807,7 +2894,9 @@ Future<int> _runDeps(
       ),
     );
     failedItems.addAll([
-      for (final finding in findings) 'deps:${finding.kind}:${finding.name}',
+      for (final finding in findings)
+        'deps:${finding.kind}:${finding.name}'
+            '${finding.manifest == null ? '' : ':${finding.manifest}'}',
     ]);
     return findings.isEmpty
         ? ExitStatus.success.code
@@ -3257,6 +3346,7 @@ Future<int> _runRuntime(
   // 입력이 판정에 쓰였다고 믿게 된다.
   var verify = true;
   var verifySeen = false;
+  var workspace = false;
   RuntimeFormat? format;
   final dartDefines = <String, String>{};
   final environment = <String, String>{};
@@ -3269,7 +3359,10 @@ Future<int> _runRuntime(
   String? rootPath;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if ((argument == '--verify' || argument == '--no-verify') && !verifySeen) {
+    if (argument == '--workspace' && !workspace) {
+      workspace = true;
+    } else if ((argument == '--verify' || argument == '--no-verify') &&
+        !verifySeen) {
       verifySeen = true;
       verify = argument == '--verify';
     } else if (argument == '--format' && format == null) {
@@ -3412,6 +3505,7 @@ Future<int> _runRuntime(
     final facts = await RuntimeScanner().scan(
       rootPath,
       linkEscapes: linkEscapes,
+      aggregateWorkspace: workspace,
     );
     RuntimeExecution? execution;
     if (entrypoint != null) {
@@ -3571,33 +3665,33 @@ dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
-       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
-       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <git-ref> <package-root>
+       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
-       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
+       dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--workspace] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
-       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
@@ -3727,6 +3821,19 @@ baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
 다르거나 쓸 수 없으면 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을
 때만 그 사실을 limitation으로 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다.
+
+The same commands accept --workspace (runtime too), which opts into pub
+workspace aggregation: members listed in the root pubspec's workspace: list
+are analyzed into one graph instead of being reported as
+workspace-members-not-indexed. Each member's standard source directories
+(lib, bin, example, integration_test, test) join the analysis, member
+lib/<name>.dart libraries keep public-API retention, and deps audits every
+package against its own pubspec (each finding names its manifest). Members
+with missing directories or pubspecs are skipped and reported; a root that
+declares no workspace: members, or a member pubspec with an invalid package
+name, fails the analysis (exit 2). Member dartograph.yaml files are not
+read — the root's configuration applies to the aggregate and an ignored
+member config is reported as a limitation.
 
 The same commands accept --record <dir>, which appends one JSON line per run to
 <dir>/ledger.jsonl: tool version, UTC time, command, exit code, observed Git

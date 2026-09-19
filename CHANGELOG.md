@@ -4,6 +4,21 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Opt-in `--workspace` aggregates a pub workspace: when the root
+  `pubspec.yaml` declares `workspace:` members, index-consuming commands
+  (`graph`, `query`, `dead`, `deps`, `dup`, `cycles`, `rules`, `metrics`,
+  `impact`, `baseline`, `runtime`) analyze the root and every member
+  package together, with member `lib/`/`test/`/`bin/`/`example/` sources,
+  barrels, plugins, and `build.yaml` entry points retained per package.
+  `deps --workspace` audits each package against its own pubspec and
+  attributes findings with a `manifest` field (text/Markdown columns,
+  GitHub Actions `file=`, and SARIF artifact URIs point at the owning
+  pubspec). Member `dartograph.yaml` files are ignored and reported;
+  unreadable or symlinked member paths are skipped and reported, and
+  the flag fails the analysis (exit 2) when the root pubspec declares
+  no `workspace:` members or every declared member is skipped.
+  Aggregate results use separate cache keys from single-package scans.
+  MCP tools accept a matching `workspace` boolean.
 - New read-only MCP tool `dartograph_explore` is a single entry point:
   pass `packageRoot` plus exactly one question shape and it routes
   internally — `symbol`/`batch` to `dependency_query` (with `withSource`

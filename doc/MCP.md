@@ -90,6 +90,10 @@ stdio 프레이밍은 JSON-RPC 메시지 한 줄당 1MiB 상한이 있다. 상�
 `command`와 `since`의 조합은 영향 질의가 아니라 `dead --since`로 해석된다.
 어떤 형태도 없으면 오류가 아니라 `routed: help`의 형태 안내를 돌려준다.
 
+`workspace` boolean은 어느 형태와도 결합할 수 있는 공통 수정자다 — 라우팅된
+도구의 `--workspace`로 전달돼 pub workspace 멤버를 하나의 그래프로 집계한다
+(아래 각 도구 표 참조).
+
 ```json
 {"jsonrpc":"2.0","id":1,"method":"tools/call",
  "params":{"name":"dartograph_explore","arguments":{
@@ -114,6 +118,7 @@ exitCode: 0
 | `symbol` | string | | 종속자를 볼 심볼 ID |
 | `depth` | integer ≥1 | | 전이 한계(기본 무제한) |
 | `limit` | integer ≥1 | | 보고 항목 수 제한 |
+| `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`) |
 
 `since`·`changed`·`symbol` 중 **정확히 하나**를 준다.
 
@@ -152,6 +157,7 @@ exitCode: 0
 | `baseline` | string | | `baseline --write`로 만든 파일 |
 | `withSource` | boolean | | 보고된 선언 위치의 소스 줄을 함께 돌려준다 |
 | `sourceContext` | integer ≥0 | | `withSource`일 때 위치 앞뒤 줄 수(기본 0) |
+| `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`) |
 
 `symbol`·`batch` 중 정확히 하나를 준다. `notFound`·`ambiguous`는 오류가 아니라 정상
 결과로 돌아오며 부분 미발견이면 `exitCode: 64`다. `sourceContext`는 `withSource: true`
@@ -169,6 +175,7 @@ exitCode: 0
 |---|---|---|---|
 | `packageRoot` | string | ✔ | 분석할 패키지 루트 |
 | `limit` | integer ≥1 | | 카테고리별 보고 항목 수 제한 |
+| `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`) |
 
 응답 텍스트 첫 줄은 `exitCode: 0`이고 이어서 runtime-report version 1 JSON이
 온다. `detected`·`limitations`는 채워지고 `verified`·`unverified`·`execution`은
@@ -191,6 +198,7 @@ exitCode: 0
 | `baseline` | string | | `dead --baseline` |
 | `config` | string | | `rules --config`의 layers.yaml |
 | `format` | enum | | `dead`·`deps`·`dup`: `text`·`json`·`markdown`·`github-actions`·`sarif`; `cycles`·`rules`·`metrics`: `text`·`json`·`sarif` |
+| `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`). `deps`는 패키지별 pubspec 감사·`manifest` 귀속 |
 
 `closedApp: true`를 `dead`가 아닌 명령에 주면 인자 오류로 거절한다 — 다른 명령에서는
 의도 없이 무시되는 플래그를 받지 않는다. `minTokens`는 `dup` 전용, `kinds`는
@@ -266,7 +274,8 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "depth": {"type": "integer", "minimum": 1},
         "limit": {"type": "integer", "minimum": 1},
         "withSource": {"type": "boolean"},
-        "sourceContext": {"type": "integer", "minimum": 0}
+        "sourceContext": {"type": "integer", "minimum": 0},
+        "workspace": {"type": "boolean"}
       },
       "required": ["packageRoot"],
       "additionalProperties": false
@@ -282,7 +291,8 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "changed": {"type": "array", "items": {"type": "string"}},
         "symbol": {"type": "string"},
         "depth": {"type": "integer", "minimum": 1},
-        "limit": {"type": "integer", "minimum": 1}
+        "limit": {"type": "integer", "minimum": 1},
+        "workspace": {"type": "boolean"}
       },
       "required": ["packageRoot"],
       "additionalProperties": false
@@ -300,7 +310,8 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "limit": {"type": "integer", "minimum": 1},
         "baseline": {"type": "string"},
         "withSource": {"type": "boolean"},
-        "sourceContext": {"type": "integer", "minimum": 0}
+        "sourceContext": {"type": "integer", "minimum": 0},
+        "workspace": {"type": "boolean"}
       },
       "required": ["packageRoot"],
       "additionalProperties": false
@@ -312,13 +323,16 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
       "type": "object",
       "properties": {
         "packageRoot": {"type": "string"},
-        "command": {"type": "string", "enum": ["dead", "deps", "cycles", "rules", "metrics"]},
+        "command": {"type": "string", "enum": ["dead", "deps", "dup", "cycles", "rules", "metrics"]},
         "strict": {"type": "boolean"},
+        "minTokens": {"type": "integer"},
+        "kinds": {"type": "array", "items": {"type": "string"}},
         "closedApp": {"type": "boolean"},
         "since": {"type": "string"},
         "baseline": {"type": "string"},
         "config": {"type": "string"},
-        "format": {"type": "string", "enum": ["text", "json", "markdown", "github-actions", "sarif"]}
+        "format": {"type": "string", "enum": ["text", "json", "markdown", "github-actions", "sarif"]},
+        "workspace": {"type": "boolean"}
       },
       "required": ["packageRoot", "command"],
       "additionalProperties": false
@@ -330,7 +344,8 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
       "type": "object",
       "properties": {
         "packageRoot": {"type": "string"},
-        "limit": {"type": "integer", "minimum": 1}
+        "limit": {"type": "integer", "minimum": 1},
+        "workspace": {"type": "boolean"}
       },
       "required": ["packageRoot"],
       "additionalProperties": false

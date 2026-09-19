@@ -10,6 +10,7 @@ final class DependencyFinding {
     required this.kind,
     required this.reason,
     this.sources = const [],
+    this.manifest,
   });
 
   /// pubspec 또는 import 지시문에 나온 패키지 이름이다.
@@ -32,12 +33,21 @@ final class DependencyFinding {
   /// 그 이름을 참조하는 소스 ID(`project:…`) 목록이다. 미사용 발견은 비어 있다.
   final List<String> sources;
 
+  /// 이 발견이 귀속되는 pubspec의 패키지 루트 기준 경로다.
+  ///
+  /// `--workspace` 집계는 패키지별 매니페스트로 감사하므로 발견이 어느
+  /// pubspec의 선언을 말하는지 식별해야 한다 — 루트는 `pubspec.yaml`, 멤버는
+  /// `pkgs/foo/pubspec.yaml` 같은 경로다. 단일 패키지 실행은 null이고 JSON
+  /// 출력에도 키가 나타나지 않는다(기존 계약 유지).
+  final String? manifest;
+
   /// 키와 목록 순서가 안정적인 JSON 값이다.
   Map<String, Object?> toJson() => {
     'kind': kind,
     'name': name,
     'reason': reason,
     'sources': sources,
+    if (manifest != null) 'manifest': manifest,
   };
 }
 
@@ -47,6 +57,10 @@ final class DependencyAudit {
   ///
   /// [toolLike]는 실행 파일·builder·lint include·analyzer plugin 계약이 확인된
   /// 패키지 이름이다 — 그 선언은 import가 없어도 사용 중으로 본다.
+  /// [productionPrefix]는 `dev-dependency-in-lib`이 게시 대상 소스로 인식하는
+  /// `project:` 접두사다 — 기본은 루트 `lib/`이고 워크스페이스 멤버 감사는
+  /// `project:<member>/lib/`를 준다. [manifest]가 주어지면 모든 발견에 그
+  /// pubspec 경로를 귀속시킨다(워크스페이스 집계의 패키지별 감사).
   List<DependencyFinding> audit({
     String? packageName,
     required List<String> dependencies,
@@ -54,6 +68,8 @@ final class DependencyAudit {
     required List<String> dependencyOverrides,
     required Map<String, List<String>> packageImports,
     required Set<String> toolLike,
+    String productionPrefix = 'project:lib/',
+    String? manifest,
   }) {
     final findings = <DependencyFinding>[];
     final declared = {
@@ -70,6 +86,7 @@ final class DependencyAudit {
           reason:
               'declared in dependencies but no package: import or export '
               'references it',
+          manifest: manifest,
         ),
       );
     }
@@ -82,6 +99,7 @@ final class DependencyAudit {
           reason:
               'declared in dev_dependencies but no package: import or export '
               'references it',
+          manifest: manifest,
         ),
       );
     }
@@ -89,7 +107,7 @@ final class DependencyAudit {
       final importers = packageImports[name];
       if (importers == null) continue;
       final production = importers
-          .where((source) => source.startsWith('project:lib/'))
+          .where((source) => source.startsWith(productionPrefix))
           .toList();
       if (production.isEmpty) continue;
       findings.add(
@@ -100,6 +118,7 @@ final class DependencyAudit {
               'declared in dev_dependencies but referenced by lib/ sources; '
               'consumers of the published package will not have it',
           sources: production,
+          manifest: manifest,
         ),
       );
     }
@@ -115,10 +134,17 @@ final class DependencyAudit {
               'imported or exported via package: but not declared in '
               'dependencies, dev_dependencies, or dependency_overrides',
           sources: packageImports[name]!,
+          manifest: manifest,
         ),
       );
     }
-    findings.sort((a, b) => '${a.kind}$a.name'.compareTo('${b.kind}$b.name'));
+    // 같은 kind·name이 패키지마다 나올 수 있으므로 manifest까지 키에 넣는다 —
+    // Dart의 정렬은 안정적이지 않아 동률 순서를 입력 순서에 맡기면 안 된다.
+    findings.sort(
+      (a, b) => '${a.kind}${a.name}${a.manifest ?? ''}'.compareTo(
+        '${b.kind}${b.name}${b.manifest ?? ''}',
+      ),
+    );
     return findings;
   }
 
