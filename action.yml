@@ -72,12 +72,18 @@ runs:
         sdk: stable
     - name: Install dartograph
       shell: bash
+      # Inputs reach the script through env only: interpolating ${{ }} inside
+      # run: expands before bash sees it, so a crafted value could inject
+      # shell syntax. The script body quotes every expansion instead.
+      env:
+        DARTOGRAPH_SOURCE_PATH: ${{ inputs.source-path }}
+        DARTOGRAPH_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        if [[ -n "${{ inputs.source-path }}" ]]; then
-          dart pub global activate --source path "${{ inputs.source-path }}"
-        elif [[ -n "${{ inputs.version }}" ]]; then
-          dart pub global activate dartograph "${{ inputs.version }}"
+        if [[ -n "$DARTOGRAPH_SOURCE_PATH" ]]; then
+          dart pub global activate --source path "$DARTOGRAPH_SOURCE_PATH"
+        elif [[ -n "$DARTOGRAPH_VERSION" ]]; then
+          dart pub global activate dartograph "$DARTOGRAPH_VERSION"
         else
           dart pub global activate dartograph
         fi
@@ -85,23 +91,33 @@ runs:
     - name: Resolve package dependencies
       shell: bash
       working-directory: ${{ inputs.package-root }}
+      env:
+        DARTOGRAPH_PUB_GET: ${{ inputs.pub-get }}
       run: |
         set -euo pipefail
-        if [[ "${{ inputs.pub-get }}" == "true" ]]; then
+        if [[ "$DARTOGRAPH_PUB_GET" == "true" ]]; then
           dart pub get
         fi
     - name: Run dartograph
       id: run
       shell: bash
+      env:
+        DARTOGRAPH_OUTPUT_FILE: ${{ inputs.output-file }}
+        DARTOGRAPH_COMMAND: ${{ inputs.command }}
+        DARTOGRAPH_ARGS: ${{ inputs.args }}
+        DARTOGRAPH_PACKAGE_ROOT: ${{ inputs.package-root }}
       # The report is always written before the exit code is propagated, so a
       # failing gate still leaves artifacts for the caller to upload. Callers
       # that only want a report add `continue-on-error: true` and read
       # steps.<id>.outputs.exit-code.
       run: |
         set -euo pipefail
-        report="${{ inputs.output-file }}"
+        report="$DARTOGRAPH_OUTPUT_FILE"
         set +e
-        dartograph ${{ inputs.command }} ${{ inputs.args }} "${{ inputs.package-root }}" \
+        # args is a documented free-form string of extra flags; it expands
+        # unquoted on purpose so the shell word-splits it. Variable content
+        # is never re-evaluated, so $(...) or backticks in it stay literal.
+        dartograph "$DARTOGRAPH_COMMAND" $DARTOGRAPH_ARGS "$DARTOGRAPH_PACKAGE_ROOT" \
           > "$report" 2>&1
         status=$?
         set -e
