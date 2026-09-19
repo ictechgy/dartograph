@@ -2,9 +2,12 @@
 const agentSkillMarkdown = '''---
 name: dartograph
 description: >
-  Inspect Dart/Flutter dependency and reachability evidence when reviewing
-  apparently unused code, callers, retention reasons, or graph changes.
-  Use for dartograph queries; not for formatting-only or unrelated edits.
+  Query dartograph's whole-repo dependency and reachability graph for
+  Dart/Flutter questions: unreachable or dead code, callers of or
+  dependents on a declaration, what breaks if a signature changes, which
+  implementation ships behind conditional exports, retention reasons, or
+  file/package dependencies. Prefer it over grep for graph questions;
+  not for formatting-only or unrelated edits.
 ---
 
 # dartograph
@@ -54,9 +57,10 @@ If invocation details are unclear, inspect `dartograph --help`.
   prompts; it reuses the same analysis paths and modifies nothing.
 - Agent wiring: `dartograph setup [--target <claude|cursor|codex|opencode>]`
   prints (or `--install <root>` installs) the target's MCP config; claude also
-  gets a PostToolUse impact hook. `--uninstall` removes only the dartograph
-  entries. It merges into existing config, never overwrites other keys, and
-  involves no paid service, login, or telemetry.
+  gets a PostToolUse impact hook and a managed `CLAUDE.md`/`AGENTS.md`
+  routing block. `--uninstall` removes only the dartograph entries. It
+  merges into existing config, never overwrites other keys, and involves
+  no paid service, login, or telemetry.
 - Traceable runs: add `--record <dir>` to an analysis command to append one
   JSON line per run to `<dir>/ledger.jsonl` (command, exit code, observed Git
   HEAD, input flags, reported problem ids); existing lines are never rewritten.

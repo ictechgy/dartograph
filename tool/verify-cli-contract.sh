@@ -149,6 +149,11 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "setup install" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 64 "setup install conflict without force" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup install force" setup --install "$TEMPORARY_DIRECTORY/setup-target" --force
+  expect_status 0 "setup uninstall" setup --uninstall "$TEMPORARY_DIRECTORY/setup-target"
+  # 짝 없는 안내 블록 표지는 사람이 고친 흔적 — 덮어쓰지 않고 실패한다.
+  mkdir -p "$TEMPORARY_DIRECTORY/setup-badguide"
+  printf '<!-- dartograph:begin -->\n' > "$TEMPORARY_DIRECTORY/setup-badguide/CLAUDE.md"
+  expect_status 2 "setup install malformed guide markers" setup --install "$TEMPORARY_DIRECTORY/setup-badguide"
   expect_status 0 "setup cursor print" setup --target cursor
   expect_status 0 "setup cursor install" setup --target cursor --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup cursor uninstall" setup --target cursor --uninstall "$TEMPORARY_DIRECTORY/setup-target"

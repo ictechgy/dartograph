@@ -94,7 +94,7 @@ dartograph mcp
 - `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고, `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
 - 재사용 합성 액션([`action.yml`](action.yml))이 GitHub Actions용 CLI 래퍼다 — 게시 릴리스 또는 체크아웃한 소스 경로를 설치해 패키지를 분석하고 리포트 파일 하나를 쓴다(예시 워크플로 [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)).
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
-- `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
+- `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 그래프 질문을 dartograph 명령으로 안내하는 관리 `CLAUDE.md`/`AGENTS.md` 블록도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
 - `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
 - `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
