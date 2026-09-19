@@ -50,9 +50,13 @@ If invocation details are unclear, inspect `dartograph --help`.
   Pair baselines with `baseline --write --closed-app`. Never use it on a
   published library — its public API has consumers the graph cannot see.
 - Tool integration: `dartograph mcp` serves Model Context Protocol tools on
-  stdio (`impact_query`, `dependency_query`, `verify_run` including `deps`,
+  stdio. Prefer the single entry point `dartograph_explore` — pass
+  packageRoot plus one question shape (symbol/batch, impactSymbol/
+  since/changed, or command) and it routes internally. The narrower tools
+  (`impact_query`, `dependency_query`, `verify_run` including `deps`,
   `dup`, and `closedApp`, plus read-only `runtime_query` static detection)
-  plus `dartograph://usage|skill|config` resources and
+  remain available; the server also exposes
+  `dartograph://usage|skill|config` resources and
   `impact-precheck`/`dead-code-review`/`dependency-audit`/`duplication-review`
   prompts; it reuses the same analysis paths and modifies nothing.
 - Agent wiring: `dartograph setup [--target <claude|cursor|codex|opencode>]`

@@ -4,6 +4,17 @@
 
 ## Unreleased
 
+- 새 읽기 전용 MCP 도구 `dartograph_explore`는 단일 진입점이다:
+  `packageRoot`에 질문 형태 하나를 붙이면 내부적으로 라우팅한다 —
+  `symbol`/`batch`는 `dependency_query`(`withSource` 기본 켜짐,
+  `sourceContext` 3), `impactSymbol`/`since`/`changed`는 `impact_query`,
+  `command`는 `verify_run`, `command: "runtime"`은 `runtime_query`로.
+  응답 첫 줄이 라우팅된 경로를 밝히고, 라우팅된 형태에 해당하지 않는
+  인자는 조용히 무시하지 않고 거부하며, 형태가 없는 호출에는 라우팅
+  메뉴를 돌려준다. 서버 환경 변수 `DARTOGRAPH_MCP_LEGACY_TOOLS`를
+  `0` 또는 `false`로 두면 `tools/list`가 `dartograph_explore`만 광고한다;
+  좁은 도구들은 계속 호출할 수 있다.
+
 ## 0.14.0
 
 - MCP 서버가 세션별 `dartograph-mcp-cache.*` 임시 디렉터리에

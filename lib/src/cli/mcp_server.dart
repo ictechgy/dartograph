@@ -37,6 +37,15 @@ const verifyToolName = 'verify_run';
 
 const _runtimeToolName = 'runtime_query';
 
+/// `dartograph_explore` 통합 도구 이름이다.
+const exploreToolName = 'dartograph_explore';
+
+/// 기존 네 도구의 `tools/list` 노출을 제어하는 환경 변수다.
+///
+/// 값이 `0` 또는 `false`(대소문자 무관)이면 `dartograph_explore`만 광고한다 —
+/// 나머지 도구는 목록에서 빠지지만 `tools/call`은 계속 받는다.
+const legacyToolsEnvName = 'DARTOGRAPH_MCP_LEGACY_TOOLS';
+
 /// stdio 프레이밍의 JSON-RPC 메시지 한 줄 상한(바이트)이다. 개행 없는 입력이
 /// 라인 버퍼를 무제한으로 키우지 못하게 한다 — 다른 입력 경로(설정·배치
 /// 파일)의 1MiB 상한과 맞춘다.
@@ -99,6 +108,7 @@ Future<int> runMcpServer({
   Future<Directory> Function()? createScratch,
   Future<Directory> Function()? createCacheDirectory,
   String? allowedRootBase,
+  Map<String, String>? environment,
 }) async {
   final scratchFactory =
       createScratch ?? () => Directory.systemTemp.createTemp('dartograph-mcp.');
@@ -121,6 +131,7 @@ Future<int> runMcpServer({
       changedFilesSince: changedFilesSince,
       scratchFactory: scratchFactory,
       rootBoundary: rootBoundary,
+      environment: environment ?? Platform.environment,
     );
   } finally {
     await session.close();
@@ -135,6 +146,7 @@ Future<int> _serveMcpRequests({
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() scratchFactory,
   required String rootBoundary,
+  required Map<String, String> environment,
 }) async {
   await for (final line in input) {
     if (line.trim().isEmpty) continue;
@@ -178,7 +190,7 @@ Future<int> _serveMcpRequests({
       case 'ping':
         _writeResult(output, id, <String, Object?>{});
       case 'tools/list':
-        _writeResult(output, id, {'tools': _toolDefinitions});
+        _writeResult(output, id, {'tools': _listedTools(environment)});
       case 'resources/list':
         _writeResult(output, id, {'resources': _resourceDefinitions});
       case 'resources/read':
@@ -362,6 +374,130 @@ final class _McpUncachedFacts implements FactCache {
 /// 도구 정의(이름·설명·입력 스키마)를 결정적 순서로 돌려준다.
 List<Map<String, Object?>> get _toolDefinitions => [
   {
+    'name': exploreToolName,
+    'description':
+        'Single entry point for dependency and reachability questions about '
+        'a Dart/Flutter package. Give packageRoot plus exactly one question '
+        'shape: symbol or batch (declarations, members, callers/dependents, '
+        'retention evidence, and the source lines in one response — no '
+        'separate file read needed); impactSymbol, since, or changed (what '
+        'a change or declaration affects: impacted symbols, call sites, '
+        'related tests, risk score); or command (dead, deps, dup, cycles, '
+        'rules, metrics, or runtime — run a verification or static-facts '
+        'lookup). The first response line names the routed path. Findings '
+        'are graph evidence with stated limitations, not deletion proof. '
+        'Read-only.',
+    'inputSchema': {
+      'type': 'object',
+      'properties': {
+        'packageRoot': {
+          'type': 'string',
+          'description': 'Package root directory to analyze.',
+        },
+        'symbol': {
+          'type': 'string',
+          'description':
+              'One symbol id or name — answers a dependency/evidence '
+              'question with source lines included.',
+        },
+        'batch': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'description':
+              'Several symbol ids or names (1-1000) — same question shape '
+              'as symbol, batched.',
+        },
+        'impactSymbol': {
+          'type': 'string',
+          'description':
+              'One symbol id — answers what depends on that declaration '
+              '(pre-change blast radius).',
+        },
+        'since': {
+          'type': 'string',
+          'description':
+              'Git revision — with no command: the impact question measured '
+              'from this point; with command dead: dead --since.',
+        },
+        'changed': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'description':
+              'Project-relative changed paths (1-1000) — the impact '
+              'question for a pending edit set.',
+        },
+        'command': {
+          'type': 'string',
+          'enum': [
+            'dead',
+            'deps',
+            'dup',
+            'cycles',
+            'rules',
+            'metrics',
+            'runtime',
+          ],
+          'description':
+              'Run a verification (dead, deps, dup, cycles, rules, '
+              'metrics) or a static runtime-facts lookup (runtime).',
+        },
+        'strict': {
+          'type': 'boolean',
+          'description': 'For command cycles, rules, or metrics.',
+        },
+        'closedApp': {
+          'type': 'boolean',
+          'description':
+              'For command dead only: do not retain the public API '
+              '(standalone application mode).',
+        },
+        'minTokens': {
+          'type': 'integer',
+          'description': 'For command dup only: minimum token window (≥ 2).',
+        },
+        'kinds': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'description':
+              'For command dead, deps, or dup only: report only these '
+              'finding kinds.',
+        },
+        'baseline': {
+          'type': 'string',
+          'description':
+              'Baseline file written by `dartograph baseline` — valid for '
+              'command and symbol/batch questions.',
+        },
+        'config': {
+          'type': 'string',
+          'description': 'For command rules only: layers.yaml path.',
+        },
+        'format': {
+          'type': 'string',
+          'enum': ['text', 'json', 'markdown', 'github-actions', 'sarif'],
+          'description': 'For command questions only.',
+        },
+        'depth': {'type': 'integer', 'minimum': 1},
+        'limit': {'type': 'integer', 'minimum': 1},
+        'withSource': {
+          'type': 'boolean',
+          'description':
+              'For symbol/batch questions: include source lines at each '
+              'declaration location (project files only). Default true.',
+        },
+        'sourceContext': {
+          'type': 'integer',
+          'minimum': 0,
+          'description':
+              'For symbol/batch questions with source: lines before and '
+              'after each declaration line. Default 3.',
+        },
+      },
+      'required': ['packageRoot'],
+      'additionalProperties': false,
+    },
+  },
+  {
     'name': impactToolName,
     'description':
         'Pre-check what a code change affects before making it. Give a git '
@@ -517,6 +653,24 @@ List<Map<String, Object?>> get _toolDefinitions => [
     },
   },
 ];
+
+/// `tools/list`가 광고하는 도구 정의다.
+///
+/// [legacyToolsEnvName]가 `0`·`false`이면 `dartograph_explore`만 노출한다 —
+/// 나머지 도구는 목록에서 빠지지만 `tools/call`은 계속 받는다. 기존 클라이언트
+/// 설정과 프롬프트 안내(레거시 이름 지목)가 목록 축소로 깨지지 않게 하는
+/// 절충이다.
+List<Map<String, Object?>> _listedTools(Map<String, String> environment) {
+  final value = environment[legacyToolsEnvName];
+  // '0'·'false' 외의 값(미설정·'1' 등)은 전부 광고 — 끄는 값만 명시적으로
+  // 해석한다.
+  if (value != null && {'0', 'false'}.contains(value.trim().toLowerCase())) {
+    return _toolDefinitions
+        .where((tool) => tool['name'] == exploreToolName)
+        .toList();
+  }
+  return _toolDefinitions;
+}
 
 /// 서버가 노출하는 정적 리소스다. 프로젝트별 동적 상태는 도구가 답한다 —
 /// 리소스는 호출 사이에 바뀌지 않는 문서만 노출한다.
@@ -738,7 +892,8 @@ Future<Map<String, Object?>?> _callTool({
   required Future<Directory> Function() createScratch,
   required String rootBoundary,
 }) async {
-  if (name != impactToolName &&
+  if (name != exploreToolName &&
+      name != impactToolName &&
       name != dependencyToolName &&
       name != verifyToolName &&
       name != _runtimeToolName) {
@@ -756,6 +911,14 @@ Future<Map<String, Object?>?> _callTool({
     );
   }
   switch (name) {
+    case exploreToolName:
+      return _exploreTool(
+        root: resolvedRoot,
+        arguments: arguments,
+        indexPackage: indexPackage,
+        changedFilesSince: changedFilesSince,
+        createScratch: createScratch,
+      );
     case impactToolName:
       return _impactTool(
         root: resolvedRoot,
@@ -1058,6 +1221,217 @@ Future<Map<String, Object?>> _runtimeTool({
   if (limit != null) args.addAll(['--limit', '$limit']);
   args.add(root);
   return await _runCapture(args);
+}
+
+/// `dartograph_explore`의 통합 진입점이다.
+///
+/// 어떤 인자가 왔는지로 아래 경로 중 하나에 **결정적으로** 라우팅한다 —
+/// `command`가 있으면 검증·런타임 경로, `since`·`changed`·`impactSymbol`이
+/// 있으면 impact 경로, `symbol`·`batch`가 있으면 query 경로다. 경로에 의미가
+/// 없는 인자는 조용히 무시하지 않고 거부하며, 어떤 질문 형태도 없으면 형태
+/// 안내를 돌려준다. 응답 첫 줄의 `routed:`가 실제로 답한 경로를 밝힌다.
+Future<Map<String, Object?>> _exploreTool({
+  required String root,
+  required Map<String, Object?> arguments,
+  required IndexPackage? indexPackage,
+  required ChangedFilesSince? changedFilesSince,
+  required Future<Directory> Function() createScratch,
+}) async {
+  final command = arguments['command'];
+  if (command != null) {
+    if (command == 'runtime') {
+      final strays = _strayKeys(arguments, const {'command', 'limit'});
+      if (strays != null) {
+        return _toolError('cannot combine $strays with command "runtime"');
+      }
+      return _routed(
+        await _runtimeTool(
+          root: root,
+          arguments: {
+            // 명시된 키만 넘긴다 — {'limit': null}은 _runtimeTool의
+            // containsKey 검사를 건드려 limit 없는 호출이 깨진다.
+            if (arguments['limit'] != null) 'limit': arguments['limit'],
+          },
+        ),
+        _runtimeToolName,
+      );
+    }
+    const verifyKeys = {
+      'command',
+      'strict',
+      'minTokens',
+      'kinds',
+      'closedApp',
+      'since',
+      'baseline',
+      'config',
+      'format',
+    };
+    final strays = _strayKeys(arguments, verifyKeys);
+    if (strays != null) {
+      return _toolError('cannot combine $strays with command');
+    }
+    return _routed(
+      await _verifyTool(
+        root: root,
+        arguments: arguments,
+        indexPackage: indexPackage,
+        changedFilesSince: changedFilesSince,
+      ),
+      verifyToolName,
+    );
+  }
+  final impactSeeds = [
+    'since',
+    'changed',
+    'impactSymbol',
+  ].where((key) => arguments[key] != null).toList();
+  if (impactSeeds.isNotEmpty) {
+    const impactKeys = {'since', 'changed', 'impactSymbol', 'depth', 'limit'};
+    final strays = _strayKeys(arguments, impactKeys);
+    if (strays != null) {
+      return _toolError(
+        'cannot combine $strays with since, changed, or impactSymbol',
+      );
+    }
+    if (impactSeeds.length != 1) {
+      return _toolError(
+        'provide exactly one of since, changed, or impactSymbol',
+      );
+    }
+    return _routed(
+      await _impactTool(
+        root: root,
+        arguments: {
+          // impactSymbol은 impact --symbol seed로 재배치한다 — 같은 실행
+          // 경로를 쓰되 질문 형태(심볼 → 영향)가 명시적으로 남는다.
+          if (arguments['impactSymbol'] != null)
+            'symbol': arguments['impactSymbol'],
+          if (arguments['since'] != null) 'since': arguments['since'],
+          if (arguments['changed'] != null) 'changed': arguments['changed'],
+          if (arguments['depth'] != null) 'depth': arguments['depth'],
+          if (arguments['limit'] != null) 'limit': arguments['limit'],
+        },
+        indexPackage: indexPackage,
+        changedFilesSince: changedFilesSince,
+        createScratch: createScratch,
+      ),
+      impactToolName,
+    );
+  }
+  if (arguments['symbol'] != null || arguments['batch'] != null) {
+    const queryKeys = {
+      'symbol',
+      'batch',
+      'depth',
+      'limit',
+      'baseline',
+      'withSource',
+      'sourceContext',
+    };
+    final strays = _strayKeys(arguments, queryKeys);
+    if (strays != null) {
+      return _toolError('cannot combine $strays with symbol or batch');
+    }
+    final query = Map<String, Object?>.of(arguments);
+    // 통합 진입점의 약속은 "소스+근거 한 응답"이므로 withSource를 기본으로
+    // 켠다 — 호출자가 false·sourceContext를 명시하면 그 값이 우선한다.
+    query['withSource'] ??= true;
+    if (query['withSource'] == true) query['sourceContext'] ??= 3;
+    return _routed(
+      await _dependencyTool(
+        root: root,
+        arguments: query,
+        indexPackage: indexPackage,
+        createScratch: createScratch,
+      ),
+      dependencyToolName,
+    );
+  }
+  return _exploreHelp(arguments);
+}
+
+/// [allowed]·`packageRoot` 밖의 인자 키를 정렬된 문자열로 돌려준다 — 없으면
+/// null이다. `packageRoot`는 모든 경로의 공통 인자라 항상 허용한다.
+String? _strayKeys(Map<String, Object?> arguments, Set<String> allowed) {
+  final strays =
+      arguments.keys
+          .where((key) => key != 'packageRoot' && !allowed.contains(key))
+          .toList()
+        ..sort();
+  return strays.isEmpty ? null : strays.join(', ');
+}
+
+/// 도구 응답 첫 줄에 `routed:` 표지를 붙인다.
+///
+/// 통합 진입점이 어떤 경로로 답했는지를 결과 안에 남긴다 — 라우팅이 호출자의
+/// 기대와 다를 때 출력 형태만 보고 해석을 어긋내는 대신 표지로 바로 알 수
+/// 있게 한다. 위임 도구의 결과를 변경하지 않고 새 맵을 만든다 — 공유·캐시된
+/// 결과 맵이 생겨도 표지가 누적되거나 다른 요청에 새지 않는다.
+Map<String, Object?> _routed(Map<String, Object?> result, String tool) {
+  final content = result['content'];
+  final items = content is List ? content : const <Object?>[];
+  final first = items.isEmpty ? null : items.first;
+  if (first is Map && first['text'] is String) {
+    return {
+      ...result,
+      'content': [
+        {
+          ...first.cast<String, Object?>(),
+          'text': 'routed: $tool\n${first['text']}',
+        },
+        ...items.skip(1),
+      ],
+    };
+  }
+  // 위임 도구는 항상 단일 text 콘텐츠를 돌려준다 — 그 계약이 깨져도 표지 없는
+  // 응답을 내보내는 대신 방어적으로 표지 콘텐츠를 앞에 둔다.
+  return {
+    ...result,
+    'content': [
+      {'type': 'text', 'text': 'routed: $tool'},
+      ...items,
+    ],
+  };
+}
+
+/// 질문 형태 없이 호출된 `dartograph_explore`의 안내 응답이다.
+///
+/// 오류가 아니라 메뉴다 — 이 도구의 존재 이유가 안내(steering)라서, 비어
+/// 있는 호출에는 다음 호출이 바로 쓸 수 있는 형태 목록을 돌려준다. 형태를
+/// 이루지 못한 인자가 있으면 함께 적어 오타(`symbols` 같은)도 구분된다.
+Map<String, Object?> _exploreHelp(Map<String, Object?> arguments) {
+  final extras = arguments.keys.where((key) => key != 'packageRoot').toList()
+    ..sort();
+  final shapeless = extras.isEmpty
+      ? ''
+      : '\narguments received without a question shape: '
+            '${extras.join(', ')}';
+  return {
+    'content': [
+      {
+        'type': 'text',
+        'text':
+            'routed: help\n'
+            'dartograph_explore needs packageRoot plus exactly one question '
+            'shape:\n'
+            '- symbol "<name or id>" or batch ["a", "b"] — declarations, '
+            'members, callers/dependents (usedBy), retention evidence, and '
+            'the source lines in one response.\n'
+            '- impactSymbol "<id>" — what depends on one declaration '
+            '(pre-change blast radius).\n'
+            '- since "<git-rev>" or changed ["lib/a.dart"] — what a change '
+            'set affects: impacted symbols, call sites, related tests, risk '
+            'score.\n'
+            '- command "dead" | "deps" | "dup" | "cycles" | "rules" | '
+            '"metrics" — run a verification; command "runtime" lists static '
+            'runtime facts.\n'
+            'Findings are graph evidence with stated limitations, not '
+            'deletion proof.$shapeless',
+      },
+    ],
+    'isError': false,
+  };
 }
 
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.

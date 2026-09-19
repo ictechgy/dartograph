@@ -46,6 +46,10 @@ dartograph mcp
 `dartograph`가 PATH에 없으면 `dart pub global activate dartograph` 후의 실행 파일
 경로를 `command`에 넣거나, 저장소에서 `dart run bin/dartograph.dart mcp`를 쓴다.
 
+`tools/list`가 광고하는 도구 목록을 `dartograph_explore` 하나로 줄이려면 서버
+환경 변수를 설정한다(`"env": {"DARTOGRAPH_MCP_LEGACY_TOOLS": "0"}`를 서버
+항목에 추가 — 지원하는 클라이언트 한정).
+
 ## 도구
 
 모든 도구의 `packageRoot`는 **서버 작업 디렉터리 안의 실제 디렉터리**로 해석돼야
@@ -55,6 +59,48 @@ dartograph mcp
 
 stdio 프레이밍은 JSON-RPC 메시지 한 줄당 1MiB 상한이 있다. 상한을 넘는 메시지는
 잘려서 `Invalid JSON`(-32700) 응답이 되고 연결은 유지된다.
+
+`tools/list`는 다섯 도구를 광고한다. 서버 환경 변수
+`DARTOGRAPH_MCP_LEGACY_TOOLS=0`(또는 `false`, 대소문자·앞뒤 공백 무관)이면
+`dartograph_explore`만 광고한다 — 나머지 도구는 목록에서 빠지지만
+`tools/call`은 계속 받으므로 기존 클라이언트 설정과 프롬프트 안내가 깨지지
+않는다. `0`·`false` 외의 값(미설정·`1` 등)은 전부 광고하며, 목록을
+줄였을 때 `dartograph_explore` 응답의 `routed:` 표지는 목록에 없는 도구
+이름을 가리킬 수 있다(라우팅된 경로의 이름이며 그 도구는 여전히 호출
+가능하다).
+
+### `dartograph_explore`
+
+단일 진입점 — `packageRoot`에 **질문 형태 하나**를 붙여 호출하면 어떤 인자가
+왔는지로 아래 경로 중 하나에 결정적으로 라우팅한다. 응답 텍스트 첫 줄의
+`routed: <도구>`가 실제로 답한 경로를 밝히고, 이어서 해당 도구와 완전히 같은
+출력(`exitCode` + 문서)이 온다. 좁은 도구 네 개를 나열하는 대신 하나로 안내해
+호출자가 질문 형태만 고르면 되게 하는 것이 목적이다.
+
+| 질문 형태 | 인자 | 라우팅 |
+|---|---|---|
+| 심볼 근거·소스 | `symbol` 또는 `batch` | `dependency_query` — `withSource`가 **기본 true**, `sourceContext` 기본 3. 명시하면 그 값이 우선 |
+| 변경·선언 영향 | `impactSymbol` \| `since` \| `changed` 중 정확히 하나 | `impact_query` — `impactSymbol`은 `impact --symbol` seed로 재배치 |
+| 검증 | `command`: `dead`·`deps`·`dup`·`cycles`·`rules`·`metrics` | `verify_run` — 명령별 수정자(`closedApp`·`kinds`·`minTokens`·`since`·`baseline`·`config`·`strict`·`format`)는 그대로 전달·검증된다 |
+| 런타임 사실 | `command`: `runtime` | `runtime_query` — `limit`만 허용 |
+
+경로에 의미 없는 인자는 조용히 무시하지 않고 인자 오류로 거부한다 — 예:
+`command`와 `changed`·`symbol`의 조합, `impactSymbol`과 `symbol`의 조합.
+`since`·`changed`·`impactSymbol`이 둘 이상이면 "exactly one of" 오류다.
+`command`와 `since`의 조합은 영향 질의가 아니라 `dead --since`로 해석된다.
+어떤 형태도 없으면 오류가 아니라 `routed: help`의 형태 안내를 돌려준다.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call",
+ "params":{"name":"dartograph_explore","arguments":{
+   "packageRoot":"/path/to/package","symbol":"Foo"}}}
+```
+
+```text
+routed: dependency_query
+exitCode: 0
+{"result":{"subject":{...,"source":[{"line":1,"text":"class Foo {"}, ...]}}}
+```
 
 ### `impact_query`
 
@@ -193,11 +239,39 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
 
 ## 도구 스키마 (`tools/list`)
 
-`tools/list`가 돌려주는 입력 스키마의 정본이다(설명 필드는 생략). 네 도구 모두
+`tools/list`가 돌려주는 입력 스키마의 정본이다(설명 필드는 생략). 다섯 도구 모두
 `additionalProperties: false`이고 `packageRoot`가 필수다.
 
 ```json
 [
+  {
+    "name": "dartograph_explore",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "packageRoot": {"type": "string"},
+        "symbol": {"type": "string"},
+        "batch": {"type": "array", "items": {"type": "string"}},
+        "impactSymbol": {"type": "string"},
+        "since": {"type": "string"},
+        "changed": {"type": "array", "items": {"type": "string"}},
+        "command": {"type": "string", "enum": ["dead", "deps", "dup", "cycles", "rules", "metrics", "runtime"]},
+        "strict": {"type": "boolean"},
+        "closedApp": {"type": "boolean"},
+        "minTokens": {"type": "integer"},
+        "kinds": {"type": "array", "items": {"type": "string"}},
+        "baseline": {"type": "string"},
+        "config": {"type": "string"},
+        "format": {"type": "string", "enum": ["text", "json", "markdown", "github-actions", "sarif"]},
+        "depth": {"type": "integer", "minimum": 1},
+        "limit": {"type": "integer", "minimum": 1},
+        "withSource": {"type": "boolean"},
+        "sourceContext": {"type": "integer", "minimum": 0}
+      },
+      "required": ["packageRoot"],
+      "additionalProperties": false
+    }
+  },
   {
     "name": "impact_query",
     "inputSchema": {

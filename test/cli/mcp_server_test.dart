@@ -71,6 +71,9 @@ void main() {
         return created;
       },
       allowedRootBase: Directory.systemTemp.path,
+      // 호스트 환경 변수(DARTOGRAPH_MCP_LEGACY_TOOLS 등)가 테스트 결과를
+      // 바꾸지 않게 빈 환경을 주입한다.
+      environment: const {},
     );
     expect(status, 0);
     return output
@@ -95,6 +98,7 @@ void main() {
       allowedRootBase: directory.path,
       createCacheDirectory: createCacheDirectory,
       indexPackage: indexPackage,
+      environment: const {},
     );
     return const LineSplitter()
         .convert(output.toString())
@@ -131,6 +135,12 @@ void main() {
       request(id, 'tools/call', {
         'name': dependencyToolName,
         'arguments': {'packageRoot': root, 'symbol': symbol},
+      });
+
+  Object explore(int id, String root, Map<String, Object?> arguments) =>
+      request(id, 'tools/call', {
+        'name': exploreToolName,
+        'arguments': {'packageRoot': root, ...arguments},
       });
 
   test('session cache reuses facts, refreshes edits and cleans up', () async {
@@ -591,6 +601,7 @@ void main() {
     final tools = ((responses.single['result'] as Map)['tools'] as List)
         .cast<Map<String, Object?>>();
     expect(tools.map((tool) => tool['name']).toList(), [
+      exploreToolName,
       impactToolName,
       dependencyToolName,
       verifyToolName,
@@ -1025,5 +1036,283 @@ void main() {
       }),
     ]);
     expect(textOf(responses[0]), contains('sourceContext requires withSource'));
+  });
+
+  test(
+    'dartograph_explore routes symbol questions with source by default',
+    () async {
+      File(p.join(directory.path, 'lib/a.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('class Foo {\n  int x = 1;\n}\n');
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Foo',
+            sourceUri: 'project:lib/a.dart',
+            line: 1,
+          ),
+        );
+      final local = AnalyzerGraphResult(graph: graph, limitations: const []);
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          explore(1, directory.path, {'symbol': 'Foo'}),
+          explore(2, directory.path, {'symbol': 'Foo', 'withSource': false}),
+          explore(3, directory.path, {'symbol': 'Foo', 'sourceContext': 0}),
+        ]),
+        indexPackage: (_) async => local,
+      );
+
+      // 통합 진입점은 소스+근거 한 응답이 기본이라 withSource가 켜져 있다.
+      const prefix = 'routed: dependency_query\nexitCode: 0\n';
+      final text = textOf(responses[0]);
+      expect(text, startsWith(prefix));
+      final document =
+          jsonDecode(text.substring(prefix.length)) as Map<String, Object?>;
+      final subject =
+          (document['result'] as Map<String, Object?>)['subject']
+              as Map<String, Object?>;
+      expect(subject['source'], isNotNull);
+      // sourceContext 기본 3이라 파일 끝까지 넓어진다.
+      expect((subject['source'] as List).map((line) => (line as Map)['line']), [
+        1,
+        2,
+        3,
+      ]);
+      // 명시적 withSource: false는 기본값을 덮어쓴다.
+      final off = textOf(responses[1]);
+      expect(off, startsWith('routed: dependency_query\n'));
+      expect(off, isNot(contains('"source"')));
+      // 명시적 sourceContext: 0도 기본 3을 덮어써 선언 줄만 온다.
+      final zero = textOf(responses[2]);
+      expect(zero, startsWith(prefix));
+      final zeroDocument =
+          jsonDecode(zero.substring(prefix.length)) as Map<String, Object?>;
+      final zeroSubject =
+          (zeroDocument['result'] as Map<String, Object?>)['subject']
+              as Map<String, Object?>;
+      expect(zeroSubject['source'], [
+        {'line': 1, 'text': 'class Foo {'},
+      ]);
+    },
+  );
+
+  test('dartograph_explore routes impact and command questions', () async {
+    final responses = await exchange([
+      explore(1, directory.path, {'impactSymbol': 'project:lib/a.dart::Foo'}),
+      explore(2, directory.path, {
+        'changed': ['lib/a.dart'],
+      }),
+      explore(3, directory.path, {'command': 'dead'}),
+      explore(4, directory.path, {'command': 'runtime', 'limit': 5}),
+      // limit 없는 runtime 호출 — 재배치된 인자에 null이 새면 안 된다.
+      explore(5, directory.path, {'command': 'runtime'}),
+      explore(6, directory.path, {
+        'batch': ['project:lib/a.dart'],
+      }),
+      // since는 command 없이 오면 impact seed다.
+      explore(7, directory.path, {'since': 'HEAD~1'}),
+    ]);
+
+    expect(
+      textOf(responses[0]),
+      startsWith('routed: impact_query\nexitCode: 0\n'),
+    );
+    expect(
+      textOf(responses[1]),
+      startsWith('routed: impact_query\nexitCode: 0\n'),
+    );
+    expect(textOf(responses[2]), startsWith('routed: verify_run\nexitCode: '));
+    for (final response in responses.sublist(3, 5)) {
+      final runtimeText = textOf(response);
+      expect(runtimeText, startsWith('routed: runtime_query\nexitCode: 0\n'));
+      final report =
+          jsonDecode(runtimeText.substring(runtimeText.indexOf('{')))
+              as Map<String, Object?>;
+      expect(report['version'], 1);
+    }
+    expect(
+      textOf(responses[5]),
+      startsWith('routed: dependency_query\nexitCode: 0\n'),
+    );
+    // 임시 디렉터리는 git 저장소가 아니므로 since 해석은 실패할 수 있다 —
+    // 라우팅 표지만 확인한다.
+    expect(textOf(responses[6]), startsWith('routed: impact_query\n'));
+  });
+
+  test(
+    'dartograph_explore answers a shape menu when no intent is given',
+    () async {
+      final responses = await exchange([
+        explore(1, directory.path, const {}),
+        explore(2, directory.path, {'depth': 2}),
+      ]);
+
+      for (final response in responses) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isFalse);
+        final text = textOf(response);
+        expect(text, startsWith('routed: help\n'));
+        expect(text, contains('symbol'));
+        expect(text, contains('impactSymbol'));
+        expect(text, contains('command'));
+      }
+      // 형태를 이루지 못한 인자는 메뉴에 함께 적힌다 — 오타(`symbols` 같은)와
+      // 빈 호출이 구분된다.
+      expect(
+        textOf(responses[0]),
+        isNot(contains('arguments received without a question shape:')),
+      );
+      expect(
+        textOf(responses[1]),
+        contains('arguments received without a question shape: depth'),
+      );
+    },
+  );
+
+  test(
+    'dartograph_explore rejects mixed or ambiguous question shapes',
+    () async {
+      final responses = await exchange([
+        // symbol + impactSymbol — 두 질문 형태가 섞였다.
+        explore(1, directory.path, {
+          'symbol': 'Foo',
+          'impactSymbol': 'project:lib/a.dart::Foo',
+        }),
+        // since + changed — impact seed는 하나만 허용한다.
+        explore(2, directory.path, {
+          'since': 'HEAD',
+          'changed': ['lib/a.dart'],
+        }),
+        // command + changed — dead는 변경 경로 인자가 없다.
+        explore(3, directory.path, {
+          'command': 'dead',
+          'changed': ['lib/a.dart'],
+        }),
+        // command + symbol — 검증 경로에 심볼 인자는 의미가 없다.
+        explore(4, directory.path, {'command': 'deps', 'symbol': 'Foo'}),
+        // runtime + symbol — runtime 경로도 마찬가지다.
+        explore(5, directory.path, {'command': 'runtime', 'symbol': 'Foo'}),
+        // runtime + 수정자 — limit만 허용된다.
+        explore(6, directory.path, {'command': 'runtime', 'strict': true}),
+        // 여러 stray는 정렬돼 함께 보고된다.
+        explore(7, directory.path, {
+          'command': 'dead',
+          'changed': ['lib/a.dart'],
+          'symbol': 'Foo',
+        }),
+      ]);
+
+      expect(textOf(responses[0]), contains('cannot combine'));
+      expect(
+        textOf(responses[1]),
+        contains('exactly one of since, changed, or impactSymbol'),
+      );
+      expect(
+        textOf(responses[2]),
+        contains('cannot combine changed with command'),
+      );
+      expect(
+        textOf(responses[3]),
+        contains('cannot combine symbol with command'),
+      );
+      expect(
+        textOf(responses[4]),
+        contains('cannot combine symbol with command "runtime"'),
+      );
+      expect(
+        textOf(responses[5]),
+        contains('cannot combine strict with command "runtime"'),
+      );
+      expect(
+        textOf(responses[6]),
+        contains('cannot combine changed, symbol with command'),
+      );
+      for (final response in responses) {
+        expect((response['result'] as Map)['isError'], isTrue);
+      }
+    },
+  );
+
+  test(
+    'dartograph_explore forwards per-path modifiers and their validation',
+    () async {
+      final responses = await exchange([
+        // closedApp은 dead 전용 — 경로별 검증이 그대로 적용된다.
+        explore(1, directory.path, {'command': 'cycles', 'closedApp': true}),
+        // command dead + since는 dead --since로 유효한 조합이다.
+        explore(2, directory.path, {'command': 'dead', 'since': 'HEAD~1'}),
+      ]);
+
+      expect(textOf(responses[0]), contains('closedApp is only valid'));
+      // dead --since는 git 저장소가 아닌 임시 디렉터리에서 실패하지만 인자
+      // 검증은 통과해야 한다 — 라우팅 표지만 확인한다.
+      expect(textOf(responses[1]), startsWith('routed: verify_run\n'));
+    },
+  );
+
+  test(
+    'DARTOGRAPH_MCP_LEGACY_TOOLS hides legacy tools but keeps them callable',
+    () async {
+      final output = StringBuffer();
+      await runMcpServer(
+        input: Stream.fromIterable(
+          [
+            request(1, 'tools/list'),
+            explore(2, directory.path, {'symbol': 'project:lib/a.dart'}),
+            query(3, directory.path, 'project:lib/a.dart'),
+          ].map(jsonEncode),
+        ),
+        output: output,
+        error: diagnostics,
+        indexPackage: (_) async => indexed,
+        allowedRootBase: Directory.systemTemp.path,
+        environment: {legacyToolsEnvName: '0'},
+      );
+
+      final responses = output
+          .toString()
+          .trim()
+          .split('\n')
+          .map((line) => jsonDecode(line) as Map<String, Object?>)
+          .toList();
+      final tools = ((responses[0]['result'] as Map)['tools'] as List)
+          .cast<Map<String, Object?>>();
+      expect(tools.map((tool) => tool['name']).toList(), [exploreToolName]);
+      // 목록에서 숨겨진 레거시 도구도 tools/call은 계속 받는다.
+      expect((responses[1]['result'] as Map)['isError'], isFalse);
+      expect((responses[2]['result'] as Map)['isError'], isFalse);
+    },
+  );
+
+  test('DARTOGRAPH_MCP_LEGACY_TOOLS gates only on 0 or false', () async {
+    Future<List<String>> listedToolNames(String value) async {
+      final output = StringBuffer();
+      await runMcpServer(
+        input: Stream.fromIterable([jsonEncode(request(1, 'tools/list'))]),
+        output: output,
+        error: diagnostics,
+        indexPackage: (_) async => indexed,
+        allowedRootBase: Directory.systemTemp.path,
+        environment: {legacyToolsEnvName: value},
+      );
+      final tools =
+          (((jsonDecode(output.toString().trim()) as Map)['result']
+                      as Map)['tools']
+                  as List)
+              .cast<Map<String, Object?>>();
+      return tools.map((tool) => tool['name'] as String).toList();
+    }
+
+    // 끄는 값은 '0'·'false'뿐 — 대소문자 무관하고 그 외 값은 전부 광고한다.
+    expect(await listedToolNames('false'), [exploreToolName]);
+    expect(await listedToolNames('FALSE'), [exploreToolName]);
+    expect(await listedToolNames('1'), [
+      exploreToolName,
+      impactToolName,
+      dependencyToolName,
+      verifyToolName,
+      'runtime_query',
+    ]);
   });
 }

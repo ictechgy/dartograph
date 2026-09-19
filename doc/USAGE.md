@@ -486,21 +486,26 @@ rules:
 
 `dartograph mcp`는 stdio로 Model Context Protocol(JSON-RPC 2.0) 서버를 띄운다.
 AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의 분석을 도구
-호출로 쓸 수 있다. stdout에는 JSON-RPC만 쓰고 진단은 stderr로 보낸다. 세 도구 모두
+호출로 쓸 수 있다. stdout에는 JSON-RPC만 쓰고 진단은 stderr로 보낸다. 다섯 도구 모두
 **읽기 전용**이며 저장소를 수정하지 않는다. 각 도구는 기존 CLI 실행 경로를 그대로
 재사용하므로 출력 스키마와 종료 코드가 CLI와 어긋나지 않는다.
 
 | 도구 | 입력 | 답 |
 |---|---|---|
+| `dartograph_explore` | `packageRoot`(필수) + 질문 형태 하나: `symbol` \| `batch`(심볼 근거+소스), `impactSymbol` \| `since` \| `changed`(영향), `command`(검증·`runtime`) | 인자가 가리키는 도구로 내부 라우팅 — 첫 줄 `routed: <도구>` 표지 뒤 해당 도구와 같은 출력 |
 | `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
 | `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline`, `withSource`, `sourceContext` | `query`/`query --batch` 문서 |
 | `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`dup`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `minTokens`, `kinds`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
+| `runtime_query` | `packageRoot`(필수), `limit` | `runtime --no-verify --format json` 문서 |
 
 도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상
-`exitCode: <0|1|2|64>`다. 분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
+`exitCode: <0|1|2|64>`다(`dartograph_explore`는 그 앞에 `routed: <도구>` 줄이 온다).
+분석 실패(2)·사용 오류(64)는 `isError: true`다. `format`은
 `dead`·`deps`·`dup`에만 적용되고 `cycles`·`rules`·`metrics`는 항상 JSON 질의 문서를 낸다.
 `minTokens`는 `dup` 전용, `kinds`는 `dead`·`deps`·`dup` 전용으로 다른 명령에서는 거절한다.
-`closedApp`은 `dead`에만 적용된다. 서버는 세 가지 정적 리소스(`dartograph://usage`·
+`closedApp`은 `dead`에만 적용된다. 서버 환경 변수 `DARTOGRAPH_MCP_LEGACY_TOOLS=0`
+(또는 `false`)이면 `tools/list`가 `dartograph_explore`만 광고한다 — 나머지 도구는
+목록에서 빠지지만 호출은 계속 받는다. 서버는 세 가지 정적 리소스(`dartograph://usage`·
 `dartograph://skill`·`dartograph://config`)와 네 가지 프롬프트(`impact-precheck`·
 `dead-code-review`·`dependency-audit`·`duplication-review`)도 노출한다 — 입력
 스키마·예시는 [MCP.md](MCP.md)에 있다.
