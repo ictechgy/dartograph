@@ -967,4 +967,63 @@ void main() {
     expect((responses[2]['error'] as Map)['code'], -32602);
     expect(responses[3]['result'], <String, Object?>{});
   });
+
+  test(
+    'dependency_query withSource returns declaration source lines',
+    () async {
+      File(p.join(directory.path, 'lib/a.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('class Foo {\n  int x = 1;\n}\n');
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Foo',
+            sourceUri: 'project:lib/a.dart',
+            line: 1,
+          ),
+        );
+      final local = AnalyzerGraphResult(graph: graph, limitations: const []);
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          request(1, 'tools/call', {
+            'name': dependencyToolName,
+            'arguments': {
+              'packageRoot': directory.path,
+              'symbol': 'Foo',
+              'withSource': true,
+              'sourceContext': 1,
+            },
+          }),
+        ]),
+        indexPackage: (_) async => local,
+      );
+      final text = textOf(responses[0]);
+      final document =
+          jsonDecode(text.substring(text.indexOf('\n') + 1))
+              as Map<String, Object?>;
+      final subject =
+          (document['result'] as Map<String, Object?>)['subject']
+              as Map<String, Object?>;
+      // line 1에서 위로는 더 갈 수 없으므로 아래 줄만 넓어진다.
+      expect(subject['source'], [
+        {'line': 1, 'text': 'class Foo {'},
+        {'line': 2, 'text': '  int x = 1;'},
+      ]);
+    },
+  );
+
+  test('dependency_query rejects sourceContext without withSource', () async {
+    final responses = await exchange([
+      request(1, 'tools/call', {
+        'name': dependencyToolName,
+        'arguments': {
+          'packageRoot': directory.path,
+          'symbol': 'Foo',
+          'sourceContext': 1,
+        },
+      }),
+    ]);
+    expect(textOf(responses[0]), contains('sourceContext requires withSource'));
+  });
 }

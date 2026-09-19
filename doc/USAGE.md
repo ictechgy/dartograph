@@ -40,8 +40,8 @@ dartograph dead --report-redundant-public --format <text|json|markdown|codeowner
 dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
 dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
 dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -240,7 +240,10 @@ finding으로 보고한다. 구조적 일치일 뿐 의미적 동등성은 검�
 `dead --explain`과는 결합하지 않는다. `--limit`은 필터된 목록에 적용된다.
 
 `query`는 일치한 심볼의 양방향 관계, 멤버, 보존 경로, baseline 상태를 답한다. 찾지 못한
-경우에도 `notFound`와 `limitations`를 함께 낸다. 기본 `bridges`는 Flutter MethodChannel
+경우에도 `notFound`와 `limitations`를 함께 낸다.
+`--with-source`는 보고된 모든 선언 위치에 그 소스 줄을 `source`(줄 번호·텍스트 목록)로 덧붙이고, `--source-context <n>`은 위치 앞뒤 n줄까지 넓힌다(기본 0 — 선언 줄만). 프로젝트 안 파일만 읽고, 읽지 못한 위치는 조용히 생략한다. `--source-context`는 `--with-source` 없이 쓰면 usage 64다.
+
+기본 `bridges`는 Flutter MethodChannel
 채널·메서드 사실을 GRAPH-EXCHANGE v1 JSON으로 낸다(문서 계약은
 [GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md) 참조). `bridges --messages`는 개발 소스
 전용 opt-in 경로로, 실제 BasicMessageChannel `send` 호출만 bridge-facts v2
@@ -475,7 +478,7 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 | 도구 | 입력 | 답 |
 |---|---|---|
 | `impact_query` | `packageRoot`(필수) + `since` \| `changed` \| `symbol` 중 정확히 하나, `depth`, `limit` | `impact --format json` 문서 |
-| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline` | `query`/`query --batch` 문서 |
+| `dependency_query` | `packageRoot`(필수) + `symbol` \| `batch` 중 정확히 하나, `depth`, `limit`, `baseline`, `withSource`, `sourceContext` | `query`/`query --batch` 문서 |
 | `verify_run` | `packageRoot`, `command`(`dead`\|`deps`\|`dup`\|`cycles`\|`rules`\|`metrics`), `strict`, `closedApp`, `minTokens`, `kinds`, `since`, `baseline`, `config`, `format` | `exitCode`와 원시 출력 |
 
 도구 결과는 `content: [{type: "text", text}]`로 돌아오고, 텍스트 첫 줄은 항상

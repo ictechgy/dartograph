@@ -104,9 +104,12 @@ exitCode: 0
 | `depth` | integer ≥1 | | 사용 관계 추적 깊이(기본 1) |
 | `limit` | integer ≥1 | | 방향별 이웃 수 제한 |
 | `baseline` | string | | `baseline --write`로 만든 파일 |
+| `withSource` | boolean | | 보고된 선언 위치의 소스 줄을 함께 돌려준다 |
+| `sourceContext` | integer ≥0 | | `withSource`일 때 위치 앞뒤 줄 수(기본 0) |
 
 `symbol`·`batch` 중 정확히 하나를 준다. `notFound`·`ambiguous`는 오류가 아니라 정상
-결과로 돌아오며 부분 미발견이면 `exitCode: 64`다.
+결과로 돌아오며 부분 미발견이면 `exitCode: 64`다. `sourceContext`는 `withSource: true`
+없이 주면 인자 오류다. 소스는 `project:` 파일만 읽고, 읽지 못한 위치는 생략된다.
 
 ### `runtime_query`
 
@@ -220,7 +223,9 @@ CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.
         "batch": {"type": "array", "items": {"type": "string"}},
         "depth": {"type": "integer", "minimum": 1},
         "limit": {"type": "integer", "minimum": 1},
-        "baseline": {"type": "string"}
+        "baseline": {"type": "string"},
+        "withSource": {"type": "boolean"},
+        "sourceContext": {"type": "integer", "minimum": 0}
       },
       "required": ["packageRoot"],
       "additionalProperties": false

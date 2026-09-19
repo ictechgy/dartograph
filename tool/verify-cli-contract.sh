@@ -64,6 +64,10 @@ expect_status 64 "usage error" no-such-command
   expect_status 0 "query limit" query a --limit 1 fixtures/phase5_contract
   expect_status 64 "query depth below one" query a --depth 0 fixtures/phase5_contract
   expect_status 64 "query limit missing value" query a --limit fixtures/phase5_contract
+  expect_status 0 "query with source" query a --with-source fixtures/phase5_contract
+  expect_status 0 "query with source context" query a --with-source --source-context 1 fixtures/phase5_contract
+  expect_status 64 "query source context without source" query a --source-context 1 fixtures/phase5_contract
+  expect_status 64 "query duplicate with source" query a --with-source --with-source fixtures/phase5_contract
 expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
 expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
 expect_status 0 "affected report" affected HEAD fixtures/phase5_contract

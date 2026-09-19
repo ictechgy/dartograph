@@ -1185,6 +1185,74 @@ Future<int> _runMetrics(
   return null;
 }
 
+/// 질의 문서의 모든 `location`에 선언 위치 소스 줄을 덧붙인다.
+///
+/// `--with-source`가 있을 때만 호출한다. `project:` 경로만 읽고(루트 밖·비프로젝트
+/// 스킴은 건너뛴다), 파일은 경로별로 한 번만 읽는다. 파일을 읽지 못하면 그 위치만
+/// 조용히 생략한다 — 소스 덧붙이기는 부가 정보다. 위치 경로는 이미 프로젝트 상대라
+/// 절대 경로·`..` 탈출을 방어로 한 번 더 막는다.
+void _attachQuerySource(
+  Object? value,
+  String root,
+  int context,
+  Map<String, List<String>?> files,
+) {
+  if (value is Map<String, Object?>) {
+    final location = value['location'];
+    if (location is Map<String, Object?>) {
+      final path = location['path'];
+      final line = location['line'];
+      if (path is String && line is int) {
+        final source = _querySourceLines(root, path, line, context, files);
+        if (source != null) value['source'] = source;
+      }
+    }
+    for (final entry in value.entries) {
+      _attachQuerySource(entry.value, root, context, files);
+    }
+  } else if (value is List) {
+    for (final item in value) {
+      _attachQuerySource(item, root, context, files);
+    }
+  }
+}
+
+/// 한 선언 위치의 소스 줄(`line` 앞뒤 [context]줄)을 읽는다. 읽을 수 없으면 null.
+List<Map<String, Object?>>? _querySourceLines(
+  String root,
+  String path,
+  int line,
+  int context,
+  Map<String, List<String>?> files,
+) {
+  const prefix = 'project:';
+  if (!path.startsWith(prefix)) return null;
+  final relative = path.substring(prefix.length);
+  if (p.isAbsolute(relative) || p.normalize(relative).startsWith('..')) {
+    return null;
+  }
+  final filePath = p.join(root, relative);
+  final lines = files.putIfAbsent(filePath, () {
+    final file = File(filePath);
+    try {
+      return file.existsSync() ? file.readAsLinesSync() : null;
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      // 잘못된 UTF-8 소스도 분석 대상이 될 수 있다 — 소스 표시만 생략한다.
+      return null;
+    }
+  });
+  if (lines == null || lines.isEmpty) return null;
+  final start = (line - context).clamp(1, lines.length);
+  final end = (line + context).clamp(1, lines.length);
+  if (start > end) return null;
+  return [
+    for (var current = start; current <= end; current++)
+      {'line': current, 'text': lines[current - 1]},
+  ];
+}
+
 Future<int> _runQuery(
   List<String> arguments,
   StringSink output,
@@ -1202,32 +1270,54 @@ Future<int> _runQuery(
   // `--baseline` 중복 거부와 일관되게 usage(64)다.
   int? depthOption;
   int? limitOption;
+  int? sourceContext;
+  var withSource = false;
   final positional = <String>[];
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument != '--depth' && argument != '--limit') {
+    if (argument == '--with-source') {
+      if (withSource) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      withSource = true;
+      continue;
+    }
+    if (argument != '--depth' &&
+        argument != '--limit' &&
+        argument != '--source-context') {
       positional.add(argument);
       continue;
     }
-    if ((argument == '--depth' && depthOption != null) ||
-        (argument == '--limit' && limitOption != null)) {
-      error.write(_help);
-      return ExitStatus.usage.code;
-    }
-    if (index + 1 >= arguments.length) {
+    final duplicate = switch (argument) {
+      '--depth' => depthOption != null,
+      '--limit' => limitOption != null,
+      _ => sourceContext != null,
+    };
+    if (duplicate || index + 1 >= arguments.length) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
     final value = int.tryParse(arguments[++index]);
-    if (value == null || value < 1) {
+    // `--source-context 0`은 선언 줄만 보여주는 유효한 값이다.
+    final minimum = argument == '--source-context' ? 0 : 1;
+    if (value == null || value < minimum) {
       error.write(_help);
       return ExitStatus.usage.code;
     }
-    if (argument == '--depth') {
-      depthOption = value;
-    } else {
-      limitOption = value;
+    switch (argument) {
+      case '--depth':
+        depthOption = value;
+      case '--limit':
+        limitOption = value;
+      default:
+        sourceContext = value;
     }
+  }
+  // 의도 없는 소스 문맥 지정을 조용히 무시하지 않는다.
+  if (sourceContext != null && !withSource) {
+    error.write(_help);
+    return ExitStatus.usage.code;
   }
   final depth = depthOption ?? 1;
   final limit = limitOption;
@@ -1315,6 +1405,9 @@ Future<int> _runQuery(
             'version': 1,
             'results': results,
           };
+    if (withSource) {
+      _attachQuerySource(document, rootPath, sourceContext ?? 0, {});
+    }
     output.write(encodeSymbolQueryDocument(document));
     return results.any((result) => result['status'] == 'notFound')
         ? ExitStatus.usage.code
@@ -3315,8 +3408,8 @@ Usage: dartograph [--help] [--version]
        dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
        dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
        dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
