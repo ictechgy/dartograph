@@ -48,7 +48,7 @@ dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions
 dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
-dartograph setup [--install <package-root> [--force]]
+dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
 dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
 dartograph mcp
@@ -101,16 +101,36 @@ affected·baseline)은 빈 목록이다.
 표시한다. 기존 파일이나 링크가 있으면 exit 64로 중단하며 `--force`로 덮어쓴다.
 그 자리의 심볼릭 링크는 대상을 따라가지 않고 링크 자체를 교체한다.
 
-`setup`은 Claude Code 연동 설정을 만든다. 인자 없이 실행하면 세 결과물을
-검토용으로 출력한다 — PostToolUse 훅 스크립트(`dartograph-impact.sh`),
-`settings.json`에 병합할 hooks 블록, `.mcp.json` 문서. `--install <package-root>`는
-`.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여), `.claude/settings.json`의
-`hooks.PostToolUse` 목록과 `.mcp.json`의 `mcpServers`에 dartograph 항목을 **병합**한다 —
-기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의 설정은
-덮어쓰지 않고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
-`dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
-에이전트에게 보고한다. PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·
-로그인·텔레메트리는 없다. `--force`는 생성 스크립트와 dartograph MCP 항목을 교체한다.
+`setup`은 에이전트 MCP 연동 설정을 만든다. `--target`은 `claude`(기본),
+`cursor`, `codex`, `opencode` 중 하나를 고른다. 인자 없이 실행하면 그 타깃의
+결과물을 검토용으로 출력한다 — `claude`는 PostToolUse 훅
+스크립트(`dartograph-impact.sh`), `settings.json`에 병합할 hooks 블록,
+`.mcp.json` 문서를 보여준다.
+
+`--install [<package-root>]`은 타깃별 설정 파일에 dartograph 항목을 **병합**한다 —
+기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의
+설정은 덮어쓰지 않고 실패(exit 2)한다.
+
+- `claude`: `.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여),
+  `.claude/settings.json`의 `hooks.PostToolUse` 목록과 `.mcp.json`의
+  `mcpServers`에 병합한다. 생성된 훅은 Dart 파일 편집마다
+  `dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
+  에이전트에게 보고한다. `<package-root>`가 필요하다.
+- `cursor`: `<package-root>/.cursor/mcp.json`의 `mcpServers`에 병합한다.
+- `opencode`: `<package-root>/opencode.json`의 `mcp`에 `type: local` 항목을
+  병합한다.
+- `codex`: Codex는 프로젝트 설정을 읽지 않고 전역 `$CODEX_HOME/config.toml`
+  (기본 `~/.codex/config.toml`)만 읽는다. 따라서 `<package-root>` 없이
+  `--install`만 주면 전역 파일에 `[mcp_servers.dartograph]` TOML 표를
+  병합한다. 다른 표·키는 그대로 보존한다.
+
+`--uninstall [<package-root>]`은 `--install`이 만든 dartograph 항목만 되돌린다 —
+`claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지운다(내용이 우리
+것일 때만). 없는 파일·항목은 성공으로 넘어간다. `--force`는 생성 스크립트와
+dartograph MCP 항목을 교체한다.
+
+PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·로그인·텔레메트리는 없다.
+Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 
 `graph --level`은 그릴 해상도를 고른다. `file`은 모든 선언을 소속 라이브러리로,
 `type`은 멤버를 최상위 선언 컨테이너로 접고, `symbol`(기본)은 그래프를 있는 그대로

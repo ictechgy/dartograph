@@ -129,6 +129,22 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 0 "setup install" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 64 "setup install conflict without force" setup --install "$TEMPORARY_DIRECTORY/setup-target"
   expect_status 0 "setup install force" setup --install "$TEMPORARY_DIRECTORY/setup-target" --force
+  expect_status 0 "setup cursor print" setup --target cursor
+  expect_status 0 "setup cursor install" setup --target cursor --install "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 0 "setup cursor uninstall" setup --target cursor --uninstall "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 64 "setup cursor install missing directory" setup --target cursor --install "$TEMPORARY_DIRECTORY/no-such-dir"
+  expect_status 0 "setup opencode print" setup --target opencode
+  expect_status 0 "setup opencode install" setup --target opencode --install "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 0 "setup opencode uninstall" setup --target opencode --uninstall "$TEMPORARY_DIRECTORY/setup-target"
+  expect_status 64 "setup unknown target" setup --target vscode
+  export CODEX_HOME="$TEMPORARY_DIRECTORY/codex-home"
+  expect_status 0 "setup codex print" setup --target codex
+  expect_status 0 "setup codex install" setup --target codex --install
+  expect_status 0 "setup codex install idempotent" setup --target codex --install
+  expect_status 0 "setup codex install force" setup --target codex --install --force
+  expect_status 0 "setup codex uninstall" setup --target codex --uninstall
+  # 없는 항목의 해제는 성공으로 넘어간다(멱등).
+  expect_status 0 "setup codex uninstall when absent" setup --target codex --uninstall
   CHANGES_FILE="$TEMPORARY_DIRECTORY/changes.json"
   printf '["lib/a.dart"]' > "$CHANGES_FILE"
   expect_status 0 "impact changed" impact --changed "$CHANGES_FILE" --format json fixtures/phase5_contract

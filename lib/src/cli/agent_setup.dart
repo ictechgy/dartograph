@@ -110,16 +110,187 @@ String agentHookConfigJson() =>
       },
     });
 
-/// 인쇄용 프로젝트 `.mcp.json` 문서를 결정적 순서로 돌려준다.
+/// `setup --target`이 받는 에이전트 이름이다.
+///
+/// Claude Code는 ·설정·`.mcp.json`을 모두 다루고, 나머지는 MCP 서버 항목만
+/// 만든다([_printSetup] 참조). Codex만 설정이 전역(`$CODEX_HOME/config.toml`)이다.
+const setupTargetClaude = 'claude';
+
+/// Cursor 프로젝트 `.cursor/mcp.json` 타깃이다.
+const setupTargetCursor = 'cursor';
+
+/// Codex 전역 `$CODEX_HOME/config.toml` 타깃이다.
+const setupTargetCodex = 'codex';
+
+/// opencode 프로젝트 `opencode.json` 타깃이다.
+const setupTargetOpenCode = 'opencode';
+
+/// 지원하는 타깃 이름 집합이다.
+const setupTargets = <String>{
+  setupTargetClaude,
+  setupTargetCursor,
+  setupTargetCodex,
+  setupTargetOpenCode,
+};
+
+/// MCP 서버 한 항목이다. Claude Code `.mcp.json`·Cursor `.cursor/mcp.json`이
+/// 같은 `command`/`args` 모양을 쓴다.
+Map<String, Object?> _mcpServerEntry() => <String, Object?>{
+  'command': 'dartograph',
+  'args': <String>['mcp'],
+};
+
+/// opencode `mcp` 항목이다. 로컬 서버는 `command`가 배열이다.
+Map<String, Object?> _openCodeServerEntry() => <String, Object?>{
+  'type': 'local',
+  'command': <String>['dartograph', 'mcp'],
+  'enabled': true,
+};
+
+/// 인쇄용 프로젝트 `.mcp.json`(그리고 Cursor `.cursor/mcp.json`) 문서를
+/// 결정적 순서로 돌려준다.
 String agentMcpConfigJson() =>
     const JsonEncoder.withIndent('  ').convert(<String, Object?>{
-      'mcpServers': <String, Object?>{
-        'dartograph': <String, Object?>{
-          'command': 'dartograph',
-          'args': <String>['mcp'],
-        },
-      },
+      'mcpServers': <String, Object?>{'dartograph': _mcpServerEntry()},
     });
+
+/// 인쇄용 opencode `opencode.json` 문서를 결정적 순서로 돌려준다.
+String agentOpenCodeConfigJson() =>
+    const JsonEncoder.withIndent('  ').convert(<String, Object?>{
+      r'$schema': 'https://opencode.ai/config.json',
+      'mcp': <String, Object?>{'dartograph': _openCodeServerEntry()},
+    });
+
+/// Codex 전역 `config.toml`에 넣을 dartograph MCP 블록이다.
+///
+/// Codex는 프로젝트 설정이 아니라 `$CODEX_HOME/config.toml`(기본
+/// `~/.codex/config.toml`)의 `mcp_servers` 표만 읽는다.
+const codexMcpTomlBlock = '''
+[mcp_servers.dartograph]
+command = "dartograph"
+args = ["mcp"]
+''';
+
+final _codexTableHeader = RegExp(
+  r'^\[mcp_servers\.dartograph\]',
+  multiLine: true,
+);
+
+bool _hasCodexBlock(String text) => _codexTableHeader.hasMatch(text);
+
+/// TOML에서 dartograph 표 블록을 걷어낸다. 그 표의 키 줄은 다음 최상위
+/// `[table]`을 만나거나 파일이 끝날 때까지 이어진다.
+String _stripCodexBlock(String text) {
+  final remaining = <String>[];
+  var skipping = false;
+  for (final line in text.split('\n')) {
+    if (_codexTableHeader.hasMatch(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      if (line.trimLeft().startsWith('[')) {
+        skipping = false;
+      } else {
+        continue;
+      }
+    }
+    remaining.add(line);
+  }
+  while (remaining.isNotEmpty && remaining.last.trim().isEmpty) {
+    remaining.removeLast();
+  }
+  return remaining.isEmpty ? '' : '${remaining.join('\n')}\n';
+}
+
+/// Codex `config.toml` 문자열에 dartograph MCP 블록을 병합한다.
+///
+/// 이미 있으면 `force`일 때만 표준 블록으로 교체하고 아니면 `null`을 돌린다.
+/// TOML 전체를 해석하지 않고 표 블록만 다룬다 — 다른 표·키는 그대로 보존된다.
+String? mergeCodexConfig(String? existing, {required bool force}) {
+  final text = existing ?? '';
+  if (_hasCodexBlock(text)) {
+    if (!force) return null;
+    return '${_stripCodexBlock(text)}$codexMcpTomlBlock';
+  }
+  if (text.isEmpty) return codexMcpTomlBlock;
+  final separator = text.endsWith('\n') ? '\n' : '\n\n';
+  return '$text$separator$codexMcpTomlBlock';
+}
+
+/// Codex `config.toml` 문자열에서 dartograph MCP 블록을 제거한다.
+///
+/// 항목이 없으면 `null`이다. 남는 내용이 없으면 빈 문자열을 돌린다 — 호출자가
+/// 파일을 지울지 정한다.
+String? removeCodexConfig(String? existing) {
+  if (existing == null || !_hasCodexBlock(existing)) return null;
+  return _stripCodexBlock(existing);
+}
+
+/// `.claude/settings.json`에서 dartograph 훅 항목을 제거한다.
+///
+/// 없으면 `null`, `hooks` 모양이 다르면 [FormatException]이다. 빈 컨테이너는
+/// 함께 지워 원래 설정을 최대한 되돌린다.
+String? removeClaudeSettingsHook(String? existing) {
+  final settings = _decodeObject(existing);
+  final hooks = settings['hooks'];
+  if (hooks is! Map<String, Object?>) {
+    if (settings.containsKey('hooks') && hooks != null) {
+      throw const FormatException('"hooks" is not a JSON object');
+    }
+    return null;
+  }
+  final postToolUse = hooks['PostToolUse'];
+  if (postToolUse is! List) {
+    if (hooks.containsKey('PostToolUse') && postToolUse != null) {
+      throw const FormatException('"hooks.PostToolUse" is not a JSON array');
+    }
+    return null;
+  }
+  final before = postToolUse.length;
+  postToolUse.removeWhere(
+    (entry) =>
+        entry is Map<String, Object?> &&
+        jsonEncode(entry).contains(agentHookScriptName),
+  );
+  if (postToolUse.length == before) return null;
+  if (postToolUse.isEmpty) hooks.remove('PostToolUse');
+  if (hooks.isEmpty) settings.remove('hooks');
+  return '${const JsonEncoder.withIndent('  ').convert(settings)}\n';
+}
+
+/// `mcpServers` 항목을 담는 JSON 설정(`.mcp.json`·`.cursor/mcp.json`)에서
+/// dartograph 항목을 제거한다. 없으면 `null`, 모양이 다르면 [FormatException].
+String? removeMcpServerEntry(String? existing) {
+  final config = _decodeObject(existing);
+  final servers = config['mcpServers'];
+  if (servers is! Map<String, Object?>) {
+    if (config.containsKey('mcpServers') && servers != null) {
+      throw const FormatException('"mcpServers" is not a JSON object');
+    }
+    return null;
+  }
+  if (!servers.containsKey('dartograph')) return null;
+  servers.remove('dartograph');
+  if (servers.isEmpty) config.remove('mcpServers');
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
+
+/// opencode `opencode.json`에서 dartograph `mcp` 항목을 제거한다.
+String? removeOpenCodeEntry(String? existing) {
+  final config = _decodeObject(existing);
+  final mcp = config['mcp'];
+  if (mcp is! Map<String, Object?>) {
+    if (config.containsKey('mcp') && mcp != null) {
+      throw const FormatException('"mcp" is not a JSON object');
+    }
+    return null;
+  }
+  if (!mcp.containsKey('dartograph')) return null;
+  mcp.remove('dartograph');
+  if (mcp.isEmpty) config.remove('mcp');
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
 
 Map<String, Object?> _decodeObject(String? existing) {
   if (existing == null) return <String, Object?>{};
@@ -168,9 +339,22 @@ String? mergeMcpConfig(String? existing, {required bool force}) {
     throw const FormatException('"mcpServers" is not a JSON object');
   }
   if (servers.containsKey('dartograph') && !force) return null;
-  servers['dartograph'] = <String, Object?>{
-    'command': 'dartograph',
-    'args': <String>['mcp'],
-  };
+  servers['dartograph'] = _mcpServerEntry();
+  return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
+
+/// 기존 `opencode.json` 내용에 dartograph `mcp` 항목을 병합한다.
+///
+/// `dartograph` 항목이 이미 있으면 `force`일 때만 생성 내용으로 교체하고
+/// 아니면 `null`을 돌린다. `mcp`가 객체가 아닌 기존 설정과 깨진 JSON은
+/// [FormatException]을 던진다. 다른 전역 키는 그대로 보존한다.
+String? mergeOpenCodeConfig(String? existing, {required bool force}) {
+  final config = _decodeObject(existing);
+  final mcp = config['mcp'] ??= <String, Object?>{};
+  if (mcp is! Map<String, Object?>) {
+    throw const FormatException('"mcp" is not a JSON object');
+  }
+  if (mcp.containsKey('dartograph') && !force) return null;
+  mcp['dartograph'] = _openCodeServerEntry();
   return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
 }

@@ -1369,48 +1369,176 @@ Future<int> _runSkill(
   }
 }
 
-/// `dartograph setup` — Claude Code 훅·프로젝트 MCP 설정을 생성한다.
+/// Codex 전역 MCP 설정 파일이다. `$CODEX_HOME/config.toml`, 없으면
+/// `~/.codex/config.toml`이다(Codex는 프로젝트 설정을 읽지 않는다).
+File _codexConfigFile() {
+  final codexHome = Platform.environment['CODEX_HOME']?.trim();
+  final home = (codexHome != null && codexHome.isNotEmpty)
+      ? codexHome
+      : p.join(
+          Platform.environment['HOME'] ??
+              Platform.environment['USERPROFILE'] ??
+              '.',
+          '.codex',
+        );
+  return File(p.join(home, 'config.toml'));
+}
+
+/// `dartograph setup` — 에이전트 MCP·훅 연동 설정을 생성·설치·해제한다.
 ///
-/// 인쇄 경로는 세 결과물을 검토용으로 보여주고, `--install`은 훅 스크립트를
-/// `.claude/hooks/`에 쓰고 `.claude/settings.json`·`.mcp.json`에 병합한다.
-/// 기존 파일은 절대 통째로 덮어쓰지 않는다 — 병합할 수 없는 기존 설정은
-/// 그대로 두고 실패한다. 유료 서비스·로그인·텔레메트리 의존은 없다.
+/// 인쇄 경로는 검토용 결과물을 보여주고, `--install`은 타깃별 설정 파일에
+/// dartograph 항목만 병합한다. 기존 파일은 절대 통째로 덮어쓰지 않는다 —
+/// 병합할 수 없는 기존 설정은 그대로 두고 실패한다. `--uninstall`은 생성한
+/// 항목만 되돌린다. Codex만 설정이 전역이라 프로젝트 루트가 필요 없다.
+/// 유료 서비스·로그인·텔레메트리 의존은 없다.
 Future<int> _runSetup(
   List<String> arguments,
   StringSink output,
   StringSink error,
 ) async {
-  bool force = false;
-  String? installRoot;
+  var target = setupTargetClaude;
+  var force = false;
+  var install = false;
+  var uninstall = false;
+  String? root;
   for (var i = 0; i < arguments.length; i++) {
     final argument = arguments[i];
     if (argument == '--force' && !force) {
       force = true;
-    } else if (argument == '--install' &&
-        installRoot == null &&
+    } else if (argument == '--target' &&
         i + 1 < arguments.length &&
         !arguments[i + 1].startsWith('-')) {
-      installRoot = arguments[++i];
+      target = arguments[++i];
+    } else if (argument == '--install' && !install && !uninstall) {
+      install = true;
+      // Codex는 프로젝트 루트가 필요 없다 — 값이 없어도 받는다.
+      if (i + 1 < arguments.length && !arguments[i + 1].startsWith('-')) {
+        root = arguments[++i];
+      }
+    } else if (argument == '--uninstall' && !uninstall && !install) {
+      uninstall = true;
+      if (i + 1 < arguments.length && !arguments[i + 1].startsWith('-')) {
+        root = arguments[++i];
+      }
     } else {
       error.write(_help);
       return ExitStatus.usage.code;
     }
   }
-  if (installRoot == null) {
-    output
-      ..writeln('# .claude/hooks/$agentHookScriptName')
-      ..write(agentHookScript)
-      ..writeln('# .claude/settings.json — merge this block')
-      ..writeln(agentHookConfigJson())
-      ..writeln('# .mcp.json')
-      ..writeln(agentMcpConfigJson());
-    return ExitStatus.success.code;
+  final needsRoot = target != setupTargetCodex;
+  if (!setupTargets.contains(target) ||
+      (install && uninstall) ||
+      (force && uninstall) ||
+      ((install || uninstall) && needsRoot && root == null)) {
+    error.write(_help);
+    return ExitStatus.usage.code;
   }
-  final root = installRoot;
-  if (!Directory(root).existsSync()) {
+  if (root != null && !Directory(root).existsSync()) {
     error.writeln('Setup failed: $root is not a directory.');
     return ExitStatus.usage.code;
   }
+  if (!install && !uninstall) {
+    _printSetupArtifacts(target, output);
+    return ExitStatus.success.code;
+  }
+  return uninstall
+      ? _uninstallSetup(target, root, output, error)
+      : _installSetup(target, root, force, output, error);
+}
+
+/// 타깃별 검토용 결과물을 결정적 순서로 인쇄한다.
+void _printSetupArtifacts(String target, StringSink output) {
+  switch (target) {
+    case setupTargetClaude:
+      output
+        ..writeln('# .claude/hooks/$agentHookScriptName')
+        ..write(agentHookScript)
+        ..writeln('# .claude/settings.json — merge this block')
+        ..writeln(agentHookConfigJson())
+        ..writeln('# .mcp.json')
+        ..writeln(agentMcpConfigJson());
+    case setupTargetCursor:
+      output
+        ..writeln('# .cursor/mcp.json')
+        ..writeln(agentMcpConfigJson());
+    case setupTargetOpenCode:
+      output
+        ..writeln('# opencode.json')
+        ..writeln(agentOpenCodeConfigJson());
+    case setupTargetCodex:
+      output
+        ..writeln('# ${_codexConfigFile().path}')
+        ..write(codexMcpTomlBlock)
+        ..writeln('# or: codex mcp add dartograph -- dartograph mcp');
+    default:
+      // 위에서 타깃을 검증하므로 도달하지 않는다.
+      output.writeln('# unknown setup target');
+  }
+}
+
+Future<int> _installSetup(
+  String target,
+  String? root,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  switch (target) {
+    case setupTargetClaude:
+      return _installClaudeSetup(root!, force, output, error);
+    case setupTargetCursor:
+      return _installMcpJsonSetup(
+        File(p.join(root!, '.cursor', 'mcp.json')),
+        force,
+        output,
+        error,
+      );
+    case setupTargetOpenCode:
+      return _installOpenCodeSetup(
+        File(p.join(root!, 'opencode.json')),
+        force,
+        output,
+        error,
+      );
+    case setupTargetCodex:
+      return _installCodexSetup(force, output, error);
+  }
+  return ExitStatus.usage.code;
+}
+
+Future<int> _uninstallSetup(
+  String target,
+  String? root,
+  StringSink output,
+  StringSink error,
+) async {
+  switch (target) {
+    case setupTargetClaude:
+      return _uninstallClaudeSetup(root!, output, error);
+    case setupTargetCursor:
+      return _uninstallMcpJsonSetup(
+        File(p.join(root!, '.cursor', 'mcp.json')),
+        output,
+        error,
+      );
+    case setupTargetOpenCode:
+      return _uninstallOpenCodeSetup(
+        File(p.join(root!, 'opencode.json')),
+        output,
+        error,
+      );
+    case setupTargetCodex:
+      return _uninstallCodexSetup(output, error);
+  }
+  return ExitStatus.usage.code;
+}
+
+Future<int> _installClaudeSetup(
+  String root,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
   final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
   // init·skill과 같은 가드다. 링크 자체도 검사해 매달린 링크를 잡는다.
   if (!force && (await script.exists() || await Link(script.path).exists())) {
@@ -1457,6 +1585,227 @@ Future<int> _runSetup(
   } on FormatException catch (exception) {
     error.writeln('Setup failed: ${exception.message}');
     return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `mcpServers` JSON 설정(Cursor)에 dartograph 항목을 병합한다.
+Future<int> _installMcpJsonSetup(
+  File file,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  try {
+    final merged = mergeMcpConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// opencode `opencode.json`에 dartograph 항목을 병합한다.
+Future<int> _installOpenCodeSetup(
+  File file,
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  try {
+    final merged = mergeOpenCodeConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Codex 전역 `config.toml`에 dartograph MCP 블록을 병합한다.
+Future<int> _installCodexSetup(
+  bool force,
+  StringSink output,
+  StringSink error,
+) async {
+  final file = _codexConfigFile();
+  try {
+    final merged = mergeCodexConfig(
+      await file.exists() ? await file.readAsString() : null,
+      force: force,
+    );
+    if (merged == null) {
+      output.writeln('${file.path} already registers dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    await file.parent.create(recursive: true);
+    AtomicWrite.stringSync(file, merged);
+    output.writeln('Registered the MCP server in ${file.path}.');
+    return ExitStatus.success.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Claude Code 훅·MCP 항목과 생성한 훅 스크립트를 되돌린다.
+Future<int> _uninstallClaudeSetup(
+  String root,
+  StringSink output,
+  StringSink error,
+) async {
+  final script = File(p.join(root, '.claude', 'hooks', agentHookScriptName));
+  final settings = File(p.join(root, '.claude', 'settings.json'));
+  final mcpConfig = File(p.join(root, '.mcp.json'));
+  try {
+    var removed = false;
+    if (await settings.exists()) {
+      final remaining = removeClaudeSettingsHook(await settings.readAsString());
+      if (remaining != null) {
+        AtomicWrite.stringSync(settings, remaining);
+        output.writeln('Removed the dartograph hook from ${settings.path}.');
+        removed = true;
+      }
+    }
+    if (await mcpConfig.exists()) {
+      final remaining = removeMcpServerEntry(await mcpConfig.readAsString());
+      if (remaining != null) {
+        AtomicWrite.stringSync(mcpConfig, remaining);
+        output.writeln(
+          'Removed the dartograph MCP server from ${mcpConfig.path}.',
+        );
+        removed = true;
+      }
+    }
+    // 생성한 훅 스크립트만 지운다 — 내용이 우리 것이 아니면 남긴다.
+    final type = await FileSystemEntity.type(script.path, followLinks: false);
+    if (type == FileSystemEntityType.file &&
+        (await script.readAsString()).contains(
+          'Generated by `dartograph setup --install`',
+        )) {
+      await script.delete();
+      output.writeln('Removed ${script.path}.');
+      removed = true;
+    }
+    if (!removed) {
+      output.writeln('Nothing to uninstall for Claude Code in $root.');
+    }
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// `mcpServers` JSON 설정(Cursor)에서 dartograph 항목을 되돌린다.
+Future<int> _uninstallMcpJsonSetup(
+  File file,
+  StringSink output,
+  StringSink error,
+) async {
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeMcpServerEntry(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    AtomicWrite.stringSync(file, remaining);
+    output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// opencode `opencode.json`에서 dartograph 항목을 되돌린다.
+Future<int> _uninstallOpenCodeSetup(
+  File file,
+  StringSink output,
+  StringSink error,
+) async {
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeOpenCodeEntry(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    AtomicWrite.stringSync(file, remaining);
+    output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    return ExitStatus.success.code;
+  } on FormatException catch (exception) {
+    error.writeln('Setup failed: ${exception.message}');
+    return ExitStatus.failure.code;
+  } on FileSystemException {
+    error.writeln('Setup failed: check the destination permissions.');
+    return ExitStatus.failure.code;
+  }
+}
+
+/// Codex 전역 `config.toml`에서 dartograph MCP 블록을 되돌린다.
+Future<int> _uninstallCodexSetup(StringSink output, StringSink error) async {
+  final file = _codexConfigFile();
+  if (!await file.exists()) {
+    output.writeln('Nothing to uninstall: ${file.path} does not exist.');
+    return ExitStatus.success.code;
+  }
+  try {
+    final remaining = removeCodexConfig(await file.readAsString());
+    if (remaining == null) {
+      output.writeln('${file.path} does not register dartograph mcp.');
+      return ExitStatus.success.code;
+    }
+    if (remaining.trim().isEmpty) {
+      await file.delete();
+      output.writeln(
+        'Removed the dartograph MCP server and deleted empty ${file.path}.',
+      );
+    } else {
+      AtomicWrite.stringSync(file, remaining);
+      output.writeln('Removed the dartograph MCP server from ${file.path}.');
+    }
+    return ExitStatus.success.code;
   } on FileSystemException {
     error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
@@ -2974,7 +3323,7 @@ Usage: dartograph [--help] [--version]
        dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
-       dartograph setup [--install <package-root> [--force]]
+       dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--record <dir>] <package-root>
        dartograph history --ledger <dir> [--commit <sha>] [--format <text|json>]
        dartograph mcp
@@ -2994,17 +3343,22 @@ skill prints an installable agent skill. --install writes
 <skills-directory>/dartograph/SKILL.md; pass --force to overwrite an existing
 file (a symlink at that path is replaced as a link, never followed).
 
-setup prints or installs Claude Code integration without MCP calls: with no
-options it prints the PostToolUse hook script, the settings.json hook block,
-and the .mcp.json document for review. --install writes
-<package-root>/.claude/hooks/dartograph-impact.sh, merges the hook into
-<package-root>/.claude/settings.json, and merges the dartograph MCP server
-into <package-root>/.mcp.json. Existing keys are preserved; settings whose
-hooks are not the expected JSON shape, or invalid JSON, fail instead of being
-overwritten. --force overwrites the generated script and replaces an existing
-dartograph MCP entry. The hook runs `dartograph impact --changed` after Dart
-file edits and requires dartograph on PATH; no paid service, login, or
-telemetry is involved.
+setup prints or installs agent MCP integration without MCP calls. --target
+selects claude (default), cursor, codex, or opencode. With no options it
+prints the target's artifacts for review. For claude, --install writes
+<package-root>/.claude/hooks/dartograph-impact.sh, merges the PostToolUse hook
+into <package-root>/.claude/settings.json, and merges the dartograph MCP
+server into <package-root>/.mcp.json. cursor merges
+<package-root>/.cursor/mcp.json and opencode merges
+<package-root>/opencode.json. Codex reads only the global
+\$CODEX_HOME/config.toml (default ~/.codex/config.toml), so its --install takes
+no package root and merges a [mcp_servers.dartograph] block. Existing keys are
+preserved; configs whose expected shape is wrong, or invalid JSON, fail
+instead of being overwritten. --force replaces an existing dartograph entry.
+--uninstall removes only the dartograph entries and, for claude, the generated
+hook script. The hook runs `dartograph impact --changed` after Dart file edits
+and requires dartograph on PATH; no paid service, login, or telemetry is
+involved.
 
 
 dead --format codeowners groups findings by the owners of their source paths

@@ -332,4 +332,217 @@ void main() {
         (jsonDecode(replaced) as Map)['mcpServers'] as Map<String, Object?>;
     expect(servers['dartograph'], containsPair('command', 'dartograph'));
   });
+
+  test('setup --target cursor prints the Cursor MCP document', () async {
+    final output = StringBuffer();
+    final error = StringBuffer();
+    final status = await runDartograph(
+      ['setup', '--target', 'cursor'],
+      output: output,
+      error: error,
+    );
+    expect(status, ExitStatus.success.code);
+    expect(error.toString(), isEmpty);
+    expect(output.toString(), contains('.cursor/mcp.json'));
+    expect(output.toString(), contains('"mcpServers"'));
+  });
+
+  test(
+    'setup --target cursor installs and uninstalls .cursor/mcp.json',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      final config = File('${temporary.path}/.cursor/mcp.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '{"mcpServers": {"other": {"command": "other-tool"}}}',
+        );
+
+      final installStatus = await runDartograph(
+        ['setup', '--target', 'cursor', '--install', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(installStatus, ExitStatus.success.code);
+      final servers =
+          (jsonDecode(config.readAsStringSync()) as Map)['mcpServers']
+              as Map<String, Object?>;
+      expect(servers.keys, unorderedEquals(['other', 'dartograph']));
+      // 같은 항목이 이미 있으면 건너뛴다.
+      expect(
+        await runDartograph([
+          'setup',
+          '--target',
+          'cursor',
+          '--install',
+          temporary.path,
+        ]),
+        ExitStatus.success.code,
+      );
+      expect(servers, hasLength(2));
+
+      final uninstallStatus = await runDartograph(
+        ['setup', '--target', 'cursor', '--uninstall', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(uninstallStatus, ExitStatus.success.code);
+      final remaining =
+          (jsonDecode(config.readAsStringSync()) as Map)['mcpServers']
+              as Map<String, Object?>;
+      expect(remaining.keys, unorderedEquals(['other']));
+    },
+  );
+
+  test(
+    'setup --target opencode preserves other keys and uninstalls its entry',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      final config = File('${temporary.path}/opencode.json')
+        ..writeAsStringSync('{"theme": "dark"}');
+
+      final installStatus = await runDartograph(
+        ['setup', '--target', 'opencode', '--install', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(installStatus, ExitStatus.success.code);
+      final decoded =
+          jsonDecode(config.readAsStringSync()) as Map<String, Object?>;
+      expect(decoded['theme'], 'dark');
+      expect((decoded['mcp'] as Map)['dartograph'], <String, Object?>{
+        'type': 'local',
+        'command': <String>['dartograph', 'mcp'],
+        'enabled': true,
+      });
+
+      final uninstallStatus = await runDartograph(
+        ['setup', '--target', 'opencode', '--uninstall', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(uninstallStatus, ExitStatus.success.code);
+      final after =
+          jsonDecode(config.readAsStringSync()) as Map<String, Object?>;
+      expect(after['theme'], 'dark');
+      expect(after.containsKey('mcp'), isFalse);
+    },
+  );
+
+  test(
+    'setup --uninstall for Claude removes hook, MCP entry, and script',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+
+      final installStatus = await runDartograph(
+        ['setup', '--install', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(installStatus, ExitStatus.success.code);
+      final script = File(
+        '${temporary.path}/.claude/hooks/dartograph-impact.sh',
+      );
+      expect(script.existsSync(), isTrue);
+
+      final uninstallStatus = await runDartograph(
+        ['setup', '--uninstall', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(uninstallStatus, ExitStatus.success.code);
+      expect(script.existsSync(), isFalse);
+      final mcp =
+          jsonDecode(File('${temporary.path}/.mcp.json').readAsStringSync())
+              as Map<String, Object?>;
+      // mcpServers의 유일한 항목이었으므로 컨테이너도 함께 사라진다.
+      expect(mcp['mcpServers'], isNull);
+      final settings =
+          jsonDecode(
+                File(
+                  '${temporary.path}/.claude/settings.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>;
+      final hooks = settings['hooks'];
+      expect(
+        hooks == null || (hooks as Map<String, Object?>)['PostToolUse'] == null,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'setup rejects unknown targets and unsupported argument shapes',
+    () async {
+      expect(
+        await runDartograph([
+          'setup',
+          '--target',
+          'vscode',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(
+        await runDartograph([
+          'setup',
+          '--install',
+          '.',
+          '--uninstall',
+          '.',
+        ], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      // claude는 프로젝트 루트가 필요하다.
+      expect(
+        await runDartograph(['setup', '--install'], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+      expect(
+        await runDartograph(['setup', '--target'], error: StringBuffer()),
+        ExitStatus.usage.code,
+      );
+    },
+  );
+
+  test('mergeCodexConfig and removeCodexConfig preserve other tables', () {
+    const existing = 'model = "o3"\n\n[foo]\nbar = 1\n';
+    final merged = mergeCodexConfig(existing, force: false)!;
+    expect(merged, contains('model = "o3"'));
+    expect(merged, contains('[foo]'));
+    expect(merged, contains('[mcp_servers.dartograph]'));
+    expect(mergeCodexConfig(merged, force: false), isNull);
+    final replaced = mergeCodexConfig(merged, force: true)!;
+    expect(
+      RegExp(r'\[mcp_servers\.dartograph\]').allMatches(replaced).length,
+      1,
+    );
+    final removed = removeCodexConfig(replaced)!;
+    expect(removed, isNot(contains('mcp_servers.dartograph')));
+    expect(removed, contains('[foo]'));
+    expect(removed, contains('bar = 1'));
+    expect(removeCodexConfig('model = "o3"\n'), isNull);
+  });
+
+  test('mergeOpenCodeConfig preserves other keys and is idempotent', () {
+    final merged = mergeOpenCodeConfig('{"theme": "dark"}', force: false)!;
+    final decoded = jsonDecode(merged) as Map<String, Object?>;
+    expect(decoded['theme'], 'dark');
+    expect((decoded['mcp'] as Map)['dartograph'], <String, Object?>{
+      'type': 'local',
+      'command': <String>['dartograph', 'mcp'],
+      'enabled': true,
+    });
+    expect(mergeOpenCodeConfig(merged, force: false), isNull);
+    expect(removeOpenCodeEntry(merged), contains('"theme"'));
+    expect(removeOpenCodeEntry('{"theme": "dark"}'), isNull);
+  });
 }

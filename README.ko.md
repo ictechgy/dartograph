@@ -93,7 +93,7 @@ dartograph mcp
 - `impact`는 편집이 반영되기 전에 어떤 선언·테스트가 영향을 받는지 보고한다 — `--changed <file>`/`--symbol <id>`/`--since <ref>`로 시드를 주고 의존 경로를 근거로 싣는다. `runtime`은 실행 시점에만 드러나는 입력(환경변수·dart-define 읽기, 동적 로드, 설정 경로, 에셋, 외부 URL)을 찾아 현재 환경에 대해 판정하며, `--execute`는 진입점을 실행해 종료 코드와 stderr를 실행 증거로 남긴다.
 - `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고, `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
-- `setup`은 Claude Code 연동을 출력하거나 `--install <root>`로 설치한다 — Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 프로젝트 `.mcp.json` 서버 항목. 기존 설정은 덮어쓰지 않고 병합한다.
+- `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
 - `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
 - `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
