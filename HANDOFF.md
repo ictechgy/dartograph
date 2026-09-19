@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 전제 정정, S1 측정 기각, C5 action.yml, S7 체크리스트, C3 --with-source, S2 --format 통일(cycles·rules·metrics·affected·compare). 전부 미커밋, main `8168650`)_
+_Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #120 다중 타깃/형식/S2, #121 C4 에이전트 벤치마크, #122 adoption 개선, #123 C2 `dartograph_explore`, #124 S5 `--workspace` 멤버 집계. main `9da4123`)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
@@ -62,6 +62,33 @@ _Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 �
   기본 출력은 byte 동일하다.
 - **검증**: format clean(197), analyze 0, `dart test` **+602 통과**(C3 +8), CLI 계약 passed
   (쿼리 소스 케이스 4종), corpus passed, coverage **90.91%**.
+
+## 2026-09-19 (4차) — 백로그 머지 완료: PR #120~#124
+
+- **PR #120(머지 `4857136`)**: 위 1~3차 미커밋 3배치를 커밋·리뷰·머지했다 — C1 setup
+  다중 타깃·`--uninstall`, C3 `query --with-source`, C5 `action.yml`, S2 `--format`
+  통일, S7 체크리스트 + action.yml·Codex TOML 스캔 보안 경화.
+- **PR #121(머지 `3d2f35b`, C4)**: `tool/agent_benchmark` — 에이전트가 dartograph
+  유무로 코딩 과제를 수행하는 비교 하네스. 66런 결과 WITH arm의 실제 도구 호출은
+  4/33(12%) — 가용성만으로는 adoption이 안 된다는 측정.
+- **PR #122(머지 `938cde4`, adoption 개선)**: `setup --install`(claude)이 CLAUDE/
+  AGENTS.md에 `<!-- dartograph:begin -->` 라우팅 블록을 병합(fail-closed·byte 검증
+  uninstall) + 스킬 description 확장. 같은 4과제 재측정 사용률 **12%→69%**(11/16).
+- **PR #123(머지 `4006cb1`, C2)**: 통합 MCP 도구 `dartograph_explore` — 인자 형태로
+  결정적 라우팅(symbol/batch→dependency_query, impact*→impact_query, command→
+  verify_run/runtime_query), `routed:` 표지, `DARTOGRAPH_MCP_LEGACY_TOOLS=0|false`로
+  기존 4개의 tools/list 광고 제어(호출은 유지).
+- **PR #124(머지 `9da4123`, S5 잔여)**: 옵트인 `--workspace` pub 워크스페이스 집계 —
+  루트 `workspace:` 멤버를 한 그래프로(표준 소스 디렉터리·barrel·main·test·plugin·
+  build.yaml 보존을 패키지별 판정), `deps --workspace`는 패키지별 자기 pubspec 감사에
+  `manifest` 귀속(단일 패키지 출력 불변), 집계/비집계 캐시 분리(identity v14·schema
+  v7), MCP `workspace` boolean 전 도구. symlink 멤버 경로·전원 skip·선언 없음은
+  건너뛰기 보고 또는 exit 2 — 조용한 단일 패키지 퇴화 없음.
+- **검증·리뷰**: 테스트 658 전부 통과, analyze 0, 계약 스크립트 passed(workspace
+  케이스 5종 포함), CI 4체크 green. GLM 리뷰 각 PR 초회+델타 — #124는 멤버 symlink
+  탈출·전원 skip 퇴화·표준 디렉터리 내 skip 멤버 색인을 잡아 델타로 반영.
+- 남은 백로그는 수동/외부 조치뿐: C5①(verified publisher)·③(asciinema), S7 문서
+  아카이브. 후속 가능 작업은 adoption 셀 확대(다른 모델·과제)와 0.15.0 릴리스 판단.
 
 ## 2026-09-19 (3차) — codegraph 백로그 2: S2(--format 통일)
 
@@ -217,12 +244,12 @@ _Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 �
 ## Goal
 
 - 영구 무료 MIT Dart/Flutter 근거 질의 CLI를 유지한다.
-- **현재 목표(2026-09-19)**: codegraph 대비 개선 백로그를 권장 순서로 소비한다. 3배치로
-  C1(setup 다중 타깃)·C3(--with-source)·C5②(action.yml)·S2(--format 통일)·S7(릴리스
-  체크리스트)을 구현·검증했고, S4는 전제 정정, S1은 측정으로 기각했다. 전부 미커밋이다.
-  커밋·PR·푸시는 별도 명시적 승인 없이 실행하지 않는다. 다음 후보는 C4(외부 자원 필요)·
-  C2(통합 MCP 툴)·S5 잔여다. 재개는 위 2026-09-19 1~3차 절 → [Current Status] →
-  [Next Steps] 순서로 한다.
+- **현재 목표(2026-09-19)**: codegraph 대비 개선 백로그의 자동 진행 항목은 전부
+  머지됐다 — PR #120(C1·C3·C5②·S2·S7 체크리스트), #121(C4 벤치마크), #122(adoption
+  개선: 관리 라우팅 블록 + 스킬 문구, 사용률 12%→69%), #123(C2 `dartograph_explore`),
+  #124(S5 `--workspace` 멤버 집계). 남은 것은 수동/외부 조치(C5① verified
+  publisher·③ asciinema, S7 아카이브)와 선택 후속(adoption 셀 확대, 0.15.0 릴리스
+  판단)뿐이다. 재개는 위 2026-09-19 4차 절 → [Current Status] → [Next Steps] 순서로 한다.
 - **직전 완료 세션(0.13.0 — Claude 리뷰 수정 5PR + 릴리스 + README 퇴고)**: 성능·보안·구조
   Claude 리뷰 확정 19건을 PR #110~#114로 반영·머지하고 0.13.0을 발행(PR #115). README
   en/ko 퇴고를 PR #116에 머지했다. 아이콘 선택은 별도 대기이며 현재 제품 후속 작업과 구분한다.
@@ -252,8 +279,8 @@ _Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 �
   `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
   (이전 0.13.0→`6a1abfb`, 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`,
   0.8.0→`8d8baa3`.)
-- 로컬 Git 확인(2026-09-18): **main / origin/main `8168650`**(PR #119 머지).
-  `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
+- 로컬 Git 확인(2026-09-19): **main / origin/main `9da4123`**(PR #124 머지,
+  S5 `--workspace` 멤버 집계). `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
 - **경쟁 갭 후보 4건 머지됨(2026-09-18)**: PR #119 머지 커밋 `8168650` —
   본 문서 하단 "경쟁 갭 후보 구현·머지(PR #119)" 절 참조(`impact --format
   test-list`, pub workspace 멤버/루트 표면, `doc/GRAPH-EXCHANGE.md`, SARIF
@@ -262,13 +289,10 @@ _Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 �
   MCP 세션 캐시·`runtime_query`·runtime 집계/필터가 PR #117(`bc2dbd0`)로 main에
   들어가 0.14.0(PR #118, 태그 `v0.14.0` = `0978cde`)로 게시됐다. GLM 리뷰 2회
   (초기 지적 반영 + 후속 merge-ready 판정)와 CI 전부 통과.
-- **미커밋 작업(2026-09-19, 3배치)**: codegraph 대비 개선 백로그를 구현·검증했다 —
-  C1 `setup --target claude|cursor|codex|opencode`+`--uninstall`, C3 `query --with-source`,
-  S2 `cycles`·`rules`·`metrics`·`affected`·`compare`의 `--format text|json|sarif`, C5 트
-  `action.yml`, S7 릴리스 체크리스트 갱신. S4는 세션 캐시가 호출마다 최신임을 확인해 배너를
-  넣지 않았고, S1은 DI/bloc/router 오탐 0 실측으로 기각했다. 상세·검증은 상단 2026-09-19
-  1~3차 절. 테스트 **612**, analyze 0, CLI 계약·corpus passed, 라인 커버리지 **90.28%**
-  (general 태그). 커밋·PR은 명시 요청 시.
+- **백로그 머지 완료(2026-09-19, PR #120~#124)**: 1~3차 미커밋 3배치는 PR #120으로
+  머지됐고 이후 #121(C4)·#122(adoption)·#123(C2)·#124(S5)까지 모두 main에 들어갔다 —
+  상단 2026-09-19 4차 절 참조. 테스트 **658**, analyze 0, CLI 계약·corpus passed.
+  미릴리스 상태 — 0.14.0 이후 누적분의 0.15.0 릴리스 판단이 남았다.
 - **완료된 범위(재개발 금지)**: #94의 impact/MCP/runtime·BasicMessageChannel,
   #96의 CLI 증분 분석·검증 원장·markdown/codeowners 리포터, #98/#100의 MCP 리소스/프롬프트·
   yaml 확장·dead/deps/dup `--kinds`·CODEOWNERS 문법 확장, #103의 EventChannel producer,
@@ -277,10 +301,9 @@ _Last updated: 2026-09-19 (codegraph 백로그 — C1 setup 다중 타깃, S4 �
   실제 구독·수신 증명이 아님을 명시했다(위 #103 기록). 구 계약 미결은 재개 대상이 아니다.
 - **별도 대기**: VS Code 아이콘 사용자 선택. `HANDOFF-PROGRESS.md`와
   `editors/vscode/icon-drafts/`는 다른 세션의 미추적 파일로 보존한다.
-- 테스트 **612개**(2026-09-19 미커밋 트리 실측, general 태그)와 analyze 0은 현재 작업의
+- 테스트 **658개**(2026-09-19, PR #124 머지 시점 main)와 analyze 0은 현재 작업의
   검증 근거이고, 직전 릴리스 세션의 546개 기록과 구분한다. 라인 커버리지는 CI의
   check-coverage가 게이트한다.
-  라인 커버리지는 CI의 check-coverage가 게이트한다.
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
   신선한 resolution으로 게이트를 돌린다.
@@ -1006,15 +1029,14 @@ SQLite+FTS5, MCP 단일 툴 `codegraph_explore`, 파일 감시 자동 동기화,
 | S2 | 포맷 비대칭 | 6개 명령 `--format` 없음. 자체 백로그 P3 "결정적 SARIF가 차별점"인데 `cycles`/`rules`/`metrics`가 SARIF 불가 — 아키텍처 게이트야말로 code scanning 대상 | 전 명령 `--format text\|json\|sarif` 최소 통일(계약 변경이라 0.15/1.0에 묶기) **구현(미커밋)**: `cycles`·`rules`·`metrics`·`affected`·`compare`가 `--format text|json|sarif`를 받는다(기본 `json` = 기존 출력 byte 동일). `query`는 근거 질의 문서라 SARIF가 맞지 않아 JSON 전용으로 남긴다(의도된 경계). `--explain`은 `--format json` 외 usage 64다. |
 | S3 | 변경 범위 질의 4중복 + 에이전트 표면 3분할 | `dead --since` / `affected` / `impact --since` / `compare`; `skill` / `setup` / `mcp`. 문서 설명이 길다는 것 자체가 증상 | `affected`를 `impact`의 한 포맷으로 흡수 검토. `setup`이 셋을 포괄하도록 재정리 | 중 |
 | S4 | staleness 배너 부재 | `--incremental <dir>`은 11개 명령에 수동 플래그. MCP 세션 캐시는 편집 반영 보장 아님. codegraph는 워처+디바운스+**per-file staleness 배너**+connect-time catch-up | 워처보다 **배너가 먼저**: MCP 응답에 "근거 파일 중 N개가 캐시 이후 변경됨". 근거 계약과 같은 철학, 구현 저렴 | 소(배너)/중(워처) |
-| S5 | 모노레포 / pub workspace (문서상 계획, 미착수) | `doc/PRD.md` "v0.2+ 멀티 패키지(melos)", 0.14까지 미구현. `--project`는 `bridges`만. dcq_standalone·dependency_validator·dallow가 지원해 기대 기능이 됨 | workspace 루트 인식 + 멤버 순회 | 중 |
+| S5 | 모노레포 / pub workspace — **완료(PR #124)** | 옵트인 `--workspace`가 루트 `workspace:` 멤버를 한 그래프로 집계(표준 소스 디렉터리·보존·deps 매니페스트별 감사·캐시 분리·MCP `workspace` boolean) | 구현·머지 완료 | 완료 |
 | S6 | GRAPH-EXCHANGE 스펙 비공개 (P2 후보) | `bridges`+isthmus 결합이 유일성인데 스펙이 자매 저장소에 갇힘 | 문서 공개만으로 해소되는 가장 싼 차별화 | 소 |
 | S7 | 문서 정합성 드리프트 | §6 "후보"가 실제 구현됨. `HANDOFF.md` 92KB·`CHANGELOG.md` 52KB는 에이전트 읽기에 과대 | 릴리스 체크리스트에 백로그 표 갱신 추가. HANDOFF 과거 세션 아카이브 분리 **부분 완료(미커밋)**: CONTRIBUTING 릴리스 절에 백로그 표 갱신·문서 아카이브 검토를 추가했다. 과거 세션 아카이브 분리는 미착수. | 소 |
 | S8 | SDK 하한 안내 (낮은 우선순위) | Flutter 3.38(Dart 3.10) 고정 팀은 설치 불가 | README 설치 절에 "Flutter 3.41+ 필요" 한 줄. 하한 완화는 비권장 | 소 |
 
-> **PR #119 이후 정정(같은 날 머지)**: S5는 부분 해소 — 멤버 직접 분석·조상
-> package_config 공유·루트 `workspace-members-not-indexed` 한계는 구현됐고,
-> 잔여는 다중 패키지 집계(표의 "멤버 순회")뿐이다. S6은 해소 —
-> `doc/GRAPH-EXCHANGE.md`가 공개 스펙으로 들어갔다. S7의 §6 드리프트는
+> **PR #124 이후 정정**: S5는 완료 — #119의 멤버 직접 분석·조상 package_config·
+> `workspace-members-not-indexed`에 이어 다중 패키지 집계(`--workspace`)까지 머지됐다.
+> S6은 해소 — `doc/GRAPH-EXCHANGE.md`가 공개 스펙으로 들어갔다. S7의 §6 드리프트는
 > #119에서 표를 구현 상태로 갱신해 해소 — 잔여는 HANDOFF/CHANGELOG 크기
 > 축소와 릴리스 체크리스트 추가다.
 
@@ -1026,8 +1048,10 @@ SQLite+FTS5, MCP 단일 툴 `codegraph_explore`, 파일 감시 자동 동기화,
    DCM auto-fix)도 같은 이유로 유지.
 
 ### 권장 착수 순서
-C4(외부 자원) → C2(통합 MCP 툴) → S5 잔여.
-*(S2는 계획된 범위까지 완료(query는 의도적 JSON 전용). 남은 것은 C4·C2·S5 잔여·C5 ①③·S7 아카이브.)*
+자동 진행 항목은 전부 완료다 — C1·C3·C5②·S2·S7 체크리스트(PR #120), C4(#121),
+adoption 개선(#122), C2(#123), S5(#124).
+*(남은 것은 C5① verified publisher·③ asciinema와 S7 아카이브 — 전부 수동/외부
+조치. 선택 후속: adoption 셀 확대, S3 표면 재정리 검토, 0.15.0 릴리스 판단.)*
 
 ## Next Steps
 
@@ -1042,15 +1066,13 @@ C4(외부 자원) → C2(통합 MCP 툴) → S5 잔여.
 4. **경쟁 갭 후보 4건은 머지됐다**: PR #119(머지 커밋 `8168650`)로 `impact
    --format test-list`·pub workspace 표면·`doc/GRAPH-EXCHANGE.md`·SARIF 가이드가
    main에 들어갔다. 0.14.0 다음 릴리스 대상 — 미릴리스다.
-5. **2026-09-19 미커밋 작업**: codegraph 백로그 3배치가 작업 트리에 있다 — C1 setup
-   다중 타깃·`--uninstall`, C3 `query --with-source`, C5 루트 `action.yml`, S2
-   `--format` 통일(cycles·rules·metrics·affected·compare), S7 릴리스 체크리스트;
-   S4 전제 정정, S1 측정 기각. 검증은 612 테스트·analyze 0·CLI 계약·corpus·coverage
-   90.28%. 담당자 검증·GLM 리뷰 후 커밋/PR 여부를 정한다.
-6. **다음 후보 목록은 "경쟁 조사 — codegraph 대비 개선점" 절이다**(아래). C1·C3·C5②·
-   S2·S7은 2026-09-19 배치로 완료/부분, S4·S1은 실측 기각, S6은 #119. 남은 권장 순서:
-   C4(외부 자원 필요) → C2(통합 MCP 툴) → S5 잔여. C5①(verified publisher)·③(asciinema)과
-   S7 아카이브는 수동/외부 조치다.
+5. **2026-09-19 백로그는 전부 머지됐다**: 3배치 미커밋분은 PR #120으로, 이후
+   C4(#121)·adoption 개선(#122)·C2(#123)·S5(#124)까지 전부 main에 들어갔다.
+   상단 2026-09-19 4차 절 참조.
+6. **다음 후보 목록은 "경쟁 조사 — codegraph 대비 개선점" 절이다**(아래). 자동 진행
+   항목은 전부 완료 — 남은 것은 C5①(verified publisher)·③(asciinema)과 S7 아카이브의
+   수동/외부 조치뿐이다. 선택 후속은 adoption 셀 확대(다른 모델·과제), S3 표면
+   재정리 검토, 0.14.0 이후 누적분의 0.15.0 릴리스 판단이다.
 7. 본 문서 정리는 완료했다. 그 외 명시적 지시가 없으면 다음 사용자 지시를 따른다.
    VS Code 아이콘 선택은 사용자 대기 항목이다.
 
