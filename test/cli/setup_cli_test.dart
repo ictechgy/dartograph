@@ -508,8 +508,185 @@ void main() {
         hooks == null || (hooks as Map<String, Object?>)['PostToolUse'] == null,
         isTrue,
       );
+      // 블록만 담긴 CLAUDE.md는 설치가 만든 것이므로 함께 사라진다.
+      expect(File('${temporary.path}/CLAUDE.md').existsSync(), isFalse);
     },
   );
+
+  test('setup --install adds the managed block to CLAUDE.md', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-setup-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+
+    final status = await runDartograph(
+      ['setup', '--install', temporary.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+    );
+    expect(status, ExitStatus.success.code);
+
+    final guide = File('${temporary.path}/CLAUDE.md');
+    expect(guide.existsSync(), isTrue);
+    final text = guide.readAsStringSync();
+    expect(text, contains(agentGuideBeginMarker));
+    expect(text, contains('dartograph dead'));
+    expect(text, contains('dartograph query'));
+    expect(text, contains(agentGuideEndMarker));
+  });
+
+  test('setup --install merges the block into an existing CLAUDE.md', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-setup-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+    File(
+      '${temporary.path}/CLAUDE.md',
+    ).writeAsStringSync('# Project rules\n\nKeep user content.\n');
+
+    final status = await runDartograph(
+      ['setup', '--install', temporary.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+    );
+    expect(status, ExitStatus.success.code);
+
+    final text = File('${temporary.path}/CLAUDE.md').readAsStringSync();
+    expect(text, contains('Keep user content.'));
+    expect(text, contains(agentGuideBeginMarker));
+  });
+
+  test('setup --install prefers AGENTS.md when only it exists', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-setup-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+    File('${temporary.path}/AGENTS.md').writeAsStringSync('# Agent guide\n');
+
+    final status = await runDartograph(
+      ['setup', '--install', temporary.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+    );
+    expect(status, ExitStatus.success.code);
+
+    expect(File('${temporary.path}/CLAUDE.md').existsSync(), isFalse);
+    expect(
+      File('${temporary.path}/AGENTS.md').readAsStringSync(),
+      contains(agentGuideBeginMarker),
+    );
+  });
+
+  test('setup --install --force keeps a single guide block', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'dartograph-setup-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+
+    // 재설치는 훅 스크립트 가드 때문에 --force가 필요하다 — 그 경로에서도
+    // 블록이 중복되지 않아야 한다.
+    for (final extra in const <List<String>>[
+      <String>[],
+      <String>['--force'],
+    ]) {
+      final status = await runDartograph(
+        ['setup', '--install', temporary.path, ...extra],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(status, ExitStatus.success.code);
+    }
+    final text = File('${temporary.path}/CLAUDE.md').readAsStringSync();
+    expect(agentGuideBeginMarker.allMatches(text), hasLength(1));
+  });
+
+  test(
+    'setup --uninstall strips the block but keeps other guide content',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      File(
+        '${temporary.path}/CLAUDE.md',
+      ).writeAsStringSync('# Project rules\n\nKeep user content.\n');
+
+      expect(
+        await runDartograph(
+          ['setup', '--install', temporary.path],
+          output: StringBuffer(),
+          error: StringBuffer(),
+        ),
+        ExitStatus.success.code,
+      );
+      expect(
+        await runDartograph(
+          ['setup', '--uninstall', temporary.path],
+          output: StringBuffer(),
+          error: StringBuffer(),
+        ),
+        ExitStatus.success.code,
+      );
+
+      final guide = File('${temporary.path}/CLAUDE.md');
+      expect(guide.existsSync(), isTrue);
+      final text = guide.readAsStringSync();
+      expect(text, contains('Keep user content.'));
+      expect(text, isNot(contains(agentGuideBeginMarker)));
+    },
+  );
+
+  test('mergeClaudeGuide appends to content and skips an existing block', () {
+    final merged = mergeClaudeGuide('# Rules\n', force: false)!;
+    expect(merged, startsWith('# Rules\n\n'));
+    expect(merged, contains(agentGuideBeginMarker));
+    // 이미 블록이 있으면 force 없이는 건드리지 않는다.
+    expect(mergeClaudeGuide(merged, force: false), isNull);
+  });
+
+  test('mergeClaudeGuide --force replaces a stale block in place', () {
+    final stale =
+        'head\n$agentGuideBeginMarker\noutdated\n$agentGuideEndMarker\ntail\n';
+    final merged = mergeClaudeGuide(stale, force: true)!;
+    expect(merged, startsWith('head\n'));
+    expect(merged, contains('## dartograph'));
+    expect(merged, isNot(contains('outdated')));
+    expect(merged, endsWith('tail\n'));
+  });
+
+  test('mergeClaudeGuide fails closed on malformed markers', () {
+    expect(
+      () => mergeClaudeGuide(agentGuideBeginMarker, force: false),
+      throwsFormatException,
+    );
+    expect(
+      () => mergeClaudeGuide(agentGuideEndMarker, force: false),
+      throwsFormatException,
+    );
+    expect(
+      () => mergeClaudeGuide(
+        '$agentGuideBeginMarker x $agentGuideBeginMarker $agentGuideEndMarker',
+        force: false,
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => mergeClaudeGuide(
+        '$agentGuideEndMarker x $agentGuideBeginMarker',
+        force: false,
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('removeClaudeGuide strips only the managed block', () {
+    final text =
+        'alpha\n\n$agentGuideBeginMarker\nbody\n$agentGuideEndMarker\n\nomega\n';
+    expect(removeClaudeGuide(text), 'alpha\n\nomega\n');
+    // 블록이 없으면 null — 호출자가 파일을 그대로 둔다.
+    expect(removeClaudeGuide('alpha\n'), isNull);
+    expect(removeClaudeGuide(null), isNull);
+  });
 
   test(
     'setup rejects unknown targets and unsupported argument shapes',

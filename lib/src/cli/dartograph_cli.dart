@@ -1658,7 +1658,9 @@ void _printSetupArtifacts(String target, StringSink output) {
         ..writeln('# .claude/settings.json — merge this block')
         ..writeln(agentHookConfigJson())
         ..writeln('# .mcp.json')
-        ..writeln(agentMcpConfigJson());
+        ..writeln(agentMcpConfigJson())
+        ..writeln('# CLAUDE.md (or AGENTS.md) — managed block')
+        ..write(agentGuideBlock);
     case setupTargetCursor:
       output
         ..writeln('# .cursor/mcp.json')
@@ -1751,6 +1753,7 @@ Future<int> _installClaudeSetup(
   }
   final settings = File(p.join(root, '.claude', 'settings.json'));
   final mcpConfig = File(p.join(root, '.mcp.json'));
+  final guide = await _claudeGuideFile(root);
   try {
     // 설정 파일은 통째로 쓰지 않고 기존 내용 위에 dartograph 항목만 병합한다.
     // 깨진 JSON·예상 밖 타입이면 FormatException으로 빠진다 — 병합을 먼저
@@ -1760,6 +1763,10 @@ Future<int> _installClaudeSetup(
     );
     final mergedMcp = mergeMcpConfig(
       await mcpConfig.exists() ? await mcpConfig.readAsString() : null,
+      force: force,
+    );
+    final mergedGuide = mergeClaudeGuide(
+      await guide.exists() ? await guide.readAsString() : null,
       force: force,
     );
 
@@ -1783,6 +1790,13 @@ Future<int> _installClaudeSetup(
       AtomicWrite.stringSync(mcpConfig, mergedMcp);
       output.writeln('Registered the MCP server in ${mcpConfig.path}.');
     }
+
+    if (mergedGuide == null) {
+      output.writeln('${guide.path} already has the dartograph block.');
+    } else {
+      AtomicWrite.stringSync(guide, mergedGuide);
+      output.writeln('Added the dartograph block to ${guide.path}.');
+    }
     return ExitStatus.success.code;
   } on FormatException catch (exception) {
     error.writeln('Setup failed: ${exception.message}');
@@ -1791,6 +1805,18 @@ Future<int> _installClaudeSetup(
     error.writeln('Setup failed: check the destination permissions.');
     return ExitStatus.failure.code;
   }
+}
+
+/// 안내 블록을 싣는 프로젝트 지시 파일을 고른다.
+///
+/// CLAUDE.md가 있으면 그것, 없고 AGENTS.md가 있으면 AGENTS.md(Claude Code가
+/// 둘 다 읽는다), 둘 다 없으면 CLAUDE.md를 새로 만든다.
+Future<File> _claudeGuideFile(String root) async {
+  final claude = File(p.join(root, 'CLAUDE.md'));
+  if (await claude.exists()) return claude;
+  final agents = File(p.join(root, 'AGENTS.md'));
+  if (await agents.exists()) return agents;
+  return claude;
 }
 
 /// `mcpServers` JSON 설정(Cursor)에 dartograph 항목을 병합한다.
@@ -1908,6 +1934,23 @@ Future<int> _uninstallClaudeSetup(
         );
         removed = true;
       }
+    }
+    // 설치가 고른 파일과 무관하게 양쪽 후보를 검사한다 — 블록이 어느 쪽에
+    // 들어갔어도 되돌린다.
+    for (final name in const ['CLAUDE.md', 'AGENTS.md']) {
+      final guide = File(p.join(root, name));
+      if (!await guide.exists()) continue;
+      final remaining = removeClaudeGuide(await guide.readAsString());
+      if (remaining == null) continue;
+      if (remaining.trim().isEmpty) {
+        // 블록만 담긴 파일은 설치가 만든 것이다 — 빈 파일을 남기지 않는다.
+        await guide.delete();
+        output.writeln('Removed ${guide.path}.');
+      } else {
+        AtomicWrite.stringSync(guide, remaining);
+        output.writeln('Removed the dartograph block from ${guide.path}.');
+      }
+      removed = true;
     }
     // 생성한 훅 스크립트만 지운다 — 내용이 우리 것이 아니면 남긴다.
     final type = await FileSystemEntity.type(script.path, followLinks: false);
@@ -3552,8 +3595,10 @@ setup prints or installs agent MCP integration without MCP calls. --target
 selects claude (default), cursor, codex, or opencode. With no options it
 prints the target's artifacts for review. For claude, --install writes
 <package-root>/.claude/hooks/dartograph-impact.sh, merges the PostToolUse hook
-into <package-root>/.claude/settings.json, and merges the dartograph MCP
-server into <package-root>/.mcp.json. cursor merges
+into <package-root>/.claude/settings.json, merges the dartograph MCP
+server into <package-root>/.mcp.json, and merges a managed
+<!-- dartograph:begin --> routing block into <package-root>/CLAUDE.md
+(or AGENTS.md when only that file exists). cursor merges
 <package-root>/.cursor/mcp.json and opencode merges
 <package-root>/opencode.json. Codex reads only the global
 \$CODEX_HOME/config.toml (default ~/.codex/config.toml), so its --install takes
@@ -3561,7 +3606,8 @@ no package root and merges a [mcp_servers.dartograph] block. Existing keys are
 preserved; configs whose expected shape is wrong, or invalid JSON, fail
 instead of being overwritten. --force replaces an existing dartograph entry.
 --uninstall removes only the dartograph entries and, for claude, the generated
-hook script. The hook runs `dartograph impact --changed` after Dart file edits
+hook script and the managed guide block (a guide file holding only the block
+is removed). The hook runs `dartograph impact --changed` after Dart file edits
 and requires dartograph on PATH; no paid service, login, or telemetry is
 involved.
 

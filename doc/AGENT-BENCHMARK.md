@@ -14,12 +14,14 @@
 | PATH | `.pub-cache` 항목 제거 — 예방 수단, 검출이 불변식 | 그대로 |
 | MCP | `--strict-mcp-config`로 서버 0개 강제 | `--mcp-config <root>/.mcp.json` — `dartograph setup --install` 산출물 |
 | skill | 없음 | `.claude/skills/dartograph/SKILL.md` (`skill --install`) |
+| 지시 파일 | 레포 출하분 그대로 | 레포 출하분 + `setup --install`의 관리 `<!-- dartograph:begin -->` 블록(CLAUDE.md 또는 AGENTS.md) |
 | 나머지 | 동일 — `--setting-sources project`, 동일 모델·턴 상한·도구 제한 | |
 
 `--setting-sources project`는 사용자 수준 설정·메모리·MCP를 두 팔 모두에서
 제외한다(측정: 사용자 CLAUDE.md가 memory_paths에 나타나지 않음,
-mcp_servers `[]`). 레포 자체의 AGENTS.md·CLAUDE.md는 두 팔이 동일하게
-받는다 — 클론 루트까지 베끼는 이유다.
+mcp_servers `[]`). 레포가 출하한 AGENTS.md·CLAUDE.md 본문은 두 팔이
+동일하게 받는다 — with 팔은 그 위에 관리 블록이 덧붙는데, 그 차이 자체가
+측정하려는 처치(treatment)다.
 
 ## 오염·유효성 규칙
 

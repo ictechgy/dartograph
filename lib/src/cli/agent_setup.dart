@@ -110,6 +110,38 @@ String agentHookConfigJson() =>
       },
     });
 
+/// `setup --install`이 프로젝트 지시 파일(CLAUDE.md·AGENTS.md)에 싣는
+/// 안내 블록의 표지다. 표지 사이만 dartograph가 관리한다 — 바깥 내용은
+/// 건드리지 않는다.
+const agentGuideBeginMarker = '<!-- dartograph:begin -->';
+
+/// [agentGuideBeginMarker]의 짝이다 — 블록은 두 표지 사이에 있다.
+const agentGuideEndMarker = '<!-- dartograph:end -->';
+
+/// 관리 안내 블록이다. 스킬은 에이전트가 골라야 로드되지만 지시 파일은 매
+/// 세션 컨텍스트에 오르므로, "어떤 질문에 어떤 명령"의 라우팅을 여기 둔다 —
+/// C4 측정에서 스킬·MCP만 있고 지시가 없던 arm의 사용률이 4/33이었다.
+const agentGuideBlock =
+    '''
+$agentGuideBeginMarker
+## dartograph
+
+This package is indexed by dartograph, a whole-repo dependency and
+reachability graph. Prefer it over file-by-file grep for questions about
+code relationships:
+
+- unreachable / dead / unused declarations — `dartograph dead .`
+- callers of or dependents on a declaration — `dartograph query <name> .`
+  (read `usedBy`)
+- what breaks if a signature changes — `dartograph impact --symbol <name> .`
+- which source ships behind conditional exports — `dartograph query <name> .`
+- file/package dependency structure — `dartograph graph .`
+
+Findings are graph evidence with stated limitations, not deletion proof —
+verify before acting. `dartograph --help` lists the other queries.
+$agentGuideEndMarker
+''';
+
 /// `setup --target`이 받는 에이전트 이름이다.
 ///
 /// Claude Code는 ·설정·`.mcp.json`을 모두 다루고, 나머지는 MCP 서버 항목만
@@ -539,4 +571,55 @@ String? mergeOpenCodeConfig(String? existing, {required bool force}) {
   if (mcp.containsKey('dartograph') && !force) return null;
   mcp['dartograph'] = _openCodeServerEntry();
   return '${const JsonEncoder.withIndent('  ').convert(config)}\n';
+}
+
+/// 기존 지시 파일(CLAUDE.md·AGENTS.md) 내용에 관리 안내 블록을 병합한다.
+///
+/// 블록이 이미 있으면 `force`일 때만 현재 내용으로 교체하고 아니면 `null`을
+/// 돌린다. 표지가 짝 없이 있거나 중복이면 사람이 고친 흔적으로 보고
+/// [FormatException]을 던져 파일을 보존한다 — JSON 병합들과 같은
+/// fail-closed 규칙이다.
+String? mergeClaudeGuide(String? existing, {required bool force}) {
+  final text = existing ?? '';
+  final span = _guideSpan(text);
+  if (span == null) {
+    final trimmed = text.trimRight();
+    return trimmed.isEmpty ? agentGuideBlock : '$trimmed\n\n$agentGuideBlock';
+  }
+  if (!force) return null;
+  return '${text.substring(0, span.$1)}'
+      '${agentGuideBlock.trimRight()}'
+      '${text.substring(span.$2)}';
+}
+
+/// 지시 파일에서 관리 안내 블록을 제거한다. 없으면 `null`, 표지가 깨져
+/// 있으면 [FormatException]이다.
+String? removeClaudeGuide(String? existing) {
+  if (existing == null) return null;
+  final span = _guideSpan(existing);
+  if (span == null) return null;
+  // 블록 앞뒤의 빈 행까지 걷어내 결합 자국을 남기지 않는다.
+  final before = existing.substring(0, span.$1).trimRight();
+  final after = existing.substring(span.$2).trimLeft();
+  if (before.isEmpty) return after.isEmpty ? '' : '$after\n';
+  return after.isEmpty ? '$before\n' : '$before\n\n$after';
+}
+
+/// `begin`·`end` 표지가 감싸는 구간의 (시작, 끝) 오프셋을 돌려준다.
+///
+/// 표지가 없으면 `null`이다. 짝이 어긋나거나(begin만·end만·순서 역전·중복)
+/// 사람이 편집한 흔적으로 보고 [FormatException]을 던진다.
+(int, int)? _guideSpan(String text) {
+  final beginCount = agentGuideBeginMarker.allMatches(text).length;
+  final endCount = agentGuideEndMarker.allMatches(text).length;
+  if (beginCount == 0 && endCount == 0) return null;
+  if (beginCount != 1 || endCount != 1) {
+    throw const FormatException('malformed dartograph guide markers');
+  }
+  final begin = text.indexOf(agentGuideBeginMarker);
+  final end = text.indexOf(agentGuideEndMarker) + agentGuideEndMarker.length;
+  if (begin >= end) {
+    throw const FormatException('malformed dartograph guide markers');
+  }
+  return (begin, end);
 }

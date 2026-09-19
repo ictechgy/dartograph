@@ -105,7 +105,7 @@ affected·baseline)은 빈 목록이다.
 `cursor`, `codex`, `opencode` 중 하나를 고른다. 인자 없이 실행하면 그 타깃의
 결과물을 검토용으로 출력한다 — `claude`는 PostToolUse 훅
 스크립트(`dartograph-impact.sh`), `settings.json`에 병합할 hooks 블록,
-`.mcp.json` 문서를 보여준다.
+`.mcp.json` 문서, 지시 파일에 싣는 관리 안내 블록을 보여준다.
 
 `--install [<package-root>]`은 타깃별 설정 파일에 dartograph 항목을 **병합**한다 —
 기존 키는 보존하고, 이미 등록된 항목은 건너뛰며, 깨진 JSON이나 예상 밖 타입의
@@ -113,7 +113,12 @@ affected·baseline)은 빈 목록이다.
 
 - `claude`: `.claude/hooks/dartograph-impact.sh`를 쓰고(실행 비트 부여),
   `.claude/settings.json`의 `hooks.PostToolUse` 목록과 `.mcp.json`의
-  `mcpServers`에 병합한다. 생성된 훅은 Dart 파일 편집마다
+  `mcpServers`에 병합한다. 또 `CLAUDE.md`(없고 `AGENTS.md`만 있으면
+  `AGENTS.md`, 둘 다 없으면 `CLAUDE.md`를 만든다)에
+  `<!-- dartograph:begin -->`…`<!-- dartograph:end -->`로 감싼 관리 안내
+  블록을 병합한다 — 어떤 질문에 어떤 dartograph 명령을 쓸지 라우팅을 매
+  세션 컨텍스트에 올리기 위해서다. 표지가 짝 없이 있거나 중복이면 사람이
+  고친 흔적으로 보고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
   `dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
   에이전트에게 보고한다. `<package-root>`가 필요하다.
 - `cursor`: `<package-root>/.cursor/mcp.json`의 `mcpServers`에 병합한다.
@@ -129,9 +134,11 @@ affected·baseline)은 빈 목록이다.
   전체가 깨지므로 덮어쓰지 않고 실패(exit 2)한다.
 
 `--uninstall [<package-root>]`은 `--install`이 만든 dartograph 항목만 되돌린다 —
-`claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지운다(내용이 우리
-것일 때만). 없는 파일·항목은 성공으로 넘어간다. `--force`는 생성 스크립트와
-dartograph MCP 항목을 교체한다.
+`claude`는 훅 등록·MCP 항목을 지우고 생성한 훅 스크립트도 지우며(내용이 우리
+것일 때만), `CLAUDE.md`·`AGENTS.md` 양쪽에서 관리 안내 블록을 벗겨낸다 —
+블록만 담긴 파일(설치가 만든 것)은 파일째 지우고 다른 내용이 있으면 블록만
+제거한다. 없는 파일·항목은 성공으로 넘어간다. `--force`는 생성 스크립트와
+dartograph MCP 항목·안내 블록을 교체한다.
 
 PATH의 `dartograph`가 필요하며 MCP 호출·유료 서비스·로그인·텔레메트리는 없다.
 Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.

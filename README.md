@@ -164,9 +164,10 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `setup` prints — or installs with `--install [<root>]` — agent MCP
   integration for `claude` (default), `cursor`, `codex`, or `opencode`
   (`--target <agent>`). For Claude it also writes a PostToolUse hook that runs
-  an impact pre-check after Dart edits (no MCP call needed). Existing settings
-  are merged, never overwritten, and `--uninstall` removes only the dartograph
-  entries.
+  an impact pre-check after Dart edits (no MCP call needed) and a managed
+  `CLAUDE.md`/`AGENTS.md` block that routes graph questions to dartograph
+  commands. Existing settings are merged, never overwritten, and
+  `--uninstall` removes only the dartograph entries.
 - `dup` reports duplicated code blocks as token-structural review candidates,
   and `dead`/`deps`/`dup` accept `--kinds <csv>` to narrow reported finding
   kinds. `metrics` also reports function-level cyclomatic complexity and
