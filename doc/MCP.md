@@ -61,7 +61,7 @@ stdio 프레이밍은 JSON-RPC 메시지 한 줄당 1MiB 상한이 있다. 상�
 잘려서 `Invalid JSON`(-32700) 응답이 되고 연결은 유지된다.
 
 `tools/list`는 다섯 도구를 광고한다. 서버 환경 변수
-`DARTOGRAPH_MCP_LEGACY_TOOLS=0`(또는 `false`, 대소문자 무관)이면
+`DARTOGRAPH_MCP_LEGACY_TOOLS=0`(또는 `false`, 대소문자·앞뒤 공백 무관)이면
 `dartograph_explore`만 광고한다 — 나머지 도구는 목록에서 빠지지만
 `tools/call`은 계속 받으므로 기존 클라이언트 설정과 프롬프트 안내가 깨지지
 않는다. `0`·`false` 외의 값(미설정·`1` 등)은 전부 광고하며, 목록을
