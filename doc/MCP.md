@@ -144,11 +144,12 @@ exitCode: 0
 | `since` | string | | `dead --since` |
 | `baseline` | string | | `dead --baseline` |
 | `config` | string | | `rules --config`의 layers.yaml |
-| `format` | enum | | `dead`·`deps`·`dup` 전용: `text`·`json`·`markdown`·`github-actions`·`sarif` |
+| `format` | enum | | `dead`·`deps`·`dup`: `text`·`json`·`markdown`·`github-actions`·`sarif`; `cycles`·`rules`·`metrics`: `text`·`json`·`sarif` |
 
 `closedApp: true`를 `dead`가 아닌 명령에 주면 인자 오류로 거절한다 — 다른 명령에서는
 의도 없이 무시되는 플래그를 받지 않는다. `minTokens`는 `dup` 전용, `kinds`는
-`dead`·`deps`·`dup` 전용으로 같은 규칙이다.
+`dead`·`deps`·`dup` 전용으로 같은 규칙이다. `cycles`·`rules`·`metrics`에
+`markdown`·`github-actions`를 주면 인자 오류다(CLI가 지원하지 않는다).
 
 응답 텍스트 첫 줄이 `exitCode: <0|1|2|64>`이고(`dead`·`deps` finding은 1), 이어서
 CLI 출력이 온다. 분석 실패(2)·사용 오류(64)는 `isError: true`다.

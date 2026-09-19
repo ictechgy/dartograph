@@ -48,6 +48,16 @@ expect_status 1 "cycles strict findings" cycles --strict fixtures/phase5_contrac
 expect_status 1 "cycles trailing strict" cycles fixtures/phase5_contract --strict
   expect_status 0 "rules report" rules --config fixtures/phase5_contract/layers.yaml fixtures/phase5_contract
   expect_status 1 "rules strict findings" rules --config fixtures/phase5_contract/layers.yaml --strict fixtures/phase5_contract
+  expect_status 0 "cycles format text" cycles --format text fixtures/phase5_contract
+  expect_status 0 "cycles format sarif" cycles --format sarif fixtures/phase5_contract
+  expect_status 1 "cycles format sarif strict" cycles --format sarif --strict fixtures/phase5_contract
+  expect_status 64 "cycles unknown format" cycles --format xml fixtures/phase5_contract
+  expect_status 64 "cycles explain with sarif" cycles --explain project:lib/a.dart::a --format sarif fixtures/phase5_contract
+  expect_status 0 "rules format text" rules --config fixtures/phase5_contract/layers.yaml --format text fixtures/phase5_contract
+  expect_status 0 "rules format sarif" rules --config fixtures/phase5_contract/layers.yaml --format sarif fixtures/phase5_contract
+  expect_status 0 "metrics format text" metrics --format text fixtures/phase5_contract
+  expect_status 0 "metrics format sarif" metrics --format sarif fixtures/phase5_contract
+  expect_status 64 "metrics unknown format" metrics --format yaml fixtures/phase5_contract
   expect_status 0 "cycles explain" cycles --explain project:lib/a.dart::a fixtures/phase5_contract
   expect_status 64 "cycles explain unknown" cycles --explain project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "cycles explain with strict" cycles --explain project:lib/a.dart::a --strict fixtures/phase5_contract
@@ -69,8 +79,14 @@ expect_status 64 "usage error" no-such-command
   expect_status 64 "query source context without source" query a --source-context 1 fixtures/phase5_contract
   expect_status 64 "query duplicate with source" query a --with-source --with-source fixtures/phase5_contract
 expect_status 0 "graph comparison" compare fixtures/phase5_contract fixtures/phase5_contract
+expect_status 0 "compare format text" compare --format text fixtures/phase5_contract fixtures/phase5_contract
+expect_status 0 "compare format sarif" compare --format sarif fixtures/phase5_contract fixtures/phase5_contract
+expect_status 64 "compare unknown format" compare --format xml fixtures/phase5_contract fixtures/phase5_contract
 expect_status 2 "comparison failure" compare fixtures/does-not-exist fixtures/phase5_contract
 expect_status 0 "affected report" affected HEAD fixtures/phase5_contract
+  expect_status 0 "affected format text" affected HEAD --format text fixtures/phase5_contract
+  expect_status 0 "affected format sarif" affected HEAD --format sarif fixtures/phase5_contract
+  expect_status 64 "affected unknown format" affected HEAD --format xml fixtures/phase5_contract
 expect_status 2 "affected index failure" affected HEAD fixtures/does-not-exist
 expect_status 64 "affected missing root" affected HEAD
 expect_status 64 "affected option-shaped ref" affected --strict fixtures/phase5_contract

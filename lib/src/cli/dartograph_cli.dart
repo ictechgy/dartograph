@@ -549,14 +549,29 @@ Future<int> _runAffected(
 ) async {
   // 위치 인자 두 개: <git-ref> <package-root>. Git ref는 `-`로 시작하지 않으므로
   // 옵션 모양 값은 오타다. `-`로 시작하는 실제 경로는 `./-name`으로 전달한다.
-  if (arguments.length != 2 ||
-      arguments[0].startsWith('-') ||
-      arguments[1].startsWith('-')) {
+  String? formatName;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+      continue;
+    }
+    positional.add(argument);
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (positional.length != 2 ||
+      positional.any((item) => item.startsWith('-')) ||
+      format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
-  final reference = arguments[0];
-  final rootPath = arguments[1];
+  final reference = positional[0];
+  final rootPath = positional[1];
   try {
     // 인덱싱을 먼저 시도해 패키지 루트 부재를 Git 실패로 오귀인하지 않는다
     // (dead --since와 같은 순서).
@@ -585,7 +600,14 @@ Future<int> _runAffected(
         'file(s) are not part of any analyzed library',
       );
     }
-    output.write(AnalysisReporter.affected(result, limitations: limitations));
+    output.write(
+      AnalysisReporter.affected(
+        result,
+        limitations: limitations,
+        format: format,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
+      ),
+    );
     return ExitStatus.success.code;
   } on ChangedFilesException {
     error.writeln(
@@ -906,23 +928,43 @@ Future<int> _runCompare(
 ) async {
   // 단일 대시도 거부한다. `--`만 보면 `compare -h .`처럼 실재하는 짧은 옵션이
   // 경로가 되어 usage(64) 대신 분석 실패(2)로 보고된다.
-  if (arguments.length != 2 || arguments.any((a) => a.startsWith('-'))) {
+  String? formatName;
+  final positional = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+      continue;
+    }
+    positional.add(argument);
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (positional.length != 2 ||
+      positional.any((item) => item.startsWith('-')) ||
+      format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final before = await indexPackage(arguments[0]);
-    final after = await indexPackage(arguments[1]);
+    final before = await indexPackage(positional[0]);
+    final after = await indexPackage(positional[1]);
+    final beforeSnapshot = before.graph.snapshot();
     output.write(
-      encodeSymbolQueryDocument(
+      AnalysisReporter.compare(
         compareGraphs(
-          before: before.graph.snapshot(),
+          before: beforeSnapshot,
           after: after.graph.snapshot(),
           beforeRoots: before.retentionRoots,
           afterRoots: after.retentionRoots,
           beforeLimitations: _limitations(before),
           afterLimitations: _limitations(after),
         ),
+        format: format,
+        nodeSources: {for (final node in beforeSnapshot.nodes) node.id: node},
       ),
     );
     return ExitStatus.success.code;
@@ -942,6 +984,7 @@ Future<int> _runCycles(
 ) async {
   var strict = false;
   String? explainId;
+  String? formatName;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -951,6 +994,12 @@ Future<int> _runCycles(
         return ExitStatus.usage.code;
       }
       strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
     } else if (argument == '--explain') {
       // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
       // 않는다. 값이 빠진 오타는 뒤따르는 위치 인자가 남아 usage(64)로 떨어진다.
@@ -970,20 +1019,23 @@ Future<int> _runCycles(
       return ExitStatus.usage.code;
     }
   }
-  // --explain은 한 정점의 근거를 묻는 질의라 finding 게이트(--strict)와 결합하지
-  // 않는다. dead --explain이 --baseline/--since를 배제하는 것과 같은 철학이다.
-  if (root == null || (strict && explainId != null)) {
+  final format = _parseAnalysisFormat(formatName);
+  // --explain은 한 정점의 근거를 는 고정 JSON 질의라 finding 게이트(--strict)·
+  // 다른 출력 형식과 결합하지 않는다. dead --explain이 --baseline/--since를
+  // 배제하는 것과 같은 철학이다.
+  if (root == null ||
+      format == null ||
+      (strict && explainId != null) ||
+      (explainId != null && format != AnalysisFormat.json)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
     final indexed = await indexPackage(root);
     final limitations = _limitations(indexed);
+    final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
-      final explanation = CycleDetector().explain(
-        indexed.graph.snapshot(),
-        explainId,
-      );
+      final explanation = CycleDetector().explain(snapshot, explainId);
       output.write(
         AnalysisReporter.cyclesExplain(explanation, limitations: limitations),
       );
@@ -991,8 +1043,15 @@ Future<int> _runCycles(
           ? ExitStatus.success.code
           : ExitStatus.usage.code;
     }
-    final cycles = CycleDetector().detect(indexed.graph.snapshot());
-    output.write(AnalysisReporter.cycles(cycles, limitations: limitations));
+    final cycles = CycleDetector().detect(snapshot);
+    output.write(
+      AnalysisReporter.cycles(
+        cycles,
+        limitations: limitations,
+        format: format,
+        nodeSources: {for (final node in snapshot.nodes) node.id: node},
+      ),
+    );
     failedItems.addAll([
       for (final cycle in cycles)
         '${cycle.breakCandidate.from}->${cycle.breakCandidate.to}',
@@ -1021,6 +1080,7 @@ Future<int> _runRules(
   var strict = false;
   String? config;
   String? explainId;
+  String? formatName;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -1030,6 +1090,12 @@ Future<int> _runRules(
         return ExitStatus.usage.code;
       }
       strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
     } else if (argument == '--config' && config == null) {
       // 값이 빠진 호출에서 다음 옵션이 config 파일 경로가 되면 안 된다.
       if (++index >= arguments.length || arguments[index].startsWith('-')) {
@@ -1052,9 +1118,15 @@ Future<int> _runRules(
       return ExitStatus.usage.code;
     }
   }
-  // --explain은 한 정점의 레이어 배치를 묻는 질의라 finding 게이트(--strict)와
-  // 결합하지 않는다. 레이어 배치는 ruleset에 의존하므로 --config는 계속 필요하다.
-  if (config == null || root == null || (strict && explainId != null)) {
+  final format = _parseAnalysisFormat(formatName);
+  // --explain은 한 정점의 레이어 배치를 묻는 고정 JSON 질의라 finding 게이트
+  // (--strict)·다른 출력 형식과 결합하지 않는다. 레이어 배치는 ruleset에
+  // 의존하므로 --config는 계속 필요하다.
+  if (config == null ||
+      root == null ||
+      format == null ||
+      (strict && explainId != null) ||
+      (explainId != null && format != AnalysisFormat.json)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -1088,7 +1160,13 @@ Future<int> _runRules(
     final violations = LayerRuleEvaluator(
       ruleSet,
     ).evaluate(indexed.graph.snapshot());
-    output.write(AnalysisReporter.rules(violations, limitations: limitations));
+    output.write(
+      AnalysisReporter.rules(
+        violations,
+        limitations: limitations,
+        format: format,
+      ),
+    );
     failedItems.addAll([
       for (final violation in violations)
         '${violation.ruleName}:${violation.edge.sourceId}'
@@ -1113,13 +1191,37 @@ Future<int> _runMetrics(
   IndexPackage indexPackage,
   List<String> failedItems,
 ) async {
-  final parsed = _strictRoot(arguments);
-  if (parsed == null) {
+  var strict = false;
+  String? formatName;
+  String? root;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (argument == '--strict') {
+      if (strict) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      strict = true;
+    } else if (argument == '--format' && formatName == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      formatName = arguments[index];
+    } else if (!argument.startsWith('-') && root == null) {
+      root = argument;
+    } else {
+      error.write(_help);
+      return ExitStatus.usage.code;
+    }
+  }
+  final format = _parseAnalysisFormat(formatName);
+  if (root == null || format == null) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
   try {
-    final indexed = await indexPackage(parsed.root);
+    final indexed = await indexPackage(root);
     final snapshot = indexed.graph.snapshot();
     final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
     // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의
@@ -1141,6 +1243,8 @@ Future<int> _runMetrics(
         tolerance: tolerance,
         complexity: indexed.complexity,
         nodeSources: {for (final node in snapshot.nodes) node.id: node},
+        complexityLimit: complexityLimit,
+        format: format,
       ),
     );
     final exceedsTolerance = metrics.any(
@@ -1159,7 +1263,7 @@ Future<int> _runMetrics(
         }
       }
     }
-    return parsed.strict && (exceedsTolerance || exceedsComplexity)
+    return strict && (exceedsTolerance || exceedsComplexity)
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
   } on FileSystemException {
@@ -1173,16 +1277,16 @@ Future<int> _runMetrics(
   }
 }
 
-({String root, bool strict})? _strictRoot(List<String> arguments) {
-  if (arguments.length == 1 && !arguments.single.startsWith('-')) {
-    return (root: arguments.single, strict: false);
-  }
-  if (arguments.length == 2 &&
-      arguments.where((item) => item == '--strict').length == 1) {
-    final root = arguments.firstWhere((item) => item != '--strict');
-    if (!root.startsWith('-')) return (root: root, strict: true);
-  }
-  return null;
+/// `--format` 값을 분석 형식으로 해석한다. 값이 없으면 기존 JSON 기본값이고,
+/// 알 수 없는 값이면 null을 돌려 호출자가 usage(64)로 처리하게 한다.
+AnalysisFormat? _parseAnalysisFormat(String? name) {
+  if (name == null) return AnalysisFormat.json;
+  return switch (name) {
+    'text' => AnalysisFormat.text,
+    'json' => AnalysisFormat.json,
+    'sarif' => AnalysisFormat.sarif,
+    _ => null,
+  };
 }
 
 /// 질의 문서의 모든 `location`에 선언 위치 소스 줄을 덧붙인다.
@@ -3410,8 +3514,8 @@ Usage: dartograph [--help] [--version]
        dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-       dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
        dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -3423,11 +3527,11 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
-       dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-       dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.

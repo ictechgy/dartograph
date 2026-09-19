@@ -1020,10 +1020,17 @@ Future<Map<String, Object?>> _verifyTool({
     }
     args.addAll(['--kinds', kinds.join(',')]);
   }
-  // `cycles`·`rules`·`metrics`는 --format을 받지 않는다(항상 JSON 질의 문서).
-  // `dead`·`deps`·`dup`만 text·json·markdown·github-actions·sarif를 받는다.
+  // `dead`·`deps`·`dup`는 5형식을, `cycles`·`rules`·`metrics`는 text·json·sarif를
+  // 받는다. 후자에 markdown·github-actions를 주면 CLI가 usage(64)로 거부하지만,
+  // 도구가 먼저 인자 오류로 해 원인을 분명히 한다.
   if (format != null &&
       (command == 'dead' || command == 'deps' || command == 'dup')) {
+    args.addAll(['--format', '$format']);
+  } else if (format != null &&
+      (command == 'cycles' || command == 'rules' || command == 'metrics')) {
+    if (format != 'text' && format != 'json' && format != 'sarif') {
+      return _toolError('format for $command must be one of text, json, sarif');
+    }
     args.addAll(['--format', '$format']);
   }
   args.add(root);

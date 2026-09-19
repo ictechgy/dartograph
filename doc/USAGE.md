@@ -42,8 +42,8 @@ dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-token
 dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--record <dir>] <package-root>
-dartograph compare [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
-dartograph affected [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
+dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <before-package-root> <after-package-root>
+dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--record <dir>] <git-ref> <package-root>
 dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--record <dir>] <package-root>
@@ -55,11 +55,11 @@ dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
-dartograph cycles [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph cycles --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--record <dir>] <package-root>
-dartograph metrics [--strict] [--incremental <dir>] [--record <dir>] <package-root>
+dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--record <dir>] <package-root>
 ```
 
 `--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
@@ -555,13 +555,15 @@ plugins:
 ```
 
 `dead`는 finding 자체가 코드 1을 반환하므로 `--strict` 인자가 필요하지 않다.
-`cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다.
+`cycles`, `rules`, `metrics`는 `--strict`를 붙였을 때만 finding을 코드 1로 바꾼다. 세 명령은 `--format <text|json|sarif>`를 받는다(기본 `json` — 플래그가 없으면 기존 출력과 바이트 동일). `text`는 finding을 한 줄씩, `sarif`는 아키텍처 게이트를 code scanning 경고로 낸다. `--explain`(cycles·rules)은 고정 JSON 질의라 `--format json` 외에는 usage 64다.
 
 ### SARIF와 GitHub code scanning
 
-`dead`·`deps`·`dup`·`impact`·`runtime`은 `--format sarif`로 SARIF 2.1.0 문서를 낸다
-(`cycles`·`rules`·`metrics`에는 `--format`이 없다). 결과를 파일로 리다이렉트해
-`github/codeql-action/upload-sarif`에 올리면 code scanning 경고로 표시된다.
+다음 명령은 `--format sarif`로 SARIF 2.1.0 문서를 낸다 — `dead`·`deps`·`dup`·`impact`·`runtime`·`cycles`·`rules`·`metrics`·`affected`·`compare`.
+결과를 파일로 리다이렉트해 `github/codeql-action/upload-sarif`에 올리면 code scanning 경고로 표시된다.
+`cycles`는 순환마다, `rules`는 위반마다, `metrics`는 허용 오차를 넘은 라이브러리와(설정된 경우)
+복잡도 상한을 넘은 선언마다 결과를 하나씩 낸다. `affected`는 피영향 라이브러리마다, `compare`는
+새로 도달 불가능해진 선언마다 결과를 낸다.
 
 ```yaml
 permissions:
