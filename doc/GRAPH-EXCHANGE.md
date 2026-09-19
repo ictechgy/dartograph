@@ -180,3 +180,22 @@ class CameraBridge {
   `unscanned-ffi-interop`은 조인이 못 보는 경계를 나타낸다.
 - `version`·`transport`를 확인해 문서 종류를 구분한다 — v1과 v2는 같은 조인에서도
   다른 transport 계약이다.
+
+## 자매 소비자 확장 (개발)
+
+isthmus의 개발 계약에는 `transport: "react-native-event"`인 별도 v2 문서가 추가된다.
+구독 측 `event-listen`은 isthmus JS 추출기, 네이티브 `event-emit`은 cartograph(Swift)/kartograph(Kotlin)가
+생산한다. dartograph의 `--events`는 계속 Flutter EventChannel의 `stream-listen`만 내며,
+RN 이벤트를 Dart 사실로 만들거나 두 transport를 섞지 않는다. Dart 생산 필드는 바뀌지 않는다.
+
+`retentions --for kartograph`는 기존 Dart 호출 근거와 실제 JVM 식별자를 가진 Kotlin
+수신 사실을 결합한다. ObjC 보존에는 실제 Clang USR과 이를 그래프에 포함하는 cartograph
+개발 빌드가 필요하다. 이는 자매 도구의 개발 기능이며 dartograph의 새 발행이 필요하다는
+뜻은 아니다. 정본과 배포 상태는 위 isthmus GRAPH-EXCHANGE 링크를 따른다.
+
+v2 문서 종류는 `(version, transport)`로 구분한다. RN 문서는 `extract-js --events`와
+`bridges --rn-events`로 명시적으로 선택하며, 지원하지 않는 transport는 소비자가 거부한다.
+RN 경계는 native→JS 방향이고, 코어 전역 이벤트 이름을 같은 `(project, transport, channel)`
+안에서 정확히 비교한다. Expo의 모듈별 이벤트는 이 키에 합치지 않는다. Dart/Flutter와
+RN의 보존 근거도 transport별로 분리하며, 네이티브 식별자가 원본 호출 위치를 덮어쓰지 않는다.
+매치된 Kotlin/ObjC 선언의 필요한 컴파일러 식별자가 누락되면 보존 문서 생성은 실패한다.
