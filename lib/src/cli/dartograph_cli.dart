@@ -1946,8 +1946,8 @@ Future<int> _uninstallClaudeSetup(
       String? remaining;
       try {
         remaining = removeClaudeGuide(original);
-      } on FormatException {
-        throw FormatException('${guide.path}: malformed dartograph markers');
+      } on FormatException catch (e) {
+        throw FormatException('${guide.path}: ${e.message}');
       }
       if (remaining != null) {
         guideWrites[guide] = (original: original, remaining: remaining);
@@ -1955,9 +1955,9 @@ Future<int> _uninstallClaudeSetup(
     }
     for (final entry in guideWrites.entries) {
       final guide = entry.key;
-      // 파일 전체가 생성 블록 그대로일 때만 설치가 만든 파일로 보고 지운다 —
-      // 블록 안쪽을 사용자가 고쳤으면 내용은 관리 영역이라 벗기되 파일은
-      // 남긴다(빈 파일이 돼도 원래 파일이었는지 구분할 수 없다).
+      // 파일 전체가 현재 생성 블록과 byte가 같을 때만 설치가 만든 파일로 보고
+      // 지운다 — 이전 버전이 쓴 블록이나 안쪽을 사용자가 고친 블록은 "우리
+      // 것"이 증명 불가라 내용만 벗기고 파일은 남긴다(빈 파일이 될 수 있다).
       if (entry.value.original.trim() == agentGuideBlock.trim()) {
         await guide.delete();
         output.writeln('Removed ${guide.path}.');

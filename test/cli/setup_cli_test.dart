@@ -815,16 +815,49 @@ void main() {
       File('${temporary.path}/CLAUDE.md').writeAsStringSync(good);
       File('${temporary.path}/AGENTS.md').writeAsStringSync(broken);
 
+      final error = StringBuffer();
       final status = await runDartograph(
         ['setup', '--uninstall', temporary.path],
         output: StringBuffer(),
-        error: StringBuffer(),
+        error: error,
       );
       expect(status, ExitStatus.failure.code);
+      // 오류가 어느 파일의 표지인지 알려야 한다.
+      expect(error.toString(), contains('AGENTS.md'));
       // AGENTS.md가 실패해도 CLAUDE.md는 아직 쓰이지 않는다 — 부분 uninstall이
       // 없어야 한다.
       expect(File('${temporary.path}/CLAUDE.md').readAsStringSync(), good);
       expect(File('${temporary.path}/AGENTS.md').readAsStringSync(), broken);
+    },
+  );
+
+  test(
+    'setup --uninstall deletes a block-only file and strips a mixed file',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      // 한 호출에서 두 브랜치가 함께 동작한다 — CLAUDE.md는 생성 블록만
+      // 담겨 파일째 지워지고, AGENTS.md는 사용자 내용이 있어 블록만 벗긴다.
+      File('${temporary.path}/CLAUDE.md').writeAsStringSync(agentGuideBlock);
+      File(
+        '${temporary.path}/AGENTS.md',
+      ).writeAsStringSync('# Agents\n\n$agentGuideBlock');
+
+      expect(
+        await runDartograph(
+          ['setup', '--uninstall', temporary.path],
+          output: StringBuffer(),
+          error: StringBuffer(),
+        ),
+        ExitStatus.success.code,
+      );
+      expect(File('${temporary.path}/CLAUDE.md').existsSync(), isFalse);
+      expect(
+        File('${temporary.path}/AGENTS.md').readAsStringSync(),
+        '# Agents\n',
+      );
     },
   );
 
