@@ -10,7 +10,7 @@ _Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, ma
 ## 2026-09-20 — 자매 브리지 계약 동기화 완료 (PR #127)
 
 - [PR #127](https://github.com/ictechgy/dartograph/pull/127)을 squash merge했다(`3ecabfd`).
-  로컬·원격 main이 같고 머지 트리는 검토·CI를 통과한 PR head와 일치한다.
+  로컬·원격 main이 같고 머지 트리의 내용 해시는 검토·CI를 통과한 PR head의 tree 해시와 일치한다.
   변경은 `doc/GRAPH-EXCHANGE.md` 한 파일이며 Dart 생산 코드는 그대로다.
 - bridge-facts를 `(version, transport)`로 식별하고, 코어 RN native→JS 전역 이벤트 이름
   조인·명시적 opt-in·transport 격리를 설명했다. 외부 보존의 원본 caller 유지와 필수
@@ -27,7 +27,7 @@ _Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, ma
   [#123](https://github.com/ictechgy/cartograph/pull/123), kartograph
   [#82](https://github.com/ictechgy/kartograph/pull/82).
   정본·관찰 범위는 [교환 계약](doc/GRAPH-EXCHANGE.md), 전체 검증 기록은
-  [isthmus HANDOFF](../isthmus/HANDOFF.md)에 있다. 이전 임시 로그 경로의 존재를 가정하지 않는다.
+  [isthmus HANDOFF](https://github.com/ictechgy/isthmus/blob/main/HANDOFF.md)에 있다. 이전 임시 로그 경로의 존재를 가정하지 않는다.
 - 이번 구현·검증·머지는 완료했다. 새 태그/pub 발행은 하지 않았으며, 기존 0.14.0 이후
   누적분의 릴리스 판단은 별도다. 이 HANDOFF는 해당 머지의 인계 기록이다.
   `HANDOFF-PROGRESS.md`와 `editors/vscode/icon-drafts/`는 보존했다.
@@ -306,7 +306,7 @@ _Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, ma
   (이전 0.13.0→`6a1abfb`, 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`,
   0.8.0→`8d8baa3`.)
 - 로컬·원격 Git 확인(2026-09-20): **main `3ecabfd`**(PR #127 자매 브리지 계약 동기화).
-  PR #125·#126은 HANDOFF 정합, 직전 제품 머지는 PR #124 `9da4123`의 S5 `--workspace`
+  PR #125와 [#126](https://github.com/ictechgy/dartograph/pull/126)은 HANDOFF 정합, 직전 제품 머지는 PR #124 `9da4123`의 S5 `--workspace`
   멤버 집계다. `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
 - 자매 브리지 계약 동기화 PR #127은 GLM·Dart 두 버전 CI·impact 검사를 거쳐 머지됐고
   추가 구현·리뷰 대기는 없다. 상세 범위와 근거는 상단 2026-09-20 절을 참조한다.
@@ -1120,7 +1120,8 @@ C1/C3/S2/C5 배선, C4 벤치마크·adoption, C2 통합 MCP, S5 workspace는 �
 
 남은 후보는 Next Steps의 수동/외부 조치, 선택적 adoption 확대와 누적분 릴리스 판단입니다.
 현재 사용자 요청과 승인 범위를 따르고 이 문서를 새 실행 권한으로 삼지 마세요.
-이 HANDOFF의 로컬 수정, `HANDOFF-PROGRESS.md`, `editors/vscode/icon-drafts/`를 보존하세요.
+HANDOFF에 미커밋 수정이 있으면 보존하고, `HANDOFF-PROGRESS.md`와
+`editors/vscode/icon-drafts/`도 유지하세요.
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
