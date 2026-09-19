@@ -4,6 +4,18 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- New read-only MCP tool `dartograph_explore` is a single entry point:
+  pass `packageRoot` plus exactly one question shape and it routes
+  internally — `symbol`/`batch` to `dependency_query` (with `withSource`
+  defaulting on and `sourceContext` 3), `impactSymbol`/`since`/`changed`
+  to `impact_query`, `command` to `verify_run`, and `command: "runtime"`
+  to `runtime_query`. The first response line names the routed path,
+  arguments that do not apply to the routed shape are rejected instead of
+  silently ignored, and a call with no shape returns a routing menu.
+  Setting the server environment variable `DARTOGRAPH_MCP_LEGACY_TOOLS`
+  to `0` or `false` makes `tools/list` advertise only `dartograph_explore`;
+  the narrower tools stay callable.
+
 ## 0.14.0
 
 - The MCP server keeps a per-session incremental cache in a

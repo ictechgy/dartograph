@@ -3756,11 +3756,17 @@ means no affected tests — do not run bare `dart test` on empty output).
 verdict; an unlisted declaration is not proven unaffected.
 
 mcp runs a Model Context Protocol server on stdio (JSON-RPC 2.0) for AI
-clients. It exposes four read-only tools over the existing CLI paths:
-impact_query (the impact pre-check), dependency_query (query/--batch),
-verify_run (dead, deps, dup, cycles, rules, metrics with exit code and raw
-output; closedApp selects dead --closed-app), and runtime_query (runtime
---no-verify static detection). It also serves three static resources
+clients. It exposes five read-only tools over the existing CLI paths:
+dartograph_explore (single entry point — pass packageRoot plus one
+question shape and it routes internally: symbol/batch for dependency
+evidence with source lines, impactSymbol/since/changed for impact
+pre-checks, command for verifications and runtime facts), impact_query
+(the impact pre-check), dependency_query (query/--batch), verify_run
+(dead, deps, dup, cycles, rules, metrics with exit code and raw output;
+closedApp selects dead --closed-app), and runtime_query (runtime
+--no-verify static detection). Setting DARTOGRAPH_MCP_LEGACY_TOOLS=0 (or
+false) makes tools/list advertise only dartograph_explore — the narrower
+tools stay callable. It also serves three static resources
 (dartograph://usage, dartograph://skill, dartograph://config) and four
 prompts (impact-precheck, dead-code-review, dependency-audit,
 duplication-review) that walk through the common workflows. Within one
