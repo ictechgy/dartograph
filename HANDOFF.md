@@ -1,11 +1,36 @@
 # Handoff
 
-_Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #120 다중 타깃/형식/S2, #121 C4 에이전트 벤치마크, #122 adoption 개선, #123 C2 `dartograph_explore`, #124 S5 `--workspace` 멤버 집계, #125 본 문서 정합. main `418c220`)_
+_Last updated: 2026-09-20 (자매 브리지 계약 PR #127 머지·CI 통과, main `3ecabfd`; 0.14.0 이후 누적분 미발행)_
 
 재개 시 [Current Status](#current-status) → [Next Steps](#next-steps) → [Resume Prompt](#resume-prompt)를 읽는다.
 날짜별 세션 기록·Completed·Verification·자매 저장소 알림은 **당시의 역사**이며 현재 작업 지시가 아니다.
 과거의 main·테스트 수·미릴리스·보류 표기를 현재에 적용하지 않는다. `HANDOFF-PROGRESS.md`는
 다른 세션의 미추적 원장으로 수정하지 않으며, 특정 옛 절을 현재 재개 지점으로 고정하지 않는다.
+
+## 2026-09-20 — 자매 브리지 계약 동기화 완료 (PR #127)
+
+- [PR #127](https://github.com/ictechgy/dartograph/pull/127)을 squash merge했다(`3ecabfd`).
+  로컬·원격 main이 같고 머지 트리의 내용 해시는 검토·CI를 통과한 PR head의 tree 해시와 일치한다.
+  변경은 `doc/GRAPH-EXCHANGE.md` 한 파일이며 Dart 생산 코드는 그대로다.
+- bridge-facts를 `(version, transport)`로 식별하고, 코어 RN native→JS 전역 이벤트 이름
+  조인·명시적 opt-in·transport 격리를 설명했다. 외부 보존의 원본 caller 유지와 필수
+  컴파일러 ID 누락 시 실패도 정본과 맞췄다. Dart 도구가 RN JS/네이티브 소스를 추출한다는 뜻은 아니다.
+- [CI 35453724783](https://github.com/ictechgy/dartograph/actions/runs/35453724783)의
+  Dart 3.11.0·3.13.3 검사가 모두 성공했다. format/analyze·tests/coverage·격리 설치·
+  corpus·analyzer 경계·CLI·publish dry-run을 포함한다.
+  [impact 35453724771](https://github.com/ictechgy/dartograph/actions/runs/35453724771)도 성공했다.
+- GLM packet-ask 패킷 `de643634a784`의
+  [반영·기각 근거](https://github.com/ictechgy/dartograph/pull/127#issuecomment-5743320422)를
+  PR에 남겼다. 버전/transport·방향·역할 설명을 명확히 했으며, RN 전역 버스에 모듈 키를
+  덧붙이자는 제안은 고정 공식 소스의 동작과 달라 기각했다.
+- 동반 머지: isthmus [#96](https://github.com/ictechgy/isthmus/pull/96), cartograph
+  [#123](https://github.com/ictechgy/cartograph/pull/123), kartograph
+  [#82](https://github.com/ictechgy/kartograph/pull/82).
+  정본·관찰 범위는 [교환 계약](doc/GRAPH-EXCHANGE.md), 전체 검증 기록은
+  [isthmus HANDOFF](https://github.com/ictechgy/isthmus/blob/main/HANDOFF.md)에 있다. 이전 임시 로그 경로의 존재를 가정하지 않는다.
+- 이번 구현·검증·머지는 완료했다. 새 태그/pub 발행은 하지 않았으며, 기존 0.14.0 이후
+  누적분의 릴리스 판단은 별도다. 이 HANDOFF는 해당 머지의 인계 기록이다.
+  `HANDOFF-PROGRESS.md`와 `editors/vscode/icon-drafts/`는 보존했다.
 
 ## 2026-09-19 — codegraph 백로그 첫 배치: C1(다중 타깃 배선) + S4(전제 정정) + S1(측정 기각)
 
@@ -280,9 +305,11 @@ _Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #
   `ictechgy.dartograph` v0.1.0 게시됨(변경 없음, 재배포 불필요).
   (이전 0.13.0→`6a1abfb`, 0.12.0, 0.11.0, 0.10.0→`2b3a236`, 0.9.0→`b2aad3a`,
   0.8.0→`8d8baa3`.)
-- 로컬 Git 확인(2026-09-19): **main / origin/main `418c220`**(PR #125 머지,
-  본 문서 정합 — 직전 제품 머지는 PR #124 `9da4123`, S5 `--workspace` 멤버
-  집계). `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
+- 로컬·원격 Git 확인(2026-09-20): **main `3ecabfd`**(PR #127 자매 브리지 계약 동기화).
+  PR #125와 [#126](https://github.com/ictechgy/dartograph/pull/126)은 HANDOFF 정합, 직전 제품 머지는 PR #124 `9da4123`의 S5 `--workspace`
+  멤버 집계다. `v0.14.0` 태그는 `0978cde`, `v0.13.0`은 `6a1abfb`.
+- 자매 브리지 계약 동기화 PR #127은 GLM·Dart 두 버전 CI·impact 검사를 거쳐 머지됐고
+  추가 구현·리뷰 대기는 없다. 상세 범위와 근거는 상단 2026-09-20 절을 참조한다.
 - **경쟁 갭 후보 4건 머지됨(2026-09-18)**: PR #119 머지 커밋 `8168650` —
   본 문서 하단 "경쟁 갭 후보 구현·머지(PR #119)" 절 참조(`impact --format
   test-list`, pub workspace 멤버/루트 표면, `doc/GRAPH-EXCHANGE.md`, SARIF
@@ -303,17 +330,17 @@ _Last updated: 2026-09-19 (codegraph 백로그 전 항목 머지 완료 — PR #
   실제 구독·수신 증명이 아님을 명시했다(위 #103 기록). 구 계약 미결은 재개 대상이 아니다.
 - **별도 대기**: VS Code 아이콘 사용자 선택. `HANDOFF-PROGRESS.md`와
   `editors/vscode/icon-drafts/`는 다른 세션의 미추적 파일로 보존한다.
-- 테스트 **658개**(2026-09-19, PR #124 머지 시점 main)와 analyze 0은 현재 작업의
-  검증 근거이고, 직전 릴리스 세션의 546개 기록과 구분한다. 라인 커버리지는 CI의
-  check-coverage가 게이트한다.
+- 테스트 **658개**와 analyze 0은 PR #124 당시의 제품 검증 기록이며, 직전 릴리스의
+  546개 기록과 구분한다. 최신 문서 PR #127의 두 버전 CI도 모두 통과했고 라인
+  커버리지는 CI의 check-coverage로 게이트했다. 이번 HANDOFF 편집에서 제품 검사를 다시 돌린 것은 아니다.
 - analyzer 14.4.0 해석으로 전체 스위트 통과 — 검증된 마이너 집합 {14.3, 14.4}
   (doc/DECISION-analyzer.md 14.4.x 확장 절). 주간 analyzer-freshness 워크플로우가
   신선한 resolution으로 게이트를 돌린다.
 - 지침 기준: `c4d121d` (PR #7 merge). 정본은 루트 AGENTS.md, 하위 규칙은 lib·lib/src/index·
   test·fixtures·tool·doc. **pub.dev 노출 문서(README·CHANGELOG)는 영어가 정본이고
   `.ko.md` 쌍과 내용을 동기화한다(CONTRIBUTING 정본 규칙).**
-- 현재 후속 작업의 완료·배포 가능 여부는 담당자의 최종 검증 대기다. HANDOFF보다 실제 Git 상태와
-  해당 변경의 검증 근거가 우선한다.
+- 현재 요청된 브리지 계약 동기화·머지는 완료됐다. 후속 릴리스는 별도이며 실제 Git 상태와
+  해당 변경의 검증 근거를 우선한다.
 
 ## Completed
 
@@ -1070,7 +1097,8 @@ adoption 개선(#122), C2(#123), S5(#124).
    main에 들어갔다. 0.14.0 다음 릴리스 대상 — 미릴리스다.
 5. **2026-09-19 백로그는 전부 머지됐다**: 3배치 미커밋분은 PR #120으로, 이후
    C4(#121)·adoption 개선(#122)·C2(#123)·S5(#124)까지 전부 main에 들어갔다.
-   상단 2026-09-19 4차 절 참조.
+   상단 2026-09-19 4차 절 참조. 2026-09-20의 자매 브리지 계약 PR #127과 동반 세 PR도
+   모두 머지됐으며 구현·리뷰를 다시 시작할 필요가 없다.
 6. **다음 후보 목록은 "경쟁 조사 — codegraph 대비 개선점" 절이다**(아래). 자동 진행
    항목은 전부 완료 — 남은 것은 C5①(verified publisher)·③(asciinema)과 S7 아카이브의
    수동/외부 조치뿐이다. 선택 후속은 adoption 셀 확대(다른 모델·과제), S3 표면
@@ -1080,37 +1108,20 @@ adoption 개선(#122), C2(#123), S5(#124).
 
 ## Resume Prompt
 
-Open this repository at `/Users/jinhongan/Desktop/dartograph`, read the top of
-`HANDOFF.md` (Current Status → Next Steps), applicable `AGENTS.md` files, and
-verify the real Git state — HANDOFF does not override Git. Released state:
-0.14.0 (pub.dev latest, tag `v0.14.0` at `0978cde` = PR #118 merge; PR #119 competitive
-gaps merged on top at `8168650`, unreleased). Do not redo shipped work: impact/MCP/runtime/BasicMessageChannel
-(#94), CLI incremental analysis and the verification ledger (#96), MCP
-resources/prompts plus `dartograph.yaml` include/exclude/retained_*/thresholds,
-`--kinds`, and CODEOWNERS syntax (#98/#100), EventChannel producer (#103),
-review-fix PRs #110–#114, and the README polish (#116) are all done. The
-EventChannel `stream-listen` contract question is closed by user decision:
-calls are recorded as observed, and the README (en/ko) states that listening or
-receiving is not proven — do not reopen it. Read the 2026-09-18 section first:
-the improvement follow-up shipped as **0.14.0** — PR #117 (`bc2dbd0`) merged
-the MCP session cache, runtime_query, unverified-reason aggregation, and
-runtime --kinds/--statuses filters; PR #118 cut the release with tag
-`v0.14.0` = `0978cde`, pub.dev latest 0.14.0, GitHub Release published, and
-a fresh isolated install verified (`--version` 0.14.0). PR #119 (`8168650`)
-merged the four competitive-gap improvements (impact --format test-list,
-pub workspace surface, GRAPH-EXCHANGE spec, SARIF guide) — unreleased,
-targeted for the release after 0.14.0. The next candidate backlog is the "codegraph 대비 개선점" section just
-above Next Steps. On 2026-09-19 three batches were implemented and verified but NOT
-committed: C1 `setup --target claude|cursor|codex|opencode` + `--uninstall`; C3
-`query --with-source`; S2 `--format text|json|sarif` for cycles/rules/metrics/
-affected/compare (query intentionally JSON-only); C5 root `action.yml`; S7
-release-checklist/backlog-drift note. S4 and S1 were dispositioned by measurement
-(no stale banner needed; framework bindings already handled) — see the three
-2026-09-19 sections at the top. Verification: 612 tests, analyze clean, CLI contract
-and corpus passed, coverage 90.28%. Remaining recommended order: C4 (needs external
-resources) -> C2 (unified MCP tool) -> S5 remainder. Local main remains `8168650`;
-only HANDOFF and the uncommitted batch files are dirty. Preserve HANDOFF-PROGRESS.md
-and icon drafts. Do not commit, push, or create a PR without an explicit request.
+저장소 루트에서 HANDOFF의 최신 상태·Next Steps와 적용 AGENTS.md를
+읽고 실제 branch/status를 확인하세요. 현재 main은 `3ecabfd`(PR #127)입니다. 자매 브리지
+계약 문서가 GLM·Dart 3.11.0/3.13.3 CI·impact 검사를 통과해 머지됐으며 Dart 생산 코드
+변경은 없습니다. 동반 isthmus #96·cartograph #123·kartograph #82도 머지 완료입니다.
+
+0.14.0(`v0.14.0` → `0978cde`) 발행 이후 PR #119~#124 제품 개선과 #127 계약 문서는
+아직 새 릴리스로 발행하지 않았습니다. 과거 배치의 미커밋·미구현 표기는 당시 기록입니다.
+C1/C3/S2/C5 배선, C4 벤치마크·adoption, C2 통합 MCP, S5 workspace는 모두 머지됐으므로
+재개발하지 마세요. EventChannel의 호출 관측과 실제 수신 증명도 구분하세요.
+
+남은 후보는 Next Steps의 수동/외부 조치, 선택적 adoption 확대와 누적분 릴리스 판단입니다.
+현재 사용자 요청과 승인 범위를 따르고 이 문서를 새 실행 권한으로 삼지 마세요.
+HANDOFF에 미커밋 수정이 있으면 보존하고, `HANDOFF-PROGRESS.md`와
+`editors/vscode/icon-drafts/`도 유지하세요.
 
 
 ## 2026-09-14 — Cartograph 변경 영향 워크플로 계약 알림
