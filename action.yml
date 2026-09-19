@@ -1,0 +1,115 @@
+name: dartograph
+description: >-
+  Run dartograph in CI — impact pre-check, dead code, dependency hygiene,
+  duplication, cycles, rules, or metrics — and write one report file. Installs
+  the published CLI or a checked-out source path. Read-only: the action never
+  edits the analyzed package.
+author: dartograph contributors
+
+branding:
+  icon: search
+  color: purple
+
+# Composite action. It is a thin wrapper around the CLI: the exit code, report
+# format, and evidence live in dartograph, not in the action. Pin third-party
+# actions by commit SHA (the setup-dart step below follows the repository
+# convention). The action is documented by doc/USAGE.md and the example
+# workflow .github/workflows/impact-precheck.yml.
+inputs:
+  command:
+    description: >-
+      dartograph subcommand to run: impact, dead, deps, dup, runtime, cycles,
+      rules, or metrics.
+    required: false
+    default: impact
+  args:
+    description: >-
+      Extra CLI arguments, word-split by the shell. Quote values that contain
+      spaces. Example: --since origin/main --format github-actions --fail-on high
+    required: false
+    default: ''
+  package-root:
+    description: Package root to analyze.
+    required: false
+    default: .
+  version:
+    description: >-
+      dartograph version to activate from pub.dev. Leave empty for the latest
+      published release.
+    required: false
+    default: ''
+  source-path:
+    description: >-
+      Activate dartograph from this local path instead of pub.dev (for testing
+      this repository's own checkout). Takes precedence over version.
+    required: false
+    default: ''
+  pub-get:
+    description: Run `dart pub get` in package-root first so imports resolve.
+    required: false
+    default: 'true'
+  output-file:
+    description: Path to write the report to (relative to the workspace).
+    required: false
+    default: dartograph-report.txt
+
+outputs:
+  exit-code:
+    description: >-
+      Exit code from dartograph: 0 clean, 1 findings/gate, 2 analysis failure,
+      64 usage error.
+    value: ${{ steps.run.outputs.exit-code }}
+  output-file:
+    description: Path of the written report.
+    value: ${{ steps.run.outputs.output-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Dart
+      uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+      with:
+        sdk: stable
+    - name: Install dartograph
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -n "${{ inputs.source-path }}" ]]; then
+          dart pub global activate --source path "${{ inputs.source-path }}"
+        elif [[ -n "${{ inputs.version }}" ]]; then
+          dart pub global activate dartograph "${{ inputs.version }}"
+        else
+          dart pub global activate dartograph
+        fi
+        echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+    - name: Resolve package dependencies
+      shell: bash
+      working-directory: ${{ inputs.package-root }}
+      run: |
+        set -euo pipefail
+        if [[ "${{ inputs.pub-get }}" == "true" ]]; then
+          dart pub get
+        fi
+    - name: Run dartograph
+      id: run
+      shell: bash
+      # The report is always written before the exit code is propagated, so a
+      # failing gate still leaves artifacts for the caller to upload. Callers
+      # that only want a report add `continue-on-error: true` and read
+      # steps.<id>.outputs.exit-code.
+      run: |
+        set -euo pipefail
+        report="${{ inputs.output-file }}"
+        set +e
+        dartograph ${{ inputs.command }} ${{ inputs.args }} "${{ inputs.package-root }}" \
+          > "$report" 2>&1
+        status=$?
+        set -e
+        echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+        echo "output-file=$report" >> "$GITHUB_OUTPUT"
+        if [[ "$status" -eq 2 || "$status" -eq 64 ]]; then
+          # Surface configuration/analysis failures in the job log; the report
+          # alone can hide them behind an artifact.
+          cat "$report" >&2
+        fi
+        exit "$status"

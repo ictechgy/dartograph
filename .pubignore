@@ -9,6 +9,7 @@
 .vscode/
 AGENTS.md
 CLAUDE.md
+action.yml
 HANDOFF.md
 HANDOFF.cartograph-notes.md
 README.ko.md

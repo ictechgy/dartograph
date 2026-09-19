@@ -154,6 +154,10 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `--incremental <dir>` reuses cached analysis facts for CI-speed reruns, and
   `--record <dir>`/`history` keep an append-only ledger of run inputs,
   versions, and results.
+- A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
+  GitHub Actions: it activates a published release (or a checked-out source
+  path), analyzes a package, and writes one report file. See the pinned example
+  workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
