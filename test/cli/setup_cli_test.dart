@@ -586,13 +586,19 @@ void main() {
   });
 
   test('mergeCodexConfig fails closed on foreign dartograph shapes', () {
-    // 점 키·배열 표·인라인 표로 적힌 dartograph 위에 표를 덧붙이면 같은 표의
-    // 중복 정의로 config.toml 전체가 파싱 에러가 된다 — 실패로 돌린다.
+    // 점 키·배열 표·인라인 표·[mcp_servers] 하위 키로 적힌 dartograph 위에
+    // 표를 덧붙이면 같은 표의 중복 정의로 config.toml 전체가 파싱 에러가
+    // 된다 — 실패로 돌린다.
     for (final existing in [
       'mcp_servers.dartograph.command = "dartograph"\n',
       '[[mcp_servers.dartograph]]\ncommand = "dartograph"\n',
       'mcp_servers = { dartograph = { command = "dartograph" } }\n',
       '[mcp_servers."dartograph"]\ncommand = "dartograph"\n',
+      '["mcp_servers".dartograph]\ncommand = "dartograph"\n',
+      '"mcp_servers".dartograph.command = "dartograph"\n',
+      '[mcp_servers]\ndartograph = { command = "dartograph" }\n',
+      '[mcp_servers]\ndartograph.command = "dartograph"\n',
+      '[mcp_servers.dartograph.sub]\nkey = 1\n',
     ]) {
       expect(
         () => mergeCodexConfig(existing, force: true),
@@ -600,11 +606,22 @@ void main() {
         reason: existing,
       );
     }
-    // 다른 서버의 점 키 정의는 충돌이 아니다 — 표는 정상 병합된다.
-    expect(
-      mergeCodexConfig('mcp_servers.linear.command = "x"\n', force: false),
-      contains('[mcp_servers.dartograph]'),
-    );
+    // 다른 서버의 정의·접두어 이름·다른 표 안의 점 키·주석·문자열 값의
+    // dartograph 언급은 충돌이 아니다 — 표는 정상 병합된다.
+    for (final existing in [
+      'mcp_servers.linear.command = "x"\n',
+      'mcp_servers.dartograph_cli.command = "x"\n',
+      '[mcp_servers.dartograph_legacy]\ncommand = "x"\n',
+      '[legacy]\nmcp_servers.dartograph.command = "old"\n',
+      'mcp_servers = { linear = { x = 1 } } # TODO: dartograph 검토\n',
+      'mcp_servers = { note = "dartograph" }\n',
+    ]) {
+      expect(
+        mergeCodexConfig(existing, force: false),
+        contains('[mcp_servers.dartograph]'),
+        reason: existing,
+      );
+    }
   });
 
   test('codex merge keeps table-like lines inside multiline strings', () {

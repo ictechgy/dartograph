@@ -165,6 +165,9 @@ String agentOpenCodeConfigJson() =>
 ///
 /// Codex는 프로젝트 설정이 아니라 `$CODEX_HOME/config.toml`(기본
 /// `~/.codex/config.toml`)의 `mcp_servers` 표만 읽는다.
+/// 불변식: 이 블록에는 다중 행 문자열(`"""`·`'''`)을 넣지 않는다 —
+/// [_stripCodexBlock]은 지우는 행의 문자열 경계를 추적하지 않으므로
+/// 블록 안 구분자는 이후 스캔의 동기를 깬다.
 const codexMcpTomlBlock = '''
 [mcp_servers.dartograph]
 command = "dartograph"
@@ -176,23 +179,34 @@ final _codexTableHeader = RegExp(
   multiLine: true,
 );
 
-/// dartograph를 `[mcp_servers.dartograph]` 표가 아닌 다른 모양으로 정의한
-/// 흔적이다 — 점 키(`mcp_servers.dartograph.command = …`)·배열 표
-/// (`[[mcp_servers.dartograph]]`)·따옴표 키·인라인 표. TOML은 같은 표를
-/// 두 번 정의할 수 없어 이런 정의 위에 표를 덧붙이면 config.toml 전체가
-/// 파싱 에러가 된다 — JSON 경로와 같이 실패로 돌린다.
-final _codexForeignDefinition = RegExp(
-  r'''^\s*(?:\[+\s*mcp_servers\s*\.\s*|mcp_servers\s*\.\s*|'''
-  r'''mcp_servers\s*=\s*\{[^\n]*)["']?dartograph''',
-  multiLine: true,
+/// `[table]`·`[[array-table]]` 헤더 행이다 — 안쪽 표 이름을 잡는다.
+final _tomlTableHeader = RegExp(r'^\s*\[\s*\[?\s*([^\]]+?)\s*\]+\s*(#.*)?$');
+
+/// 비교용 표 이름 정규화에서 벗기는 따옴표·공백이다.
+final _tomlKeyNoise = RegExp(r'''["'\s]''');
+
+/// 최상위(표 헤더 전)에서 dartograph를 정의하는 점 키다 —
+/// `mcp_servers.dartograph.command = …`. 따옴표 세그먼트도 같은 정의다.
+final _codexDottedKey = RegExp(
+  r'''^\s*["']?mcp_servers["']?\s*\.\s*["']?dartograph["']?\s*\.''',
 );
+
+/// 최상위 한 줄 인라인 표 `mcp_servers = { dartograph = … }`다.
+/// 중첩 인라인 표는 잡지 못하는 한계다.
+final _codexInlineTable = RegExp(
+  r'''^\s*["']?mcp_servers["']?\s*=\s*\{[^}\n{#"']*["']?dartograph["']?\s*=''',
+);
+
+/// `[mcp_servers]` 표 안에서 dartograph를 정의하는 키 행이다 —
+/// `dartograph = {…}` 또는 `dartograph.command = …`.
+final _codexNestedKey = RegExp(r'''^\s*["']?dartograph["']?\s*[=\.]''');
 
 /// TOML 다중 행 문자열(`"""`·`'''`) 안쪽에 있는지 추적한다.
 ///
 /// 문자열 안의 `[mcp_servers.dartograph]` 같은 행은 헤더가 아니라 값이다.
-/// 구분자가 한 행에 홀수 번 나타나면 경계를 넘은 것으로 본다 — 따옴표
-/// 이스케이프까지 해석하지 않는 단순 스캔이며, 오인은 내용 보존 방향으로만
-/// 작동한다.
+/// 구분자가 한 행에 홀수 번 나타나면 경계를 넘은 것으로 본다. 따옴표
+/// 이스케이프까지 해석하지 않는 단순 스캔이다 — `\"""`처럼 이스케이프된
+/// 구분자가 있는 드문 문서는 문자열 안을 밖으로 볼 수 있다.
 class _TomlStringTracker {
   String _marker = '';
 
@@ -223,11 +237,42 @@ Iterable<String> _tomlDefinitionLines(String text) sync* {
   }
 }
 
-bool _hasCodexBlock(String text) =>
-    _tomlDefinitionLines(text).any(_codexTableHeader.hasMatch);
-
-bool _hasForeignCodexDefinition(String text) =>
-    _tomlDefinitionLines(text).any(_codexForeignDefinition.hasMatch);
+/// TOML 문서를 한 번 스캔해 표준 표와 다른 모양의 dartograph 정의를 가른다.
+///
+/// 표 헤더 안쪽 이름은 따옴표·공백을 벗겨 비교한다 — `[mcp_servers."dartograph"]`
+/// 나 `[[mcp_servers.dartograph]]`도 같은 표의 정의다. 점 키·인라인 표는
+/// 최상위(어떤 표 헤더보다 앞)에서만 루트 `mcp_servers`를 정의한다 — 표 안의
+/// `mcp_servers.` 점 키는 그 표의 하위라 충돌이 아니다. `[mcp_servers]` 표
+/// 안의 `dartograph` 키도 같은 정의다.
+({bool standard, bool foreign}) _scanCodexDefinitions(String text) {
+  var standard = false;
+  var foreign = false;
+  var table = '';
+  for (final line in _tomlDefinitionLines(text)) {
+    final header = _tomlTableHeader.firstMatch(line);
+    if (header != null) {
+      table = header.group(1)!.replaceAll(_tomlKeyNoise, '');
+      if (table == 'mcp_servers.dartograph') {
+        if (_codexTableHeader.hasMatch(line)) {
+          standard = true;
+        } else {
+          foreign = true;
+        }
+      } else if (table.startsWith('mcp_servers.dartograph.')) {
+        foreign = true;
+      }
+      continue;
+    }
+    if (table.isEmpty) {
+      if (_codexDottedKey.hasMatch(line) || _codexInlineTable.hasMatch(line)) {
+        foreign = true;
+      }
+    } else if (table == 'mcp_servers' && _codexNestedKey.hasMatch(line)) {
+      foreign = true;
+    }
+  }
+  return (standard: standard, foreign: foreign);
+}
 
 /// TOML에서 dartograph 표 블록을 걷어낸다. 그 표의 키 줄은 다음 최상위
 /// `[table]`을 만나거나 파일이 끝날 때까지 이어진다. 다른 표의 다중 행
@@ -267,19 +312,21 @@ String _stripCodexBlock(String text) {
 ///
 /// 이미 있으면 `force`일 때만 표준 블록으로 교체하고 아니면 `null`을 돌린다.
 /// TOML 전체를 해석하지 않고 표 블록만 다룬다 — 다른 표·키는 그대로 보존된다.
-/// 표가 아닌 모양(점 키·배열 표·인라인 표)으로 적힌 dartograph 정의가 있으면
-/// [FormatException]이다 — 덧붙이면 같은 표의 중복 정의로 파일 전체가 깨진다.
+/// 표가 아닌 모양(점 키·배열 표·인라인 표·`[mcp_servers]` 하위 키)으로 적힌
+/// dartograph 정의가 있으면 [FormatException]이다 — 덧붙이면 같은 표의
+/// 중복 정의로 파일 전체가 깨진다. 한계: 중첩 인라인 표는 잡지 못한다.
 String? mergeCodexConfig(String? existing, {required bool force}) {
   final text = existing ?? '';
-  if (_hasCodexBlock(text)) {
-    if (!force) return null;
-    return '${_stripCodexBlock(text)}$codexMcpTomlBlock';
-  }
-  if (_hasForeignCodexDefinition(text)) {
+  final definitions = _scanCodexDefinitions(text);
+  if (definitions.foreign) {
     throw const FormatException(
       'config.toml defines dartograph under mcp_servers in an unsupported '
       'shape — merge it into a [mcp_servers.dartograph] table or remove it',
     );
+  }
+  if (definitions.standard) {
+    if (!force) return null;
+    return '${_stripCodexBlock(text)}$codexMcpTomlBlock';
   }
   if (text.isEmpty) return codexMcpTomlBlock;
   final separator = text.endsWith('\n') ? '\n' : '\n\n';
@@ -289,9 +336,12 @@ String? mergeCodexConfig(String? existing, {required bool force}) {
 /// Codex `config.toml` 문자열에서 dartograph MCP 블록을 제거한다.
 ///
 /// 항목이 없으면 `null`이다. 남는 내용이 없으면 빈 문자열을 돌린다 — 호출자가
-/// 파일을 지울지 정한다.
+/// 파일을 지울지 정한다. 표가 아닌 모양의 dartograph 정의는 우리가 쓴 것이
+/// 아니므로 건드리지 않는다.
 String? removeCodexConfig(String? existing) {
-  if (existing == null || !_hasCodexBlock(existing)) return null;
+  if (existing == null || !_scanCodexDefinitions(existing).standard) {
+    return null;
+  }
   return _stripCodexBlock(existing);
 }
 

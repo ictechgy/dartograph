@@ -111,8 +111,14 @@ runs:
       # that only want a report add `continue-on-error: true` and read
       # steps.<id>.outputs.exit-code.
       run: |
-        set -euo pipefail
+        # -f (noglob): args is word-split but never glob-expanded — a `*`
+        # in the input stays literal instead of matching workspace files.
+        set -euf -o pipefail
         report="$DARTOGRAPH_OUTPUT_FILE"
+        if [[ -z "$DARTOGRAPH_COMMAND" ]]; then
+          echo "dartograph action: command input is empty" >&2
+          exit 64
+        fi
         set +e
         # args is a documented free-form string of extra flags; it expands
         # unquoted on purpose so the shell word-splits it. Variable content
