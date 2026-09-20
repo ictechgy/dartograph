@@ -100,6 +100,84 @@ NotebookEdit`(읽기 전용 과제), `--no-session-persistence`,
 남지만 두 팔 대칭이다. prepare는 기존 checkout의 `HEAD`가 tasks.json의
 핀 리비전과 다르면 실패한다.
 
+## 2026-09-21 확대 실험 계획
+
+아래 본 실험은 **실행 준비이며 새 측정 결과가 아니다**. 기존 adoption 셀의
+Haiku·4과제·with 조건을 두 모델·8과제·양쪽 조건으로 넓힌다.
+과제 자체를 새로 만든 것은 아니며, 첫 매트릭스의 전체 8과제를 현재
+adoption 배선에 다시 적용한다. 기존 결과·원시 기록과 출력 디렉터리를
+분리하고, 과거 without 수치를 새 with 수치의 동시 대조군으로 쓰지 않는다.
+
+| 조건 | 계획 |
+|---|---|
+| CLI | dartograph 0.15.0, 양쪽 조건에 같은 SDK와 저장소 리비전 |
+| 모델 | Claude `haiku`, `sonnet`; system 이벤트가 제공한 실제 모델 ID도 기록 |
+| 과제 | `tasks.json`의 8개 전체: nav 3개·ppf 2개·inv 3개 |
+| 파일럿 | 모델별 연결 확인 1회, 본 실험과 별도 집계(아래 사전 점검 결과 참조) |
+| 본 실험 | 모델 × 과제 × with/without × 2회 = 64회 |
+| 호출 한도 | 파일럿 포함 최대 66회, 런당 24턴·stdout 유휴 900초(총 실행시간 제한 아님) |
+| 비용 설정 | 런당 `--max-budget-usd 0.50`; API 호출 단위 초과 가능성이 있어 정확한 청구 상한은 아님 |
+| 해석 | n=2/셀의 기술 통계; 속도·정답률의 일반적 개선을 주장하지 않음 |
+
+실행 전에는 공개 저장소의 고정 리비전과 의존성·생성 코드 준비 상태를
+확인한다. with 복사본에는 0.15.0의 `setup --install`과 `skill --install`을
+다시 적용하고, without 복사본에는 dartograph 배선이 없음을 확인한다.
+두 조건의 제품 소스가 같고 상위 디렉터리 지시 파일이 개입하지 않는지도
+검사한다. 기존 `prepare`는 이미 존재하는 배선을 갱신하지 않으므로
+명시적으로 재설치해야 한다. 공개 코드의 외부 모델 전송 범위와 실행 승인을
+받은 후 파일럿으로 인증·모델·MCP 사용을 확인하고 본 실험을 시작한다.
+
+```sh
+# 위 준비를 마친 공개 저장소 3쌍과 새 결과 디렉터리의 절대 경로다.
+BENCH_REPOS=/absolute/path/to/repos
+BENCH_RESULTS=/absolute/path/to/results-adoption-20260921
+# 2026-09-21 연결 파일럿 2회는 별도 순수 Dart fixture로 실행했다.
+# 아래 본 실험은 호환 Flutter SDK 준비와 Claude 한도 회복 후 실행한다.
+for model in haiku sonnet; do
+  dart run tool/agent_benchmark/agent_benchmark.dart run \
+    --repos "$BENCH_REPOS" --tasks tool/agent_benchmark/tasks.json \
+    --out "$BENCH_RESULTS/matrix-$model" --model "$model" \
+    --runs 2 --max-budget-usd 0.50
+  dart run tool/agent_benchmark/agent_benchmark.dart score \
+    --out "$BENCH_RESULTS/matrix-$model"
+done
+```
+
+사용률은 task × model별 with 런 중 실제 호출한 비율로 집계한다. 오류·
+오염·treatment-not-delivered·budget 종료를 모두 남기고, 정답률·비용·시간은
+같은 과제·모델의 양쪽 조건을 비교한다. expected 문자열 채점의 과잉 답변
+한계는 유지되므로 원시 답변도 함께 감사한다. 재실행 때 기존 run은
+재사용하고, 의도적으로 추가 측정하려면 새 출력 디렉터리 또는
+`--runs-offset`을 사용한다. 같은 출력 디렉터리에 여러 프로세스가 동시에
+기록하지 않도록 모델별 디렉터리를 유지한다.
+
+### 2026-09-21 사전 점검 결과
+
+공개 GitHub 저장소 3개를 위 고정 리비전으로 새로 준비했고, 각 checkout의
+HEAD와 변경 없음 상태를 대조했다. 8과제의 expected는 실제 호출·참조·
+조건부 export를 읽어 다시 확인했다. 현재 환경의 기존 Flutter 3.32.2 /
+Dart 3.8.1은 대상들의 최소 요구 버전보다 낮아 의존성 준비에 쓸 수 없었다.
+
+그래서 파일럿은 저장소의 공개 `fixtures/closed_app` 복사본에서 MCP 연결과
+모델 실행 가능 여부를 확인하는 과제로 분리했다. 이 과제는 도구 사용을
+명시적으로 요청하므로 adoption 사용률 비교에 포함하지 않는다.
+0.15.0 소스(`8c314aa`)의 고정 바이너리, 모델당 1회, 최대 8턴·$0.50 설정이다.
+
+| 요청 모델 | CLI init이 표시한 모델 ID | MCP 연결 | 실제 도구 호출 | 종료 코드 | 보고 비용 |
+|---|---|---|---|---|---|
+| haiku | `claude-haiku-4-5-20251001` | connected | 0 | 1 | $0 |
+| sonnet | `claude-sonnet-5` | connected | 0 | 1 | $0 |
+
+두 실행 모두 `rate_limit`과 주간 사용 한도 초과를 반환했다. 서비스는
+한국시간 낮 12시 초기화를 안내했지만 본 실험 실행 가능 여부는 회복 후
+다시 확인해야 한다. 두 응답은 `is_error: true`이며 **모델의 과제 오답이나
+제품 효과 측정값이 아니다**. 본 실험 64회는 시작하지 않았다.
+
+개인 계정 정보 없이 상태·checkout 리비전·바이너리 해시를 로컬
+`.git/evidence-adoption-20260921/`에 보존했다. 그 디렉터리는 Git 제출 대상이
+아니며, 재개 경로는 `preparation.json`과 `STATUS.json`에서 확인한다.
+새 측정은 기존 실패 파일럿을 덮어쓰지 않고 별도 본 실험 디렉터리에 기록한다.
+
 ## 측정 기록
 
 실행할 때마다 하단 표에 조건(모델·런 수·날짜·dartograph 버전)과 결과를

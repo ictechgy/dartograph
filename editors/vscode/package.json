@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "ictechgy",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": "https://github.com/ictechgy/dartograph",
   "engines": {
     "vscode": "^1.85.0"

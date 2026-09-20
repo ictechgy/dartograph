@@ -9,6 +9,17 @@ Queryable dependency graphs for Dart and Flutter codebases. Sister project of
 never be paid tiers, license keys, seat or line-of-code limits, telemetry, or
 account sign-in.
 
+## See it in 30 seconds
+
+This checked-in demo runs the `fixtures/closed_app` fixture from a source
+checkout. See unreachable declarations, change impact, and retained-root
+evidence from the real `dead`, `impact`, and `query` commands. The preview
+summarizes actual CLI output; the [asciinema v2 cast](doc/assets/demo/dartograph-demo.cast)
+contains the full command output. Reproduce it with the
+[recording script](https://github.com/ictechgy/dartograph/blob/main/tool/record_demo.py).
+
+[![dartograph dead, impact, and evidence query demo](doc/assets/demo/preview.svg)](doc/assets/demo/dartograph-demo.cast)
+
 The name blends **Dart** and cartograph.
 
 ## Why
