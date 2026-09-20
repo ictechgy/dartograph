@@ -307,7 +307,9 @@ _Last updated: 2026-09-20 (0.15.0 pub.dev·GitHub 발행/독립 설치 검증 �
 - 0.14.0 이후의 workspace·MCP 통합·setup·query source·보고 형식·test-list·계약 문서 누적분이
   이 발행본에 포함된다. 아래 그 누적분의 미릴리스 표기는 이 발행으로 해소됐다.
 - 발행 native 도구와 isthmus 0.8.0 후보를 사용한 Flutter/public plugin 왕복을 확인했다.
-  isthmus npm 발행은 인증 갱신 대기다. 이 후보 검증을 npm 발행본 검증으로 혼동하지 않는다.
+  이후 사용자가 npm 0.8.0을 발행했다. registry 아카이브가 후보와 바이트 단위로 같음을
+  대조했고, 별도 npm 설치의 CLI 계약·cold-cache 검사도 통과했다. 같은 입력의 왕복 근거를
+  재사용하며 네 저장소 호환 세트의 발행·설치 검증을 완료했다.
 - VS Code/analysis plugin을 재발행한 작업은 아니며, `HANDOFF-PROGRESS.md`·icon-drafts는
   기존 사용자 파일로 유지한다. 새 기능 착수는 현재 사용자 요청 범위를 따른다.
 
