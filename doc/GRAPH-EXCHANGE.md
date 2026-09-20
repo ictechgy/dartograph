@@ -20,13 +20,21 @@
 | `format` | string | 항상 `"bridge-facts"` |
 | `version` | int | `1`(MethodChannel) 또는 `2`(--messages/--events) |
 | `tool` | object | `{"name": "dartograph", "version": "<semver>"}` — 낸 도구와 버전 |
-| `generatedAt` | string | UTC ISO-8601 밀리초 — 실행 시각이라 출력 결정성 대상이 아니다 |
+| `generatedAt` | string | UTC ISO-8601 밀리초 — 문서 추출 시각이라 출력 결정성 대상이 아니다 |
 | `platform` | string | 항상 `"dart"` |
 | `target` | string\|null | 사실이 하나라도 있으면 `"flutter"`, 없으면 `null` |
 | `project` | string | 조인 키 — 같은 조인에 들어가는 모든 문서가 문자열 정확 일치해야 한다 |
 | `transport` | string | version 2만: `"basic-message-channel"` 또는 `"event-channel"` |
 | `facts` | array | 아래 fact 객체 목록 — 결정적 정렬 |
 | `limitations` | array | 분석 한계 문자열 목록 |
+
+`generatedAt`은 파일 수정 시각이나 compiler index 시각이 아니다. v1·v2 공유 계약의
+선택적 `sourceModifiedAt`은 읽은 source의 최신 filesystem mtime을 관찰했을 때만 쓰며,
+dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래된 archive mtime을 추출 시각으로
+바꾸거나, 추출 시각을 앱 빌드·실행·분석 완전성의 근거로 해석하지 않는다.
+[kartograph 0.12.0 이하](https://github.com/ictechgy/kartograph/blob/v0.12.0/index/src/main/kotlin/dev/kartograph/index/BridgeFactScanner.kt)의
+기본 `generatedAt`은 source mtime이므로 생산자 간 시각 차이를
+곧바로 빌드 노후화로 해석하지 않는다. 소비자가 producer 버전으로 시각을 추측해 교체해서도 안 된다.
 
 ## Fact 객체
 
