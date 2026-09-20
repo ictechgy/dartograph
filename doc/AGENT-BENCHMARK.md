@@ -39,7 +39,7 @@ mcp_servers `[]`). 레포가 출하한 AGENTS.md·CLAUDE.md 본문은 두 팔이
 
 ## 지표
 
-런당: `correct`(expected 근거 문자열 전부 포함 **및** `isError == false`),
+런당: `correct`(expected 근거 문자열 전부 포함 **및** `isError == false`, `exitCode == 0`),
 `numTurns`, `durationMs`, `costUsd`, `fileReads`, `bashCalls`, `toolCalls`
 종류별 수, `dartographCalls`, `inputTokens`/`outputTokens`, `exitCode`,
 `isError`, `runError`, `run` 인덱스.
@@ -131,10 +131,12 @@ adoption 배선에 다시 적용한다. 기존 결과·원시 기록과 출력 �
 # 위 준비를 마친 공개 저장소 3쌍과 새 결과 디렉터리의 절대 경로다.
 BENCH_REPOS=/absolute/path/to/repos
 BENCH_RESULTS=/absolute/path/to/results-adoption-20260921
+# 검증한 0.15.0 바이너리를 둔다. without의 PATH 필터가 제거할 경로다.
+BENCH_TOOLS="$BENCH_REPOS/.pub-cache/bin"
 # 2026-09-21 연결 파일럿 2회는 별도 순수 Dart fixture로 실행했다.
 # 아래 본 실험은 호환 Flutter SDK 준비와 Claude 한도 회복 후 실행한다.
 for model in haiku sonnet; do
-  dart run tool/agent_benchmark/agent_benchmark.dart run \
+  PATH="$BENCH_TOOLS:$PATH" dart run tool/agent_benchmark/agent_benchmark.dart run \
     --repos "$BENCH_REPOS" --tasks tool/agent_benchmark/tasks.json \
     --out "$BENCH_RESULTS/matrix-$model" --model "$model" \
     --runs 2 --max-budget-usd 0.50
@@ -177,6 +179,39 @@ Dart 3.8.1은 대상들의 최소 요구 버전보다 낮아 의존성 준비에
 `.git/evidence-adoption-20260921/`에 보존했다. 그 디렉터리는 Git 제출 대상이
 아니며, 재개 경로는 `preparation.json`과 `STATUS.json`에서 확인한다.
 새 측정은 기존 실패 파일럿을 덮어쓰지 않고 별도 본 실험 디렉터리에 기록한다.
+
+### 2026-09-21 SDK·대조군 준비 완료
+
+사용자가 공식 SDK CDN 접근과 의존성 준비를 승인했다. 아카이브 목록과
+stable SDK ZIP 경로가 404를 반환해 공식 Git 태그를 checkout하고, SDK의
+bootstrap 스크립트로 해당 엔진 리비전의 Dart SDK를 받았다. 기존 사용자
+SDK와 전역 PATH는 변경하지 않았다.
+
+| 대상 | 준비용 Flutter / Dart | 의존성 준비 | 대상 `flutter analyze --no-pub` |
+|---|---|---|---|
+| navigation_and_routing | 3.47.2 / 3.13.2 | pub workspace의 package config, 248개 경로 확인 | No issues found |
+| path_provider_foundation | 3.47.2 / 3.13.2 | 본체·example pub get, 본체 51개 경로 확인 | No issues found |
+| Invoice Ninja | 3.44.1 / 3.12.1 | `--enforce-lockfile`, 기존 lockfile 불변, 237개 경로 확인 | No issues found |
+
+Flutter 태그는 각각 `d3b14c876900e553bc736ca19295fc09e3853e8e`와
+`924134a44c189315be2148659913dda1671cbe99`로 확인했다. 이 SDK는 실험 대상의
+준비에 사용한다. dartograph 자체는 기존 Dart 3.13.3 환경과 0.15.0 고정
+바이너리를 유지한다.
+
+with 복사본에만 `setup`·`skill`을 설치한 뒤 두 조건의 추적된 Dart 파일·
+pubspec·lockfile을 바이트 단위로 비교했다(samples 523개, packages 4,110개,
+Invoice Ninja 2,322개). without에는 dartograph MCP·스킬이 없음을 확인했다.
+
+준비된 with 패키지 3개에 실제 MCP `dependency_query`를 호출해 9개 핵심
+심볼의 `found` 응답과 종료 코드 0을 확인했다. 각 대상의 질의 응답에는
+limitations가 1·6·76개 남아 있으며 삭제 안전성이나 전체 그래프 완전성을
+의미하지 않는다. 사전 질의는 분석 캐시를 채우므로 이후 시간 수치는
+cold 인덱싱 성능으로 해석하지 않는다. 이 점검에 외부 모델 호출은 없었다.
+
+원장은 로컬 `.git/evidence-adoption-20260921/`의 `arms.json`,
+`environment-ready.json`, `mcp-preflight.json`과 대상별 원시 응답에 있다.
+SDK·checkout 경로는 `preparation.json`에 저장했다. 본 실험 64회는 Claude
+사용 한도 회복 전까지 시작하지 않는다.
 
 ## 측정 기록
 
