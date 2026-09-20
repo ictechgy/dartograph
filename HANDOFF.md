@@ -7,6 +7,13 @@ _Last updated: 2026-09-20_
 
 ## Current Status
 
+- 자매 후속의 timestamp 계약을 [GRAPH-EXCHANGE](doc/GRAPH-EXCHANGE.md)에 반영했다.
+  generatedAt은 문서 추출 시각이며 optional sourceModifiedAt은 별도 source mtime이다.
+  dartograph는 mtime을 측정하지 않아 생략하며 기존 추출 시각 구현을 유지한다.
+  이번 변경은 문서만이고 새 CLI·확장 버전을 발행하지 않았다.
+- isthmus의 [실제 Flutter3.47.2 macOS·Android 앱 검사와 공개 RN 컴파일 retention](https://github.com/ictechgy/isthmus/blob/main/experiments/real-corpus/README.md)은
+  자매 개발 소스의 별도 검증이다. dartograph의 RN 생산자 지원을 추가했다는 뜻은 아니다.
+
 - dartograph **0.15.0**은 [pub.dev](https://pub.dev/packages/dartograph/versions/0.15.0)와
   [GitHub](https://github.com/ictechgy/dartograph/releases/tag/v0.15.0)에 발행됐다.
   릴리스 [PR #129](https://github.com/ictechgy/dartograph/pull/129)와 tag `v0.15.0`의 소스는 `b124839`다.
