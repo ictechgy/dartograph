@@ -3,7 +3,8 @@
 
 명령과 기대 종료 코드를 한곳에 둬서 README 데모를 출력 복사 없이 같은
 fixture에서 다시 만들 수 있게 한다. cast의 재생 간격은 실제 실행 결과를
-읽을 수 있게 조정한 값이다.
+읽을 수 있게 조정한 값이다. 종료 코드 표시와 parsed evidence summary는
+스크립트가 실제 출력에 덧붙이는 보조 정보다.
 """
 
 from __future__ import annotations

@@ -46,7 +46,7 @@ mcp_servers `[]`). 레포가 출하한 AGENTS.md·CLAUDE.md 본문은 두 팔이
 `numTurns`, `durationMs`, `costUsd`, `fileReads`, `bashCalls`, `toolCalls`
 종류별 수, `dartographCalls`, `inputTokens`/`outputTokens`, `exitCode`,
 `isError`, `runError`, `run` 인덱스.
-`dartographCalls`는 호출을 시도한 도구 메시지 수다. Bash 입력 하나에서 여러 CLI
+`dartographCalls`는 호출을 시도한 tool-use 블록 수다. Bash 입력 하나에서 여러 CLI
 명령을 실행해도 1회로 세며, MCP는 각 tool-use를 센다. 호출 성공이나 답변 정확성을
 뜻하지 않는다. 모델 ID는 `resolvedModel`, 판별 규칙은 `usageDetection`에 기록한다.
 task × arm × model 집계는 중앙값 — 첫 런의 콜드 인덱싱 편향을 줄인다.

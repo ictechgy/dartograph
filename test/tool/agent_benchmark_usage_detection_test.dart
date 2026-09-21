@@ -47,8 +47,19 @@ void main() {
         isTrue,
       );
       expect(invokesDartograph('timeout 30 dartograph query'), isTrue);
+      expect(invokesDartograph('timeout -k 5 30 dartograph query'), isTrue);
+      expect(
+        invokesDartograph('timeout --signal TERM 30 dartograph query'),
+        isTrue,
+      );
       expect(invokesDartograph('nice -n 10 dartograph query'), isTrue);
+      expect(invokesDartograph('sudo -u ci dartograph query'), isTrue);
+      expect(invokesDartograph('exec -a name dartograph query'), isTrue);
       expect(invokesDartograph('env -u PATH dartograph query'), isTrue);
+      expect(
+        invokesDartograph('env --file env.file dartograph query'),
+        isFalse,
+      );
     });
 
     test('does not count lookup wrappers', () {
@@ -71,7 +82,55 @@ void main() {
       expect(invokesDartograph('echo \$('), isFalse);
       expect(invokesDartograph('echo `'), isFalse);
       expect(invokesDartograph("echo `grep dartograph \\"), isFalse);
+      expect(invokesDartograph('da\\\nrtograph query'), isTrue);
       expect(invokesDartograph('printf x && echo y\ndartograph query'), isTrue);
+    });
+
+    test('handles Dart source entrypoints', () {
+      expect(invokesDartograph('dart run bin/dartograph.dart query'), isTrue);
+      expect(invokesDartograph('dart ./bin/dartograph.dart query'), isTrue);
+      expect(
+        invokesDartograph('dart run /workspace/bin/dartograph.dart query'),
+        isTrue,
+      );
+    });
+
+    test('masks heredoc literals but checks unquoted substitutions', () {
+      expect(invokesDartograph('cat <<\\'), isFalse);
+      expect(invokesDartograph("cat <<'EOF'\ndartograph query\nEOF"), isFalse);
+      expect(invokesDartograph('# <<EOF\ndartograph query\nEOF'), isTrue);
+      expect(invokesDartograph('cat <<< "text"\ndartograph query'), isTrue);
+      expect(invokesDartograph('cat <<EOF\ndartograph query\nEOF'), isFalse);
+      expect(invokesDartograph('cat <<EOF\n\$(dartograph query)\nEOF'), isTrue);
+      expect(
+        invokesDartograph("cat <<'EOF'\n\$(dartograph query)\nEOF"),
+        isFalse,
+      );
+      expect(
+        invokesDartograph("cat <<EOF\n'\$(dartograph query)'\nEOF"),
+        isTrue,
+      );
+      expect(
+        invokesDartograph('cat <<EOF; echo ok\ntext\nEOF\ndartograph query'),
+        isTrue,
+      );
+      expect(
+        invokesDartograph(
+          'cat <<A <<B\ntext A\nA\ntext B\nB\ndartograph query',
+        ),
+        isTrue,
+      );
+      expect(invokesDartograph('cat <<\\EOF\ndartograph query\nEOF'), isFalse);
+      expect(
+        invokesDartograph('cat <<\\EOF\ntext\nEOF\ndartograph query'),
+        isTrue,
+      );
+      expect(
+        invokesDartograph(
+          "cat <<'EOF'\ndartograph query\nEOF\ndartograph query",
+        ),
+        isTrue,
+      );
     });
   });
 }

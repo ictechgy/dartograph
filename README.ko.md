@@ -11,8 +11,9 @@ Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [ca
 저장소에 포함된 데모는 소스 체크아웃에서 `fixtures/closed_app` fixture를
 실행한다. 실제 `dead`·`impact`·`query` 명령으로 도달 불가 선언, 변경 영향,
 보존 루트의 근거를 확인할 수 있다. 미리보기는 실제 CLI 출력의 요약이고,
-[asciinema v2 cast](doc/assets/demo/dartograph-demo.cast)는 전체 명령 출력을
-담는다. [기록 스크립트](https://github.com/ictechgy/dartograph/blob/main/tool/record_demo.py)로
+[asciinema v2 cast](doc/assets/demo/dartograph-demo.cast)는 전체 명령 출력과
+스크립트가 덧붙인 종료 코드·질의 요약을 담는다. 재생 간격은 읽기 편하게
+조정했다. [기록 스크립트](https://github.com/ictechgy/dartograph/blob/main/tool/record_demo.py)로
 재현할 수 있다.
 
 [![dartograph dead·impact·근거 질의 데모](doc/assets/demo/preview.svg)](doc/assets/demo/dartograph-demo.cast)
