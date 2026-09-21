@@ -27,6 +27,9 @@ mcp_servers `[]`). 레포가 출하한 AGENTS.md·CLAUDE.md 본문은 두 팔이
 
 - without 런에서 `dartograph` Bash 호출이나 `mcp__dartograph*` 호출이
   하나라도 잡히면 **contaminated** — 집계에서 제외하고 수를 공개한다.
+- Bash는 명령 실행 위치로 판별한다. 경로·grep 패턴·`which`/`command -v`
+  조회는 사용으로 세지 않는다. 동적으로 조립된 shell 명령까지 완전히 해석하지
+  않으므로 원시 입력 감사도 필요하다. 2026-09-21의 경로 오탐 보정은 아래 결과에 있다.
 - PATH 필터는 best-effort 예방이다(`dart pub global run` 등 우회가 남는다).
   실제 불변식은 **검출**이다 — 위의 contaminated 규칙이 without arm의
   dartograph 사용을 잡아내 제외한다.
@@ -43,6 +46,9 @@ mcp_servers `[]`). 레포가 출하한 AGENTS.md·CLAUDE.md 본문은 두 팔이
 `numTurns`, `durationMs`, `costUsd`, `fileReads`, `bashCalls`, `toolCalls`
 종류별 수, `dartographCalls`, `inputTokens`/`outputTokens`, `exitCode`,
 `isError`, `runError`, `run` 인덱스.
+`dartographCalls`는 호출을 시도한 도구 메시지 수다. Bash 입력 하나에서 여러 CLI
+명령을 실행해도 1회로 세며, MCP는 각 tool-use를 센다. 호출 성공이나 답변 정확성을
+뜻하지 않는다. 모델 ID는 `resolvedModel`, 판별 규칙은 `usageDetection`에 기록한다.
 task × arm × model 집계는 중앙값 — 첫 런의 콜드 인덱싱 편향을 줄인다.
 절대 시간·비용은 SLA가 아니며 같은 조건의 상대 비교만 의미 있다.
 **with arm이 더 느리거나 비싼 수치도 그대로 공개한다**(codegraph가
@@ -100,18 +106,18 @@ NotebookEdit`(읽기 전용 과제), `--no-session-persistence`,
 남지만 두 팔 대칭이다. prepare는 기존 checkout의 `HEAD`가 tasks.json의
 핀 리비전과 다르면 실패한다.
 
-## 2026-09-21 확대 실험 계획
+## 2026-09-21 확대 실험 조건
 
-아래 본 실험은 **실행 준비이며 새 측정 결과가 아니다**. 기존 adoption 셀의
-Haiku·4과제·with 조건을 두 모델·8과제·양쪽 조건으로 넓힌다.
+본 실험 **64회 완료**. [결과·채점 감사·계측 보정](benchmarks/ADOPTION-20260921.md)을
+확인한다. 기존 adoption 셀의 Haiku·4과제·with 조건을 두 모델·8과제·양쪽 조건으로 넓혔다.
 과제 자체를 새로 만든 것은 아니며, 첫 매트릭스의 전체 8과제를 현재
 adoption 배선에 다시 적용한다. 기존 결과·원시 기록과 출력 디렉터리를
 분리하고, 과거 without 수치를 새 with 수치의 동시 대조군으로 쓰지 않는다.
 
-| 조건 | 계획 |
+| 조건 | 설정 |
 |---|---|
 | CLI | dartograph 0.15.0, 양쪽 조건에 같은 SDK와 저장소 리비전 |
-| 모델 | Claude `haiku`, `sonnet`; system 이벤트가 제공한 실제 모델 ID도 기록 |
+| 모델 | Claude `haiku`, `sonnet`; system과 assistant 응답의 모델 ID 확인 |
 | 과제 | `tasks.json`의 8개 전체: nav 3개·ppf 2개·inv 3개 |
 | 파일럿 | 모델별 연결 확인 1회, 본 실험과 별도 집계(아래 사전 점검 결과 참조) |
 | 본 실험 | 모델 × 과제 × with/without × 2회 = 64회 |
@@ -173,7 +179,8 @@ Dart 3.8.1은 대상들의 최소 요구 버전보다 낮아 의존성 준비에
 두 실행 모두 `rate_limit`과 주간 사용 한도 초과를 반환했다. 서비스는
 한국시간 낮 12시 초기화를 안내했지만 본 실험 실행 가능 여부는 회복 후
 다시 확인해야 한다. 두 응답은 `is_error: true`이며 **모델의 과제 오답이나
-제품 효과 측정값이 아니다**. 본 실험 64회는 시작하지 않았다.
+제품 효과 측정값이 아니다**. 이 사전 점검 당시 본 실험 64회는 시작하지 않았다.
+사용자가 한도 회복을 알린 뒤 본 실험을 완료했으며 아래 측정 기록과 구분한다.
 
 개인 계정 정보 없이 상태·checkout 리비전·바이너리 해시를 로컬
 `.git/evidence-adoption-20260921/`에 보존했다. 그 디렉터리는 Git 제출 대상이
@@ -210,8 +217,12 @@ cold 인덱싱 성능으로 해석하지 않는다. 이 점검에 외부 모델 
 
 원장은 로컬 `.git/evidence-adoption-20260921/`의 `arms.json`,
 `environment-ready.json`, `mcp-preflight.json`과 대상별 원시 응답에 있다.
-SDK·checkout 경로는 `preparation.json`에 저장했다. 본 실험 64회는 Claude
-사용 한도 회복 전까지 시작하지 않는다.
+SDK·checkout 경로는 `preparation.json`에 저장했다. 이후 본 실험의 원문은
+`matrix-{haiku,sonnet}/`, 사용량 보정본은 `corrected-{haiku,sonnet}/`에 있다.
+
+경로 오탐이 있는 원장도 transcript가 남아 있으면 `recount_usage.dart <results-dir>`로
+사용량만 다시 계산할 수 있다. 원본을 덮어쓰지 말고 stdout을 새 파일로 보존한다.
+이 도구는 외부 모델을 호출하지 않으며 원문 누락·오류를 호출 0으로 취급하지 않는다.
 
 ## 측정 기록
 
@@ -222,6 +233,8 @@ SDK·checkout 경로는 `preparation.json`에 저장했다. 본 실험 64회는 
 |---|---|---|---|---|---|
 | 2026-09-19 | claude haiku | 4 (nav-dead 5 — 파일럿 포함) | 0.14.0 (path activate, 4857136) | 오염 0/66. 정답률 차이는 nav-impact뿐(with 3/4, without 1/4). with arm의 dartograph 사용은 4/33 — 스킬·MCP가 있어도 에이전트가 안 부른 경우가 대부분 |
 | 2026-09-20 | claude haiku | 4, with만 (adoption 셀: nav-impact·inv-dead·inv-callers·inv-impact) | 0.14.0 (path activate, feat/agent-adoption a44f048+) | with arm의 dartograph 사용 11/16 (이전 같은 과제 2/16). inv-dead 4/4 사용·4/4 정답(이전 0/4 사용·3/4). inv-callers는 grep으로 충분해 0/4 사용·4/4 정답 유지 |
+| 2026-09-21 | claude haiku 4.5 | 2, 8과제·양쪽 조건 (32회) | 0.15.0 (`8c314aa`, 고정 바이너리) | 사용량 오탐 보정 후 with 사용 12/16, without 0/16. 기대 문자열 충족 14/16→16/16이나 nav-impact의 명명 차이로 생긴 점수 차이여서 정확도 개선으로 단정하지 않음. [전체 결과](benchmarks/ADOPTION-20260921.md) |
+| 2026-09-21 | claude sonnet 5 | 2, 8과제·양쪽 조건 (32회) | 0.15.0 (`8c314aa`, 고정 바이너리) | with 사용 7/16, without 0/16. 기대 문자열 충족 14/16→15/16, with에서 비용 한도 실패 1회 포함. [전체 결과](benchmarks/ADOPTION-20260921.md) |
 
 ### 2026-09-20 adoption 셀 해석
 

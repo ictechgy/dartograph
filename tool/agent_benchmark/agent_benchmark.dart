@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'usage_detection.dart';
+
 /// 에이전트 with/without 대조 벤치 하네스다.
 ///
 /// `prepare` — tasks.json의 레포를 핀 리비전으로 클론하고 pub get과
@@ -463,7 +465,7 @@ Future<Map<String, Object?>> _runOnce({
               final command = input is Map
                   ? input['command'] as String? ?? ''
                   : '';
-              if (RegExp(r'\bdartograph\b').hasMatch(command)) {
+              if (invokesDartograph(command)) {
                 dartographCalls++;
               }
             }
@@ -512,6 +514,7 @@ Future<Map<String, Object?>> _runOnce({
     'fileReads': fileReads,
     'bashCalls': bashCalls,
     'dartographCalls': dartographCalls,
+    'usageDetection': usageDetectionVersion,
     'contaminated': contaminated,
     'usedDartograph': dartographCalls > 0,
     'expectedHits': hits.length,

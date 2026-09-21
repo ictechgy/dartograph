@@ -1,0 +1,504 @@
+{
+  "date": "2026-09-21",
+  "timezone": "Asia/Seoul",
+  "toolVersion": "0.15.0",
+  "toolSource": "8c314aaa55a32d2eed52fd0928328d2430dc4b16",
+  "dartSdk": "3.13.3",
+  "runs": 64,
+  "runsPerTaskArmModel": 2,
+  "modelConcurrency": 2,
+  "maxTurns": 24,
+  "maxBudgetUsdPerRun": 0.5,
+  "reportedCostUsdTotal": 7.24270565,
+  "usageDetection": "command-position-v1",
+  "correctedCounterRows": 34,
+  "previousFalseContaminations": 23,
+  "models": {
+    "haiku": [
+      "claude-haiku-4-5-20251001"
+    ],
+    "sonnet": [
+      "claude-sonnet-5"
+    ]
+  },
+  "byModel": {
+    "haiku": {
+      "without": {
+        "runs": 16,
+        "usedDartograph": 0,
+        "expectedStringMatches": 14,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 1.32090215,
+        "costUsdMedian": 0.0406558,
+        "durationSecondsMedian": 17.916,
+        "turnsMedian": 5.0
+      },
+      "with": {
+        "runs": 16,
+        "usedDartograph": 12,
+        "expectedStringMatches": 16,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 1.1347073,
+        "costUsdMedian": 0.04948615,
+        "durationSecondsMedian": 22.134,
+        "turnsMedian": 6.0
+      }
+    },
+    "sonnet": {
+      "without": {
+        "runs": 16,
+        "usedDartograph": 0,
+        "expectedStringMatches": 14,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 2.2148404,
+        "costUsdMedian": 0.0664532,
+        "durationSecondsMedian": 17.25,
+        "turnsMedian": 4.5
+      },
+      "with": {
+        "runs": 16,
+        "usedDartograph": 7,
+        "expectedStringMatches": 15,
+        "errors": 1,
+        "contaminated": 0,
+        "costUsdTotal": 2.5722558,
+        "costUsdMedian": 0.0904774,
+        "durationSecondsMedian": 16.136,
+        "turnsMedian": 6.0
+      }
+    }
+  },
+  "byTask": [
+    {
+      "model": "haiku",
+      "task": "nav-dead",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0504377,
+        "costUsdMedian": 0.02521885,
+        "durationSecondsMedian": 14.963,
+        "turnsMedian": 3.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0792074,
+        "costUsdMedian": 0.0396037,
+        "durationSecondsMedian": 20.359,
+        "turnsMedian": 6.0
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "nav-impact",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 0,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0875452,
+        "costUsdMedian": 0.0437726,
+        "durationSecondsMedian": 27.137,
+        "turnsMedian": 7.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0948985,
+        "costUsdMedian": 0.04744925,
+        "durationSecondsMedian": 26.657,
+        "turnsMedian": 8.5
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "nav-callers",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0690716,
+        "costUsdMedian": 0.0345358,
+        "durationSecondsMedian": 19.88,
+        "turnsMedian": 5.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0419985,
+        "costUsdMedian": 0.02099925,
+        "durationSecondsMedian": 9.771,
+        "turnsMedian": 3.5
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "ppf-export",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.067778,
+        "costUsdMedian": 0.033889,
+        "durationSecondsMedian": 15.542,
+        "turnsMedian": 5.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 1,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0531813,
+        "costUsdMedian": 0.02659065,
+        "durationSecondsMedian": 16.635,
+        "turnsMedian": 4.0
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "ppf-ffi",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0822806,
+        "costUsdMedian": 0.0411403,
+        "durationSecondsMedian": 19.101,
+        "turnsMedian": 5.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0987804,
+        "costUsdMedian": 0.0493902,
+        "durationSecondsMedian": 27.662,
+        "turnsMedian": 7.5
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "inv-dead",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.54995945,
+        "costUsdMedian": 0.27497973,
+        "durationSecondsMedian": 27.339,
+        "turnsMedian": 10.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.3245017,
+        "costUsdMedian": 0.16225085,
+        "durationSecondsMedian": 60.305,
+        "turnsMedian": 13.0
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "inv-callers",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1624744,
+        "costUsdMedian": 0.0812372,
+        "durationSecondsMedian": 8.431,
+        "turnsMedian": 3.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1674752,
+        "costUsdMedian": 0.0837376,
+        "durationSecondsMedian": 12.41,
+        "turnsMedian": 4.5
+      }
+    },
+    {
+      "model": "haiku",
+      "task": "inv-impact",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.2513552,
+        "costUsdMedian": 0.1256776,
+        "durationSecondsMedian": 24.806,
+        "turnsMedian": 9.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 1,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.2746643,
+        "costUsdMedian": 0.13733215,
+        "durationSecondsMedian": 29.57,
+        "turnsMedian": 10.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "nav-dead",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.0996552,
+        "costUsdMedian": 0.0498276,
+        "durationSecondsMedian": 10.828,
+        "turnsMedian": 3.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.248306,
+        "costUsdMedian": 0.124153,
+        "durationSecondsMedian": 23.233,
+        "turnsMedian": 7.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "nav-impact",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 0,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1109758,
+        "costUsdMedian": 0.0554879,
+        "durationSecondsMedian": 20.867,
+        "turnsMedian": 5.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.2072756,
+        "costUsdMedian": 0.1036378,
+        "durationSecondsMedian": 27.952,
+        "turnsMedian": 8.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "nav-callers",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1255554,
+        "costUsdMedian": 0.0627777,
+        "durationSecondsMedian": 17.623,
+        "turnsMedian": 4.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 2,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.132603,
+        "costUsdMedian": 0.0663015,
+        "durationSecondsMedian": 16.241,
+        "turnsMedian": 5.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "ppf-export",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1478324,
+        "costUsdMedian": 0.0739162,
+        "durationSecondsMedian": 16.236,
+        "turnsMedian": 6.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.119747,
+        "costUsdMedian": 0.0598735,
+        "durationSecondsMedian": 11.994,
+        "turnsMedian": 6.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "ppf-ffi",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.1581618,
+        "costUsdMedian": 0.0790809,
+        "durationSecondsMedian": 17.25,
+        "turnsMedian": 5.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.135682,
+        "costUsdMedian": 0.067841,
+        "durationSecondsMedian": 19.63,
+        "turnsMedian": 5.0
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "inv-dead",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.8058128,
+        "costUsdMedian": 0.4029064,
+        "durationSecondsMedian": 60.514,
+        "turnsMedian": 9.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 1,
+        "expectedStringMatches": 1,
+        "errors": 1,
+        "contaminated": 0,
+        "costUsdTotal": 0.9863258,
+        "costUsdMedian": 0.4931629,
+        "durationSecondsMedian": 93.296,
+        "turnsMedian": 14.5
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "inv-callers",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.3480522,
+        "costUsdMedian": 0.1740261,
+        "durationSecondsMedian": 10.228,
+        "turnsMedian": 3.0
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.3639976,
+        "costUsdMedian": 0.1819988,
+        "durationSecondsMedian": 6.963,
+        "turnsMedian": 3.5
+      }
+    },
+    {
+      "model": "sonnet",
+      "task": "inv-impact",
+      "without": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.4187948,
+        "costUsdMedian": 0.2093974,
+        "durationSecondsMedian": 16.671,
+        "turnsMedian": 5.5
+      },
+      "with": {
+        "runs": 2,
+        "usedDartograph": 0,
+        "expectedStringMatches": 2,
+        "errors": 0,
+        "contaminated": 0,
+        "costUsdTotal": 0.3783188,
+        "costUsdMedian": 0.1891594,
+        "durationSecondsMedian": 9.12,
+        "turnsMedian": 3.5
+      }
+    }
+  ],
+  "failures": [
+    {
+      "model": "sonnet",
+      "task": "inv-dead",
+      "arm": "with",
+      "run": 1,
+      "reportedCostUsd": 0.5227310000000001,
+      "reason": "error_max_budget_usd"
+    }
+  ],
+  "rawEvidenceManifestSha256": "a36cd9f7efe864cbde7049a90d928f7369d4ce6d3e761ea67f8a5c9d33d81711",
+  "rawHarnessRevision": "2a20c8ef43a437d19400f7f208d1d7036002c8c9"
+}

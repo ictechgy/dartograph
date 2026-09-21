@@ -44,6 +44,9 @@ void main() {
           '#!/bin/sh\n'
           'printf \'%s\\n\' "\$@" > "\$BENCHMARK_ARGS_FILE"\n'
           'printf \'%s\\n\' \'{"type":"system","model":"claude-haiku"}\'\n'
+          'printf \'%s\\n\' \'{"type":"assistant","message":{"content":'
+          '[{"type":"tool_use","name":"Bash","input":{"command":'
+          '"grep -n windowWidth /private/tmp/dartograph-benchmark.0gQO6G/lib/main.dart"}}]}}\'\n'
           'printf \'%s\\n\' \'{"type":"result","result":"fixture evidence",'
           '"is_error":false,"num_turns":1,"duration_ms":2,'
           '"total_cost_usd":0.10,"usage":{"input_tokens":1,"output_tokens":1}}\'\n'
@@ -104,6 +107,8 @@ void main() {
       final summary = File(p.join(output.path, 'summary.jsonl'));
       final firstRecord = jsonDecode(summary.readAsLinesSync().single);
       expect(firstRecord['correct'], isTrue);
+      expect(firstRecord['dartographCalls'], 0);
+      expect(firstRecord['contaminated'], isFalse);
       expect(firstRecord['resolvedModel'], 'claude-haiku');
       expect(firstRecord['maxBudgetUsd'], 0.25);
       expect(firstRecord['budgetExceeded'], isFalse);
