@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.15.1
+
+- 사용자가 선택한 Scout 새 마스코트를 한·영 README와 VS Code 확장 아이콘에 적용했다.
+- 실제 CLI 데모와 확대된 도구 사용률 실험 결과를 패키지 문서에 포함하고 실험의 채점 한계를 유지했다.
+- `coden.kr` verified publisher 설정 완료를 기록하고 그래프 교환 가이드의 추출 시각과 선택적 소스 수정 시각을 구분했다.
+- 분석 동작과 CLI 인자는 바뀌지 않았다.
+
 ## 0.15.0
 
 - `setup --target claude|cursor|codex|opencode`와 `setup --uninstall`이 기존 설정을 보존하면서 에이전트 연동을 설치·제거한다. Claude setup은 도구 발견용 저장소 라우팅 블록도 관리한다.

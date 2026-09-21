@@ -1,5 +1,7 @@
 # dartograph
 
+<img src="editors/vscode/icon.png" alt="dartograph의 새 마스코트 Scout" width="112" height="112" align="right">
+
 Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [cartograph](https://github.com/ictechgy/cartograph)(Swift)의 자매 프로젝트다.
 
 [English README](README.md)
@@ -36,7 +38,7 @@ dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 �
 dartograph는 순수 Dart CLI라 Flutter SDK를 필요로 하지 않는다. Dart SDK 3.11 이상에서 동작한다.
 
 ```bash
-dart pub global activate dartograph 0.15.0
+dart pub global activate dartograph 0.15.1
 # 또는 Dart 3.11+에서는 AOT 컴파일 설치:
 dart install dartograph
 dartograph --version

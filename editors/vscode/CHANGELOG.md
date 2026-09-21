@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Replace the node D icon with the selected Scout bird mascot.
+- Remove the superseded vector source; the extension's analysis behavior is unchanged.
+
 ## 0.1.1
 
 - Add the node D icon to the extension and Marketplace listing.
