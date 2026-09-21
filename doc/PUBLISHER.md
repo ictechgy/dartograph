@@ -1,18 +1,30 @@
 # pub.dev verified publisher 설정
 
-공식 절차 확인일: 2026-09-21.
+공식 절차·설정 완료 확인일: 2026-09-22.
 
 ## 현재 상태
 
-pub.dev 공개 API 조회에서 `dartograph` 0.15.0과
-`dartograph_analysis_plugin` 0.1.0의 `publisherId`는 모두 `null`이었다.
-publisher 생성·패키지 이전은 아직 하지 않았다. 사용할 소유 도메인과
-해당 패키지 업로더 계정의 pub.dev 로그인이 필요하다.
+2026-09-22 [coden.kr publisher](https://pub.dev/publishers/coden.kr)를 생성하고
+두 패키지의 이전을 완료했다. 공개 API 응답과 각 패키지 페이지의
+verified publisher 배지를 확인했다.
+
+| 패키지 | 인증 완료 당시 버전 | 공개 API의 `publisherId` |
+|---|---|---|
+| [dartograph](https://pub.dev/packages/dartograph) | 0.15.0 | `coden.kr` |
+| [dartograph_analysis_plugin](https://pub.dev/packages/dartograph_analysis_plugin) | 0.1.0 | `coden.kr` |
+
+Google Search Console에서 `coden.kr`의 **Domain property** 소유권을 확인했다.
+Cloudflare의 기존 CNAME 두 개는 보존하고 Google 인증 TXT 레코드 한 개만 추가했다.
+인증 상태를 유지하기 위해 해당 TXT 레코드는 삭제하지 않는다.
+사용자가 승인한 로그인 계정 이메일을 publisher의 공개 연락처로 사용했으며,
+이메일 주소와 인증 값은 이 문서에 기록하지 않는다.
 
 이 설정은 pub.dev의 계정·패키지 관리 작업이다. `pubspec.yaml`의
-homepage 변경이나 같은 버전의 재게시로 처리하지 않는다.
+homepage 변경이나 같은 버전의 재게시로 처리하지 않는다. publisher 설정 자체에서는 새 버전을 발행하지 않았다.
 
-## 설정 순서
+## 설정 절차 참고
+
+현재 두 패키지는 설정이 끝났으므로 아래 절차를 반복하지 않는다.
 
 1. 사용할 도메인을 정하고 Google Search Console에서 **Domain property**의
    소유권을 확인한다. URL-prefix property의 HTML 파일 인증으로 대신하지 않는다.

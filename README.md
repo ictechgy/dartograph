@@ -1,5 +1,7 @@
 # dartograph
 
+<img src="editors/vscode/icon.png" alt="Scout, dartograph's bird mascot" width="112" height="112" align="right">
+
 Queryable dependency graphs for Dart and Flutter codebases. Sister project of
 [cartograph](https://github.com/ictechgy/cartograph) (Swift).
 
@@ -53,7 +55,7 @@ dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
 Dart SDK 3.11 or later.
 
 ```bash
-dart pub global activate dartograph 0.15.0
+dart pub global activate dartograph 0.15.1
 # or, on Dart 3.11+, an AOT-compiled install:
 dart install dartograph
 dartograph --version

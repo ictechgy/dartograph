@@ -4,6 +4,13 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.15.1
+
+- Adopt the selected Scout bird mascot in both READMEs and the VS Code extension icon.
+- Include the recorded CLI demo and expanded tool-adoption results in the package documentation, preserving the experiment's grading limitations.
+- Document the completed `coden.kr` verified publisher setup and clarify extraction timestamps versus optional source modification times in the graph exchange guide.
+- Analysis behavior and CLI arguments are unchanged.
+
 ## 0.15.0
 
 - `setup --target claude|cursor|codex|opencode` and `setup --uninstall` configure or remove agent integrations while preserving unrelated settings. Claude setup also maintains the repository routing block for tool discovery.
