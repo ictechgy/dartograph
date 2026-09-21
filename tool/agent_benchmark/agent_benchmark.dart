@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'usage_detection.dart';
+
 /// 에이전트 with/without 대조 벤치 하네스다.
 ///
 /// `prepare` — tasks.json의 레포를 핀 리비전으로 클론하고 pub get과
@@ -42,6 +44,7 @@ agent_benchmark — with/without dartograph agent benchmark
       --repos <dir> --tasks <file> --out <dir> [--arm with|without]
       [--runs <n=4>] [--model <m>] [--max-turns <n=24>]
       [--timeout-secs <n=900>] [--only <task,task>] [--runs-offset <n>]
+      [--max-budget-usd <amount>] [--claude-bin <path>]
 
   dart run tool/agent_benchmark/agent_benchmark.dart score
       --out <dir> [--include-invalid]
@@ -61,9 +64,20 @@ class _Options {
   int get maxTurns => int.tryParse(values['max-turns'] ?? '') ?? 24;
   int get timeoutSecs => int.tryParse(values['timeout-secs'] ?? '') ?? 900;
   String get model => values['model'] ?? 'sonnet';
+  String get claudeBin => values['claude-bin'] ?? 'claude';
   String? get only => values['only'];
   String? get flutterBin => values['flutter-bin'];
   bool get includeInvalid => values.containsKey('include-invalid');
+
+  double? get maxBudgetUsd {
+    final raw = values['max-budget-usd'];
+    if (raw == null) return null;
+    final parsed = double.tryParse(raw);
+    if (parsed == null || !parsed.isFinite || parsed <= 0) {
+      _die('--max-budget-usd must be a finite positive number');
+    }
+    return parsed;
+  }
 
   Set<String>? get onlySet => only?.split(',').map((s) => s.trim()).toSet();
 }
@@ -228,11 +242,24 @@ Future<void> _runBenchmark(_Options options) async {
   final tasksPath = options.tasks ?? 'tool/agent_benchmark/tasks.json';
   final reposDir = options.repos ?? _die('--repos is required');
   final outDir = options.out ?? _die('--out is required');
+  final maxBudgetUsd = options.maxBudgetUsd;
   final specs = _loadSpecs(tasksPath);
   final repoByName = {for (final r in specs.repos) r.name: r};
   final transcripts = Directory('$outDir/transcripts')
     ..createSync(recursive: true);
   final summaryFile = File('$outDir/summary.jsonl');
+  final existingKeys = <String>{};
+  if (summaryFile.existsSync()) {
+    for (final line in summaryFile.readAsLinesSync()) {
+      if (line.trim().isEmpty) continue;
+      final decoded = jsonDecode(line);
+      if (decoded is! Map<String, Object?>) {
+        _die('${summaryFile.path} contains a non-object record');
+      }
+      final key = _recordKey(decoded);
+      if (key != null) existingKeys.add(key);
+    }
+  }
   final summarySink = summaryFile.openWrite(mode: FileMode.append);
   final only = options.onlySet;
   const validArms = {'with', 'without', 'both'};
@@ -254,7 +281,24 @@ Future<void> _runBenchmark(_Options options) async {
     ) {
       for (final arm in arms) {
         final root = _packageRoot(reposDir, repo, arm);
-        final name = '${task.id}-$arm-$i';
+        final name = '${task.id}-$arm-${_safeFilePart(options.model)}-$i';
+        final key = _recordKey(<String, Object?>{
+          'task': task.id,
+          'arm': arm,
+          'model': options.model,
+          'run': i,
+        });
+        if (key != null && existingKeys.contains(key)) {
+          stdout.writeln('== $name (already recorded; skipped)');
+          continue;
+        }
+        final transcript = File('${transcripts.path}/$name.jsonl');
+        if (transcript.existsSync()) {
+          _die(
+            '${transcript.path} already exists without a matching summary '
+            'record; choose a new --runs-offset to preserve it',
+          );
+        }
         stdout.writeln('== $name');
         Map<String, Object?> record;
         try {
@@ -263,10 +307,12 @@ Future<void> _runBenchmark(_Options options) async {
             root: root,
             arm: arm,
             model: options.model,
+            claudeBin: options.claudeBin,
+            maxBudgetUsd: maxBudgetUsd,
             maxTurns: options.maxTurns,
             run: i,
             timeout: Duration(seconds: options.timeoutSecs),
-            transcript: File('${transcripts.path}/$name.jsonl'),
+            transcript: transcript,
           );
         } on Object catch (e) {
           // 한 런의 파싱·프로세스 예외가 매트릭스 전체를 죽이지 않게 한다 —
@@ -287,6 +333,7 @@ Future<void> _runBenchmark(_Options options) async {
         }
         summarySink.writeln(jsonEncode(record));
         await summarySink.flush();
+        if (key != null) existingKeys.add(key);
       }
     }
   }
@@ -300,6 +347,8 @@ Future<Map<String, Object?>> _runOnce({
   required String root,
   required String arm,
   required String model,
+  required String claudeBin,
+  required double? maxBudgetUsd,
   required int maxTurns,
   required int run,
   required Duration timeout,
@@ -330,6 +379,9 @@ Future<Map<String, Object?>> _runOnce({
     '--strict-mcp-config',
     '--no-session-persistence',
   ];
+  if (maxBudgetUsd != null) {
+    args.addAll(['--max-budget-usd', '$maxBudgetUsd']);
+  }
   if (isWith) {
     args.addAll(['--mcp-config', '$root/.mcp.json']);
   }
@@ -347,7 +399,7 @@ Future<Map<String, Object?>> _runOnce({
     if (filtered.isNotEmpty) env['PATH'] = filtered;
   }
   final process = await Process.start(
-    'claude',
+    claudeBin,
     args,
     workingDirectory: root,
     environment: env,
@@ -367,6 +419,7 @@ Future<Map<String, Object?>> _runOnce({
   var costUsd = 0.0;
   var inputTokens = 0;
   var outputTokens = 0;
+  String? resolvedModel;
   // 이벤트 사이 유휴가 timeout을 넘으면 자식을 kill하고 스트림에 에러를 싣는다 —
   // 매달린 claude 한 대가 매트릭스 전체를 세우지 않게 한다. sink.close()는
   // 부르지 않는다 — 닫힌 컨트롤러에 늦게 도착한 소스 이벤트가 add를 던져
@@ -392,6 +445,12 @@ Future<Map<String, Object?>> _runOnce({
       }
       if (event is! Map<String, Object?>) continue;
       switch (event['type']) {
+        case 'system':
+          final eventModel = event['model'];
+          if (eventModel is String && eventModel.isNotEmpty) {
+            resolvedModel = eventModel;
+          }
+          break;
         case 'assistant':
           final message = event['message'];
           if (message is! Map) break;
@@ -406,7 +465,7 @@ Future<Map<String, Object?>> _runOnce({
               final command = input is Map
                   ? input['command'] as String? ?? ''
                   : '';
-              if (RegExp(r'\bdartograph\b').hasMatch(command)) {
+              if (invokesDartograph(command)) {
                 dartographCalls++;
               }
             }
@@ -440,26 +499,47 @@ Future<Map<String, Object?>> _runOnce({
     'task': task.id,
     'arm': arm,
     'model': model,
+    'resolvedModel': resolvedModel,
     'run': run,
     'exitCode': exitCode,
     'isError': isError,
     'numTurns': numTurns,
     'durationMs': durationMs,
     'costUsd': costUsd,
+    'maxBudgetUsd': maxBudgetUsd,
+    'budgetExceeded': maxBudgetUsd != null && costUsd > maxBudgetUsd,
     'inputTokens': inputTokens,
     'outputTokens': outputTokens,
     'toolCalls': toolCalls,
     'fileReads': fileReads,
     'bashCalls': bashCalls,
     'dartographCalls': dartographCalls,
+    'usageDetection': usageDetectionVersion,
     'contaminated': contaminated,
     'usedDartograph': dartographCalls > 0,
     'expectedHits': hits.length,
     'expectedTotal': task.expected.length,
-    'correct': hits.length == task.expected.length && !isError,
+    'correct': hits.length == task.expected.length && !isError && exitCode == 0,
     'result': resultText,
     'at': DateTime.now().toIso8601String(),
   };
+}
+
+String? _recordKey(Map<String, Object?> record) {
+  final task = record['task'];
+  final arm = record['arm'];
+  final model = record['model'];
+  final run = record['run'];
+  if (task is! String || arm is! String || model is! String || run is! num) {
+    return null;
+  }
+  return '$task\t$arm\t$model\t${run.toInt()}';
+}
+
+String _safeFilePart(String value) {
+  // URI 인코딩으로 a/b와 a_b 같은 모델 별칭을 구분하면서 파일명 호환성을 지킨다.
+  final safe = Uri.encodeComponent(value);
+  return safe.isEmpty ? 'model' : safe;
 }
 
 /// summary.jsonl을 task × arm × model 중앙값으로 집계해 마크다운 표를 낸다.

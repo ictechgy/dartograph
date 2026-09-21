@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="526" viewBox="0 0 1120 526" role="img" aria-labelledby="title desc">
+  <title id="title">dartograph evidence query demo</title>
+  <desc id="desc">A terminal summary showing dead code, impact, and parsed query evidence for the closed app fixture. The linked cast contains the full command output.</desc>
+  <rect width="1120" height="526" rx="14" fill="#282a36"/>
+  <circle cx="28" cy="26" r="7" fill="#ff5555"/><circle cx="52" cy="26" r="7" fill="#f1fa8c"/><circle cx="76" cy="26" r="7" fill="#50fa7b"/>
+  <g font-family="SFMono-Regular,Consolas,Menlo,monospace" font-size="16"><text x="32" y="60" fill="#f8f8f2">dartograph demo  /  fixtures/closed_app</text>
+<text x="32" y="82" fill="#f8f8f2"></text>
+<text x="32" y="104" fill="#8be9fd">$ dart run bin/dartograph.dart dead --closed-app --format text fixtures/closed_app</text>
+<text x="32" y="126" fill="#f8f8f2">limitation: closed-app: public API surface is not preserved; findings assume the package is a standalone</text>
+<text x="32" y="148" fill="#f8f8f2">application, not a published library</text>
+<text x="32" y="170" fill="#50fa7b">dead: 6 finding(s), 0 suppressed by baseline</text>
+<text x="32" y="192" fill="#f8f8f2"></text>
+<text x="32" y="214" fill="#8be9fd">$ dart run bin/dartograph.dart impact --symbol project:lib/public_api.dart::PublicOnly --format text</text>
+<text x="32" y="236" fill="#f8f8f2">fixtures/closed_app</text>
+<text x="32" y="258" fill="#f8f8f2">changed: 1 declaration(s), 1 library(ies), 0 source(s)</text>
+<text x="32" y="280" fill="#f8f8f2">risk: low (30/100)</text>
+<text x="32" y="302" fill="#f8f8f2">impacted: 1 symbol(s)</text>
+<text x="32" y="324" fill="#f8f8f2">  project:lib/closed_app_fixture.dart: file project:lib/closed_app_fixture.dart — depth 1, risk high (90)</text>
+<text x="32" y="346" fill="#f8f8f2">    path: project:lib/closed_app_fixture.dart -&gt; project:lib/public_api.dart</text>
+<text x="32" y="368" fill="#f8f8f2"></text>
+<text x="32" y="390" fill="#8be9fd">$ dart run bin/dartograph.dart query project:bin/main.dart::main fixtures/closed_app</text>
+<text x="32" y="412" fill="#50fa7b">status: found</text>
+<text x="32" y="434" fill="#f8f8f2">subject: project:bin/main.dart::main</text>
+<text x="32" y="456" fill="#f8f8f2">reachability: retained (reason: mainEntryPoint)</text>
+<text x="32" y="478" fill="#f8f8f2">evidence path: project:bin/main.dart::main</text>
+<text x="32" y="500" fill="#f8f8f2">member: none</text></g>
+</svg>

@@ -10,8 +10,7 @@
 AGENTS.md
 CLAUDE.md
 action.yml
-HANDOFF.md
-HANDOFF.cartograph-notes.md
+HANDOFF*.md
 README.ko.md
 CHANGELOG.ko.md
 experiments/
@@ -22,6 +21,8 @@ coverage/
 pubspec.lock
 *.g.dart.bak
 *.iml
+*.vsix
+editors/vscode/icon-drafts/
 *.key
 *.pem
 *-service-account*.json
@@ -43,5 +44,4 @@ IDENTITY.md
 SOUL.md
 TOOLS.md
 USER.md
-HANDOFF-PROGRESS.md
 doc/AGENT-WORKFLOW-AUDIT.md

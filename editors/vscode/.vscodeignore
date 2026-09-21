@@ -1,2 +1,4 @@
 test/**
 .vscodeignore
+icon-drafts/**
+icon.svg
