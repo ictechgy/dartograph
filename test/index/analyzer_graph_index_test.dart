@@ -148,6 +148,23 @@ void useOperators() {
   print('\$sum \$neg \$counter \$first \$delta \$difference \$probe \${matrix.cells} \${score.cells}');
 }
 ''');
+    await File('${fixtureDirectory.path}/lib/callable.dart').writeAsString('''
+class Validator {
+  bool call(String input) => input.isNotEmpty;
+}
+
+class Holder {
+  final Validator validator = Validator();
+}
+
+class Unused {
+  void call() {}
+}
+
+bool check(Validator validator) => validator('x');
+bool checkField(Holder holder) => holder.validator('y');
+bool Function(String) tearOff(Validator validator) => validator;
+''');
     await Directory('${fixtureDirectory.path}/bin').create();
     await File('${fixtureDirectory.path}/bin/cli.dart').writeAsString('''
 import 'package:graph_fixture/api.dart';
@@ -407,6 +424,35 @@ void main() => Service();
         'package:graph_fixture/operators.dart::Meters.~/',
       ),
       isTrue,
+    );
+  });
+
+  test('implicit call() invocations and tear-offs become usage edges', () async {
+    final result = await AnalyzerGraphIndex().index(fixtureDirectory.path);
+    bool has(String source, EdgeKind kind) => result.graph.edges.any(
+      (edge) =>
+          edge.sourceId == 'package:graph_fixture/callable.dart::$source' &&
+          edge.targetId ==
+              'package:graph_fixture/callable.dart::Validator.call' &&
+          edge.kind == kind,
+    );
+    // callable 객체 호출(`validator('x')`)은 analyzer가 FunctionExpressionInvocation
+    // 으로 해석하고 암묵 `call` 메서드를 element로 단다. 식별자 `validator`는
+    // 매개변수라 기존 수집에서 간선이 없어 `Validator.call`이 dead로 보고됐다.
+    expect(has('check', EdgeKind.call), isTrue);
+    // getter 결과를 바로 호출하는 경우(`holder.validator('y')`)도 같다.
+    expect(has('checkField', EdgeKind.call), isTrue);
+    // 함수 타입 문맥의 암묵 tear-off(`=> validator`)는 호출이 아니라 참조다.
+    expect(has('tearOff', EdgeKind.reference), isTrue);
+    // 호출되지 않은 call 메서드에는 간선이 생기지 않는다(음성 고정).
+    expect(
+      result.graph.edges.any(
+        (edge) =>
+            edge.targetId ==
+                'package:graph_fixture/callable.dart::Unused.call' &&
+            edge.kind != EdgeKind.member,
+      ),
+      isFalse,
     );
   });
 

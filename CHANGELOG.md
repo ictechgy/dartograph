@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Invoking a callable object (`validator('x')`, `holder.validator('y')`) now records a call edge to its implicit `call` method, and an implicit `call` tear-off records a reference edge. Previously such `call` methods were reported as dead and missed by `impact`. The analysis cache identity is bumped so stale results are discarded.
+
 ## 0.15.1
 
 - Adopt the selected Scout bird mascot in both READMEs and the VS Code extension icon.
