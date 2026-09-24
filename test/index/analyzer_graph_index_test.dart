@@ -163,6 +163,8 @@ class Unused {
 
 bool check(Validator validator) => validator('x');
 bool checkField(Holder holder) => holder.validator('y');
+bool? checkNullAware(Holder? holder) => holder?.validator('z');
+void checkCascade(Holder holder) => holder..validator('w');
 bool Function(String) tearOff(Validator validator) => validator;
 ''');
     await Directory('${fixtureDirectory.path}/bin').create();
@@ -442,6 +444,10 @@ void main() => Service();
     expect(has('check', EdgeKind.call), isTrue);
     // getter 결과를 바로 호출하는 경우(`holder.validator('y')`)도 같다.
     expect(has('checkField', EdgeKind.call), isTrue);
+    // null-aware(`?.`)·cascade(`..`) 호출도 analyzer가 같은 노드로 재작성한다.
+    // 이 재작성에 기대는 수정이라 analyzer 버전이 바뀌어도 누락되지 않게 고정한다.
+    expect(has('checkNullAware', EdgeKind.call), isTrue);
+    expect(has('checkCascade', EdgeKind.call), isTrue);
     // 함수 타입 문맥의 암묵 tear-off(`=> validator`)는 호출이 아니라 참조다.
     expect(has('tearOff', EdgeKind.reference), isTrue);
     // 호출되지 않은 call 메서드에는 간선이 생기지 않는다(음성 고정).

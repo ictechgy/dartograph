@@ -3379,8 +3379,10 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
 
   /// callable 객체 호출(`validator('x')`)은 analyzer가 암묵 `call` 메서드를
   /// [FunctionExpressionInvocation.element]로 단다. 호출 대상 식은 매개변수·
-  /// getter 결과라 식별자 경로로는 `call` 간선이 생기지 않는다. 함수 타입 값
-  /// 호출은 element가 null이라 간선을 만들지 않는다.
+  /// getter 결과라 식별자 경로로는 `call` 간선이 생기지 않는다. analyzer는
+  /// `h.v('x')`·`h?.v('x')`·`h..v('x')`도 이 노드로 재작성한다. 괄호로 감싼
+  /// 메서드 tear-off 호출(`(o.m)()`)도 element가 그 메서드라 호출 간선이 된다 —
+  /// 식별자 경로는 이를 참조로만 남긴다.
   @override
   void visitFunctionExpressionInvocation(FunctionExpressionInvocation node) {
     _addOperatorCall(_asMethod(node.element));
@@ -3465,7 +3467,8 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
 }
 
 /// 호출 element가 메서드일 때만 돌려준다. 암묵 `call`은 클래스·extension의
-/// 메서드이고, 그 밖의 element는 식별자 경로가 이미 수집한다.
+/// 메서드다. 함수 타입 값 호출처럼 메서드가 아닌 element는 그래프 대상이
+/// 아니거나 식별자 경로가 이미 수집하므로 거른다.
 MethodElement? _asMethod(Element? element) =>
     element is MethodElement ? element : null;
 
