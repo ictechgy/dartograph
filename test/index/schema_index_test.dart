@@ -410,6 +410,105 @@ void run(Database db, String t) {
     expect(result.facts.last['channel'], "t + 'x'");
   });
 
+  test('postgres도 import한 파일에서 sqflite query 테이블 인자를 잃지 않는다', () async {
+    await write('lib/sync.dart', r'''
+import 'package:sqflite/sqflite.dart';
+import 'package:postgres/postgres.dart';
+
+void run(Database db, Connection conn, String sql) {
+  db.query('users', columns: ['id']);
+  conn.query('SELECT * FROM accounts');
+  conn.query(sql);
+}
+''');
+
+    final result = indexSchema(root.path);
+
+    // 테이블 이름 모양의 리터럴은 sqflite, SQL 리터럴·비리터럴은 postgres SQL로 읽는다.
+    expect(summarize(result), [
+      'users@5',
+      'users#id@5',
+      'accounts@6',
+      '~sql@7',
+    ]);
+  });
+
+  test('파라미터·비리터럴 선언이 상수 이름을 가리면 상수 값으로 귀속하지 않는다', () async {
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+const table = 'users';
+const other = 'orders';
+
+void run(Database db, String table) {
+  db.query(table);
+}
+
+void pick(Database db) {
+  final other = choose();
+  db.query(other);
+}
+
+String choose() => 'x';
+''');
+
+    final result = indexSchema(root.path);
+
+    expect(summarize(result), ['~table@7', '~other@12']);
+  });
+
+  test('요약한 인자 식 안의 리터럴 조각은 다시 읽지 않는다', () async {
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db, String t) {
+  db.rawQuery('SELECT * FROM ' + t);
+  db.rawQuery('${'SELECT * FROM users'}');
+}
+''');
+
+    final result = indexSchema(root.path);
+
+    expect(summarize(result), [
+      "~'SELECT * FROM ' + t@4",
+      "~'\${'SELECT * FROM users'}'@5",
+    ]);
+    expect(
+      result.limitations,
+      contains(startsWith('dynamic-relation-names: 2 ')),
+    );
+  });
+
+  test('self-join은 같은 위치의 동일 사실을 한 번만 낸다', () async {
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) =>
+    db.rawQuery('SELECT * FROM users u JOIN users u2 ON u.id = u2.id');
+''');
+
+    final result = indexSchema(root.path);
+
+    expect(summarize(result), ['users@4']);
+  });
+
+  test('동적 channel 절단은 서로게이트 쌍을 쪼개지 않는다', () async {
+    // 요약은 `t + '` 5글자로 시작한다 — 154글자를 더하면 astral 문자의 상위
+    // 서로게이트가 160번째 code unit이 되어 단순 절단이 짝을 쪼갠다.
+    final padding = 'a' * 154;
+    await write('lib/repo.dart', '''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db, String t) => db.rawQuery(t + '$padding\u{10000}');
+''');
+
+    final result = indexSchema(root.path);
+
+    final channel = result.facts.single['channel']! as String;
+    expect(channel.length, 159);
+    expect(channel.codeUnits.last, isNot(inInclusiveRange(0xD800, 0xDBFF)));
+  });
+
   test('projectRootPath는 위치를 공유 루트 기준으로 재기준화한다', () async {
     await write('packages/app/lib/repo.dart', r'''
 import 'package:sqflite/sqflite.dart';

@@ -362,9 +362,16 @@ final _controlCharacters = RegExp(r'[\x00-\x1F\x7F-\x9F  ]');
 String _dynamicChannel(String source) {
   final folded = source.replaceAll(_whitespace, ' ').trim();
   final clean = folded.replaceAll(_controlCharacters, '');
-  final text = clean.length > 160 ? clean.substring(0, 160) : clean;
+  var end = clean.length > 160 ? 160 : clean.length;
+  // UTF-16 절단이 서로게이트 쌍을 쪼개면 짝 없는 서로게이트가 JSON에 남는다.
+  if (end < clean.length && _isHighSurrogate(clean.codeUnitAt(end - 1))) {
+    end--;
+  }
+  final text = clean.substring(0, end);
   return text.isEmpty ? '<dynamic>' : text;
 }
+
+bool _isHighSurrogate(int unit) => unit >= 0xD800 && unit <= 0xDBFF;
 
 /// 한 파일의 스캔 상태 — 사실 방출과 위치 계산을 맡는다.
 final class _SchemaFileScanner {
@@ -425,8 +432,12 @@ final class _SchemaFileScanner {
   /// SQL 텍스트의 관계들을 사실로 낸다 — 미해석 피연산자는 동적 사실 하나로 남긴다.
   void emitSql(String sql, AstNode at, {bool strict = false}) {
     final result = sqlRelations(sql, strict: strict);
-    for (final relation in result.relations) {
-      emit(relation.name, offset: at.offset, node: at);
+    // 한 SQL 텍스트의 사실은 모두 같은 위치에 찍힌다 — self-join처럼 같은 이름이
+    // 여러 번 나와도 같은 위치·채널의 동일 사실은 한 번만 낸다.
+    for (final name in {
+      for (final relation in result.relations) relation.name,
+    }) {
+      emit(name, offset: at.offset, node: at);
     }
     if (result.unresolved > 0) {
       counts.dynamicRelations += result.unresolved;
@@ -515,6 +526,34 @@ final class _StringBindings extends RecursiveAstVisitor<void> {
     return bindings;
   }
 
+  /// 리터럴이 아닌 선언(파라미터·비리터럴 초기화·루프·패턴 변수)이 같은 이름을
+  /// 가지면 어느 사용이 상수를 가리키는지 어휘 범위 없이 알 수 없다 — 귀속을 끊는다.
+  void _poison(String? name) {
+    if (name == null) return;
+    values.remove(name);
+    _poisoned.add(name);
+  }
+
+  @override
+  void visitFormalParameterList(FormalParameterList node) {
+    for (final parameter in node.parameters) {
+      _poison(parameter.name?.lexeme);
+    }
+    super.visitFormalParameterList(node);
+  }
+
+  @override
+  void visitDeclaredIdentifier(DeclaredIdentifier node) {
+    _poison(node.name.lexeme);
+    super.visitDeclaredIdentifier(node);
+  }
+
+  @override
+  void visitDeclaredVariablePattern(DeclaredVariablePattern node) {
+    _poison(node.name.lexeme);
+    super.visitDeclaredVariablePattern(node);
+  }
+
   @override
   void visitVariableDeclaration(VariableDeclaration node) {
     final initializer = node.initializer;
@@ -525,12 +564,13 @@ final class _StringBindings extends RecursiveAstVisitor<void> {
         !_poisoned.contains(name)) {
       final value = initializer.stringValue!;
       if (values[name] case final existing? when existing != value) {
-        values.remove(name);
-        _poisoned.add(name);
+        _poison(name);
       } else {
         values[name] = value;
         literals.putIfAbsent(name, () => []).add(initializer);
       }
+    } else {
+      _poison(name);
     }
     super.visitVariableDeclaration(node);
   }
@@ -560,13 +600,24 @@ final class _GatedVisitor extends RecursiveAstVisitor<void> {
         .toList();
     if (positional.isEmpty) return;
     final hasTarget = node.target != null || node.isCascaded;
-    if (_isSqlCall(name, hasTarget)) {
-      _emitSqlArgument(_unwrapPostgresSql(positional.first));
-    } else if (surfaces.sqflite &&
+    // sqflite 테이블 인자 모양이 먼저다 — postgres도 import한 파일에서 같은 이름
+    // `query`가 SQL 경로로 새어 테이블 사실이 사라지지 않게 한다.
+    if (surfaces.sqflite &&
         hasTarget &&
-        _sqfliteTableMethods.contains(name)) {
+        _sqfliteTableMethods.contains(name) &&
+        _isSqfliteTableArgument(name, positional.first)) {
       _visitSqfliteTableCall(node, name, positional);
+    } else if (_isSqlCall(name, hasTarget)) {
+      _emitSqlArgument(_unwrapPostgresSql(positional.first));
     }
+  }
+
+  /// 첫 인자가 sqflite 테이블 인자로 읽힐 수 있는지 본다. 비리터럴은 같은 이름의
+  /// postgres SQL 호출일 수도 있어, 그 파일이 postgres를 import했으면 SQL로 둔다.
+  bool _isSqfliteTableArgument(String name, Expression first) {
+    final literal = _literalValue(first);
+    if (literal != null) return _tableNameShape.hasMatch(literal);
+    return !(surfaces.postgres && _postgresSqlMethods.contains(name));
   }
 
   /// SQL 텍스트를 첫 위치 인자로 받는 호출인지 본다.
@@ -618,8 +669,14 @@ final class _GatedVisitor extends RecursiveAstVisitor<void> {
     return null;
   }
 
+  /// 요약한 인자 식 안의 모든 문자열 리터럴을 소비한다 — 원시 리터럴 패스가
+  /// `'SELECT * FROM ' + t`의 조각을 다시 읽어 같은 호출의 근거를 부풀리지 않게 한다.
+  void _consumeSubtree(AstNode node) =>
+      node.accept(_LiteralCollector(consumed));
+
   /// SQL 인자 하나 — 리터럴·바인딩 상수면 관계를 읽고, 아니면 동적 근거다.
   void _emitSqlArgument(Expression expression) {
+    _consumeSubtree(expression);
     if (expression is StringLiteral) {
       consumed.add(expression);
       final value = expression.stringValue;
@@ -641,7 +698,7 @@ final class _GatedVisitor extends RecursiveAstVisitor<void> {
 
   /// 관계명 인자 하나 — 채널을 돌려주고 비리터럴이면 동적 근거를 남기고 null이다.
   String? _emitNameArgument(Expression expression) {
-    if (expression is StringLiteral) consumed.add(expression);
+    _consumeSubtree(expression);
     final value = _literalValue(expression);
     if (value == null) {
       scanner.emitDynamic(
@@ -977,6 +1034,28 @@ String? _interpolationPrefix(StringLiteral literal) {
   return first.isEmpty ? null : first;
 }
 
+/// 부분 트리의 문자열 리터럴 노드를 모은다.
+final class _LiteralCollector extends RecursiveAstVisitor<void> {
+  _LiteralCollector(this.into);
+
+  final Set<AstNode> into;
+
+  @override
+  void visitSimpleStringLiteral(SimpleStringLiteral node) => into.add(node);
+
+  @override
+  void visitAdjacentStrings(AdjacentStrings node) {
+    into.add(node);
+    super.visitAdjacentStrings(node);
+  }
+
+  @override
+  void visitStringInterpolation(StringInterpolation node) {
+    into.add(node);
+    super.visitStringInterpolation(node);
+  }
+}
+
 /// 어느 게이트로도 소비되지 않은 리터럴 — strict 모드(대문자 SQL)로만 발화한다.
 final class _LiteralVisitor extends RecursiveAstVisitor<void> {
   _LiteralVisitor(this.scanner, this.consumed);
@@ -1004,27 +1083,29 @@ final class _LiteralVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitStringInterpolation(StringInterpolation node) {
-    _visit(node);
-    super.visitStringInterpolation(node);
+    // 보간 전체를 이미 읽었거나 동적 사실로 냈으면 안쪽 조각을 다시 읽지 않는다.
+    if (!_visit(node)) super.visitStringInterpolation(node);
   }
 
-  void _visit(StringLiteral node) {
-    if (consumed.contains(node)) return;
+  /// 리터럴을 읽고, 소비됐거나 사실을 냈으면 true를 돌려준다.
+  bool _visit(StringLiteral node) {
+    if (consumed.contains(node)) return true;
     final value = node.stringValue;
     if (value != null) {
       if (looksLikeSql(value, strict: true)) {
         scanner.emitSql(value, node, strict: true);
-      } else if (looksLikeSql(value)) {
-        scanner.counts.skippedSqlLiterals++;
+        return true;
       }
-      return;
+      if (looksLikeSql(value)) scanner.counts.skippedSqlLiterals++;
+      return false;
     }
     final prefix = _interpolationPrefix(node);
-    if (prefix == null) return;
+    if (prefix == null) return false;
     if (looksLikeSql(prefix, strict: true)) {
       scanner.emitDynamic(node, channelPrefix: prefix);
-    } else if (looksLikeSql(prefix)) {
-      scanner.counts.skippedSqlLiterals++;
+      return true;
     }
+    if (looksLikeSql(prefix)) scanner.counts.skippedSqlLiterals++;
+    return false;
   }
 }
