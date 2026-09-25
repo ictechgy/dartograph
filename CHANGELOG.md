@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Document that constructors (default, named, and factory) are modeled as their enclosing class: constructor IDs are not graph nodes, unused constructors are not reported by `dead`, and `impact` is class-granular for constructor changes. Analysis behavior is unchanged.
+
 ## 0.15.2
 
 - Invoking a callable object (`validator('x')`, `holder.validator('y')`) now records a call edge to its implicit `call` method, and an implicit `call` tear-off records a reference edge. Previously such `call` methods were reported as dead and missed by `impact`. The analysis cache identity is bumped so stale results are discarded.
