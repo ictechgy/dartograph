@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 생성자(기본·named·factory)를 소속 클래스로 모델링한다는 사실을 문서화했다. 생성자 ID는 그래프 정점이 아니고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위다. 분석 동작은 바뀌지 않았다.
+
 ## 0.15.2
 
 - callable 객체 호출(`validator('x')`·`holder.validator('y')`)이 암묵 `call` 메서드로 호출 간선을 남기고, 암묵 `call` tear-off는 참조 간선을 남긴다. 이전에는 이런 `call`이 dead로 보고되고 `impact`에서 빠졌다. 분석 캐시 identity를 올려 이전 결과를 폐기한다.

@@ -246,6 +246,12 @@ Limitations:
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
   source vendored under a project without crawling the whole pub cache.
+- Constructors (default, named, and factory) are modeled as their enclosing
+  class, not as separate nodes. A `Parser.fromJson(...)` call is a `call` edge
+  to `Parser`, and uses inside constructor bodies are attributed to the class.
+  Querying a constructor ID reports `notFound`, unused constructors are not
+  reported by `dead`, and `impact` works at class granularity for constructor
+  changes.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.

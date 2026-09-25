@@ -658,6 +658,12 @@ steps:
 - enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화처럼 개별 상수를 직접
   참조하지 않는 소비가 있으므로 enum→상수 `member` 간선만으로 미도달이라고 단정하지 않는다.
   `dead --explain`은 `retained by its reachable enum` 근거와 enum까지의 경로를 낸다.
+- 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링한다.
+  `Parser.fromJson(...)` 호출은 클래스 `Parser`로 가는 `call` 간선이 되고, 생성자
+  본문·초기화 목록의 사용도 클래스에서 나가는 간선으로 기록된다. 그래서 생성자 ID로
+  질의하면 `notFound`(`dead --explain`은 `known: false`)이고, 쓰이지 않는 생성자는 dead
+  finding이 되지 않으며, 생성자 하나를 고쳐도 `impact`는 클래스 단위로 영향을 계산한다.
+  생성자 단위의 미사용 여부는 이 그래프로 판단하지 않는다.
 - `main` 진입점은 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/`의 모든 `main`을 보수적으로 보존하므로 분석 전에 실제 build target을 확인한다. 실제 build target을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일의 `main`만 보존 루트로 좁힌다. 설정하지 않거나 키가 없으면 기본 보수 정책을 유지한다(템플릿은 `dartograph init`으로 생성할 수 있다).
 
 `<package-root>`는 하나의 패키지다. pub 워크스페이스(루트 pubspec의 `workspace:`
