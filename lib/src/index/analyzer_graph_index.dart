@@ -1822,8 +1822,10 @@ const _cacheSchemaVersion = 7;
 // 이전 캐시는 이 limitation 없이 재사용되므로 identity를 올려 폐기한다.
 // --workspace 멤버 집계(v14)로 같은 입력의 분석 대상·보존 루트가 바뀐다 — 플래그
 // 값도 키에 섞어 두 모드의 캐시 항목이 서로를 대신하지 않게 한다.
+// callable 객체의 암묵 `call` 호출·tear-off 간선(v15)으로 같은 소스의 간선이
+// 늘어난다 — 이전 캐시는 `call`을 dead로 남기므로 identity를 올려 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v14-workspace-aggregation';
+    'dartograph-analysis-$toolVersion-cache-v15-implicit-call';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -3375,6 +3377,30 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     super.visitPostfixExpression(node);
   }
 
+  /// callable 객체 호출(`validator('x')`)은 analyzer가 암묵 `call` 메서드를
+  /// [FunctionExpressionInvocation.element]로 단다. 호출 대상 식은 매개변수·
+  /// getter 결과라 식별자 경로로는 `call` 간선이 생기지 않는다. analyzer는
+  /// `h.v('x')`·`h?.v('x')`·`h..v('x')`도 이 노드로 재작성한다. 괄호로 감싼
+  /// 메서드 tear-off 호출(`(o.m)()`)도 element가 그 메서드라 호출 간선이 된다 —
+  /// 식별자 경로는 이를 참조로만 남긴다.
+  @override
+  void visitFunctionExpressionInvocation(FunctionExpressionInvocation node) {
+    _addOperatorCall(_asMethod(node.element));
+    super.visitFunctionExpressionInvocation(node);
+  }
+
+  /// 함수 타입 문맥의 암묵 tear-off(`Function f = validator;`)도 `call`을
+  /// 가리키지만 호출은 아니므로 참조 간선으로 남긴다.
+  @override
+  void visitImplicitCallReference(ImplicitCallReference node) {
+    final owner = _owner;
+    final target = _graphTarget(node.element);
+    if (owner != null && target != null && _isGraphElement(target)) {
+      _add(owner, _idOf(target), EdgeKind.reference);
+    }
+    super.visitImplicitCallReference(node);
+  }
+
   /// 복합 대입·증감(`m[i] += v`·`m[i]++`·`++m[i]`)의 인덱스 읽기·쓰기는
   /// `[]`·`[]=` 연산자를 거치는데 writeElement만 보면 읽기가 누락된다.
   /// 속성(getter·setter) 읽기·쓰기는 식별자 경로가 이미 잡으므로
@@ -3439,6 +3465,12 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     }
   }
 }
+
+/// 호출 element가 메서드일 때만 돌려준다. 암묵 `call`은 클래스·extension의
+/// 메서드다. 함수 타입 값 호출처럼 메서드가 아닌 element는 그래프 대상이
+/// 아니거나 식별자 경로가 이미 수집하므로 거른다.
+MethodElement? _asMethod(Element? element) =>
+    element is MethodElement ? element : null;
 
 Element? _graphTarget(Element? element) {
   final base = element?.baseElement;

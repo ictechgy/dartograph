@@ -1,3 +1,4 @@
+import 'callables.dart';
 import 'enums.dart';
 import 'model.dart';
 import 'operators.dart';
@@ -21,6 +22,12 @@ void main() {
   final writeOnly = WriteOnly();
   writeOnly[0] = 7;
   print('$walked ${writeOnly.cells}');
+  // callable 객체를 이름 없이 호출(`validator('x')`)하거나 함수 타입으로
+  // tear-off하면 암묵 `call`만 쓰인다. 식별자 간선이 없어 dead로 잘못
+  // 보고됐었다(오탐 회귀).
+  final validator = Validator();
+  final String Function(String) format = Formatter();
+  print('${validator('x')} ${format(' y ')} ${IdleCallable().hashCode}');
 }
 
 String routeFactory(String route) => route == '/settings' ? 'settings' : 'home';
