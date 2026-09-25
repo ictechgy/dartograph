@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.15.2
+
 - callable 객체 호출(`validator('x')`·`holder.validator('y')`)이 암묵 `call` 메서드로 호출 간선을 남기고, 암묵 `call` tear-off는 참조 간선을 남긴다. 이전에는 이런 `call`이 dead로 보고되고 `impact`에서 빠졌다. 분석 캐시 identity를 올려 이전 결과를 폐기한다.
 
 ## 0.15.1
