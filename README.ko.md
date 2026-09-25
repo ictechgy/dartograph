@@ -38,7 +38,7 @@ dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 �
 dartograph는 순수 Dart CLI라 Flutter SDK를 필요로 하지 않는다. Dart SDK 3.11 이상에서 동작한다.
 
 ```bash
-dart pub global activate dartograph 0.15.1
+dart pub global activate dartograph 0.15.2
 # 또는 Dart 3.11+에서는 AOT 컴파일 설치:
 dart install dartograph
 dartograph --version

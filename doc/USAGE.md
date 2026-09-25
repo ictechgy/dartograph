@@ -2,10 +2,10 @@
 
 ## 설치
 
-dartograph 0.15.1은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.15.2은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
-dart pub global activate dartograph 0.15.1
+dart pub global activate dartograph 0.15.2
 dartograph --version
 ```
 
@@ -592,7 +592,7 @@ plugins:
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.15.1
+- run: dart pub global activate dartograph 0.15.2
 - run: dartograph dead --format github-actions --since origin/main .
 - run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```
@@ -618,7 +618,7 @@ steps:
       fetch-depth: 0  # --since의 merge-base 계산에 필요
   - uses: dart-lang/setup-dart@v1
   - run: dart pub get
-  - run: dart pub global activate dartograph 0.15.1
+  - run: dart pub global activate dartograph 0.15.2
   # dead는 finding이 있으면 코드 1이다 — continue-on-error로 업로드 단계까지
   # 도달하게 하고, 경고로 실패시키려면 이 줄을 빼면 된다(아래 참조).
   - id: dead
