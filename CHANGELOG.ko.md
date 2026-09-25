@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 새 `schema --format json [--project <shared-root>] <package-root>` 명령이 isthmus persistence `relation-use` 사실(bridge-facts v1, `target: "persistence"`)을 낸다. sqflite·sqlite3·postgres·drift(테이블·custom 쿼리·`.drift` 파일)·floor와 대문자 SQL 문자열 리터럴을 읽어 isthmus가 Dart 코드와 schemagraph SQL 카탈로그를 조인하게 한다. SQL 판독기는 kartograph·cartograph 공용 추출기의 포트다. 비리터럴 SQL은 동적 사실로, 비관계 저장소·지원 밖 SQL 패키지는 한계로 남긴다. 기존 명령은 바뀌지 않았다.
 - 생성자(기본·named·factory)를 소속 클래스로 모델링한다는 사실을 문서화했다. 생성자 ID는 그래프 정점이 아니고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위다. 분석 동작은 바뀌지 않았다.
 
 ## 0.15.2
