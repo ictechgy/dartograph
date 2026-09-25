@@ -2,7 +2,7 @@
 
 ## 설치
 
-dartograph 0.15.2은 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.15.2는 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
 dart pub global activate dartograph 0.15.2
