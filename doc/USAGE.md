@@ -55,6 +55,7 @@ dartograph mcp
 dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
+dartograph schema --format json [--project <shared-root>] <package-root>
 dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
@@ -316,6 +317,50 @@ workspace 루트)를 프로젝트로 자동 사용한다. 감지에 실패하면
 provenance를 깨므로 금지(GRAPH-EXCHANGE). 우선순위는 `--project` > workspace 감지 >
 스캔 루트다.
 
+`schema`는 isthmus persistence 도메인(코드↔DB 스키마)의 호출 측 문서를 낸다 —
+bridge-facts v1, `target: "persistence"`, `kind: relation-use`(생산자 계약은
+[GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md#persistence-문서-schema)). 선언 측은
+schemagraph `facts`가 내고 isthmus `check`가 두 문서를 관계·컬럼 이름으로 조인한다.
+`--project`와 pub workspace 감지는 `bridges`와 같고 transport 플래그는 받지 않는다
+(usage 64). 읽는 표면:
+
+- sqflite(`package:sqflite`·`sqflite_common`·`sqflite_common_ffi` 등):
+  `rawQuery`·`rawInsert`·`rawUpdate`·`rawDelete`·`rawQueryCursor`의 SQL(파일 import
+  또는 pubspec 의존성), receiver가 있는 `execute` SQL과 `query`·`queryCursor`·`insert`·
+  `update`·`delete`의 테이블 인자(파일 import 필요, 리터럴은 테이블 이름 모양이어야 함),
+  `columns: [...]` 리터럴과 `insert`/`update` 맵 리터럴 키의 컬럼.
+- sqlite3 `execute`·`select`·`prepare`·`prepareMultiple`, postgres `execute`·`query`·
+  `mappedResultsQuery`·`prepare`(`Sql.named('…')`·`Sql('…')` 포함)의 SQL.
+- drift: `extends Table` 클래스(`tableName` 재정의, 없으면 클래스 이름의 snake_case),
+  컬럼 getter·빌더 필드(`.named('x')`, 없으면 snake_case), `customSelect`·
+  `customStatement`·`customUpdate`·`customInsert`·`customWriteReturning`의 SQL,
+  `.drift` 파일의 SQL. 파생은 글자만 쓰고 대문자 뒤에 소문자가 오는 이름에만 한다 —
+  연속 대문자·숫자가 섞인 이름이나 `build.yaml`의 `case_from_dart_to_sql`이
+  snake_case가 아니면 추측하지 않고 동적 테이블 사실과
+  `drift-name-derivation-unverified` 한계로 남긴다.
+- floor: `@Entity(tableName:)`(없으면 클래스 이름 — floor 문서는 `tableName`이
+  "클래스 이름 대신" 쓰는 이름이라고만 적으므로 그 서술에 근거한 해석이다), 인스턴스
+  필드 컬럼(`@ColumnInfo(name:)`, `@ignore` 제외), `@Query`의 SQL,
+  `@DatabaseView`의 SQL과 `viewName`(없으면 클래스 이름).
+- 어느 게이트로도 읽지 않은 문자열 리터럴은 동사와 관계 키워드가 대문자인 SQL만
+  읽는다. SQL 동사가 있지만 대문자가 아닌 리터럴은 `skipped-sql-literals`로 센다.
+
+수신자 타입은 해석하지 않는다(구문 스캔). import 게이트 안에서 sqflite와 같은 모양의
+다른 API 호출(예: `Map.update('users', fn)`)은 관계로 읽힐 수 있다. 비리터럴 SQL·테이블
+인자·미해석 SQL 피연산자는 원문 요약을 channel로 한 `dynamic: true` 사실로 남기고
+`dynamic-relation-names`로 센다 — isthmus는 동적 사실을 직접 세어 "선언됐지만 안 쓰는
+관계" 판정을 `-unverified`로 낮춘다. Isar·Hive·ObjectBox·Realm·sembast·Firestore
+import는 `non-relational-stores`, mysql1·mysql_client·sqlite_async·PowerSync·Supabase
+import는 `unsupported-db-packages` 한계로만 남긴다. 사실은 UTF-8 byte 열 위치를 싣고,
+감싸는 선언이 있으면 `symbol.qualifiedName`을 싣는다(`.drift` 파일 사실은 없음 —
+`missing-relation-symbols`로 센다).
+
+```sh
+dartograph schema --format json . > dart-schema.json
+schemagraph facts --document catalog.json --project "$(pwd -P)" > sql-facts.json
+isthmus check dart-schema.json sql-facts.json --strict
+```
+
 `// dartograph:ignore` 줄 주석은 그 아래 선언의 dead 보고를 억제한다. 마커가 주석 본문
 **시작**에 와야 지시문이다: 산문이 마커를 언급해도 오해석되지 않고, doc comment(`///`)와
 블록 주석은 지시문이 아니며, `// dartograph:ignore — reflection 진입점`처럼 이유를 뒤에
@@ -500,7 +545,7 @@ rules:
 종료 코드 0이다(이 명령들은 기본적으로 보고만 하므로 explain은 finding 게이트가 아니다).
 
 모든 JSON 목록과 키는 결정적 순서로 출력된다. 같은 입력은 byte-for-byte 같은 결과를
-내야 한다. 선언된 예외는 둘이다: `bridges`의 `generatedAt`은 실행 시각이고,
+내야 한다. 선언된 예외는 둘이다: `bridges`·`schema`의 `generatedAt`은 실행 시각이고,
 `generated-code-staleness` limitation은 mtime 관측이다 — git은 mtime을 보존하지
 않으므로 fresh clone 사이에서는 이 문자열의 presence가 달라질 수 있다(내용이 아니라
 환경의 관측이며, findings·간선·노드는 영향받지 않는다).

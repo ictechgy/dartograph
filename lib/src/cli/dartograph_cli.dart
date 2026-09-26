@@ -34,6 +34,7 @@ import '../export/ledger_reporter.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
+import '../index/schema_index.dart';
 import '../index/dependency_tools.dart';
 import '../index/incremental_cache.dart';
 import '../runtime/runtime_executor.dart';
@@ -265,6 +266,14 @@ Future<int> _dispatchCommand(
         stdoutSink,
         stderrSink,
         now ?? DateTime.now,
+      );
+    case 'schema':
+      return await _runBridges(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        now ?? DateTime.now,
+        schema: true,
       );
     case 'cycles':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
@@ -2148,12 +2157,18 @@ const _invalidBridgesProjectMessage =
     'Invalid --project: it must be an existing directory containing the '
     'package root.';
 
+/// `bridges`와 `schema` 명령을 실행한다.
+///
+/// 두 명령은 같은 교환 문서 계약(형식·`--project` 조인 루트·pub workspace
+/// 감지)을 공유하고 추출 표면만 다르다. [schema]이면 persistence 도메인의
+/// `relation-use` 문서를 만들며 transport 플래그는 받지 않는다.
 Future<int> _runBridges(
   List<String> arguments,
   StringSink output,
   StringSink error,
-  DateTime Function() now,
-) async {
+  DateTime Function() now, {
+  bool schema = false,
+}) async {
   // `--project <shared-root>`는 위치 인자 사이에 어디든 올 수 있다(query의
   // `--depth`와 같은 규칙). 중복·값 빠짐·옵션 모양 값은 usage(64)다.
   String? projectOption;
@@ -2212,6 +2227,11 @@ Future<int> _runBridges(
     error.write(_help);
     return ExitStatus.usage.code;
   }
+  // persistence 문서는 버전 1 하나뿐이다 — transport 플래그는 bridges 전용이다.
+  if (schema && (messagesOption || eventsOption)) {
+    error.write(_help);
+    return ExitStatus.usage.code;
+  }
   try {
     final root = Directory(
       positional[rootIndex],
@@ -2243,6 +2263,22 @@ Future<int> _runBridges(
         projectLimitations.add(detected.limitation!);
       }
     }
+    if (schema) {
+      final indexed = indexSchema(
+        root,
+        projectRootPath: project == root ? null : project,
+      );
+      output.write(
+        exportBridgeFacts(
+          project: project,
+          generatedAt: now(),
+          facts: indexed.facts,
+          limitations: [...indexed.limitations, ...projectLimitations],
+          target: 'persistence',
+        ),
+      );
+      return ExitStatus.success.code;
+    }
     final indexed = indexBridges(
       root,
       projectRootPath: project == root ? null : project,
@@ -2266,7 +2302,8 @@ Future<int> _runBridges(
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
     error.writeln(
-      'Bridges extraction failed: a fact value or source path contains control characters.',
+      '${schema ? 'Schema' : 'Bridges'} extraction failed: a fact value or '
+      'source path contains control characters.',
     );
     return ExitStatus.failure.code;
   } on ArgumentError {
@@ -3687,6 +3724,7 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --format json [--project <shared-root>] <package-root>
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
+       dartograph schema --format json [--project <shared-root>] <package-root>
        dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
@@ -3799,6 +3837,14 @@ it does not prove the call executes, a listener is attached, a subscription
 is active, or an event is received. The two flags are separate documents
 and do not combine. The default bridges command keeps the version 1
 MethodChannel output.
+
+schema emits persistence relation-use facts (bridge-facts version 1, target
+persistence) for the isthmus code-to-schema join: sqflite SQL and table
+arguments, sqlite3/postgres SQL arguments, drift Table classes, custom queries
+and .drift files, floor @Entity/@DatabaseView/@Query, and uppercase SQL string
+literals. Non-literal SQL is kept as dynamic facts; non-SQL stores and
+unsupported SQL packages are reported as limitations, not facts. It accepts
+--project like bridges.
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become

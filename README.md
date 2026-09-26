@@ -113,6 +113,7 @@ dartograph metrics .
 dartograph bridges --format json .
 dartograph bridges --messages --format json .
 dartograph bridges --events --format json .
+dartograph schema --format json .
 dartograph skill
 dartograph setup --install .
 dartograph mcp
@@ -149,6 +150,17 @@ Full arguments, output formats, exit codes, and CI examples live in
   millisecond timestamps. Dynamic channel names remain facts; unattributed or
   malformed invocations, partial parses, and EventChannel/BasicMessageChannel
   are counted as limitations rather than read as facts in the default command.
+- `schema` emits persistence `relation-use` facts (bridge-facts v1,
+  `target: "persistence"`) so isthmus can join Dart code to a SQL catalog
+  exported by [schemagraph](https://github.com/ictechgy/schemagraph):
+  sqflite SQL/table/column arguments, sqlite3 and postgres SQL arguments,
+  drift `Table` classes, custom queries and `.drift` files, floor
+  `@Entity`/`@DatabaseView`/`@Query`, and uppercase SQL string literals.
+  Receiver types are not resolved: common method names such as `query` count
+  only in files that import the package. Non-literal SQL stays a dynamic fact;
+  Isar/Hive-style stores and unsupported SQL packages are reported as
+  limitations, not facts. The SQL reader is a port of the kartograph/cartograph
+  extractor so every producer reads the same SQL the same way.
 - `bridges --messages` and `bridges --events` are opt-in development-source
   producers for BasicMessageChannel `send` calls and EventChannel
   `receiveBroadcastStream` calls. They emit bridge-facts v2 with

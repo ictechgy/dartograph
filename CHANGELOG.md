@@ -4,6 +4,7 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- New `schema --format json [--project <shared-root>] <package-root>` command emits isthmus persistence `relation-use` facts (bridge-facts v1, `target: "persistence"`) for sqflite, sqlite3, postgres, drift (tables, custom queries, `.drift` files) and floor, plus uppercase SQL string literals, so isthmus can join Dart code with a schemagraph SQL catalog. The SQL reader is a port of the shared kartograph/cartograph extractor. Non-literal SQL is kept as dynamic facts; non-SQL stores and unsupported SQL packages are reported as limitations. Existing commands are unchanged.
 - Document that constructors (default, named, and factory) are modeled as their enclosing class: constructor IDs are not graph nodes, unused constructors are not reported by `dead`, and `impact` is class-granular for constructor changes. Analysis behavior is unchanged.
 
 ## 0.15.2

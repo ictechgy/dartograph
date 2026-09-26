@@ -75,7 +75,9 @@ If invocation details are unclear, inspect `dartograph --help`.
   `dartograph history --ledger <dir> [--commit <sha>]` reads it back.
   `--env`/`--dart-define` values are never recorded.
 - Cross-language facts: use `dartograph bridges --format json <package-root>`
-  and the project's existing isthmus workflow when the task crosses native code.
+  and the project's existing isthmus workflow when the task crosses native code;
+  use `dartograph schema --format json <package-root>` when it crosses into a
+  SQL schema (isthmus persistence join with schemagraph facts).
 
 Read status, `limitations`, location and reachability together. `notFound`
 means absence from the graph, not verified dead code; `ambiguous` requires

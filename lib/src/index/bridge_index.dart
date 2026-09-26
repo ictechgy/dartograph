@@ -1524,3 +1524,12 @@ void _rejectControlCharacters(String value) {
 }
 
 typedef _BridgeName = ({String value, bool dynamic, String? channelPrefix});
+
+/// persistence(`schema`) 사실도 bridge 사실과 같은 귀속 규칙을 쓰도록 공개한
+/// 진입점이다 — 두 생산 표면의 `symbol.qualifiedName` 의미가 갈라지지 않게 한다.
+Map<String, Object?>? enclosingFactSymbol(AstNode node) =>
+    _enclosingSymbol(node);
+
+/// 교환 문서 값의 제어 문자·빈 값 거부 규칙을 schema 추출과 공유한다.
+void rejectFactControlCharacters(String value) =>
+    _rejectControlCharacters(value);

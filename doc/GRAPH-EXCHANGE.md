@@ -178,6 +178,37 @@ class CameraBridge {
 - `symbol`이 없는 fact는 `missing-caller-symbols`로 집계된다 — 사실을 버리지
   않는다.
 
+## persistence 문서 (`schema`)
+
+`dartograph schema --format json`은 같은 봉투의 버전 1 문서를 isthmus persistence
+도메인(코드가 SQL 스키마 객체를 이름으로 참조하는 경계)용으로 낸다. 조인·진단 규칙의
+정본은 isthmus GRAPH-EXCHANGE의 `target: "persistence"` 절이다.
+
+- `platform`은 `"dart"`, 사실이 있으면 `target`은 `"persistence"`, 없으면 `null`이다.
+  `transport`는 없다. 이 문서는 bridge 도메인의 호출 측 요건을 채우지 않는다.
+- 모든 fact의 `kind`는 `relation-use`다. `channel`은 코드에 쓰인 관계 이름(한정·비한정
+  그대로, 인용 부호 제거)이고, `method`가 있으면 그 관계의 컬럼 이름이다. 컬럼 사실은
+  관계 사실을 함축하지 않으므로 관계 사실을 따로 낸다.
+- 이름 escape: SQL 텍스트와 API 인자의 `.`는 한정자다. 인용 식별자 안의 `.`와 drift
+  `tableName`·floor `tableName`처럼 한 식별자로 주어진 이름의 `.`는 `%2E`, `%`는
+  `%25`로 escape한다.
+- `dynamic: true`의 `channel`은 비리터럴 표현식이나 미해석 SQL의 원문 요약(공백 접음,
+  최대 160자)이다. 보간 문자열의 선행 literal이 있으면 `channelPrefix`로 싣는다.
+- `symbol.qualifiedName`은 bridges와 같은 어휘적 귀속이다. drift 테이블·컬럼과 floor
+  엔티티·컬럼 선언 사실은 클래스(`Person`)·멤버(`Person.name`) 이름을 싣는다.
+- `location`은 필수이며 bridges와 같은 1-based UTF-8 byte 열이다.
+
+| limitation 접두사 | 뜻 |
+|---|---|
+| `dynamic-relation-names:` | 정적으로 읽지 못해 동적 사실로 낸 SQL 인자·관계 피연산자 수 |
+| `skipped-sql-literals:` | SQL 동사가 있지만 대문자 형태가 아니라 읽지 않은 게이트 없는 리터럴 수 |
+| `drift-name-derivation-unverified:` | 파생하지 않은 drift 테이블·컬럼 이름 수와 이유 |
+| `non-relational-stores:` | 비SQL 저장소 패키지를 import한 파일 수와 패키지별 분포 |
+| `unsupported-db-packages:` | 지원 표면 밖 SQL 패키지를 import한 파일 수와 분포 |
+| `missing-relation-symbols:` | 감싸는 선언 이름이 없는 사실 수(`.drift` 파일 포함) |
+| `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
+| `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
+
 ## 소비자 지침
 
 - `project`·`channel`·`method`는 문자열 정확 일치로만 비교한다 — 정규화·대소문자
