@@ -56,6 +56,8 @@ dartograph bridges --format json [--project <shared-root>] <package-root>
 dartograph bridges --messages --format json [--project <shared-root>] <package-root>
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
 dartograph schema --format json [--project <shared-root>] <package-root>
+dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
+dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
 dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
@@ -359,6 +361,37 @@ import는 `unsupported-db-packages` 한계로만 남긴다. 사실은 UTF-8 byte
 dartograph schema --format json . > dart-schema.json
 schemagraph facts --document catalog.json --project "$(pwd -P)" > sql-facts.json
 isthmus check dart-schema.json sql-facts.json --strict
+```
+
+`routes --role client`는 isthmus http 도메인의 호출 측 문서를 낸다 — bridge-facts v1,
+`target: "http"`, `roles: ["client"]`, `kind: route-call`. package:http(최상위 함수·
+`Client` 메서드·`Request` 객체), dio(동사 메서드·`*Uri` 변형·`request`의
+`Options.method`), retrofit.dart(`@RestApi`·`@GET` 등), chopper(`@ChopperApi`·`@Get` 등)와
+`--wrappers`로 선언한 dart 래퍼 호출을 (method, 정규 경로 템플릿, `pathAnchor`)로 읽는다.
+라이브러리마다 base 결합이 다르다 — dio는 단순 문자열 연결, retrofit.dart는 어노테이션
+base를 dio base에 RFC 3986으로 해석한 뒤 dio 연결, chopper는 생성기 문자열 결합 뒤
+클라이언트 base와 슬래시 결합이다. `symbol.usr`는 같은 `<package-root>`의 `impact` 정점 ID와
+같다. 증명하지 못한 경로·동사·신원은 dynamic 사실(`channel: null`, 증명한 접두사는
+`channelPrefix`)이나 호출 측 limitation으로 남긴다. 테스트 소스(`test/`·
+`integration_test/`)는 `--include-tests`일 때만 `testSource: true`로 낸다. `--project`와
+pub workspace 감지는 `bridges`와 같다. 사용 오류(role 누락·`server`·잘못된 형식·읽을 수
+없거나 계약에 맞지 않는 래퍼 파일·`--service`와 래퍼 service 충돌)는 64, 분석 실패는 2다.
+규칙·확인한 소스·오라클 결과는 [HTTP-ROUTES.md](HTTP-ROUTES.md)에 있다.
+
+`impact --format language-traversal`은 isthmus `trace`가 읽는 `language-traversal` v1
+순회 문서를 낸다. 위치 인자와 `--roots-from <file|->`(JSON 문자열 배열이나 bridge-facts
+문서의 `symbol.usr`)를 root로 한 번에 순회하고, 도달 정점마다 닿는 root 목록·최단 경로
+목격(`via`·`depth`)·근거 등급(`direct`, 재정의 디스패치는 `candidate`)을 싣는다.
+`unresolvedCalls`·`dispatch`는 싣지 않는다. `revision`은 `--revision`이나 깨끗한 작업
+트리의 git HEAD, `graphRevision`은 그래프 내용 해시다. 정확한 그래프 ID가 아닌 root는
+`root-not-found`로 문서에 남기고 64로 끝난다. 제어 문자가 든 root·revision과 이 형식이
+받지 않는 `impact` 옵션(`--since` 등)은 64다.
+
+```sh
+dartograph routes --role client --wrappers http-wrappers.json . > dart.http.json
+dartograph impact --format language-traversal --roots-from dart.http.json . > dart-reverse.json
+isthmus check dart.http.json server.http.json
+isthmus trace trace-context.json   # analyses: {platform: dart, role: reverse, path: dart-reverse.json}
 ```
 
 `// dartograph:ignore` 줄 주석은 그 아래 선언의 dead 보고를 억제한다. 마커가 주석 본문
