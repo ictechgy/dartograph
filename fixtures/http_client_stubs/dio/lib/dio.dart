@@ -44,11 +44,7 @@ abstract class Dio {
   Future<Response<T>> patch<T>(String path, {Object? data, Options? options});
   Future<Response<T>> delete<T>(String path, {Object? data, Options? options});
   Future<Response<T>> head<T>(String path, {Object? data, Options? options});
-  Future<Response<T>> request<T>(
-    String path, {
-    Object? data,
-    Options? options,
-  });
+  Future<Response<T>> request<T>(String path, {Object? data, Options? options});
   Future<Response<T>> fetch<T>(RequestOptions requestOptions);
 }
 
@@ -76,8 +72,11 @@ class DioForNative with DioMixin implements Dio {
   Future<Response<T>> patch<T>(String path, {Object? data, Options? options}) =>
       throw UnimplementedError();
   @override
-  Future<Response<T>> delete<T>(String path, {Object? data, Options? options}) =>
-      throw UnimplementedError();
+  Future<Response<T>> delete<T>(
+    String path, {
+    Object? data,
+    Options? options,
+  }) => throw UnimplementedError();
   @override
   Future<Response<T>> head<T>(String path, {Object? data, Options? options}) =>
       throw UnimplementedError();

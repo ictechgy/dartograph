@@ -28,7 +28,11 @@ abstract interface class Client {
   Future<Response> post(Uri url, {Map<String, String>? headers, Object? body});
   Future<Response> put(Uri url, {Map<String, String>? headers, Object? body});
   Future<Response> patch(Uri url, {Map<String, String>? headers, Object? body});
-  Future<Response> delete(Uri url, {Map<String, String>? headers, Object? body});
+  Future<Response> delete(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  });
   Future<String> read(Uri url, {Map<String, String>? headers});
   Future<StreamedResponse> send(BaseRequest request);
   void close();
@@ -42,17 +46,26 @@ abstract mixin class BaseClient implements Client {
   Future<Response> get(Uri url, {Map<String, String>? headers}) =>
       throw UnimplementedError();
   @override
-  Future<Response> post(Uri url, {Map<String, String>? headers, Object? body}) =>
-      throw UnimplementedError();
+  Future<Response> post(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError();
   @override
   Future<Response> put(Uri url, {Map<String, String>? headers, Object? body}) =>
       throw UnimplementedError();
   @override
-  Future<Response> patch(Uri url, {Map<String, String>? headers, Object? body}) =>
-      throw UnimplementedError();
+  Future<Response> patch(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError();
   @override
-  Future<Response> delete(Uri url, {Map<String, String>? headers, Object? body}) =>
-      throw UnimplementedError();
+  Future<Response> delete(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError();
   @override
   Future<String> read(Uri url, {Map<String, String>? headers}) =>
       throw UnimplementedError();
@@ -76,7 +89,10 @@ Future<Response> put(Uri url, {Map<String, String>? headers, Object? body}) =>
     throw UnimplementedError();
 Future<Response> patch(Uri url, {Map<String, String>? headers, Object? body}) =>
     throw UnimplementedError();
-Future<Response> delete(Uri url, {Map<String, String>? headers, Object? body}) =>
-    throw UnimplementedError();
+Future<Response> delete(
+  Uri url, {
+  Map<String, String>? headers,
+  Object? body,
+}) => throw UnimplementedError();
 Future<String> read(Uri url, {Map<String, String>? headers}) =>
     throw UnimplementedError();
