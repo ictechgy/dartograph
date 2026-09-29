@@ -1801,6 +1801,46 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
   }
 }
 
+/// [rootPath] 그래프가 색인하는 Dart 파일 중 [paths]만 해석한 유닛이다(경로 →
+/// 유닛).
+///
+/// 구문 스캔으로 사실을 찾는 생산자(`schema`)가 사실이 난 파일만 해석해
+/// [enclosingGraphDeclarationId]를 쓰게 한다 — 프로젝트 전체를 해석하는
+/// [resolveProjectUnits]보다 싸다. 파일 집합·컨텍스트 선택은 그와 같아서, 그래프
+/// 밖 파일(표준 소스 디렉터리 밖·중첩 패키지)은 결과에 없고 신원을 얻지 못한다.
+Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
+  String rootPath,
+  Set<String> paths,
+) async {
+  if (paths.isEmpty) return const {};
+  final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+  final wanted = {for (final path in paths) p.normalize(path)};
+  final collection = AnalysisContextCollection(
+    includedPaths: [root],
+    sdkPath: _dartSdkPath(),
+  );
+  try {
+    final units = <String, ResolvedUnitResult>{};
+    final files = _dartFilesUnder(
+      root,
+      collection,
+      _readSourcePackages(root),
+      const [],
+      const [],
+    ).where((path) => wanted.contains(p.normalize(path)));
+    for (final path in files) {
+      final result = await _contextIncluding(
+        collection,
+        path,
+      ).currentSession.getResolvedUnit(path);
+      if (result is ResolvedUnitResult) units[p.normalize(path)] = result;
+    }
+    return units;
+  } finally {
+    await collection.dispose();
+  }
+}
+
 // 노드 직렬화에 isEnumConstant를 추가해 스키마를 v2로 올렸다. 옛 캐시는 decode에서
 // schemaVersion 불일치로 거부되어 재분석됐으므로 그때는 identity를 올리지 않았다.
 // 노드 직렬화에 isLibrary를 추가할 때도 같다(v3). isSealed와 deps 감사 필드
@@ -1824,8 +1864,10 @@ const _cacheSchemaVersion = 7;
 // 값도 키에 섞어 두 모드의 캐시 항목이 서로를 대신하지 않게 한다.
 // callable 객체의 암묵 `call` 호출·tear-off 간선(v15)으로 같은 소스의 간선이
 // 늘어난다 — 이전 캐시는 `call`을 dead로 남기므로 identity를 올려 폐기한다.
+// 객체 패턴 필드의 getter 읽기 간선(v16)으로 다시 간선이 늘어난다 — 이전 캐시는
+// 패턴으로만 읽는 필드를 dead로 남기므로 identity를 올려 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v15-implicit-call';
+    'dartograph-analysis-$toolVersion-cache-v16-pattern-fields';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -3399,6 +3441,21 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
       _add(owner, _idOf(target), EdgeKind.reference);
     }
     super.visitImplicitCallReference(node);
+  }
+
+  /// 객체 패턴의 필드(`if (x case Foo(:final bar))`, `switch`의 `Foo(bar: > 0)`,
+  /// 구조 분해 `var Foo(:bar) = x`)는 그 getter를 읽는다. 필드 이름은 토큰이거나
+  /// (`bar:`) 변수 패턴에서 암시되어(`:bar`) 식별자 경로를 타지 않으므로, analyzer가
+  /// 해석한 [PatternField.element]로 읽기(reference) 간선을 단다. 레코드 패턴의
+  /// 필드는 element가 null이다 — 레코드 필드는 그래프 정점이 아니다.
+  @override
+  void visitPatternField(PatternField node) {
+    final owner = _owner;
+    final target = _graphTarget(node.element);
+    if (owner != null && target != null && _isGraphElement(target)) {
+      _add(owner, _idOf(target), EdgeKind.reference);
+    }
+    super.visitPatternField(node);
   }
 
   /// 복합 대입·증감(`m[i] += v`·`m[i]++`·`++m[i]`)의 인덱스 읽기·쓰기는

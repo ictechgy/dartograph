@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
@@ -9,6 +10,8 @@ import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import 'analyzer_graph_index.dart'
+    show enclosingGraphDeclarationId, resolveProjectUnitsAt;
 import 'bridge_index.dart'
     show enclosingFactSymbol, rejectFactControlCharacters;
 import 'project_files.dart';
@@ -37,8 +40,17 @@ final class SchemaIndexResult {
 /// 개수로만 남긴다 — 관계가 아닌 이름을 사실로 만들면 없는 선언을 찾는 거짓
 /// 진단이 된다.
 ///
+/// Dart 소스의 사실은 `symbol.usr`에 `dartograph impact [rootPath]`와 같은
+/// 그래프 선언 ID를 싣는다(`routes --role client`와 같은 헬퍼) — isthmus trace가
+/// handler·client 도달을 관계 사용과 잇는 열쇠다. 스캔은 구문으로 하고, 사실이
+/// 난 파일만 analyzer로 해석해 감싸는 선언을 찾는다. 신원을 얻지 못한 사실은
+/// usr 없이 두고 `missing-relation-usrs:`로 센다 — 신원을 지어내지 않는다.
+///
 /// [projectRootPath]의 의미와 검증은 `indexBridges`와 같다.
-SchemaIndexResult indexSchema(String rootPath, {String? projectRootPath}) {
+Future<SchemaIndexResult> indexSchema(
+  String rootPath, {
+  String? projectRootPath,
+}) async {
   final root = Directory(
     Directory(rootPath).absolute.resolveSymbolicLinksSync(),
   );
@@ -56,6 +68,7 @@ SchemaIndexResult indexSchema(String rootPath, {String? projectRootPath}) {
   final counts = _SchemaCounts();
   final facts = <Map<String, Object?>>[];
   final linkEscapes = <String>{};
+  final dartScanners = <_SchemaFileScanner>[];
   final files = indexProjectFiles(
     root,
     boundary: root.path,
@@ -81,9 +94,11 @@ SchemaIndexResult indexSchema(String rootPath, {String? projectRootPath}) {
       scanner.scanDriftFile();
     } else {
       scanner.scanDartFile(file.path);
+      dartScanners.add(scanner);
     }
     facts.addAll(scanner.facts);
   }
+  await _attachDeclarationIds(root.path, dartScanners);
   facts.sort(_compareFacts);
   return SchemaIndexResult(
     facts,
@@ -94,6 +109,70 @@ SchemaIndexResult indexSchema(String rootPath, {String? projectRootPath}) {
 bool _isSchemaSource(String path) =>
     path.endsWith('.dart') || path.endsWith('.drift');
 
+/// Dart 사실에 감싸는 그래프 선언 ID(`symbol.usr`)를 붙인다.
+///
+/// 사실이 난 파일만 해석한다. 해석한 내용이 스캔한 내용과 다르면(스캔과 해석
+/// 사이의 편집) 오프셋이 다른 선언을 가리킬 수 있으므로 그 파일은 신원을 붙이지
+/// 않는다. `qualifiedName`은 routes와 같이 ID의 선언 경로로 맞춘다.
+Future<void> _attachDeclarationIds(
+  String root,
+  List<_SchemaFileScanner> scanners,
+) async {
+  final pending = [
+    for (final scanner in scanners)
+      if (scanner.identitySites.isNotEmpty) scanner,
+  ];
+  final units = await resolveProjectUnitsAt(root, {
+    for (final scanner in pending) scanner.absolutePath!,
+  });
+  for (final scanner in pending) {
+    final unit = units[p.normalize(scanner.absolutePath!)];
+    if (unit == null || unit.content != scanner.source) continue;
+    _attachUnitIds(unit, scanner.identitySites, root);
+  }
+}
+
+void _attachUnitIds(
+  ResolvedUnitResult unit,
+  List<_IdentitySite> sites,
+  String root,
+) {
+  for (final site in sites) {
+    final locator = _NodeAtOffset(site.offset);
+    unit.unit.accept(locator);
+    final node = locator.found;
+    final usr = node == null ? null : enclosingGraphDeclarationId(node, root);
+    if (usr == null) continue;
+    // 사실의 키 순서(`symbol` 먼저)를 유지한다.
+    final rest = Map.of(site.fact)..remove('symbol');
+    site.fact
+      ..clear()
+      ..['symbol'] = {
+        'qualifiedName': usr.substring(usr.indexOf('::') + 2),
+        'usr': usr,
+      }
+      ..addAll(rest);
+  }
+}
+
+/// 신원을 찾을 사실과 그 근거 위치(스캔한 소스의 오프셋)다.
+typedef _IdentitySite = ({Map<String, Object?> fact, int offset});
+
+/// [offset]을 담는 가장 안쪽 노드다. 감싸는 선언은 그 조상에서 찾는다.
+final class _NodeAtOffset extends GeneralizingAstVisitor<void> {
+  _NodeAtOffset(this.offset);
+
+  final int offset;
+  AstNode? found;
+
+  @override
+  void visitNode(AstNode node) {
+    if (offset < node.offset || offset >= node.end) return;
+    found = node;
+    node.visitChildren(this);
+  }
+}
+
 /// 사실로 만들지 못한 근거를 한계 문장으로 바꾼다. 접두사는 계약이다.
 List<String> _limitations(
   List<Map<String, Object?>> facts,
@@ -102,6 +181,10 @@ List<String> _limitations(
   Set<String> linkEscapes,
 ) {
   final missingSymbols = facts.where((f) => !f.containsKey('symbol')).length;
+  final missingUsrs = facts.where((fact) {
+    final symbol = fact['symbol'] as Map<String, Object?>?;
+    return symbol?['usr'] == null;
+  }).length;
   return [
     for (final escape in linkEscapes.toList()..sort())
       'symlink-escape: $escape resolves outside the scanned root; its '
@@ -133,6 +216,11 @@ List<String> _limitations(
     if (missingSymbols > 0)
       'missing-relation-symbols: $missingSymbols relation-use fact(s) have '
           'source locations but no supported enclosing declaration name',
+    if (missingUsrs > 0)
+      'missing-relation-usrs: $missingUsrs relation-use fact(s) have no '
+          'dartograph declaration identity (.drift files, sources outside the '
+          'analyzed package directories, or no resolved enclosing graph '
+          'declaration); trace cannot continue from them',
     if (counts.unreadableFiles > 0)
       'unreadable-sources: ${counts.unreadableFiles} file(s) could not be read '
           'and were skipped',
@@ -385,6 +473,12 @@ final class _SchemaFileScanner {
   final LineInfo lineInfo;
   final facts = <Map<String, Object?>>[];
 
+  /// Dart 파일의 절대 경로다. `.drift` 파일은 null이다(해석할 선언이 없다).
+  String? absolutePath;
+
+  /// 그래프 선언 ID를 찾을 Dart 사실들이다.
+  final identitySites = <_IdentitySite>[];
+
   /// `.drift` 파일은 SQL이다 — 파일 전체를 관계 추출기에 넣는다.
   void scanDriftFile() {
     final result = sqlRelations(source);
@@ -398,6 +492,7 @@ final class _SchemaFileScanner {
   }
 
   void scanDartFile(String absolutePath) {
+    this.absolutePath = absolutePath;
     final parsed = parseString(
       content: source,
       path: absolutePath,
@@ -475,7 +570,7 @@ final class _SchemaFileScanner {
     final resolvedSymbol = symbol != null
         ? {'qualifiedName': symbol}
         : (node == null ? null : enclosingFactSymbol(node));
-    facts.add({
+    final fact = <String, Object?>{
       'symbol': ?resolvedSymbol,
       'kind': 'relation-use',
       'channel': channel,
@@ -483,7 +578,11 @@ final class _SchemaFileScanner {
       'dynamic': dynamic,
       if (dynamic && channelPrefix != null) 'channelPrefix': channelPrefix,
       'location': _location(offset),
-    });
+    };
+    facts.add(fact);
+    // [offset]은 사용 지점 노드이거나 선언 사실(drift·floor)의 선언 이름·
+    // annotation 위치다 — 어느 쪽이든 감싸는 그래프 선언이 사실의 주인이다.
+    if (absolutePath != null) identitySites.add((fact: fact, offset: offset));
   }
 
   Map<String, Object?> _location(int offset) {

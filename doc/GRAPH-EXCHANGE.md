@@ -196,6 +196,12 @@ class CameraBridge {
   최대 160자)이다. 보간 문자열의 선행 literal이 있으면 `channelPrefix`로 싣는다.
 - `symbol.qualifiedName`은 bridges와 같은 어휘적 귀속이다. drift 테이블·컬럼과 floor
   엔티티·컬럼 선언 사실은 클래스(`Person`)·멤버(`Person.name`) 이름을 싣는다.
+- `symbol.usr`는 `routes --role client`와 같은 감싸는 그래프 선언 ID(`dartograph
+  impact <package-root>`의 정점 ID)다. 스캔은 구문이고 사실이 난 Dart 파일만 analyzer로
+  해석해 찾는다. 신원이 있으면 `qualifiedName`도 ID의 선언 경로로 맞춘다. 생성자·지역
+  함수는 그래프 정점이 아니므로 바깥 클래스·메서드에 귀속한다. `.drift` 파일, 그래프가
+  색인하지 않는 파일(`lib/`·`bin/`·`test/`·`example/`·`integration_test/` 밖), 해석되지
+  않은 선언의 사실은 usr를 싣지 않고 `missing-relation-usrs:`로 센다.
 - `location`은 필수이며 bridges와 같은 1-based UTF-8 byte 열이다.
 
 | limitation 접두사 | 뜻 |
@@ -206,6 +212,7 @@ class CameraBridge {
 | `non-relational-stores:` | 비SQL 저장소 패키지를 import한 파일 수와 패키지별 분포 |
 | `unsupported-db-packages:` | 지원 표면 밖 SQL 패키지를 import한 파일 수와 분포 |
 | `missing-relation-symbols:` | 감싸는 선언 이름이 없는 사실 수(`.drift` 파일 포함) |
+| `missing-relation-usrs:` | 그래프 선언 ID(`symbol.usr`)가 없는 사실 수 — 체인 전용, trace가 그 사실에서 이어 가지 못한다 |
 | `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
 | `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
 

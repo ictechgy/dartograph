@@ -49,7 +49,7 @@ void run(Database db) => db.rawQuery('SELECT * FROM users');
     expect(document['generatedAt'], '2026-09-26T01:02:03.456Z');
     expect(document.containsKey('transport'), isFalse);
     expect((document['facts']! as List).single, {
-      'symbol': {'qualifiedName': 'run'},
+      'symbol': {'qualifiedName': 'run', 'usr': 'project:lib/repo.dart::run'},
       'kind': 'relation-use',
       'channel': 'users',
       'dynamic': false,
@@ -89,6 +89,8 @@ void run(Database db) => db.rawQuery('SELECT * FROM users');
     expect(document['project'], root.resolveSymbolicLinksSync());
     final fact = (document['facts']! as List).single as Map<String, Object?>;
     expect((fact['location']! as Map)['path'], 'packages/app/lib/repo.dart');
+    // usr는 스캔 루트(패키지) 기준 그래프 ID다 — 같은 루트의 impact와 같은 공간.
+    expect((fact['symbol']! as Map)['usr'], 'project:lib/repo.dart::run');
   });
 
   test('bridges 전용 플래그와 잘못된 인자는 usage다', () async {
