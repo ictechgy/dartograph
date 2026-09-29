@@ -2,6 +2,7 @@ import 'callables.dart';
 import 'enums.dart';
 import 'model.dart';
 import 'operators.dart';
+import 'patterns.dart';
 import 'traits.dart';
 
 void main() {
@@ -28,6 +29,8 @@ void main() {
   final validator = Validator();
   final String Function(String) format = Formatter();
   print('${validator('x')} ${format(' y ')} ${IdleCallable().hashCode}');
+  // 필드를 객체 패턴(if-case·switch 문·switch 식)으로만 읽는다.
+  print(describeReading(Envelope(Reading(-1, 'north', 0))));
 }
 
 String routeFactory(String route) => route == '/settings' ? 'settings' : 'home';

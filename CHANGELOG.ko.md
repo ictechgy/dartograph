@@ -8,6 +8,7 @@
 - 새 `impact --format language-traversal`이 isthmus `trace`용 `language-traversal` v1 문서를 낸다: 여러 root를 한 번에 순회해 선언별 root 목록·최단 경로 목격·`direct`/`candidate` 근거 등급·`revision`(명시값이나 깨끗한 git HEAD)·`graphRevision`을 싣는다. 모르는 root는 `root-not-found`로 남기고 64로 끝난다. 기본 `impact` 출력은 그대로다.
 - 새 `schema --format json [--project <shared-root>] <package-root>` 명령이 isthmus persistence `relation-use` 사실(bridge-facts v1, `target: "persistence"`)을 낸다. sqflite·sqlite3·postgres·drift(테이블·custom 쿼리·`.drift` 파일)·floor와 대문자 SQL 문자열 리터럴을 읽어 isthmus가 Dart 코드와 schemagraph SQL 카탈로그를 조인하게 한다. SQL 판독기는 kartograph·cartograph 공용 추출기의 포트다. 비리터럴 SQL은 동적 사실로, 비관계 저장소·지원 밖 SQL 패키지는 한계로 남긴다. 기존 명령은 바뀌지 않았다.
 - Dart 소스의 `schema` 사실이 `symbol.usr`에 감싸는 선언의 dartograph ID(`routes --role client`·`impact`와 같은 헬퍼·ID 공간)를 싣는다. isthmus `trace`가 handler·client 도달을 관계 사용과 이을 수 있다. 사실이 난 파일만 해석한다. 신원이 없는 사실(`.drift` 파일, 분석 소스 디렉터리 밖 파일)은 `missing-relation-usrs` 한계로 센다.
+- Dart 객체 패턴(`if (x case Foo(:final bar))`, `Foo(bar: > 0)` 같은 `switch` case, 구조 분해 `var Foo(:bar) = x`, extension getter 포함)으로만 읽는 필드·getter가 읽기 간선을 남긴다. 이전에는 `dead`가 보고하고 `impact`에서 빠졌다. 레코드 패턴 필드는 그래프 선언이 아니라 그대로다. 분석 캐시 identity를 올려 이전 결과를 폐기한다.
 - 생성자(기본·named·factory)를 소속 클래스로 모델링한다는 사실을 문서화했다. 생성자 ID는 그래프 정점이 아니고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위다. 분석 동작은 바뀌지 않았다.
 
 ## 0.15.2

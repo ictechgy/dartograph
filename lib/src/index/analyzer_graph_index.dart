@@ -1864,8 +1864,10 @@ const _cacheSchemaVersion = 7;
 // 값도 키에 섞어 두 모드의 캐시 항목이 서로를 대신하지 않게 한다.
 // callable 객체의 암묵 `call` 호출·tear-off 간선(v15)으로 같은 소스의 간선이
 // 늘어난다 — 이전 캐시는 `call`을 dead로 남기므로 identity를 올려 폐기한다.
+// 객체 패턴 필드의 getter 읽기 간선(v16)으로 다시 간선이 늘어난다 — 이전 캐시는
+// 패턴으로만 읽는 필드를 dead로 남기므로 identity를 올려 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v15-implicit-call';
+    'dartograph-analysis-$toolVersion-cache-v16-pattern-fields';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -3439,6 +3441,21 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
       _add(owner, _idOf(target), EdgeKind.reference);
     }
     super.visitImplicitCallReference(node);
+  }
+
+  /// 객체 패턴의 필드(`if (x case Foo(:final bar))`, `switch`의 `Foo(bar: > 0)`,
+  /// 구조 분해 `var Foo(:bar) = x`)는 그 getter를 읽는다. 필드 이름은 토큰이거나
+  /// (`bar:`) 변수 패턴에서 암시되어(`:bar`) 식별자 경로를 타지 않으므로, analyzer가
+  /// 해석한 [PatternField.element]로 읽기(reference) 간선을 단다. 레코드 패턴의
+  /// 필드는 element가 null이다 — 레코드 필드는 그래프 정점이 아니다.
+  @override
+  void visitPatternField(PatternField node) {
+    final owner = _owner;
+    final target = _graphTarget(node.element);
+    if (owner != null && target != null && _isGraphElement(target)) {
+      _add(owner, _idOf(target), EdgeKind.reference);
+    }
+    super.visitPatternField(node);
   }
 
   /// 복합 대입·증감(`m[i] += v`·`m[i]++`·`++m[i]`)의 인덱스 읽기·쓰기는

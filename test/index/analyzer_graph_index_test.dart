@@ -167,6 +167,51 @@ bool? checkNullAware(Holder? holder) => holder?.validator('z');
 void checkCascade(Holder holder) => holder..validator('w');
 bool Function(String) tearOff(Validator validator) => validator;
 ''');
+    await File('${fixtureDirectory.path}/lib/patterns.dart').writeAsString('''
+class Shape {
+  Shape(this.side, this.name);
+  final int side;
+  final String name;
+  int get area => side * side;
+  int untouched = 0;
+}
+
+class Box {
+  Box(this.width, this.inner);
+  final int width;
+  final Shape inner;
+}
+
+extension ShapeLabel on Shape {
+  String get label => 'shape';
+}
+
+int ifCase(Object value) {
+  if (value case Shape(:final side)) return side;
+  return 0;
+}
+
+String switchStatement(Object value) {
+  switch (value) {
+    case Shape(name: final renamed):
+      return renamed;
+  }
+  return '';
+}
+
+String switchExpression(Shape shape) =>
+    switch (shape) { Shape(area: > 10) => 'big', _ => 'small' };
+
+int destructure(Box box) {
+  var Box(:width, inner: Shape(:label)) = box;
+  return width + label.length;
+}
+
+int recordPattern(({int code, String text}) record) {
+  final (:code, text: _) = record;
+  return code;
+}
+''');
     await Directory('${fixtureDirectory.path}/bin').create();
     await File('${fixtureDirectory.path}/bin/cli.dart').writeAsString('''
 import 'package:graph_fixture/api.dart';
@@ -459,6 +504,45 @@ void main() => Service();
             edge.kind != EdgeKind.member,
       ),
       isFalse,
+    );
+  });
+
+  test('object pattern fields become getter read edges', () async {
+    final result = await AnalyzerGraphIndex().index(fixtureDirectory.path);
+    const library = 'package:graph_fixture/patterns.dart';
+    bool reads(String source, String target) => result.graph.edges.any(
+      (edge) =>
+          edge.sourceId == '$library::$source' &&
+          edge.targetId == '$library::$target' &&
+          edge.kind == EdgeKind.reference,
+    );
+    // 변수 패턴이 암시하는 이름(`:final side`)은 식별자 노드가 없어 간선이
+    // 빠졌고, 패턴으로만 읽는 필드가 dead로 보고됐다.
+    expect(reads('ifCase', 'Shape.side'), isTrue);
+    // 이름을 적은 필드(`name: final renamed`)도 이름이 토큰이라 같았다.
+    expect(reads('switchStatement', 'Shape.name'), isTrue);
+    // 관계 하위 패턴(`area: > 10`)은 명시적 getter를 읽는다.
+    expect(reads('switchExpression', 'Shape.area'), isTrue);
+    // 구조 분해 선언과 중첩 객체 패턴, extension getter도 읽기다.
+    expect(reads('destructure', 'Box.width'), isTrue);
+    expect(reads('destructure', 'Box.inner'), isTrue);
+    expect(reads('destructure', 'ShapeLabel.label'), isTrue);
+    // 패턴에 없는 필드와 레코드 패턴 필드에는 간선이 생기지 않는다(음성 고정).
+    expect(
+      result.graph.edges.any(
+        (edge) =>
+            edge.targetId == '$library::Shape.untouched' &&
+            edge.kind != EdgeKind.member,
+      ),
+      isFalse,
+    );
+    expect(
+      result.graph.edges.where(
+        (edge) =>
+            edge.sourceId == '$library::recordPattern' &&
+            edge.kind == EdgeKind.reference,
+      ),
+      isEmpty,
     );
   });
 

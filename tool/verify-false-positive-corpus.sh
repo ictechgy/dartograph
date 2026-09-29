@@ -33,8 +33,10 @@ printf '%s' "$finding_ids" | grep -qF 'trailingNotIgnored'
 printf '%s' "$finding_ids" | grep -qF 'WriteOnly.[]'
 # 인스턴스만 쓰이고 호출되지 않는 callable의 call은 계속 보고돼야 한다.
 printf '%s' "$finding_ids" | grep -qF 'IdleCallable.call'
+# 어떤 패턴에서도 읽지 않는 필드는 계속 보고돼야 한다.
+printf '%s' "$finding_ids" | grep -qF 'Reading.neverMatched'
 # 보존 항목에도 연산자 ID(`+`·`unary-`·`-`)가 메타문자를 포함하므로 -F로 통일한다.
-for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel 'Vector.+' 'Vector.unary-' 'Meters.-' 'WriteOnly.[]=' keptByIgnoreComment 'Validator.call' 'Formatter.call'; do
+for preserved in keptForTesting nativeEntry CorpusPlugin CorpusPluginLinux CorpusWebPlugin devBootstrap routeFactory User MixedFeature Labelled Decoration copyUser TelemetryLevel 'Vector.+' 'Vector.unary-' 'Meters.-' 'WriteOnly.[]=' keptByIgnoreComment 'Validator.call' 'Formatter.call' 'Reading.celsius' 'Reading.station' 'Reading.isFreezing' 'Envelope.payload'; do
   if printf '%s' "$finding_ids" | grep -qF "$preserved"; then
     echo "preserved declaration reported: $preserved" >&2
     exit 1
