@@ -355,7 +355,10 @@ schemagraph `facts`가 내고 isthmus `check`가 두 문서를 관계·컬럼 �
 import는 `non-relational-stores`, mysql1·mysql_client·sqlite_async·PowerSync·Supabase
 import는 `unsupported-db-packages` 한계로만 남긴다. 사실은 UTF-8 byte 열 위치를 싣고,
 감싸는 선언이 있으면 `symbol.qualifiedName`을 싣는다(`.drift` 파일 사실은 없음 —
-`missing-relation-symbols`로 센다).
+`missing-relation-symbols`로 센다). 사실이 난 Dart 파일만 analyzer로 해석해
+`symbol.usr`에 `routes --role client`와 같은 감싸는 그래프 선언 ID를 싣는다 — isthmus
+trace가 handler·client 도달을 관계 사용과 잇는 열쇠다. 신원을 얻지 못한 사실(`.drift`
+파일, 그래프 색인 밖 파일)은 usr 없이 `missing-relation-usrs`로 센다.
 
 ```sh
 dartograph schema --format json . > dart-schema.json

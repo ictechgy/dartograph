@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:dartograph/src/index/schema_index.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -45,7 +46,7 @@ class Repo {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     // 같은 위치의 사실은 channel 순으로 정렬된다.
     expect(summarize(result), [
@@ -61,7 +62,10 @@ class Repo {
       'sessions@11',
       'settings@12',
     ]);
-    expect(result.facts.first['symbol'], {'qualifiedName': 'Repo.load'});
+    expect(result.facts.first['symbol'], {
+      'qualifiedName': 'Repo.load',
+      'usr': 'project:lib/repo.dart::Repo.load',
+    });
     expect(result.facts.first['location'], {
       'path': 'lib/repo.dart',
       'line': 7,
@@ -90,7 +94,7 @@ void run(Database db, dynamic http, Map<String, int> counts) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     // import 없는 파일의 query는 다른 API다. 모양이 URL인 리터럴과 맵이 아닌
     // 두 번째 인자를 요구하지 않는 update 오판을 막는다.
@@ -118,7 +122,7 @@ Future<void> run(Db db) async {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     // rawQuery는 이름 자체가 근거지만 흔한 query는 파일 import가 필요하다.
     expect(summarize(result), ['users@4']);
@@ -146,7 +150,7 @@ void again(Database db) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       'users@7',
@@ -187,7 +191,7 @@ abstract class AppDb {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       'todo_items@4',
@@ -220,7 +224,7 @@ class HTTPLogs extends Table {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       'todo_items@3',
@@ -231,7 +235,19 @@ class HTTPLogs extends Table {
       'category_table#parent_id@13',
       '~HTTPLogs@16',
     ]);
-    expect(result.facts.first['symbol'], {'qualifiedName': 'TodoItems'});
+    // 선언 사실은 테이블 클래스·컬럼 getter·필드 자신이 주인이다.
+    expect(
+      [for (final fact in result.facts) (fact['symbol']! as Map)['usr']],
+      [
+        'project:lib/tables.dart::TodoItems',
+        'project:lib/tables.dart::TodoItems.id',
+        'project:lib/tables.dart::TodoItems.title',
+        'project:lib/tables.dart::TodoItems.isDone',
+        'project:lib/tables.dart::Categories',
+        'project:lib/tables.dart::Categories.parentId',
+        'project:lib/tables.dart::HTTPLogs',
+      ],
+    );
     expect(
       result.limitations,
       contains(startsWith('drift-name-derivation-unverified: 1 ')),
@@ -256,7 +272,7 @@ class TodoItems extends Table {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     // 테이블 이름을 모르면 컬럼 귀속도 불확실하다 — 동적 테이블 사실 하나만 남는다.
     expect(summarize(result), ['~TodoItems@3']);
@@ -301,7 +317,7 @@ class PersonName {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       'people@3',
@@ -313,7 +329,28 @@ class PersonName {
       'person_names@27',
       'people@27',
     ]);
-    expect(result.facts[5]['symbol'], {'qualifiedName': 'PersonDao.find'});
+    expect(result.facts[5]['symbol'], {
+      'qualifiedName': 'PersonDao.find',
+      'usr': 'project:lib/entities.dart::PersonDao.find',
+    });
+    // annotation 위치의 테이블 사실은 클래스, 컬럼 사실은 필드가 주인이다.
+    expect(
+      [for (final fact in result.facts) (fact['symbol']! as Map)['usr']],
+      [
+        'project:lib/entities.dart::Person',
+        'project:lib/entities.dart::Person.id',
+        'project:lib/entities.dart::Person.name',
+        'project:lib/entities.dart::Pet',
+        'project:lib/entities.dart::Pet.id',
+        'project:lib/entities.dart::PersonDao.find',
+        'project:lib/entities.dart::PersonName',
+        'project:lib/entities.dart::PersonName',
+      ],
+    );
+    expect(
+      result.limitations.where((l) => l.startsWith('missing-relation-usrs')),
+      isEmpty,
+    );
   });
 
   test('.drift 파일은 SQL로 읽고 명명 쿼리 라벨을 건너뛴다', () async {
@@ -322,7 +359,7 @@ CREATE TABLE notes (id INT, body TEXT);
 allNotes: SELECT * FROM notes n JOIN tags t ON t.note_id = n.id;
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), ['notes@1', 'notes@2', 'tags@2']);
     expect(result.facts.first, isNot(contains('symbol')));
@@ -330,6 +367,71 @@ allNotes: SELECT * FROM notes n JOIN tags t ON t.note_id = n.id;
       result.limitations,
       contains(startsWith('missing-relation-symbols: 3 ')),
     );
+    expect(
+      result.limitations,
+      contains(startsWith('missing-relation-usrs: 3 ')),
+    );
+  });
+
+  test('usr는 같은 루트 impact 그래프의 정점 ID이고 그래프 밖 파일은 센다', () async {
+    await write('pubspec.yaml', 'name: schema_usr\n');
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+const auditSql = 'SELECT * FROM audit_log';
+
+class Repo {
+  Repo(this.db) {
+    db.rawQuery('SELECT * FROM warmup');
+  }
+  final Database db;
+  late final pending = db.rawQuery('SELECT * FROM jobs');
+  Future<void> get recent => db.rawQuery('SELECT * FROM recent');
+  Future<void> load() async {
+    void local() => db.rawQuery('SELECT * FROM nested');
+    local();
+  }
+}
+''');
+    // 표준 소스 디렉터리 밖이라 그래프에 정점이 없다 — 신원을 지어내지 않는다.
+    await write('tool/seed.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void seed(Database db) => db.rawQuery('SELECT * FROM seeds');
+''');
+
+    final result = await indexSchema(root.path);
+
+    String? usrOf(String channel) {
+      final fact = result.facts.singleWhere((f) => f['channel'] == channel);
+      return (fact['symbol'] as Map?)?['usr'] as String?;
+    }
+
+    // 생성자·지역 함수는 그래프 정점이 아니라 클래스·메서드에 귀속한다.
+    expect(usrOf('warmup'), 'project:lib/repo.dart::Repo');
+    expect(usrOf('jobs'), 'project:lib/repo.dart::Repo.pending');
+    expect(usrOf('recent'), 'project:lib/repo.dart::Repo.recent');
+    expect(usrOf('nested'), 'project:lib/repo.dart::Repo.load');
+    expect(usrOf('audit_log'), 'project:lib/repo.dart::auditSql');
+    expect(usrOf('seeds'), isNull);
+    expect(
+      (result.facts.singleWhere((f) => f['channel'] == 'seeds')['symbol']!
+          as Map)['qualifiedName'],
+      'seed',
+    );
+    expect(
+      result.limitations,
+      contains(startsWith('missing-relation-usrs: 1 ')),
+    );
+
+    final graph = await AnalyzerGraphIndex().index(root.path);
+    final ids = {for (final node in graph.graph.snapshot().nodes) node.id};
+    final usrs = {
+      for (final fact in result.facts)
+        if ((fact['symbol'] as Map?)?['usr'] case final String usr) usr,
+    };
+    expect(usrs, hasLength(5));
+    expect(usrs.difference(ids), isEmpty);
   });
 
   test('게이트 없는 리터럴은 대문자 SQL만 읽고 나머지는 계수한다', () async {
@@ -346,7 +448,7 @@ void f(String t) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       'legacy_table@5',
@@ -372,7 +474,7 @@ import 'package:mysql1/mysql1.dart';
 void g(dynamic conn) => conn.query('select * from users');
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(result.facts, isEmpty);
     expect(
@@ -399,7 +501,7 @@ void run(Database db, String t) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(result.facts.first['location'], {
       'path': 'lib/repo.dart',
@@ -422,7 +524,7 @@ void run(Database db, Connection conn, String sql) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     // 테이블 이름 모양의 리터럴은 sqflite, SQL 리터럴·비리터럴은 postgres SQL로 읽는다.
     expect(summarize(result), [
@@ -452,7 +554,7 @@ void pick(Database db) {
 String choose() => 'x';
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), ['~table@7', '~other@12']);
   });
@@ -467,7 +569,7 @@ void run(Database db, String t) {
 }
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), [
       "~'SELECT * FROM ' + t@4",
@@ -487,7 +589,7 @@ void run(Database db) =>
     db.rawQuery('SELECT * FROM users u JOIN users u2 ON u.id = u2.id');
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     expect(summarize(result), ['users@4']);
   });
@@ -502,7 +604,7 @@ import 'package:sqflite/sqflite.dart';
 void run(Database db, String t) => db.rawQuery(t + '$padding\u{10000}');
 ''');
 
-    final result = indexSchema(root.path);
+    final result = await indexSchema(root.path);
 
     final channel = result.facts.single['channel']! as String;
     expect(channel.length, 159);
@@ -516,7 +618,7 @@ import 'package:sqflite/sqflite.dart';
 void run(Database db) => db.rawQuery('SELECT * FROM users');
 ''');
 
-    final result = indexSchema(
+    final result = await indexSchema(
       p.join(root.path, 'packages', 'app'),
       projectRootPath: root.path,
     );
@@ -525,7 +627,7 @@ void run(Database db) => db.rawQuery('SELECT * FROM users');
       (result.facts.single['location']! as Map)['path'],
       'packages/app/lib/repo.dart',
     );
-    expect(
+    await expectLater(
       () => indexSchema(root.path, projectRootPath: p.join(root.path, 'x')),
       throwsA(isA<FileSystemException>()),
     );

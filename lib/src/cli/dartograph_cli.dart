@@ -2268,7 +2268,7 @@ Future<int> _runBridges(
     final project = exchange.project;
     final projectLimitations = exchange.limitations;
     if (schema) {
-      final indexed = indexSchema(
+      final indexed = await indexSchema(
         root,
         projectRootPath: project == root ? null : project,
       );
