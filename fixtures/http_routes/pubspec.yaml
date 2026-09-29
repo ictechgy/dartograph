@@ -1,0 +1,16 @@
+name: http_routes_fixture
+description: Synthetic Flutter/Dart HTTP client corpus for dartograph routes.
+publish_to: none
+environment:
+  sdk: ^3.11.0
+# 오라클(bin/oracle.dart)만 실제 패키지를 쓴다. 테스트는 이 파일을 쓰지 않고
+# fixtures/http_client_stubs를 가리키는 package_config를 직접 만든다.
+dependencies:
+  chopper: 8.7.0
+  dio: 5.11.1
+  http: 1.6.0
+  retrofit: 4.10.0
+dev_dependencies:
+  build_runner: 2.16.1
+  chopper_generator: 8.7.0
+  retrofit_generator: 10.2.11

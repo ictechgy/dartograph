@@ -1,0 +1,27 @@
+{
+  "format": "http-wrappers",
+  "version": 1,
+  "wrappers": [
+    {
+      "language": "dart",
+      "kind": "function",
+      "owner": "package:http_routes_fixture/api_wrapper.dart::ApiWrapper",
+      "name": "send",
+      "pathArg": { "index": 0 },
+      "methodArg": { "label": "method" },
+      "defaultMethod": "GET",
+      "methodEnum": { "get": "GET", "post": "POST" },
+      "pathAnchor": "base"
+    },
+    {
+      "language": "dart",
+      "kind": "constructor",
+      "owner": "package:http_routes_fixture/api_wrapper.dart::Endpoint",
+      "name": "new",
+      "pathArg": { "index": 0 },
+      "methodArg": { "label": "method" },
+      "defaultMethod": "GET",
+      "pathAnchor": "base"
+    }
+  ]
+}
