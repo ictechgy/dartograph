@@ -1,0 +1,6 @@
+# 이 fixture는 routes 스캐너의 검증 입력이다. 저장소 루트의 `dart analyze`는 실제
+# HTTP 패키지를 해석하지 못하므로 분석에서 뺀다. 테스트는 임시 복사본에서 이 파일을
+# 지우고 fixtures/http_client_stubs로 해석한다.
+analyzer:
+  exclude:
+    - '**'

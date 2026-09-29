@@ -114,6 +114,8 @@ dartograph bridges --format json .
 dartograph bridges --messages --format json .
 dartograph bridges --events --format json .
 dartograph schema --format json .
+dartograph routes --role client --wrappers http-wrappers.json .
+dartograph impact --format language-traversal --roots-from dart.http.json .
 dartograph skill
 dartograph setup --install .
 dartograph mcp
@@ -161,6 +163,25 @@ Full arguments, output formats, exit codes, and CI examples live in
   Isar/Hive-style stores and unsupported SQL packages are reported as
   limitations, not facts. The SQL reader is a port of the kartograph/cartograph
   extractor so every producer reads the same SQL the same way.
+- `routes --role client` (unreleased) emits isthmus http `route-call` facts
+  (bridge-facts v1, `target: "http"`, `roles: ["client"]`) for package:http,
+  dio, retrofit.dart and chopper calls and for wrappers declared in an isthmus
+  `http-wrappers` v1 file. Each library's base-URL join follows its source:
+  dio concatenates strings, retrofit.dart resolves the `@RestApi` base against
+  the dio base and then joins the path like dio, and chopper joins at code
+  generation and slash-joins with the client base. `symbol.usr` is the
+  enclosing declaration's dartograph id, the same id space as `impact`.
+  Unproven paths, verbs and identities stay dynamic facts or limitations. The
+  templates agree with the requests the real libraries sent to a local mock
+  server, and the shared isthmus conformance vectors pass 101/101 — see
+  [HTTP routes](doc/HTTP-ROUTES.md) (Korean).
+- `impact --format language-traversal` (unreleased) emits an isthmus
+  `language-traversal` v1 document for `trace`: one pass over many roots
+  (for example every `route-call` usr via `--roots-from`), with every root that
+  reaches each declaration, a shortest-path witness and per-root lower-bound
+  evidence (`direct`, or `candidate` through overriding-member dispatch).
+  `unresolvedCalls` is not reported. An unknown root is listed with
+  `root-not-found` and exits 64.
 - `bridges --messages` and `bridges --events` are opt-in development-source
   producers for BasicMessageChannel `send` calls and EventChannel
   `receiveBroadcastStream` calls. They emit bridge-facts v2 with

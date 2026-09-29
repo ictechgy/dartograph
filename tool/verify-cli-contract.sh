@@ -111,6 +111,18 @@ expect_status 2 "bridges failure" bridges --format json fixtures/does-not-exist
   expect_status 64 "bridges project not containing root" bridges --format json --project fixtures/phase5_contract/lib fixtures/phase5_contract
   expect_status 64 "bridges duplicate project" bridges --format json --project fixtures --project fixtures fixtures/phase5_contract
   expect_status 64 "bridges project missing value" bridges --format json --project
+expect_status 0 "routes client" routes --role client --format json fixtures/phase5_contract
+  expect_status 0 "routes include tests" routes --role client --include-tests --service example fixtures/phase5_contract
+  expect_status 64 "routes missing role" routes fixtures/phase5_contract
+  expect_status 64 "routes server role" routes --role server fixtures/phase5_contract
+  expect_status 64 "routes unknown format" routes --role client --format text fixtures/phase5_contract
+  expect_status 64 "routes missing wrappers file" routes --role client --wrappers fixtures/does-not-exist.json fixtures/phase5_contract
+  expect_status 2 "routes failure" routes --role client fixtures/does-not-exist
+expect_status 0 "language traversal" impact --format language-traversal fixtures/phase5_contract project:lib/a.dart::a
+  expect_status 0 "language traversal dependencies" impact --format language-traversal --direction dependencies --revision rev-1 fixtures/phase5_contract project:lib/a.dart::a
+  expect_status 64 "language traversal root not found" impact --format language-traversal fixtures/phase5_contract project:lib/missing.dart::x
+  expect_status 64 "language traversal no roots" impact --format language-traversal fixtures/phase5_contract
+  expect_status 64 "language traversal impact-only option" impact --format language-traversal --since HEAD fixtures/phase5_contract project:lib/a.dart::a
   expect_status 0 "baseline write" baseline --write "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
   expect_status 0 "dead with written baseline" dead --format json --baseline "$TEMPORARY_DIRECTORY/baseline.json" fixtures/phase5_contract
   expect_status 1 "dead test-only corpus has a dead declaration" dead --format json fixtures/test_only_corpus

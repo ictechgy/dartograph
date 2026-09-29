@@ -17,6 +17,7 @@ import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../analysis/graph_comparison.dart';
 import '../analysis/impact_analyzer.dart';
+import '../analysis/language_traversal.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
 import '../core/path_glob.dart';
@@ -30,10 +31,13 @@ import '../export/dependency_reporter.dart';
 import '../export/duplication_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
+import '../export/language_traversal_exporter.dart';
 import '../export/ledger_reporter.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
+import '../index/http_wrappers.dart';
+import '../index/route_call_index.dart';
 import '../index/schema_index.dart';
 import '../index/dependency_tools.dart';
 import '../index/incremental_cache.dart';
@@ -46,6 +50,9 @@ import 'agent_skill.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
 import 'mcp_server.dart';
+
+part 'routes_command.dart';
+part 'traversal_command.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
@@ -165,6 +172,15 @@ Future<int> _dispatchCommand(
     case 'impact':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
       if (indexed == null) return ExitStatus.usage.code;
+      if (_isLanguageTraversal(indexed.arguments)) {
+        return await _runLanguageTraversal(
+          indexed.arguments,
+          stdoutSink,
+          stderrSink,
+          indexed.index,
+          now ?? DateTime.now,
+        );
+      }
       return await _runImpact(
         indexed.arguments,
         stdoutSink,
@@ -274,6 +290,13 @@ Future<int> _dispatchCommand(
         stderrSink,
         now ?? DateTime.now,
         schema: true,
+      );
+    case 'routes':
+      return await _runRoutes(
+        arguments.skip(1).toList(),
+        stdoutSink,
+        stderrSink,
+        now ?? DateTime.now,
       );
     case 'cycles':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
@@ -2240,29 +2263,10 @@ Future<int> _runBridges(
     // 루트. 모노레포 조인은 두 producer 문서가 정확히 같은 project 문자열을
     // 가져야 성립한다(GRAPH-EXCHANGE 정확 문자열 일치 fail-closed) —
     // 공유 루트를 문서 손으로 고쳐 쓰면 provenance가 깨진다(dartograph#38).
-    var project = root;
-    final projectLimitations = <String>[];
-    if (projectOption != null) {
-      String resolved;
-      try {
-        resolved = Directory(projectOption).absolute.resolveSymbolicLinksSync();
-      } on FileSystemException {
-        error.writeln(_invalidBridgesProjectMessage);
-        return ExitStatus.usage.code;
-      }
-      if (!p.equals(resolved, root) && !p.isWithin(resolved, root)) {
-        error.writeln(_invalidBridgesProjectMessage);
-        return ExitStatus.usage.code;
-      }
-      project = resolved;
-    } else {
-      final detected = _detectPubWorkspace(root);
-      if (detected.root != null) {
-        project = detected.root!;
-      } else if (detected.limitation != null) {
-        projectLimitations.add(detected.limitation!);
-      }
-    }
+    final exchange = _resolveExchangeProject(root, projectOption, error);
+    if (exchange == null) return ExitStatus.usage.code;
+    final project = exchange.project;
+    final projectLimitations = exchange.limitations;
     if (schema) {
       final indexed = indexSchema(
         root,
@@ -3725,6 +3729,8 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --messages --format json [--project <shared-root>] <package-root>
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
        dartograph schema --format json [--project <shared-root>] <package-root>
+       dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
+       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
        dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
@@ -3845,6 +3851,40 @@ and .drift files, floor @Entity/@DatabaseView/@Query, and uppercase SQL string
 literals. Non-literal SQL is kept as dynamic facts; non-SQL stores and
 unsupported SQL packages are reported as limitations, not facts. It accepts
 --project like bridges.
+
+routes --role client emits isthmus http route-call facts (bridge-facts version
+1, target http, roles ["client"]) for package:http (top-level functions,
+Client methods, Request objects with Uri.parse/Uri.https/Uri.http URLs), dio
+(the per-verb methods and their Uri variants, request with Options.method; a
+literal BaseOptions base URL is joined by dio's simple concatenation),
+retrofit.dart (@RestApi baseUrl resolved against the dio base,
+then the @GET/@POST/... path joined like dio) and chopper (@ChopperApi baseUrl
+joined with @Get/@Post/... paths as chopper_generator does, then slash-joined
+with the client base). --wrappers applies "dart" entries of an http-wrappers
+v1 file: owner is the declaring type id (package:app/api.dart::ApiClient) or,
+for a top-level function, the library id (package:app/net.dart); an unnamed
+constructor is named "new". symbol.usr is the enclosing declaration's
+dartograph id, the same id space as impact on the same <package-root>.
+Unproven paths, verbs and identities stay dynamic facts or limitations
+(route-call-coverage, ambiguous-base-join, url-rewrite-interceptors,
+http-wrapper-unresolved, http-wrapper-undeclared, generated-client-unscanned,
+missing-route-usrs). Test sources (test/, integration_test/) are excluded
+unless --include-tests marks those facts testSource. Literal URLs lose
+userinfo, query and fragment, and high-entropy or webhook segments are masked.
+
+impact --format language-traversal emits an isthmus language-traversal v1
+document for trace: one pass over every root (positional ids and/or
+--roots-from, a JSON string array or a bridge-facts document whose facts'
+symbol.usr become roots; - reads stdin). --direction dependents (default)
+lists callers and referrers, dependencies lists what the roots use. Each
+reached declaration carries every root that reaches it (at most 64 listed),
+a shortest via/depth witness and evidence: direct for analyzer-resolved
+edges, candidate when some root needs an overriding-member dispatch edge.
+unresolvedCalls and dispatch are not reported. revision is --revision, else
+the git HEAD when <package-root> has no uncommitted or untracked changes;
+graphRevision hashes the graph content. A root that is not an exact graph
+id stays listed without a symbol, adds root-not-found and exits 64; roots
+or --revision with control characters are usage errors (64).
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become

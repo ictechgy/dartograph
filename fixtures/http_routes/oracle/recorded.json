@@ -1,0 +1,247 @@
+{
+  "package:http_routes_fixture/api_wrapper.dart::endpointDelete": [
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/eb/e/items/6"
+    }
+  ],
+  "package:http_routes_fixture/api_wrapper.dart::wrapperGet": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/wb/w/items"
+    }
+  ],
+  "package:http_routes_fixture/api_wrapper.dart::wrapperPost": [
+    {
+      "host": "api.example.test",
+      "method": "POST",
+      "path": "/wb/w/orders"
+    }
+  ],
+  "package:http_routes_fixture/chopper_client.dart::AbsoluteChopperService.ping": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/ch/ping"
+    }
+  ],
+  "package:http_routes_fixture/chopper_client.dart::BareChopperService.remove": [
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/api/items/b2"
+    }
+  ],
+  "package:http_routes_fixture/chopper_client.dart::TodoService.done": [
+    {
+      "host": "api.example.test",
+      "method": "POST",
+      "path": "/api/todos/done"
+    }
+  ],
+  "package:http_routes_fixture/chopper_client.dart::TodoService.item": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/api/todos/t1"
+    }
+  ],
+  "package:http_routes_fixture/chopper_client.dart::TodoService.list": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/api/todos"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::UsersRepository.load": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/api/users/3"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::UsersRepository.profile": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/api/profile"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioConcatenation": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v4health"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioDoubleSlash": [
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/v1/a/b"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioGetUri": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/raw"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioLiteralBase": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/users/5"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioRelativeAfterSlash": [
+    {
+      "host": "api.example.test",
+      "method": "PUT",
+      "path": "/v2/carts"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioRequestMethod": [
+    {
+      "host": "api.example.test",
+      "method": "PATCH",
+      "path": "/v1/profile"
+    }
+  ],
+  "package:http_routes_fixture/dio_client.dart::dioTrailingSlash": [
+    {
+      "host": "api.example.test",
+      "method": "POST",
+      "path": "/v2/orders"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::clientGet": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/profile"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpAdjacent": [
+    {
+      "host": "api.example.test",
+      "method": "PUT",
+      "path": "/v1/settings"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpConstInterpolation": [
+    {
+      "host": "api.example.test",
+      "method": "POST",
+      "path": "/v1/items/7"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpDotSegments": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/b"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpLiteral": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/items"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpPartialSegment": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/files/report.json"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpQueryTail": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/search"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpRequestSend": [
+    {
+      "host": "api.example.test",
+      "method": "PATCH",
+      "path": "/v1/profile/name"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpUnknownBase": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/prefix/v1/status"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpUriComponents": [
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/v1/items/9"
+    }
+  ],
+  "package:http_routes_fixture/http_client.dart::httpUriRelative": [
+    {
+      "host": "api.example.test",
+      "method": "HEAD",
+      "path": "/v2/users"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::AbsoluteBaseApi.create": [
+    {
+      "host": "api.example.test",
+      "method": "POST",
+      "path": "/rv1items"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::AbsoluteBaseApi.me": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/rv1/me"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::AbsoluteBaseApi.user": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/rv1/users/11"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::NoBaseApi.health": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/nb/health"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::NoBaseApi.settings": [
+    {
+      "host": "api.example.test",
+      "method": "PUT",
+      "path": "/nb/settings"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::RelativeBaseApi.order": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/rv2/orders/o-1"
+    }
+  ],
+  "package:http_routes_fixture/retrofit_client.dart::RelativeBaseApi.removeCart": [
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/rv2/carts/4"
+    }
+  ]
+}

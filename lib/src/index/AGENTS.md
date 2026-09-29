@@ -31,3 +31,9 @@
 - 위치는 프로젝트 상대 경로와 1-based UTF-8 byte column, 시각은 UTC 밀리초다. 제어 문자와 경로 탈출을 허용하지 않는다.
 - symbol.qualifiedName은 지원되는 Dart 선언의 어휘적 이름이다. 컴파일러 USR을 발명하지 않는다.
   귀속을 지원하지 않는 호출도 위치를 유지하고 missing-caller-symbols로 알린다. 언어 간 조인은 isthmus가 소유한다.
+
+## HTTP route 사실
+
+- route-call 신원은 analyzer element의 라이브러리 URI와 타입 계층으로만 판정한다. 같은 이름의 프로젝트 선언을 라이브러리 호출로 보지 않는다.
+- `symbol.usr`는 `enclosingGraphDeclarationId`로 그래프 정점 ID와 같게 만든다. 해석하지 못하면 usr를 생략하고 `missing-route-usrs`로 센다.
+- base 결합·생성기 규칙은 해당 버전의 공식 소스로 확인하고 doc/HTTP-ROUTES.md와 오라클 기록을 함께 갱신한다. 증명하지 못한 결합은 dynamic과 호출 측 limitation이다.

@@ -209,6 +209,29 @@ class CameraBridge {
 | `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
 | `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
 
+## http 문서 (`routes --role client`)
+
+`dartograph routes --role client`는 같은 봉투의 버전 1 문서를 isthmus http 도메인
+호출 측으로 낸다. 정본은 isthmus GRAPH-EXCHANGE의 "HTTP 경계" 절이고, dartograph의
+라이브러리 규칙·검증은 [HTTP-ROUTES.md](HTTP-ROUTES.md)에 있다.
+
+- `target`은 사실이 0건이어도 `"http"`다(roles가 있는 0건 문서는 "스캔했으나 호출
+  없음"). `roles: ["client"]`, `sourceSets.tests`는 필수로 싣고, `--service`가 있으면
+  문서 `service`를 싣는다.
+- 모든 fact의 `kind`는 `route-call`이다. `method`(모르면 생략하고 `methodDynamic: true`),
+  `channel`(정규 경로 템플릿, dynamic이면 `null`), `pathAnchor`(`root`·`base`)와 선택
+  `authority`·`baseRef`·`service`·`channelPrefix`·`queryTailStripped`·`maskedSegments`·
+  `testSource`를 싣는다.
+- `symbol.usr`는 호출을 감싸는 선언의 dartograph 그래프 ID(`impact`와 같은 id 공간)이고
+  `qualifiedName`은 그 ID의 `::` 뒤다. 해석하지 못한 선언은 usr 없이 어휘적 이름만 싣고
+  `missing-route-usrs:`로 센다.
+- `location`은 호출식 시작(retrofit.dart·chopper는 메서드 어노테이션)의 1-based UTF-8
+  byte 열이다.
+
+`impact --format language-traversal`은 bridge-facts가 아니라 isthmus
+`language-traversal` v1 문서다(`format: "language-traversal"`). 필드와 근거 등급은
+[HTTP-ROUTES.md](HTTP-ROUTES.md#impact---format-language-traversal)에 있다.
+
 ## 소비자 지침
 
 - `project`·`channel`·`method`는 문자열 정확 일치로만 비교한다 — 정규화·대소문자
