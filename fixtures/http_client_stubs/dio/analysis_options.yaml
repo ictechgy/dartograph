@@ -1,0 +1,4 @@
+# 검증용 스텁이다. 저장소 루트 lint(public_member_api_docs 등)를 적용하지 않는다.
+analyzer:
+  exclude:
+    - '**'

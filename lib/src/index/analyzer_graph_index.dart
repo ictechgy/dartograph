@@ -3494,6 +3494,32 @@ bool _isGraphElement(Element element) =>
     element is GetterElement ||
     element is SetterElement;
 
+/// [node]를 감싸는 그래프 선언의 ID다(교환 사실의 `symbol.usr` 헬퍼).
+///
+/// 관계 수집기(`_RelationshipCollector.visitDeclaration`)가 간선의 출발점으로
+/// 쓰는 소유자와 같은 규칙이다 — [node]에서 조상으로 올라가며 element가 그래프
+/// 선언인 첫 `Declaration`을 고른다. 생성자·지역 함수·지역 변수는 그래프
+/// 정점이 아니므로 바깥 선언(클래스·메서드)에 귀속한다. [root]는 `impact`에
+/// 넘기는 패키지 루트와 같아야 같은 ID 공간이 된다. 해석되지 않은 선언이면
+/// null이다 — 신원을 지어내지 않는다.
+String? enclosingGraphDeclarationId(AstNode node, String root) {
+  for (AstNode? current = node; current != null; current = current.parent) {
+    if (current is! Declaration) continue;
+    final element = current.declaredFragment?.element;
+    if (element != null && _isGraphElement(element)) {
+      return _elementId(element, root);
+    }
+  }
+  return null;
+}
+
+/// 그래프 선언 [element]의 ID다. 그래프 정점이 아닌 element면 null이다.
+String? graphElementId(Element element, String root) =>
+    _isGraphElement(element) ? _elementId(element, root) : null;
+
+/// 라이브러리 [uri]의 그래프 ID다(`package:`는 그대로, 파일은 `project:`).
+String graphLibraryId(Uri? uri, String root) => _libraryId(uri, root);
+
 String _elementId(Element element, String root) {
   final libraryUri = _libraryId(element.library?.uri, root);
   final names = <String>[];
