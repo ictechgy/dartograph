@@ -59,3 +59,38 @@ Object? _sort(Object? value) {
   if (value is List) return value.map(_sort).toList();
   return value;
 }
+
+/// isthmus http 도메인의 호출 측 문서(`target: "http"`, `roles: ["client"]`)를
+/// 키 정렬 JSON으로 내보낸다.
+///
+/// 사실이 0건이어도 target을 `http`로 둔다 — roles가 있는 0건 문서는 "스캔했으나
+/// 호출 없음"이다(GRAPH-EXCHANGE http 한정 예외). [includeTests]는
+/// `sourceSets.tests`로 테스트 소스 스캔 여부를 선언한다. [service]는 문서 수준
+/// 서비스 신원이다.
+String exportRouteFacts({
+  required String project,
+  required DateTime generatedAt,
+  required List<Map<String, Object?>> facts,
+  required List<String> limitations,
+  required bool includeTests,
+  String? service,
+}) {
+  final document = <String, Object?>{
+    'format': 'bridge-facts',
+    'version': 1,
+    'tool': {'name': 'dartograph', 'version': toolVersion},
+    'generatedAt': DateTime.fromMillisecondsSinceEpoch(
+      generatedAt.millisecondsSinceEpoch,
+      isUtc: true,
+    ).toIso8601String(),
+    'platform': 'dart',
+    'target': 'http',
+    'roles': const ['client'],
+    'sourceSets': {'tests': includeTests ? 'included' : 'excluded'},
+    'service': ?service,
+    'project': project,
+    'facts': facts,
+    'limitations': limitations,
+  };
+  return '${const JsonEncoder.withIndent('  ').convert(_sort(document))}\n';
+}
