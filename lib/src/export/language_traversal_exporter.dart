@@ -43,7 +43,8 @@ final class LanguageTraversalMetadata {
 
 /// 순회에 쓴 그래프 내용의 `sha256:` 해시다.
 ///
-/// 정점(id·종류 표시)과 간선(양 끝·종류)을 정렬해 담는다. 위치는 넣지 않는다 —
+/// 정점(id·종류 표시)과 간선(양 끝·종류)을 [GraphSnapshot]이 고정한 정렬
+/// 순서(정점 id, 간선 출발·도착·종류)로 담는다. 위치는 넣지 않는다 —
 /// 줄만 옮긴 편집은 순회 결과를 바꾸지 않는다. 방향과 무관한 입력만 쓰므로 같은
 /// 그래프 위의 정·역방향 문서가 같은 값을 낸다.
 String graphRevisionOf(GraphSnapshot graph) {

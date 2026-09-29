@@ -361,7 +361,11 @@ _Located? _locateDio(List<UrlPart> parts, DioBase? base) {
   // 경로 앞머리가 값이면 base를 알아도 그 값이 절대 URL·여러 세그먼트일 수
   // 있다. 값 뒤 `/` 리터럴의 꼬리만 증명된다.
   if (first is! LiteralUrlPart) return _dioAfterValue(parts);
-  if (base != null) return _dioWithBase(parts, base);
+  if (base != null) {
+    // 경로 없는 base(`https://h`) 뒤 상대 경로는 host에 붙는다(`https://husers`).
+    final hostJoin = base.path.isEmpty && !first.text.startsWith('/');
+    return hostJoin ? null : _dioWithBase(parts, base);
+  }
   if (!first.text.startsWith('/') || first.text.startsWith('//')) return null;
   return _Located(_dioCollapse(parts), 'base', null, dots: true);
 }

@@ -54,6 +54,20 @@ void main() {
       );
     });
 
+    test('a relative path after a path-less base joins the host', () {
+      // dio 5.11.1: RequestOptions(baseUrl: 'https://h', path: 'users').uri는
+      // https://husers다 — root `/users`가 아니다.
+      final route = compose([
+        const LiteralUrlPart('users'),
+      ], DioJoin(DioBase.parseLiteral('https://h.test')));
+      expect(route.dynamic, isTrue);
+      expect(route.limitation, ambiguousBaseJoinPrefix);
+      final rooted = compose([
+        const LiteralUrlPart('/users'),
+      ], DioJoin(DioBase.parseLiteral('https://h.test')));
+      expect((rooted.template, rooted.pathAnchor), ('/users', 'root'));
+    });
+
     test('a whole-path value is dynamic without an ambiguous join', () {
       final route = compose(const [ValueUrlPart()], const DioJoin(null));
       expect(route.dynamic, isTrue);
