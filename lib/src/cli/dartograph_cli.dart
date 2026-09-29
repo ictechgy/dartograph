@@ -17,6 +17,7 @@ import '../analysis/reachability_analyzer.dart';
 import '../analysis/symbol_query.dart';
 import '../analysis/graph_comparison.dart';
 import '../analysis/impact_analyzer.dart';
+import '../analysis/language_traversal.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
 import '../core/path_glob.dart';
@@ -30,6 +31,7 @@ import '../export/dependency_reporter.dart';
 import '../export/duplication_reporter.dart';
 import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
+import '../export/language_traversal_exporter.dart';
 import '../export/ledger_reporter.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
@@ -50,6 +52,7 @@ import 'configuration_template.dart';
 import 'mcp_server.dart';
 
 part 'routes_command.dart';
+part 'traversal_command.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
@@ -169,6 +172,15 @@ Future<int> _dispatchCommand(
     case 'impact':
       final indexed = _indexArguments(arguments, stderrSink, indexPackage);
       if (indexed == null) return ExitStatus.usage.code;
+      if (_isLanguageTraversal(indexed.arguments)) {
+        return await _runLanguageTraversal(
+          indexed.arguments,
+          stdoutSink,
+          stderrSink,
+          indexed.index,
+          now ?? DateTime.now,
+        );
+      }
       return await _runImpact(
         indexed.arguments,
         stdoutSink,
@@ -3718,6 +3730,7 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
        dartograph schema --format json [--project <shared-root>] <package-root>
        dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
+       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
        dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
@@ -3858,6 +3871,20 @@ http-wrapper-unresolved, http-wrapper-undeclared, generated-client-unscanned,
 missing-route-usrs). Test sources (test/, integration_test/) are excluded
 unless --include-tests marks those facts testSource. Literal URLs lose
 userinfo, query and fragment, and high-entropy or webhook segments are masked.
+
+impact --format language-traversal emits an isthmus language-traversal v1
+document for trace: one pass over every root (positional ids and/or
+--roots-from, a JSON string array or a bridge-facts document whose facts'
+symbol.usr become roots; - reads stdin). --direction dependents (default)
+lists callers and referrers, dependencies lists what the roots use. Each
+reached declaration carries every root that reaches it (at most 64 listed),
+a shortest via/depth witness and evidence: direct for analyzer-resolved
+edges, candidate when some root needs an overriding-member dispatch edge.
+unresolvedCalls and dispatch are not reported. revision is --revision, else
+the git HEAD when <package-root> has no uncommitted or untracked changes;
+graphRevision hashes the graph content. A root that is not an exact graph
+id stays listed without a symbol, adds root-not-found and exits 64; roots
+or --revision with control characters are usage errors (64).
 
 bridges --project declares the shared join root for a monorepo: the scan stays
 on <package-root> while the document's project field and location.path become
