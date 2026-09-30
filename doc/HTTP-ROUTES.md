@@ -110,13 +110,15 @@ Dart SDK `Uri` 동작(3.13.3 실행 확인): `Uri.parse`는 점 세그먼트를 
 
 ## 공유 적합성 벡터
 
-`fixtures/isthmus_conformance/`에 isthmus `78d3dee`의 `http-template`·`url-compose`·
-`http-limitation-scope`를 벤더링하고 `conformance.lock`에 커밋과 sha256을 적었다.
+`fixtures/isthmus_conformance/`에 isthmus `76b6141`의 `http-template`·`url-compose`·
+`http-limitation-scope`·`http-dispatch`를 벤더링하고 `conformance.lock`에 커밋과 sha256을 적었다.
 `test/index/route_conformance_test.dart`가 lock을 대조하고 `producer`·
 `producer:dartograph` 케이스를 모두 실행한다(모르는 규칙이면 실패): http-template 33,
 url-compose 41(`wrapper.location`은 실제 스캐너로), http-limitation-scope 27 — **101/101
 통과**. `producer:kartograph`(Spring)·`producer:openapi` 케이스는 서버 변환이라 적용하지
-않는다. 벡터의 `dio-concat` 결합은 dio 규칙으로 실행한다.
+않는다. 벡터의 `dio-concat` 결합은 dio 규칙으로 실행한다. `http-dispatch`의 생산자
+케이스(`dispatch.validate` 18)는 route-decl의 `order` 검증이라 route-decl을 내지 않는
+dartograph에는 적용하지 않고, 테스트가 그 분류만 고정한다.
 
 ## 모의 서버 오라클
 
