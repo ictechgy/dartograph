@@ -11,6 +11,8 @@ import 'route_location_probe.dart';
 
 /// isthmus 공유 적합성 벡터(`http-template`·`url-compose`·
 /// `http-limitation-scope`)의 생산자 케이스를 dartograph 규칙으로 실행한다.
+/// `http-dispatch`는 lock으로 대조만 하고 생산자 케이스(`dispatch.validate`)는
+/// 적용하지 않는다 — 아래 테스트가 그 분류를 고정한다.
 ///
 /// 벤더링한 파일의 sha256을 `conformance.lock`과 먼저 대조한다. 생산자 케이스의
 /// 규칙 식별자를 모르면 건너뛰지 않고 실패한다 — 새 규칙이 조용히 미검증으로
@@ -40,6 +42,7 @@ void main() {
     expect(lock['format'], 'isthmus-conformance-lock');
     final files = lock['files']! as Map<String, Object?>;
     expect(files.keys.toSet(), {
+      'http-dispatch.json',
       'http-limitation-scope.json',
       'http-template.json',
       'url-compose.json',
@@ -112,6 +115,22 @@ void main() {
       }
     }
     expect(cases, hasLength(27));
+  });
+
+  // dartograph는 클라이언트 route-call만 내고 route-decl의 `order`를 내지 않는다.
+  // `dispatch.validate`는 registration-order 문서의 `order`를 검증하는 규칙이라
+  // 검증할 생산 출력이 없으므로 적용하지 않는다. 다른 생산자 규칙이 더해지면
+  // 조용히 미검증으로 남지 않게 실패한다.
+  test('http-dispatch producer cases are classified as not applicable', () {
+    final cases = producerCases('http-dispatch.json');
+    for (final testCase in cases) {
+      if (testCase['ruleId'] != 'dispatch.validate') {
+        fail(
+          'unknown producer rule ${testCase['ruleId']} in ${testCase['id']}',
+        );
+      }
+    }
+    expect(cases, hasLength(18));
   });
 
   test('url-compose producer cases pass', () async {
