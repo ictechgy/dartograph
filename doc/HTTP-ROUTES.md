@@ -1,6 +1,6 @@
 # HTTP 경계 생산자 — `routes`와 `impact --format language-traversal`
 
-_기록: 2026-09-29 · 상태: 개발 중(미발행) · 계약 정본: isthmus
+_기록: 2026-09-29 · 상태: 0.16.0 발행 대상 · 계약 정본: isthmus
 [GRAPH-EXCHANGE "HTTP 경계"](https://github.com/ictechgy/isthmus/blob/main/docs/GRAPH-EXCHANGE.md),
 [HTTP-WRAPPERS](https://github.com/ictechgy/isthmus/blob/main/docs/HTTP-WRAPPERS.md),
 [LANGUAGE-TRAVERSAL](https://github.com/ictechgy/isthmus/blob/main/docs/LANGUAGE-TRAVERSAL.md),

@@ -55,7 +55,7 @@ dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
 Dart SDK 3.11 or later.
 
 ```bash
-dart pub global activate dartograph 0.15.2
+dart pub global activate dartograph 0.16.0
 # or, on Dart 3.11+, an AOT-compiled install:
 dart install dartograph
 dartograph --version
@@ -163,7 +163,7 @@ Full arguments, output formats, exit codes, and CI examples live in
   Isar/Hive-style stores and unsupported SQL packages are reported as
   limitations, not facts. The SQL reader is a port of the kartograph/cartograph
   extractor so every producer reads the same SQL the same way.
-- `routes --role client` (unreleased) emits isthmus http `route-call` facts
+- `routes --role client` emits isthmus http `route-call` facts
   (bridge-facts v1, `target: "http"`, `roles: ["client"]`) for package:http,
   dio, retrofit.dart and chopper calls and for wrappers declared in an isthmus
   `http-wrappers` v1 file. Each library's base-URL join follows its source:
@@ -175,7 +175,7 @@ Full arguments, output formats, exit codes, and CI examples live in
   templates agree with the requests the real libraries sent to a local mock
   server, and the shared isthmus conformance vectors pass 101/101 — see
   [HTTP routes](doc/HTTP-ROUTES.md) (Korean).
-- `impact --format language-traversal` (unreleased) emits an isthmus
+- `impact --format language-traversal` emits an isthmus
   `language-traversal` v1 document for `trace`: one pass over many roots
   (for example every `route-call` usr via `--roots-from`), with every root that
   reaches each declaration, a shortest-path witness and per-root lower-bound
