@@ -7,6 +7,20 @@ void main() {
   List<String> relations(String sql, {bool strict = false}) =>
       sqlRelations(sql, strict: strict).relations.map((r) => r.name).toList();
 
+  test('테이블 값 함수는 관계가 아니고 미해석 근거를 남긴다', () {
+    expect(relations("SELECT * FROM pragma_table_info('t')"), isEmpty);
+    expect(
+      relations(
+        "SELECT * FROM users JOIN main.pragma_table_info('t') p ON true",
+      ),
+      ['users'],
+    );
+    expect(relations("SELECT * FROM pragma_table_info('t') AS p, users"), [
+      'users',
+    ]);
+    expect(sqlRelations("SELECT * FROM pragma_table_info('t')").unresolved, 1);
+  });
+
   test('기본 관계 키워드의 피연산자를 읽는다', () {
     expect(relations('SELECT * FROM users'), ['users']);
     expect(relations('SELECT * FROM users JOIN orders ON true'), [

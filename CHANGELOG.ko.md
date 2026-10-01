@@ -2,6 +2,10 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
+## Unreleased
+
+- SQL FROM/JOIN의 테이블 값 함수를 관계로 추측하지 않고 미해석 피연산자로 센다.
+
 ## 0.16.0
 
 - 호환성: 새 `routes --role client`·`impact --format language-traversal`·`schema` 출력은 isthmus 커밋 `76b6141` 이후가 필요하다. 발행된 isthmus-cli 0.9.0은 이 출력을 받지 않는다. 벤더링한 isthmus 적합성 벡터는 `76b6141`에 고정돼 있다. 기존 명령과 기본 출력은 그대로다. 다만 객체 패턴 읽기 간선 때문에 이전 `dead` finding이 사라지고 `impact` 결과가 늘 수 있다(아래 참조).

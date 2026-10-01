@@ -2,6 +2,10 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
+## Unreleased
+
+- Stop reporting table-valued SQL functions as table relations; preserve unresolved evidence and subsequent real tables.
+
 ## 0.16.0
 
 - Compatibility: the new `routes --role client`, `impact --format language-traversal` and `schema` outputs need isthmus at commit `76b6141` or later; the published isthmus-cli 0.9.0 does not accept them. The vendored isthmus conformance vectors are locked at `76b6141`. Existing commands and their default output are unchanged, except that object-pattern reads can remove previous `dead` findings and add `impact` results (see below).

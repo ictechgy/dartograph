@@ -378,15 +378,24 @@ final class _RelationScan {
           if (!clauseNext) unresolved++;
           break;
         }
-        if (bufferedGrant) {
-          buffer.add(read.name);
-        } else {
-          _emit(read.name, keyword);
-        }
         for (var c = j; c < read.next; c++) {
           consumed[c] = true;
         }
-        operandEnd = read.next;
+        if (const {'from', 'join'}.contains(keyword.text.toLowerCase()) &&
+            _isSymbol(read.next, '(')) {
+          // 함수의 내부 관계를 추측하지 않고 미해석 근거를 남긴다.
+          unresolved++;
+          final end = _skipParens(tokens, read.next);
+          if (end == null) break;
+          operandEnd = end;
+        } else {
+          if (bufferedGrant) {
+            buffer.add(read.name);
+          } else {
+            _emit(read.name, keyword);
+          }
+          operandEnd = read.next;
+        }
       }
       final k = _skipAlias(operandEnd);
       endPos = k;
