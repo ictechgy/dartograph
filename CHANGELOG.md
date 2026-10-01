@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+## 0.16.1
+
 - Stop reporting table-valued SQL functions as table relations; preserve unresolved evidence and subsequent real tables.
 
 ## 0.16.0
