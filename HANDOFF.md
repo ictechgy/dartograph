@@ -1,11 +1,31 @@
 # Handoff
 
-_Last updated: 2026-09-20_
+_Last updated: 2026-10-11_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다. 과거 Next Steps·미릴리스 표기는 당시 기록이다.
 
 ## Current Status
+
+- **0.16.2 릴리스 준비**다. 기준 구현 커밋은 `3e521a573d7764bd12331d6a56980ae0e74cfdf6`이며,
+  MCP 프레이밍 무결성과 analyzer 14.5 재검증을 포함한다. pub.dev·태그·GitHub Release를
+  아직 발행하지 않았다. 2026-10-11 pub.dev API 조회 기준 최신은 0.16.1이고 0.16.2는 없다.
+- 기준 구현의 Dart 3.13.3 일반 테스트 782개·격리 설치 테스트 1개·native CLI 계약 218개,
+  제품 라인 커버리지 91.78%를 확인했다. Dart 3.11.0은 analyze·관련 테스트 51개만 검증했다.
+  이후 기준 구현 PR146의 [CI](https://github.com/ictechgy/dartograph/actions/runs/38158056797)는
+  Dart 3.11.0·3.13.3 두 전체 검증 작업 모두 통과했다. 실제 Flutter 코퍼스는 다시 실행하지 않았다.
+  상세 로컬 검증 범위는 `doc/DECISION-analyzer.md`에 있다.
+- 릴리스 브랜치는 버전·문서·버전 assertion만 변경한다. 기능 PR 병합 뒤 병합 커밋에
+  릴리스 변경을 다시 적용하고, 그 최종 커밋의 CI·버전 계약·publish dry-run을 확인한다.
+- 게시 순서는 CONTRIBUTING의 기존 절차를 유지한다: 게시 권한이 있는 환경에서
+  `dart pub publish` 성공을 확인한 뒤 같은 커밋에 `v0.16.2` 태그와 GitHub Release를
+  연결하고, 공개 패키지를 새 캐시에 설치해 `--version`을 확인한다. 기존 버전을 덮어쓰지 않는다.
+- 현재 준비 환경에서는 게시에 쓸 인증 경로가 확인되지 않아 pub.dev 게시·태그·Release
+  작업은 진행하지 않았다. 새 자격 증명이나 자동 게시 워크플로도 만들지 않았다.
+
+## Earlier Verified Status
+
+아래 0.15.0 기록은 과거 발행 근거다. 현재 릴리스 준비나 최신 레지스트리 버전으로 읽지 않는다.
 
 - 자매 후속의 timestamp 계약을 [GRAPH-EXCHANGE](doc/GRAPH-EXCHANGE.md)에 반영했다.
   generatedAt은 문서 추출 시각이며 optional sourceModifiedAt은 별도 source mtime이다.
@@ -30,7 +50,7 @@ _Last updated: 2026-09-20_
 
 ## Next Steps
 
-요청됐던 CLI 구현·머지·0.15.0 발행은 완료됐다. 다음은 별도 후속 후보다.
+우선 0.16.2의 최종 병합 커밋 검증과 승인된 게시 경로를 확보한다. 아래 항목은 이전 후속 후보이며 이번 릴리스의 선행 조건이 아니다.
 
 - pub.dev verified publisher 설정과 README 데모(asciinema).
 - VS Code 확장 아이콘 선택. 기존 시안과 사용자 결정을 보존한다.
@@ -39,7 +59,8 @@ _Last updated: 2026-09-20_
 
 ## Resume Prompt
 
-HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. dartograph 0.15.0의
-pub.dev·GitHub 발행과 독립 설치 검증은 완료됐어. HANDOFF-HISTORY.md의 옛 미커밋·미릴리스·
-Next Steps를 현재 지시로 되살리지 마. HANDOFF-PROGRESS.md와 icon-drafts는 사용자 파일이야.
-최신 요청에 맞는 작업만 진행하고, 기존 검사 근거와 분석 한계를 유지해.
+HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 0.16.2는 릴리스 준비이며
+게시됐다고 가정하지 마. 기능 PR 병합 뒤 릴리스 변경을 최종 커밋에 적용하고 CI·버전 계약·
+publish dry-run을 확인해야 해. 게시 인증 경로가 준비되면 CONTRIBUTING의 순서대로 pub.dev,
+같은 커밋의 태그·GitHub Release, 새 캐시 공개 설치 검증을 진행해. 과거 검증 범위를 확대해서
+표현하지 말고 기존 사용자 파일과 분석 한계를 보존해.
