@@ -55,7 +55,7 @@ dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
 Dart SDK 3.11 or later.
 
 ```bash
-dart pub global activate dartograph 0.16.1
+dart pub global activate dartograph 0.16.2
 # or, on Dart 3.11+, an AOT-compiled install:
 dart install dartograph
 dartograph --version
@@ -63,9 +63,11 @@ dartograph --version
 
 Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
-[GitHub Releases](https://github.com/ictechgy/dartograph/releases). Every
-release passes the full test suite, the line-coverage gate, and a package
-dry-run, and is dogfooded against real public Flutter plugins.
+[GitHub Releases](https://github.com/ictechgy/dartograph/releases). Release
+validation includes the full test suite, the line-coverage gate, and a package
+dry-run. Earlier real-project dogfooding and its SDK/version limits are recorded
+in the [analyzer validation notes](doc/DECISION-analyzer.md) (Korean); those
+measurements are not repeated for every patch release.
 
 ## Usage
 

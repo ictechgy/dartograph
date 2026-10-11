@@ -38,13 +38,13 @@ dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 �
 dartograph는 순수 Dart CLI라 Flutter SDK를 필요로 하지 않는다. Dart SDK 3.11 이상에서 동작한다.
 
 ```bash
-dart pub global activate dartograph 0.16.1
+dart pub global activate dartograph 0.16.2
 # 또는 Dart 3.11+에서는 AOT 컴파일 설치:
 dart install dartograph
 dartograph --version
 ```
 
-릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와 [GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다. 모든 릴리스는 전체 테스트 스위트·라인 커버리지 게이트·패키지 dry-run을 통과하고, 실제 공개된 Flutter 플러그인을 대상으로 dogfooding을 거친다.
+릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와 [GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다. 릴리스 검증에는 전체 테스트 스위트·라인 커버리지 게이트·패키지 dry-run이 포함된다. 이전 실제 프로젝트 dogfooding과 SDK·버전별 한계는 [analyzer 검증 기록](doc/DECISION-analyzer.md)에 보존하며, 모든 패치 릴리스에서 그 측정을 다시 수행한다는 뜻은 아니다.
 
 ## 사용
 
