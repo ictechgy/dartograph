@@ -179,6 +179,32 @@ JSON의 SHA-256이 일치했다.
 | 기본 Dart | 3.13.3 (macOS arm64) |
 | 검증 방법 | 전체 테스트 스위트 컴파일·통과 + 5개 표면 소스 확인 |
 
+## 14.5.x 재검증 (2026-10-11)
+
+- 상태: 채택. 기존 pubspec 범위 `>=14.3.0 <15.0.0`는 그대로 두고 검증된
+  마이너 집합에 14.5를 추가한다. 새 의존성 해석이 14.5.0을 선택하지만 기존
+  검증 집합 `{3, 4}`가 이를 거절하는 실패를 먼저 재현했다.
+- 설치된 analyzer 14.5.0 소스에서 기존 5개 표면을 다시 확인했다:
+  `ClassDeclaration.declaredFragment`와 `Identifier.element`
+  (`lib/src/dart/ast/ast.dart`, 공개 AST 라이브러리에서 export),
+  `Fragment.element`·`Element.library`·`Element.enclosingElement`·
+  `Element.firstFragment` (`lib/dart/element/element.dart`).
+- Dart 3.13.3 / Linux x64에서 일반 테스트 782개가 모두 통과했다. 실제 index
+  어댑터와 캐시·도달성·질의·브리지·MCP 경로를 포함하며, 자기 분석의 제품
+  미도달 발견 0 및 false-positive 코퍼스의 보고/보존 양방향 계약도 통과했다.
+- 격리 설치 테스트 1개와 설치본 CLI 계약 218개도 통과했다. 두 테스트 실행을
+  합산한 제품 라인 커버리지는 10,272/11,192(91.78%)로 90% 게이트를 유지했다.
+  공유 호스트의 메모리 경합으로 기본 동시 실행이 종료돼 `--concurrency=1`로
+  직렬 실행했으며 테스트를 생략하거나 커버리지 기준을 낮추지 않았다.
+- 별도 소스 복사본에서 최소 SDK Dart 3.11.0으로 `dart analyze`와
+  MCP·프레이밍·analyzer 버전 계약 테스트 51개가 통과했다. 최소 SDK의 전체
+  스위트를 재실행했다는 뜻은 아니다. 실제 Flutter·대형 공개 코퍼스의 과거
+  측정을 새 버전의 측정으로 대체하거나 정확성 보장으로 확대하지 않는다.
+- 캐시 신원은 이전 확장과 같다. analyzer의 해석 경로를 담은 package config가
+  캐시 키 입력이므로 14.4.0에서 14.5.0으로 바뀌면 이전 캐시가 무효화된다.
+  별도 분석 identity 변경은 하지 않는다. 이후 미검증 마이너도 테스트의
+  검증 집합과 이 재검증 절차를 통과한 뒤 추가한다.
+
 ## Phase 1에 넘기는 제약
 
 - analyzer 타입은 `lib/src/index/` 밖으로 노출하지 않는다.

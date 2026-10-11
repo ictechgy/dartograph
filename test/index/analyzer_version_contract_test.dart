@@ -12,7 +12,7 @@ import 'package:yaml/yaml.dart';
 /// index 어댑터는 이 집합에서만 검증됐다. 마이너를 추가하거나 major를 올리려면
 /// 그 문서의 절차대로 API 표면을 다시 검증하고 이 상수들을 함께 갱신해야 한다.
 const _validatedMajor = 14;
-const _validatedMinors = {3, 4};
+const _validatedMinors = {3, 4, 5};
 
 /// 검증 범위의 pubspec 제약 문자열이다. 위 major에서 도출해 제약과 집합이
 /// 서로 어긋나지 않도록 단일 사실 출처를 유지한다.
