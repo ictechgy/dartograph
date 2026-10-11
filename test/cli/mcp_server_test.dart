@@ -947,7 +947,7 @@ void main() {
           .split('\n')
           .map((line) => jsonDecode(line) as Map<String, Object?>)
           .toList();
-      // 상한에서 잘린 메시지는 파싱 불가라 Invalid JSON으로 답한다.
+      // 초과 메시지는 전체를 거부하고 Invalid JSON으로 답한다.
       expect((responses[0]['error'] as Map)['code'], -32700);
       expect(responses[1]['result'], <String, Object?>{});
     },

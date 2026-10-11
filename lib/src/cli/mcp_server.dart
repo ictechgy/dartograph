@@ -54,43 +54,75 @@ const mcpMaxMessageBytes = 1 << 20;
 /// stdin 바이트를 [maxBytes] 상한의 UTF-8 라인 스트림으로 변환한다.
 ///
 /// `LineSplitter`는 개행 전까지 무제한 버퍼링하므로 직접 쓸 수 없다. 상한을
-/// 넘는 라인은 [maxBytes]에서 잘라 돌려준다 — 잘린 JSON은 반드시 파싱에
-/// 실패하므로 서버가 `Invalid JSON`으로 답하고 연결은 유지된다. 나머지 바이트는
-/// 다음 개행까지 버린다.
+/// 넘거나 UTF-8이 잘못된 라인은 JSON으로 해석할 수 없는 표지 하나로 바꿔
+/// 서버가 `Invalid JSON`으로 답하게 한다. 잘린 접두가 유효한 JSON이어도
+/// 실행하지 않는다. 초과 바이트는 다음 개행까지 버리고 다음 요청은 받는다.
+/// [maxBytes]는 양수여야 하며 LF는 세지 않고 CR은 센다. 구독마다 버퍼가
+/// 독립적이므로 같은 변환기를 여러 스트림·구독에서 재사용할 수 있다.
 StreamTransformer<List<int>, String> boundedUtf8Lines(int maxBytes) {
-  final buffer = BytesBuilder();
-  // 상한을 넘긴 라인의 잔여 바이트를 버리는 중인지다.
-  var skipping = false;
+  if (maxBytes < 1) throw RangeError.range(maxBytes, 1, null, 'maxBytes');
+  return StreamTransformer.fromBind(
+    (input) => Stream<String>.eventTransformed(
+      input,
+      (output) => _BoundedUtf8LineSink(output, maxBytes),
+    ),
+  );
+}
 
-  void emitLine(EventSink<String> sink) {
-    if (buffer.isNotEmpty) {
-      sink.add(utf8.decode(buffer.takeBytes(), allowMalformed: true));
+/// 바이트 버퍼와 초과 상태를 각 구독에 격리하는 프레이밍 경계다.
+final class _BoundedUtf8LineSink implements EventSink<List<int>> {
+  _BoundedUtf8LineSink(this._output, this._maxBytes);
+
+  final EventSink<String> _output;
+  final int _maxBytes;
+  final _buffer = BytesBuilder();
+  // 상한을 넘긴 라인의 잔여 바이트를 버리는 중인지다.
+  var _skipping = false;
+
+  void _emitLine() {
+    if (_skipping) {
+      _output.add('\u0000');
+    } else if (_buffer.isNotEmpty) {
+      try {
+        _output.add(utf8.decode(_buffer.takeBytes()));
+      } on FormatException {
+        // NUL은 JSON 값이나 공백이 될 수 없어 부분 요청으로 실행되지 않는다.
+        _output.add('\u0000');
+      }
     }
-    skipping = false;
+    _skipping = false;
   }
 
-  return StreamTransformer.fromHandlers(
-    handleData: (chunk, sink) {
-      var offset = 0;
-      while (offset < chunk.length) {
-        final newline = chunk.indexOf(0x0A, offset);
-        final end = newline == -1 ? chunk.length : newline;
-        if (!skipping && end > offset) {
-          final piece = chunk.sublist(offset, end);
-          final room = maxBytes - buffer.length;
-          buffer.add(piece.length <= room ? piece : piece.sublist(0, room));
-          if (piece.length > room) skipping = true;
+  @override
+  void add(List<int> chunk) {
+    var offset = 0;
+    while (offset < chunk.length) {
+      final newline = chunk.indexOf(0x0A, offset);
+      final end = newline == -1 ? chunk.length : newline;
+      if (!_skipping && end > offset) {
+        if (end - offset > _maxBytes - _buffer.length) {
+          // 거대한 청크를 sublist로 복사하기 전에 상한을 확인한다.
+          _buffer.clear();
+          _skipping = true;
+        } else {
+          _buffer.add(chunk.sublist(offset, end));
         }
-        if (newline == -1) break;
-        emitLine(sink);
-        offset = newline + 1;
       }
-    },
-    handleDone: (sink) {
-      emitLine(sink);
-      sink.close();
-    },
-  );
+      if (newline == -1) break;
+      _emitLine();
+      offset = newline + 1;
+    }
+  }
+
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) =>
+      _output.addError(error, stackTrace);
+
+  @override
+  void close() {
+    _emitLine();
+    _output.close();
+  }
 }
 
 /// dartograph의 분석·질의 능력을 MCP 도구로 노출하는 stdio 서버를 실행한다.

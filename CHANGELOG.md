@@ -4,6 +4,9 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Reject oversized MCP input lines as a whole, even when their prefix is valid JSON. Invalid UTF-8 is rejected without changing request data; the next line remains usable. Framing buffers are bounded before copying large chunks and isolated per subscription.
+- Revalidate analyzer 14.5.0 and add it to the verified compatibility set without changing the dependency range.
+
 ## 0.16.1
 
 - Stop reporting table-valued SQL functions as table relations; preserve unresolved evidence and subsequent real tables.

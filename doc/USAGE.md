@@ -594,6 +594,11 @@ AI 클라이언트(Claude Desktop·Cursor·agent 런타임 등)가 dartograph의
 **읽기 전용**이며 저장소를 수정하지 않는다. 각 도구는 기존 CLI 실행 경로를 그대로
 재사용하므로 출력 스키마와 종료 코드가 CLI와 어긋나지 않는다.
 
+입력은 UTF-8 JSON 한 줄당 1 MiB 이하이며 LF 구분자는 크기에 포함하지 않고
+CR은 포함한다. 상한 초과나 잘못된 UTF-8은 줄 전체를 거부하고 JSON-RPC
+parse error(-32700) 하나로 응답한다. 유효한 JSON 접두만 잘라 실행하거나 문자를
+대체하지 않으며, 다음 개행부터 후속 요청을 계속 처리한다.
+
 | 도구 | 입력 | 답 |
 |---|---|---|
 | `dartograph_explore` | `packageRoot`(필수) + 질문 형태 하나: `symbol` \| `batch`(심볼 근거+소스), `impactSymbol` \| `since` \| `changed`(영향), `command`(검증·`runtime`) | 인자가 가리키는 도구로 내부 라우팅 — 첫 줄 `routed: <도구>` 표지 뒤 해당 도구와 같은 출력 |
