@@ -30,6 +30,7 @@ void main() {
     expect(shellSteps, greaterThan(0));
   });
 
+  // 합성 액션의 Bash 경계 테스트는 Windows에서 건너뛴다.
   group('action argument and report contract', () {
     late Directory temporary;
     late File captured;
@@ -260,5 +261,5 @@ exec "${Platform.resolvedExecutable}" "${captureProgram.path}" "\$@"
         );
       }
     });
-  }, skip: Platform.isWindows ? 'The composite action uses Bash.' : false);
+  }, skip: Platform.isWindows);
 }
