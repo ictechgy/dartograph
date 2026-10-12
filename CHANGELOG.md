@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Invalidate cached analysis when package or workspace `build.yaml` is created, edited, deleted, or becomes malformed. Builder retention roots and parsing limitations now match fresh analysis; older cache entries are discarded.
+
 ## 0.16.2
 
 - Reject oversized MCP input lines as a whole, even when their prefix is valid JSON. Invalid UTF-8 is rejected without changing request data; the next line remains usable. Framing buffers are bounded before copying large chunks and isolated per subscription.

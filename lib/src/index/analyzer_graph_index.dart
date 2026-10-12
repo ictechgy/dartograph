@@ -1866,8 +1866,10 @@ const _cacheSchemaVersion = 7;
 // 늘어난다 — 이전 캐시는 `call`을 dead로 남기므로 identity를 올려 폐기한다.
 // 객체 패턴 필드의 getter 읽기 간선(v16)으로 다시 간선이 늘어난다 — 이전 캐시는
 // 패턴으로만 읽는 필드를 dead로 남기므로 identity를 올려 폐기한다.
+// build.yaml 입력 누락(v17)을 고친다. 파일이 이미 삭제된 경우에도 옛 키로
+// 저장한 builder 보존·파싱 한계가 재사용되지 않도록 이전 캐시를 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v16-pattern-fields';
+    'dartograph-analysis-$toolVersion-cache-v17-build-config';
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -1950,6 +1952,7 @@ Future<List<File>> _analysisInputFiles(
     addFile(File(p.join(packageRoot.path, 'pubspec.yaml')));
     addFile(File(p.join(packageRoot.path, 'analysis_options.yaml')));
     addFile(File(p.join(packageRoot.path, 'dartograph.yaml')));
+    addFile(File(p.join(packageRoot.path, 'build.yaml')));
     var packageConfiguration = File(
       p.join(packageRoot.path, '.dart_tool', 'package_config.json'),
     );
