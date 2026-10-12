@@ -40,11 +40,9 @@ void main() {
 
     setUp(() {
       final document = loadYaml(File('action.yml').readAsStringSync());
-      script =
-          (document['runs']['steps'] as YamlList).cast<YamlMap>().singleWhere(
-                (step) => step['id'] == 'run',
-              )['run']
-              as String;
+      final steps = (document['runs']['steps'] as YamlList).cast<YamlMap>();
+      final runStep = steps.singleWhere((step) => step['id'] == 'run');
+      script = runStep['run'] as String;
       temporary = Directory.systemTemp.createTempSync('dartograph-action-');
       captured = File('${temporary.path}/argv.json');
       report = File('${temporary.path}/report with spaces.txt');
