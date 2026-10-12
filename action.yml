@@ -24,8 +24,10 @@ inputs:
     default: impact
   args:
     description: >-
-      Extra CLI arguments, word-split by the shell. Quote values that contain
-      spaces. Example: --since origin/main --format github-actions --fail-on high
+      Extra CLI arguments. ASCII whitespace separates words; single or double
+      quotes group values (including empty values). Outside single quotes, a
+      backslash escapes the next character. No shell expansion is performed.
+      Example: --config "config files/rules.yaml" --strict
     required: false
     default: ''
   package-root:
@@ -102,6 +104,7 @@ runs:
       id: run
       shell: bash
       env:
+        DARTOGRAPH_ACTION_PATH: ${{ github.action_path }}
         DARTOGRAPH_OUTPUT_FILE: ${{ inputs.output-file }}
         DARTOGRAPH_COMMAND: ${{ inputs.command }}
         DARTOGRAPH_ARGS: ${{ inputs.args }}
@@ -111,9 +114,7 @@ runs:
       # that only want a report add `continue-on-error: true` and read
       # steps.<id>.outputs.exit-code.
       run: |
-        # -f (noglob): args is word-split but never glob-expanded — a `*`
-        # in the input stays literal instead of matching workspace files.
-        set -euf -o pipefail
+        set -euo pipefail
         # output-file input has a default, but keep a fallback so an unset
         # env under `set -u` still writes the report instead of dying early.
         report="${DARTOGRAPH_OUTPUT_FILE:-dartograph-report.txt}"
@@ -124,13 +125,23 @@ runs:
           echo "exit-code=64" >> "$GITHUB_OUTPUT"
           exit 64
         fi
+        # 본문에 입력을 삽입하거나 셸로 재평가하지 않는다.
+        args_file="$(mktemp)"
+        trap 'rm -f "$args_file"' EXIT
         set +e
-        # args is a documented free-form string of extra flags; it expands
-        # unquoted on purpose so the shell word-splits it. Variable content
-        # is never re-evaluated, so $(...) or backticks in it stay literal.
-        dartograph "$DARTOGRAPH_COMMAND" $DARTOGRAPH_ARGS "$DARTOGRAPH_PACKAGE_ROOT" \
-          > "$report" 2>&1
+        dart "$DARTOGRAPH_ACTION_PATH/tool/parse_action_args.dart" \
+          > "$args_file" 2> "$report"
         status=$?
+        if [[ "$status" -eq 0 ]]; then
+          argv=("$DARTOGRAPH_COMMAND")
+          while IFS= read -r -d '' argument; do
+            argv+=("$argument")
+          done < "$args_file"
+          argv+=("$DARTOGRAPH_PACKAGE_ROOT")
+          dart pub global run dartograph:dartograph "${argv[@]}" \
+            > "$report" 2>&1
+          status=$?
+        fi
         set -e
         echo "exit-code=$status" >> "$GITHUB_OUTPUT"
         echo "output-file=$report" >> "$GITHUB_OUTPUT"

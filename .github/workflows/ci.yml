@@ -28,7 +28,19 @@ jobs:
       - name: Install analyzer-boundary scanner
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: dart pub get
-      - run: dart format --output=none --set-exit-if-changed .
+      - name: Run dart format --output=none --set-exit-if-changed .
+        run: |
+          if dart format --output=none --set-exit-if-changed .; then
+            exit 0
+          else
+            status=$?
+            # 진단 실패가 원래 포맷 검사의 종료 코드를 바꾸지 않게 한다.
+            dart format . || true
+            printf '\nFormatting diff (up to 32768 bytes):\n'
+            git diff -- . | head -c 32768 || true
+            printf '\n'
+            exit "$status"
+          fi
       - run: dart analyze
       - name: VS Code extension checks
         run: |
