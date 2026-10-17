@@ -135,7 +135,9 @@ bool looksLikeSql(String text, {bool strict = false}) {
 }
 
 /// [sqlRelations]의 한 번 스캔 상태다 — 원본의 지역 변수·중첩 함수를 필드와
-/// 메서드로 옮겼다. 규칙 자체는 포트 원본과 한 줄씩 대응한다.
+/// 메서드로 옮겼다. 규칙 자체는 포트 원본과 한 줄씩 대응한다. 다만 같은 문장의
+/// 앞쪽 단어 판정과 괄호 짝은 원본처럼 키워드마다 다시 훑지 않고 한 번씩 미리
+/// 계산한다 — 결과는 같고, 큰 SQL에서 시간이 2차로 늘지 않는다.
 final class _RelationScan {
   _RelationScan(this.tokens, {required this.strict})
     : consumed = List.filled(tokens.length, false),
@@ -196,9 +198,45 @@ final class _RelationScan {
     }
   }
 
-  /// [end] 앞쪽으로 같은 문장 안의 토큰들이다.
-  Iterable<SqlToken> segmentBefore(int end) =>
-      tokens.sublist(0, end).reversed.takeWhile((token) => token.text != ';');
+  /// 위치마다 같은 문장 앞쪽에 [test]를 통과한 단어가 있었는지를 담는다.
+  ///
+  /// 포트 원본의 `segmentBefore(i)`는 키워드마다 `i` 앞을 문장 경계까지 거꾸로
+  /// 훑는다. 한 문장에 INTO·ON이 많으면 키워드마다 문장 머리까지 다시 훑어
+  /// 2차가 되므로, 같은 판정을 앞에서부터 한 번에 누적한다. 경계는 원본처럼
+  /// 인용 여부와 상관없이 본문이 `;`인 토큰이고, 그 토큰 자체는 판정에 넣지 않는다.
+  List<bool> _precedingFlags(bool Function(String lower) test) {
+    final flags = List.filled(tokens.length, false);
+    var found = false;
+    for (var k = 0; k < tokens.length; k++) {
+      flags[k] = found;
+      final token = tokens[k];
+      if (token.text == ';') {
+        found = false;
+      } else if (!found &&
+          !token.quoted &&
+          upperOk(token) &&
+          test(token.text.toLowerCase())) {
+        found = true;
+      }
+    }
+    return flags;
+  }
+
+  /// 같은 문장 앞쪽에 INSERT·SELECT·MERGE·REPLACE가 있었는지다(INTO 판정).
+  late final List<bool> _intoVerbBefore = _precedingFlags(_isIntoVerb);
+
+  /// 같은 문장 앞쪽에 GRANT/REVOKE 권한 단어가 있었는지다(GRANT ON 판정).
+  late final List<bool> _grantPrivilegeBefore = _precedingFlags(_isGrantPriv);
+
+  /// 같은 문장 앞쪽에 INDEX·TRIGGER·POLICY가 있었는지다(CREATE ON 판정).
+  late final List<bool> _createOnKindBefore = _precedingFlags(_isCreateOnKind);
+
+  /// 비인용 `(` 위치마다 짝이 맞는 `)` 다음 위치다 — 닫히지 않으면 null.
+  late final List<int?> _parenEnds = _matchParens(tokens);
+
+  /// `(` 토큰부터 짝이 맞는 `)` 다음 위치를 돌려준다 — 닫히지 않으면 null.
+  /// 포트 원본의 `skipParens`와 같은 값을 미리 만든 표에서 읽는다.
+  int? _skipParens(int start) => _parenEnds[start];
 
   /// [start]부터 같은 문장 안에 대문자 게이트를 통과한 단어 [word]가 있는지 본다.
   bool segmentAfterHas(int start, String word) => tokens
@@ -207,12 +245,6 @@ final class _RelationScan {
       .any(
         (token) =>
             !token.quoted && token.text.toLowerCase() == word && upperOk(token),
-      );
-
-  bool _precededBy(int index, bool Function(String lower) test) =>
-      segmentBefore(index).any(
-        (token) =>
-            !token.quoted && upperOk(token) && test(token.text.toLowerCase()),
       );
 
   /// 키워드 토큰이 현재 문맥에서 관계 자리를 여는지 판정한다.
@@ -225,23 +257,14 @@ final class _RelationScan {
         return stmtHead[i];
       // "merged the branch into main" 같은 산문을 막는다.
       case 'into':
-        return _precededBy(
-          i,
-          (lower) =>
-              const {'insert', 'select', 'merge', 'replace'}.contains(lower),
-        );
+        return _intoVerbBefore[i];
       case 'table':
         return _tableKeywordContext(i);
       // `GRANT .. ON t`와 `CREATE INDEX/TRIGGER/POLICY .. ON t`만 관계 자리다.
       // CREATE RULE의 ON은 이벤트 자리라 제외한다.
       case 'on':
-        final grantOn = grantStmt && _precededBy(i, _isGrantPriv);
-        final createOn =
-            stmtVerb[i] == 'create' &&
-            _precededBy(
-              i,
-              (lower) => const {'index', 'trigger', 'policy'}.contains(lower),
-            );
+        final grantOn = grantStmt && _grantPrivilegeBefore[i];
+        final createOn = stmtVerb[i] == 'create' && _createOnKindBefore[i];
         return grantOn || createOn;
       // grant·revoke의 FROM은 권한 주체 자리다.
       case 'from':
@@ -327,7 +350,7 @@ final class _RelationScan {
     while (k < tokens.length) {
       final token = tokens[k];
       if (!token.quoted && token.text == '(') {
-        final next = _skipParens(tokens, k);
+        final next = _skipParens(k);
         if (next == null) {
           unresolved++; // 닫히지 않은 괄호.
           break;
@@ -360,7 +383,7 @@ final class _RelationScan {
     while (j < tokens.length) {
       int operandEnd;
       if (_isSymbol(j, '(')) {
-        final next = _skipParens(tokens, j);
+        final next = _skipParens(j);
         if (next == null) {
           unresolved++; // 닫히지 않은 괄호.
           break;
@@ -385,7 +408,7 @@ final class _RelationScan {
             _isSymbol(read.next, '(')) {
           // 함수의 내부 관계를 추측하지 않고 미해석 근거를 남긴다.
           unresolved++;
-          final end = _skipParens(tokens, read.next);
+          final end = _skipParens(read.next);
           if (end == null) break;
           operandEnd = end;
         } else {
@@ -512,6 +535,15 @@ bool _isSqlVerb(String word) => const {
   'revoke',
 }.contains(word.toLowerCase());
 
+/// 같은 문장 앞에 있으면 INTO를 관계 자리로 만드는 동사인지 본다.
+bool _isIntoVerb(String lower) =>
+    const {'insert', 'select', 'merge', 'replace'}.contains(lower);
+
+/// CREATE 문에서 뒤따르는 ON을 관계 자리로 만드는 객체 종류어인지 본다 —
+/// CREATE RULE의 ON은 이벤트 자리라 `rule`은 넣지 않는다.
+bool _isCreateOnKind(String lower) =>
+    const {'index', 'trigger', 'policy'}.contains(lower);
+
 /// GRANT/REVOKE의 권한 단어인지 본다 — `ON`이 관계 자리임을 확정하는 근거다.
 bool _isGrantPriv(String lower) => const {
   'select',
@@ -538,20 +570,25 @@ bool _isNameModifier(String word, {required bool afterTruncate}) {
       (afterTruncate && lower == 'table');
 }
 
-/// `(` 토큰부터 짝이 맞는 `)` 다음 위치를 돌려준다 — 닫히지 않으면 null.
-int? _skipParens(List<SqlToken> tokens, int start) {
-  var depth = 0;
-  for (var k = start; k < tokens.length; k++) {
+/// 비인용 `(`마다 짝이 맞는 `)` 다음 위치를 한 번에 구한다 — 닫히지 않으면 null.
+///
+/// 포트 원본의 `skipParens`는 `(`부터 비인용 괄호 깊이를 세며 0이 되는 곳을
+/// 찾는다. 같은 짝을 스택 한 번으로 맞추면 값이 같고, 닫히지 않거나 깊게 중첩된
+/// 괄호에서 피연산자마다 텍스트 끝까지 다시 훑지 않는다. 스택이 빈 채로 만나는
+/// `)`는 원본에서도 어떤 `(`의 깊이를 0으로 만들지 못하므로 버린다.
+List<int?> _matchParens(List<SqlToken> tokens) {
+  final ends = List<int?>.filled(tokens.length, null);
+  final open = <int>[];
+  for (var k = 0; k < tokens.length; k++) {
     final token = tokens[k];
     if (token.quoted) continue;
     if (token.text == '(') {
-      depth++;
-    } else if (token.text == ')') {
-      depth--;
-      if (depth == 0) return k + 1;
+      open.add(k);
+    } else if (token.text == ')' && open.isNotEmpty) {
+      ends[open.removeLast()] = k + 1;
     }
   }
-  return null;
+  return ends;
 }
 
 /// 관계 이름 위치에 올 수 없는 SQL 절 키워드다. `table`은 `UPDATE table SET`
