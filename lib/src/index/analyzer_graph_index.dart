@@ -3711,20 +3711,30 @@ List<String> _dartFilesUnder(
       ),
     );
   }
+  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리는
+  // 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터 결과에서 빠졌으므로 결과는
+  // 같고, build 산출물·git 객체를 분석마다 열거하거나 그 안의 읽을 수 없는
+  // 디렉터리 하나로 색인 전체가 실패하지 않는다.
   paths.addAll(
-    Directory(root)
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .map((file) => file.path)
-        .where(_isGenerated)
-        .where(inAnalysisScope)
-        .where(
-          (path) => !p
-              .split(p.relative(path, from: root))
-              .any((segment) => segment == '.dart_tool' || segment == 'build'),
-        ),
+    _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
+}
+
+/// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
+///
+/// [indexExcludedDirectories] 이름의 디렉터리에는 내려가지 않는다. 링크는 파일을
+/// 가리켜도 `Link`로 나와 제외된다 — `listSync(recursive: true,
+/// followLinks: false)`에서 `File`만 고르던 규칙과 같다.
+Iterable<String> _filePathsUnder(Directory directory) sync* {
+  for (final entity in directory.listSync(followLinks: false)) {
+    if (entity is Directory) {
+      if (indexExcludedDirectories.contains(p.basename(entity.path))) continue;
+      yield* _filePathsUnder(entity);
+    } else if (entity is File) {
+      yield entity.path;
+    }
+  }
 }
 
 bool _isStandardSourcePath(String path, String root) {

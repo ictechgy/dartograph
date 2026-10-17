@@ -726,6 +726,58 @@ environment:
   });
 
   test(
+    'an unreadable directory under build/ does not fail the analysis',
+    () async {
+      final package = await Directory.systemTemp.createTemp(
+        'dartograph-locked-build.',
+      );
+      addTearDown(() => package.delete(recursive: true));
+      await File('${package.path}/pubspec.yaml').writeAsString('''
+name: locked_build_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      // analyzer가 제외한 생성 파일은 dartograph의 보충 열거로만 그래프에 든다.
+      await File(
+        '${package.path}/analysis_options.yaml',
+      ).writeAsString('analyzer:\n  exclude:\n    - lib/model.g.dart\n');
+      await Directory('${package.path}/lib').create();
+      await File(
+        '${package.path}/lib/model.g.dart',
+      ).writeAsString('class GeneratedModel {}\n');
+      // build/ 아래 생성물은 분석 대상이 아니다 — 보충 열거도 내려가지 않는다.
+      await Directory('${package.path}/build/out').create(recursive: true);
+      await File(
+        '${package.path}/build/out/stale.g.dart',
+      ).writeAsString('class StaleOutput {}\n');
+      final locked = Directory('${package.path}/build/locked');
+      await locked.create();
+      final chmod = await Process.run('chmod', ['000', locked.path]);
+      expect(chmod.exitCode, 0, reason: chmod.stderr as String);
+      // 정리는 역순으로 돈다 — 권한을 먼저 되돌려야 재귀 삭제가 성공한다.
+      addTearDown(() => Process.run('chmod', ['700', locked.path]));
+      if (_canList(locked)) {
+        markTestSkipped('directory permissions are not enforced (root?)');
+        return;
+      }
+
+      final result = await AnalyzerGraphIndex(
+        cache: _ColdCache(),
+      ).index(package.path);
+
+      expect(
+        result.graph.nodes.keys,
+        contains('project:lib/model.g.dart::GeneratedModel'),
+      );
+      expect(
+        result.graph.nodes.keys.where((id) => id.contains('StaleOutput')),
+        isEmpty,
+      );
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
     'entry_points narrows main retention to declared build targets',
     () async {
       final package = await _entryPointPackage();
@@ -1351,6 +1403,26 @@ environment:
   ], workingDirectory: package.path);
   expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
   return package;
+}
+
+/// [directory]를 열거할 수 있는지 본다. 권한 000이어도 열거되면 root처럼 권한을
+/// 무시하는 실행 환경이다.
+bool _canList(Directory directory) {
+  try {
+    directory.listSync();
+    return true;
+  } on FileSystemException {
+    return false;
+  }
+}
+
+/// 항상 miss인 캐시 — OS 사용자 캐시를 쓰지 않고 전체 해석 경로를 탄다.
+final class _ColdCache implements FactCache {
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> write(String key, String payload) async {}
 }
 
 Future<void> _copyFixture(Directory source, Directory destination) async {
