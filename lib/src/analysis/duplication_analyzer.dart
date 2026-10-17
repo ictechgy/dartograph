@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../core/token_segment.dart';
 
 /// 중복 토큰 블록 한 인스턴스의 위치다.
@@ -81,72 +83,61 @@ final class DuplicationAnalyzer {
     List<TokenSegment> segments, {
     required int minTokens,
   }) {
-    final windows = <List<int>>[];
-    final positions = <int, List<({int index, int segment})>>{};
+    final windows = <Int64List>[];
     for (var s = 0; s < segments.length; s++) {
       final codes = segments[s].codes;
       final count = codes.length - minTokens + 1;
-      final hashes = count <= 0
-          ? const <int>[]
-          : _rollingHashes(codes, minTokens);
-      windows.add(hashes);
-      for (var i = 0; i < hashes.length; i++) {
-        positions.putIfAbsent(hashes[i], () => []).add((segment: s, index: i));
-      }
+      windows.add(count <= 0 ? _noWindows : _rollingHashes(codes, minTokens));
     }
-    var saturated = 0;
+    final (:offsets, :positions, :saturated) = _windowGroups(windows);
     final seen = <String>{};
     final findings = <DuplicationFinding>[];
-    for (final hash in positions.keys.toList()..sort()) {
-      final hits = positions[hash]!;
-      if (hits.length < 2) continue;
-      if (hits.length > positionCap) {
-        saturated++;
-        continue;
-      }
-      for (var a = 0; a < hits.length; a++) {
-        for (var b = a + 1; b < hits.length; b++) {
-          final pa = hits[a];
-          final pb = hits[b];
-          final sameSegment = pa.segment == pb.segment;
+    for (var group = 0; group + 1 < offsets.length; group++) {
+      final end = offsets[group + 1];
+      for (var a = offsets[group]; a < end; a++) {
+        final segmentA = positions[a] >> 32;
+        final indexA = positions[a] & _indexMask;
+        for (var b = a + 1; b < end; b++) {
+          final segmentB = positions[b] >> 32;
+          final indexB = positions[b] & _indexMask;
+          final sameSegment = segmentA == segmentB;
           // 같은 세그먼트의 겹치는 윈도 쌍은 같은 텍스트의 자기 반복이다.
-          if (sameSegment && pb.index - pa.index < minTokens) continue;
-          final aHashes = windows[pa.segment];
-          final bHashes = windows[pb.segment];
+          if (sameSegment && indexB - indexA < minTokens) continue;
+          final aHashes = windows[segmentA];
+          final bHashes = windows[segmentB];
           // 뒤쪽 확장도 비겹침 상한을 지킨다 — 같은 세그먼트에서
           // back > 거리 - minTokens이면 두 블록이 토큰에서 겹친다.
-          var backLimit = pa.index < pb.index ? pa.index : pb.index;
+          var backLimit = indexA < indexB ? indexA : indexB;
           if (sameSegment) {
-            final noOverlap = pb.index - pa.index - minTokens;
+            final noOverlap = indexB - indexA - minTokens;
             if (noOverlap < backLimit) backLimit = noOverlap;
           }
           var back = 0;
           while (back < backLimit &&
-              aHashes[pa.index - back - 1] == bHashes[pb.index - back - 1]) {
+              aHashes[indexA - back - 1] == bHashes[indexB - back - 1]) {
             back++;
           }
           // 같은 세그먼트의 앞쪽 확장은 두 블록이 토큰에서 겹치지 않게 제한한다.
           // 겹침은 windowCount > d - minTokens + 1일 때 생기므로
           // forward ≤ 거리 - minTokens - back이어야 한다.
-          var forwardLimit = aHashes.length - pa.index - 1;
-          final bForward = bHashes.length - pb.index - 1;
+          var forwardLimit = aHashes.length - indexA - 1;
+          final bForward = bHashes.length - indexB - 1;
           if (bForward < forwardLimit) forwardLimit = bForward;
           if (sameSegment) {
-            final noOverlap = pb.index - pa.index - minTokens - back;
+            final noOverlap = indexB - indexA - minTokens - back;
             if (noOverlap < forwardLimit) forwardLimit = noOverlap;
           }
           if (forwardLimit < 0) forwardLimit = 0;
           var forward = 0;
           while (forward < forwardLimit &&
-              aHashes[pa.index + forward + 1] ==
-                  bHashes[pb.index + forward + 1]) {
+              aHashes[indexA + forward + 1] == bHashes[indexB + forward + 1]) {
             forward++;
           }
-          final startA = pa.index - back;
-          final startB = pb.index - back;
+          final startA = indexA - back;
+          final startB = indexB - back;
           final windowCount = back + forward + 1;
           final signature =
-              '${pa.segment}:$startA:${pb.segment}:$startB:'
+              '$segmentA:$startA:$segmentB:$startB:'
               '$windowCount';
           if (!seen.add(signature)) continue;
           final tokenCount = windowCount + minTokens - 1;
@@ -154,8 +145,8 @@ final class DuplicationAnalyzer {
             DuplicationFinding(
               tokenCount: tokenCount,
               instances: [
-                _instance(segments[pa.segment], startA, tokenCount),
-                _instance(segments[pb.segment], startB, tokenCount),
+                _instance(segments[segmentA], startA, tokenCount),
+                _instance(segments[segmentB], startB, tokenCount),
               ]..sort(_instanceOrder),
             ),
           );
@@ -178,6 +169,127 @@ final class DuplicationAnalyzer {
     ]);
   }
 
+  /// 창이 없는 세그먼트가 함께 쓰는 빈 해시 열이다.
+  static final _noWindows = Int64List(0);
+
+  /// 패킹한 위치 `(세그먼트 << 32) | 인덱스`에서 인덱스를 꺼내는 마스크다.
+  static const _indexMask = 0xffffffff;
+
+  /// 쌍을 비교할 창 해시 그룹을 해시 오름차순으로 모은다.
+  ///
+  /// 그룹 `g`의 위치는 `positions[offsets[g]..offsets[g + 1])`이고 세그먼트·
+  /// 인덱스 오름차순이다 — 해시별 맵을 해시 순으로 돌던 순서와 같다. 위치가
+  /// 2..[positionCap]개인 해시만 담고, 상한을 넘은 해시는 `saturated`로 센다.
+  ///
+  /// 창마다 맵 항목·리스트·레코드를 만들면 토큰당 약 160B가 든다. 대부분의
+  /// 창 해시는 한 번만 나오므로 정렬한 해시 사본에서 2회 이상인 해시만 고르고
+  /// 그 위치만 모은다. 사본 버퍼는 위치 버퍼로 다시 써서 최대 메모리가 창
+  /// 해시 두 벌(토큰당 약 16B)을 넘지 않게 한다.
+  static ({Int32List offsets, Int64List positions, int saturated})
+  _windowGroups(List<Int64List> windows) {
+    var total = 0;
+    for (final hashes in windows) {
+      total += hashes.length;
+    }
+    final sorted = Int64List(total);
+    var cursor = 0;
+    for (final hashes in windows) {
+      sorted.setAll(cursor, hashes);
+      cursor += hashes.length;
+    }
+    sorted.sort();
+    final runs = _groupRuns(sorted);
+    // 그룹 위치 수 ≤ 창 수이므로 정렬이 끝난 사본을 위치 버퍼로 쓴다.
+    final positions = Int64List.sublistView(sorted, 0, runs.offsets.last);
+    _fillPositions(windows, runs.hashes, runs.offsets, positions);
+    return (
+      offsets: runs.offsets,
+      positions: positions,
+      saturated: runs.saturated,
+    );
+  }
+
+  /// 정렬된 해시에서 같은 값의 연속 구간을 그룹으로 고른다.
+  ///
+  /// 길이 1 구간은 버리고, [positionCap]을 넘는 구간은 `saturated`로만 센다.
+  /// `hashes`는 남은 그룹의 해시(오름차순), `offsets`는 그룹별 위치 시작점과
+  /// 마지막의 전체 위치 수다.
+  static ({Int64List hashes, Int32List offsets, int saturated}) _groupRuns(
+    Int64List sorted,
+  ) {
+    var count = 0;
+    var saturated = 0;
+    for (var start = 0, end = 0; start < sorted.length; start = end) {
+      end = _runEnd(sorted, start);
+      if (end - start > positionCap) {
+        saturated++;
+      } else if (end - start >= 2) {
+        count++;
+      }
+    }
+    final hashes = Int64List(count);
+    final offsets = Int32List(count + 1);
+    var group = 0;
+    for (var start = 0, end = 0; start < sorted.length; start = end) {
+      end = _runEnd(sorted, start);
+      final size = end - start;
+      if (size < 2 || size > positionCap) continue;
+      hashes[group] = sorted[start];
+      offsets[group + 1] = offsets[group] + size;
+      group++;
+    }
+    return (hashes: hashes, offsets: offsets, saturated: saturated);
+  }
+
+  /// [start]에서 시작하는 같은 값 구간의 끝(배타)이다.
+  static int _runEnd(Int64List sorted, int start) {
+    final value = sorted[start];
+    var end = start + 1;
+    while (end < sorted.length && sorted[end] == value) {
+      end++;
+    }
+    return end;
+  }
+
+  /// 그룹에 속한 창의 위치를 세그먼트·인덱스 순서로 [positions]에 채운다.
+  ///
+  /// [positions]가 정렬 사본과 버퍼를 공유하므로 [hashes]·[offsets]를 다
+  /// 만든 뒤에만 부른다.
+  static void _fillPositions(
+    List<Int64List> windows,
+    Int64List hashes,
+    Int32List offsets,
+    Int64List positions,
+  ) {
+    if (hashes.isEmpty) return;
+    final cursors = Int32List.fromList(offsets);
+    for (var s = 0; s < windows.length; s++) {
+      final segmentHashes = windows[s];
+      for (var i = 0; i < segmentHashes.length; i++) {
+        final group = _indexOf(hashes, segmentHashes[i]);
+        if (group >= 0) positions[cursors[group]++] = (s << 32) | i;
+      }
+    }
+  }
+
+  /// 오름차순 [sorted]에서 [value]의 인덱스를 이진 탐색한다(없으면 -1).
+  static int _indexOf(Int64List sorted, int value) {
+    var low = 0;
+    var high = sorted.length - 1;
+    while (low <= high) {
+      final middle = (low + high) >> 1;
+      final candidate = sorted[middle];
+      if (candidate < value) {
+        low = middle + 1;
+      } else if (candidate > value) {
+        high = middle - 1;
+      } else {
+        return middle;
+      }
+    }
+    return -1;
+  }
+
   static int _instanceOrder(DuplicateInstance a, DuplicateInstance b) {
     final order = a.source.compareTo(b.source);
     return order != 0 ? order : a.startLine.compareTo(b.startLine);
@@ -198,8 +310,9 @@ final class DuplicationAnalyzer {
   /// 위치마다 윈도 전체를 다시 곱하지 않고 나가는 코드를 빼고 들어오는 코드를
   /// 더해 O(1)에 갱신한다 — 토큰 N개·윈도 길이 k에서 O(N·k)가 O(N+k)가 된다.
   /// 해시 충돌은 같은 윈도로 오인해 발견 쌍을 만들 수 있으므로 FNV 대신
-  /// 다항식을 쓰되 품질은 동급으로 유지한다.
-  static List<int> _rollingHashes(List<int> codes, int length) {
+  /// 다항식을 쓰되 품질은 동급으로 유지한다. 63bit 비음수라 [Int64List]에
+  /// 그대로 담긴다 — 박싱된 정수 리스트보다 창당 메모리가 작다.
+  static Int64List _rollingHashes(List<int> codes, int length) {
     const mask = 0x7fffffffffffffff;
     const base = 0x100000001b3; // FNV 소수 — 이미 균일한 토큰 코드에 충분하다.
     // base^(length-1) — 나가는 항의 계수다.
@@ -214,7 +327,7 @@ final class DuplicationAnalyzer {
       hash = (hash * base + codes[i]) & mask;
     }
     final count = codes.length - length + 1;
-    final hashes = List<int>.filled(count, 0);
+    final hashes = Int64List(count);
     hashes[0] = hash;
     for (var i = 1; i < count; i++) {
       hash =
