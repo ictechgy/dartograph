@@ -91,7 +91,10 @@ pubspec은 분석 실패(exit 2)다. 멤버의
 `--record <dir>`를 주면 그 실행 하나를 `<dir>/ledger.jsonl`에 한 줄로 덧붙인다.
 각 줄은 도구 버전·UTC 시각·명령·종료 코드·관측한 Git `HEAD`(계산하지 못하면 null)·
 입력 플래그·보고한 문제 식별자를 담는다. `--env`·`--dart-define`은 값이 비밀일 수
-있어 **키만** 남긴다. 파일은 append-only다 — 기존 줄을 다시 쓰거나 지우지 않는다.
+있어 **키만** 남긴다. CLI가 받지 않는 `--key=value` 형식으로 실패한 실행도 인라인
+값은 남기지 않고 플래그 이름만 기록한다(`--env=`·`--dart-define=`은 KEY만). 값을
+받지 않는 스위치는 `true`로 기록한다. 파일은 append-only다 — 기존 줄을 다시 쓰거나
+지우지 않는다.
 
 `history --ledger <dir> [--commit <sha>] [--format text|json]`가 원장을 읽어
 되돌려준다. `--commit`은 그 SHA의 실행만 고른다. 쓰기가 중단돼 마지막 줄이 잘리면

@@ -496,22 +496,52 @@ _LedgerRequest? _extractLedgerDirectory(
   return (arguments: [command, ...remaining], directory: directory);
 }
 
+/// 값을 받지 않는 스위치다(`--` 뒤 이름). 원장 입력 요약이 뒤따르는 위치
+/// 인자(패키지 루트 등)를 스위치의 값으로 삼키지 않게 한다.
+///
+/// [_recordableCommands]의 파서가 받는 스위치와 맞춘다. 그 명령에 스위치를
+/// 추가하면 여기에도 더한다.
+const _ledgerSwitches = {
+  'closed-app',
+  'no-verify',
+  'report-redundant-public',
+  'report-test-only',
+  'strict',
+  'verify',
+  'with-source',
+  'workspace',
+};
+
 /// 실행 입력 요약을 만든다. 플래그와 그 값(경로 포함)만 담는다.
 ///
 /// `--env`·`--dart-define`은 값이 비밀일 수 있으므로 **키만** 남긴다. 반복
 /// 지정은 순서대로 이어 마지막 값만 남기지 않는다(더 보수적이다).
+/// [_ledgerSwitches]는 값을 받지 않으므로 `true`로 남기고 다음 토큰을 값으로
+/// 삼지 않는다.
 Map<String, String> _ledgerInputs(List<String> arguments) {
   final inputs = <String, String>{};
   for (var index = 0; index < arguments.length; index++) {
     final token = arguments[index];
     if (!token.startsWith('--')) continue;
-    final key = token.substring(2);
-    final hasValue =
-        index + 1 < arguments.length && !arguments[index + 1].startsWith('-');
-    final raw = hasValue ? arguments[++index] : 'true';
+    // `--key=value`는 CLI가 받지 않는 형식(usage)이라 실패한 실행에서만 온다.
+    // 인라인 값은 비밀일 수 있어 담지 않고 플래그 이름만 남긴다 — `--env`·
+    // `--dart-define`은 분리형과 같이 KEY 부분만 남는다.
+    final separator = token.indexOf('=');
+    final isInline = separator >= 0;
+    final key = token.substring(2, isInline ? separator : null);
+    final String raw;
+    if (isInline) {
+      raw = token.substring(separator + 1);
+    } else if (!_ledgerSwitches.contains(key) &&
+        index + 1 < arguments.length &&
+        !arguments[index + 1].startsWith('-')) {
+      raw = arguments[++index];
+    } else {
+      raw = 'true';
+    }
     final value = switch (key) {
       'env' || 'dart-define' => raw.split('=').first,
-      _ => raw,
+      _ => isInline ? 'true' : raw,
     };
     inputs[key] = inputs.containsKey(key) ? '${inputs[key]},$value' : value;
   }
