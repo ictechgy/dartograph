@@ -57,6 +57,18 @@ part 'traversal_command.dart';
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
 
+/// 색인 옵션을 반영한 [IndexPackage]를 고르는 주입 경계다.
+///
+/// MCP 서버처럼 `--workspace` 값마다 다른 세션 캐시를 써야 하는 호출자가 쓴다.
+/// 고정된 [IndexPackage] 주입은 옵션을 받을 수 없어 `--workspace`를 usage(64)로
+/// 거부한다. 이 경계는 `aggregateWorkspace`를 받아 그 값에 맞는 색인 함수를
+/// 돌려주므로 집계 요청이 조용히 단일 패키지 색인으로 바뀌지 않는다.
+typedef IndexPackageFactory =
+    IndexPackage Function({required bool aggregateWorkspace});
+
+/// 색인 명령이 쓸 색인 함수의 주입 상태다. 둘 다 null이면 기본 색인기를 쓴다.
+typedef _IndexSource = ({IndexPackage? fixed, IndexPackageFactory? factory});
+
 /// `--since`의 Git 접근을 대체할 수 있는 테스트 경계다.
 typedef ChangedFilesSince =
     Future<Set<String>> Function(String reference, String rootPath);
@@ -82,11 +94,15 @@ enum ExitStatus {
 }
 
 /// 명령줄 경계를 실행하고 프로세스 종료 코드를 돌려준다.
+///
+/// [indexFactory]가 있으면 색인 명령은 [indexPackage] 대신 팩터리가
+/// `--workspace` 값에 맞춰 고른 색인 함수를 쓴다.
 Future<int> runDartograph(
   List<String> arguments, {
   StringSink? output,
   StringSink? error,
   IndexPackage? indexPackage,
+  IndexPackageFactory? indexFactory,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
 }) async {
@@ -97,7 +113,7 @@ Future<int> runDartograph(
       arguments,
       stdoutSink,
       stderrSink,
-      indexPackage,
+      (fixed: indexPackage, factory: indexFactory),
       changedFilesSince,
       now,
     );
@@ -115,7 +131,7 @@ Future<int> _dispatch(
   List<String> arguments,
   StringSink stdoutSink,
   StringSink stderrSink,
-  IndexPackage? indexPackage,
+  _IndexSource indexSource,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
 ) async {
@@ -129,7 +145,7 @@ Future<int> _dispatch(
     ledger.arguments,
     stdoutSink,
     stderrSink,
-    indexPackage,
+    indexSource,
     changedFilesSince,
     now,
     failedItems,
@@ -152,7 +168,7 @@ Future<int> _dispatchCommand(
   List<String> arguments,
   StringSink stdoutSink,
   StringSink stderrSink,
-  IndexPackage? indexPackage,
+  _IndexSource indexSource,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
   List<String> failedItems,
@@ -160,7 +176,7 @@ Future<int> _dispatchCommand(
   final command = arguments.firstOrNull;
   switch (command) {
     case 'affected':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runAffected(
         indexed.arguments,
@@ -170,7 +186,7 @@ Future<int> _dispatchCommand(
         changedFilesSince ?? ChangedFiles.since,
       );
     case 'impact':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       if (_isLanguageTraversal(indexed.arguments)) {
         return await _runLanguageTraversal(
@@ -190,7 +206,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'compare':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return _runCompare(
         indexed.arguments,
@@ -207,7 +223,7 @@ Future<int> _dispatchCommand(
       stdoutSink.writeln('dartograph $toolVersion');
       return ExitStatus.success.code;
     case 'graph':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runGraph(
         indexed.arguments,
@@ -216,7 +232,7 @@ Future<int> _dispatchCommand(
         indexed.index,
       );
     case 'baseline':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runBaseline(
         indexed.arguments,
@@ -225,7 +241,7 @@ Future<int> _dispatchCommand(
         indexed.index,
       );
     case 'dead':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDead(
         indexed.arguments,
@@ -236,7 +252,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'deps':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDeps(
         indexed.arguments,
@@ -246,7 +262,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'dup':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDup(
         indexed.arguments,
@@ -256,7 +272,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'query':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runQuery(
         indexed.arguments,
@@ -299,7 +315,7 @@ Future<int> _dispatchCommand(
         now ?? DateTime.now,
       );
     case 'cycles':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runCycles(
         indexed.arguments,
@@ -309,7 +325,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'rules':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runRules(
         indexed.arguments,
@@ -319,7 +335,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'metrics':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runMetrics(
         indexed.arguments,
@@ -358,7 +374,8 @@ final class _IndexedArguments {
   /// 명령이 받는 나머지 인자다(명령 이름은 뺀 상태).
   final List<String> arguments;
 
-  /// 그 명령이 쓸 색인 함수다. 테스트 주입이 있으면 주입된 함수다.
+  /// 그 명령이 쓸 색인 함수다. 주입이 있으면 주입된 함수(팩터리가 고른
+  /// 함수 포함)다.
   final IndexPackage index;
 }
 
@@ -369,10 +386,14 @@ final class _IndexedArguments {
 /// usage(64)다 — 다른 옵션과 같은 규칙이다. `--workspace`는 값을 받지 않는
 /// 스위치다 — pub workspace 멤버를 같은 그래프로 집계한다(중복 지정은
 /// usage다). 옵션이 없으면 기존 경로 그대로 기본 색인을 쓴다.
+///
+/// 주입된 팩터리에는 `--workspace` 값을 넘긴다. 고정 주입 함수는 그 값을
+/// 반영할 수 없으므로 `--workspace`를 usage로 거부한다 — 떼어 낸 플래그를
+/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
-  IndexPackage? injected,
+  _IndexSource source,
 ) {
   final remaining = arguments.skip(1).toList();
   String? directory;
@@ -399,7 +420,22 @@ _IndexedArguments? _indexArguments(
     remaining.removeRange(index, index + 2);
     index--;
   }
-  if (injected != null) return _IndexedArguments(remaining, injected);
+  final factory = source.factory;
+  if (factory != null) {
+    final chosen = factory(aggregateWorkspace: workspace);
+    return _IndexedArguments(remaining, chosen);
+  }
+  final injected = source.fixed;
+  if (injected != null) {
+    if (workspace) {
+      error.writeln(
+        'Unsupported --workspace: the injected index function cannot '
+        'aggregate pub workspace members.',
+      );
+      return null;
+    }
+    return _IndexedArguments(remaining, injected);
+  }
   final target = directory;
   return _IndexedArguments(
     remaining,

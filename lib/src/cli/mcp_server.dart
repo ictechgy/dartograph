@@ -159,7 +159,11 @@ Future<int> runMcpServer({
       input: input,
       output: output,
       error: error,
-      indexPackage: indexPackage ?? session.index,
+      // 운영 경로는 세션 팩터리다 — `--workspace` 값마다 맞는 색인을 고른다.
+      indexing: (
+        fixed: indexPackage,
+        factory: indexPackage == null ? session.indexer : null,
+      ),
       changedFilesSince: changedFilesSince,
       scratchFactory: scratchFactory,
       rootBoundary: rootBoundary,
@@ -170,11 +174,15 @@ Future<int> runMcpServer({
   }
 }
 
+/// 도구 호출이 `runDartograph`에 넘기는 색인 주입이다. 테스트가 준 고정
+/// 함수(`fixed`)나 `--workspace`를 반영하는 세션 팩터리(`factory`) 중 하나다.
+typedef _McpIndexing = ({IndexPackage? fixed, IndexPackageFactory? factory});
+
 Future<int> _serveMcpRequests({
   required Stream<String> input,
   required StringSink output,
   required StringSink error,
-  required IndexPackage indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() scratchFactory,
   required String rootBoundary,
@@ -312,7 +320,7 @@ Future<int> _serveMcpRequests({
             arguments: arguments is Map<String, Object?>
                 ? arguments
                 : const <String, Object?>{},
-            indexPackage: indexPackage,
+            indexing: indexing,
             changedFilesSince: changedFilesSince,
             createScratch: scratchFactory,
             rootBoundary: rootBoundary,
@@ -341,43 +349,60 @@ final class _McpIndexSession {
 
   final Future<Directory> Function() createDirectory;
   final StringSink error;
-  final directories = <String, String>{};
+  // (packageRoot, workspace 집계) 쌍마다 하위 디렉터리를 따로 둔다. 같은 루트의
+  // 집계·단일 패키지 색인은 설정 지문이 달라, 한 캐시를 공유하면 번갈아
+  // 질의할 때마다 서로의 사실을 덮어쓴다.
+  final directories = <(String, bool), String>{};
   Directory? directory;
   bool isDisabled = false;
 
-  Future<AnalyzerGraphResult> index(String root) async {
-    if (isDisabled) return _fullIndex(root);
+  /// `--workspace` 값에 맞는 세션 색인 함수다([IndexPackageFactory]).
+  IndexPackage indexer({required bool aggregateWorkspace}) =>
+      (root) => index(root, aggregateWorkspace: aggregateWorkspace);
+
+  Future<AnalyzerGraphResult> index(
+    String root, {
+    required bool aggregateWorkspace,
+  }) async {
+    if (isDisabled) return _fullIndex(root, aggregateWorkspace);
     try {
       directory ??= await createDirectory();
     } on Object {
-      return _fallback(root);
+      return _fallback(root, aggregateWorkspace);
     }
+    final key = (root, aggregateWorkspace);
     final cachePath = directories.putIfAbsent(
-      root,
+      key,
       () => p.join(directory!.path, 'package-${directories.length}'),
     );
     final result = await AnalyzerGraphIndex(
       incremental: IncrementalCache(cachePath),
+      aggregateWorkspace: aggregateWorkspace,
     ).index(root);
     if (result.limitationDetails.any(
       (detail) => detail.startsWith(incrementalCacheWriteFailurePrefix),
     )) {
-      return _fallback(root);
+      return _fallback(root, aggregateWorkspace);
     }
     return result;
   }
 
-  Future<AnalyzerGraphResult> _fallback(String root) {
+  Future<AnalyzerGraphResult> _fallback(String root, bool aggregateWorkspace) {
     isDisabled = true;
     error.writeln(
       'dartograph mcp: temporary cache unavailable; using full analysis for '
       'this session. Check OS temporary storage permissions and free space.',
     );
-    return _fullIndex(root);
+    return _fullIndex(root, aggregateWorkspace);
   }
 
-  Future<AnalyzerGraphResult> _fullIndex(String root) =>
-      AnalyzerGraphIndex(cache: const _McpUncachedFacts()).index(root);
+  Future<AnalyzerGraphResult> _fullIndex(String root, bool aggregateWorkspace) {
+    final uncached = AnalyzerGraphIndex(
+      cache: const _McpUncachedFacts(),
+      aggregateWorkspace: aggregateWorkspace,
+    );
+    return uncached.index(root);
+  }
 
   Future<void> close() async {
     final owned = directory;
@@ -949,7 +974,7 @@ String _deadPrompt(String packageRoot, Object? closedApp) {
 Future<Map<String, Object?>?> _callTool({
   required String name,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
   required String rootBoundary,
@@ -977,7 +1002,7 @@ Future<Map<String, Object?>?> _callTool({
       return _exploreTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
       );
@@ -985,7 +1010,7 @@ Future<Map<String, Object?>?> _callTool({
       return _impactTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
       );
@@ -993,14 +1018,14 @@ Future<Map<String, Object?>?> _callTool({
       return _dependencyTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         createScratch: createScratch,
       );
     case verifyToolName:
       return _verifyTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
       );
     case _runtimeToolName:
@@ -1028,7 +1053,7 @@ String? _resolveToolRoot(String root, String boundary) {
 Future<Map<String, Object?>> _impactTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
 }) async {
@@ -1079,7 +1104,7 @@ Future<Map<String, Object?>> _impactTool({
     args.addAll(['--format', 'json', root]);
     return await _runCapture(
       args,
-      indexPackage: indexPackage,
+      indexing: indexing,
       changedFilesSince: changedFilesSince,
     );
   } finally {
@@ -1096,7 +1121,7 @@ Future<Map<String, Object?>> _impactTool({
 Future<Map<String, Object?>> _dependencyTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required Future<Directory> Function() createScratch,
 }) async {
   final symbol = arguments['symbol'];
@@ -1160,7 +1185,7 @@ Future<Map<String, Object?>> _dependencyTool({
     final workspaceError = _appendWorkspace(args, arguments);
     if (workspaceError != null) return workspaceError;
     args.add(root);
-    return await _runCapture(args, indexPackage: indexPackage);
+    return await _runCapture(args, indexing: indexing);
   } finally {
     for (final directory in scratch) {
       try {
@@ -1175,7 +1200,7 @@ Future<Map<String, Object?>> _dependencyTool({
 Future<Map<String, Object?>> _verifyTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
 }) async {
   final command = arguments['command'];
@@ -1267,7 +1292,7 @@ Future<Map<String, Object?>> _verifyTool({
   args.add(root);
   return await _runCapture(
     args,
-    indexPackage: indexPackage,
+    indexing: indexing,
     changedFilesSince: changedFilesSince,
   );
 }
@@ -1306,7 +1331,7 @@ Future<Map<String, Object?>> _runtimeTool({
 Future<Map<String, Object?>> _exploreTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
 }) async {
@@ -1355,7 +1380,7 @@ Future<Map<String, Object?>> _exploreTool({
       await _verifyTool(
         root: root,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
       ),
       verifyToolName,
@@ -1401,7 +1426,7 @@ Future<Map<String, Object?>> _exploreTool({
           if (arguments['workspace'] != null)
             'workspace': arguments['workspace'],
         },
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
       ),
@@ -1432,7 +1457,7 @@ Future<Map<String, Object?>> _exploreTool({
       await _dependencyTool(
         root: root,
         arguments: query,
-        indexPackage: indexPackage,
+        indexing: indexing,
         createScratch: createScratch,
       ),
       dependencyToolName,
@@ -1547,7 +1572,7 @@ Map<String, Object?> _exploreHelp(Map<String, Object?> arguments) {
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.
 Future<Map<String, Object?>> _runCapture(
   List<String> arguments, {
-  IndexPackage? indexPackage,
+  _McpIndexing? indexing,
   ChangedFilesSince? changedFilesSince,
 }) async {
   final stdoutBuffer = StringBuffer();
@@ -1556,7 +1581,8 @@ Future<Map<String, Object?>> _runCapture(
     arguments,
     output: stdoutBuffer,
     error: stderrBuffer,
-    indexPackage: indexPackage,
+    indexPackage: indexing?.fixed,
+    indexFactory: indexing?.factory,
     changedFilesSince: changedFilesSince,
   );
   final text = stdoutBuffer.toString();

@@ -1351,8 +1351,9 @@ void main() {
           'name': 'runtime_query',
           'arguments': {'packageRoot': directory.path, 'workspace': 'yes'},
         }),
-        // workspace: true — indexPackage 주입 경로에서는 플래그가 소비되고
-        // 정상 응답이 돌아온다.
+        // workspace: true — 주입된 고정 색인 함수는 --workspace를 반영할 수
+        // 없다. 조용히 단일 패키지 결과를 내지 않고 usage(64)로 거부돼야 한다
+        // (실제 집계는 세션 색인 테스트가 CLI와 비교한다).
         request(5, 'tools/call', {
           'name': dependencyToolName,
           'arguments': {
@@ -1388,16 +1389,17 @@ void main() {
           contains('workspace must be a boolean'),
         );
       }
-      expect(textOf(responses[4]), startsWith('exitCode: 0\n'));
-      expect(textOf(responses[5]), startsWith('exitCode: 0\n'));
+      expect(textOf(responses[4]), startsWith('exitCode: 64\n'));
+      expect(textOf(responses[4]), contains('--workspace'));
+      expect(textOf(responses[5]), startsWith('exitCode: 64\n'));
       expect(textOf(responses[6]), startsWith('exitCode: 2\n'));
       expect(
         textOf(responses[7]),
-        startsWith('routed: dependency_query\nexitCode: 0\n'),
+        startsWith('routed: dependency_query\nexitCode: 64\n'),
       );
       expect(
         textOf(responses[8]),
-        startsWith('routed: verify_run\nexitCode: 0\n'),
+        startsWith('routed: verify_run\nexitCode: 64\n'),
       );
       expect(
         textOf(responses[9]),
@@ -1405,5 +1407,178 @@ void main() {
       );
       expect(textOf(responses[10]), contains('workspace must be a boolean'));
     },
+  );
+
+  test(
+    'session index aggregates workspace members like CLI --workspace',
+    () async {
+      // b가 a를 import하는 두 멤버 workspace다. a의 비공개 _Unused는 집계
+      // 그래프에서만 미도달 finding이 되고, a의 변경은 집계해야 b에 닿는다.
+      final workspaceRoot = p.join(directory.path, 'ws');
+      void write(String path, String contents) =>
+          File(p.join(workspaceRoot, path))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(contents);
+      write(
+        'pubspec.yaml',
+        'name: ws_root\nenvironment:\n  sdk: ^3.8.0\n'
+            'workspace:\n  - pkgs/a\n  - pkgs/b\n',
+      );
+      // 루트에도 소스가 있어야 집계하지 않은 실행도 세션 캐시에 사실을 쓴다.
+      write('lib/ws_root.dart', 'class RootPackage {}\n');
+      write(
+        'pkgs/a/pubspec.yaml',
+        'name: a\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n',
+      );
+      write('pkgs/a/lib/a.dart', 'int helper() => 1;\n\nclass _Unused {}\n');
+      write(
+        'pkgs/b/pubspec.yaml',
+        'name: b\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n'
+            'dependencies:\n  a:\n',
+      );
+      write(
+        'pkgs/b/lib/b.dart',
+        "import 'package:a/a.dart';\n\nint useHelper() => helper() + 1;\n",
+      );
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: workspaceRoot);
+      expect(pubGet.exitCode, 0, reason: '${pubGet.stderr}');
+      // workspace를 선언하지 않은 루트다. CLI --workspace는 분석 실패(2)다.
+      final plainRoot = p.join(directory.path, 'plain');
+      writeSource(plainRoot, 'class Plain {}');
+      File(p.join(plainRoot, 'pubspec.yaml')).writeAsStringSync('name: p\n');
+
+      // CLI 기준값을 MCP 응답 본문 모양(exitCode 줄 + stdout, 실패면 stderr)
+      // 으로 만든다. 사용자 캐시를 건드리지 않게 실행마다 증분 캐시를 둔다.
+      final cliCaches = await Directory.systemTemp.createTemp('mcp-cli-cache.');
+      addTearDown(() => cliCaches.delete(recursive: true));
+      var cliRuns = 0;
+      Future<String> cli(List<String> arguments) async {
+        final output = StringBuffer();
+        final error = StringBuffer();
+        final status = await runDartograph(
+          [
+            arguments.first,
+            '--incremental',
+            p.join(cliCaches.path, 'run-${cliRuns++}'),
+            ...arguments.skip(1),
+          ],
+          output: output,
+          error: error,
+        );
+        final failed =
+            status == ExitStatus.failure.code ||
+            status == ExitStatus.usage.code;
+        return 'exitCode: $status\n$output${failed ? error : ''}';
+      }
+
+      final changes = File(p.join(cliCaches.path, 'changes.json'))
+        ..writeAsStringSync(jsonEncode(['pkgs/a/lib/a.dart']));
+      final dead = await cli([
+        'dead',
+        '--workspace',
+        '--format',
+        'json',
+        workspaceRoot,
+      ]);
+      final impact = await cli([
+        'impact',
+        '--changed',
+        changes.path,
+        '--workspace',
+        '--format',
+        'json',
+        workspaceRoot,
+      ]);
+      final found = await cli([
+        'query',
+        'helper',
+        '--workspace',
+        workspaceRoot,
+      ]);
+      final single = await cli(['dead', '--format', 'json', workspaceRoot]);
+      final plain = await cli([
+        'dead',
+        '--workspace',
+        '--format',
+        'json',
+        plainRoot,
+      ]);
+      // 손으로 확인한 기대값이다. 집계 그래프만 멤버의 미도달 선언과 멤버
+      // 사이 영향을 본다.
+      expect(dead, startsWith('exitCode: 1\n'));
+      expect(dead, contains('a.dart::_Unused'));
+      expect(impact, startsWith('exitCode: 0\n'));
+      expect(impact, contains('package:b/b.dart::useHelper'));
+      expect(found, startsWith('exitCode: 0\n'));
+      expect(single, startsWith('exitCode: 0\n'));
+      expect(single, contains('workspace-members-not-indexed'));
+      expect(plain, startsWith('exitCode: 2\n'));
+
+      Object verifyDead(int id, String root, {bool? workspace}) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {
+              'packageRoot': root,
+              'command': 'dead',
+              'format': 'json',
+              'workspace': ?workspace,
+            },
+          });
+      Stream<Object?> messages() async* {
+        yield verifyDead(1, workspaceRoot, workspace: true);
+        yield request(2, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': workspaceRoot,
+            'changed': ['pkgs/a/lib/a.dart'],
+            'workspace': true,
+          },
+        });
+        yield request(3, 'tools/call', {
+          'name': dependencyToolName,
+          'arguments': {
+            'packageRoot': workspaceRoot,
+            'symbol': 'helper',
+            'workspace': true,
+          },
+        });
+        yield verifyDead(4, workspaceRoot);
+        // 같은 루트라도 workspace 값마다 세션 캐시 하위 디렉터리가 따로다.
+        for (final name in ['package-0', 'package-1']) {
+          final facts = File(p.join(scratch.single.path, name, 'facts.json'));
+          expect(facts.existsSync(), isTrue, reason: name);
+        }
+        yield verifyDead(5, plainRoot, workspace: true);
+      }
+
+      final responses = await exchangeDefault(
+        messages(),
+        createCacheDirectory: createCache,
+      );
+      expect(responses.map(textOf).toList(), [
+        dead,
+        impact,
+        found,
+        single,
+        plain,
+      ]);
+      expect(diagnostics.toString(), isEmpty);
+      expect(scratch.single.existsSync(), isFalse);
+
+      // 캐시를 만들 수 없는 세션의 전체 해석 폴백도 workspace 값을 지킨다.
+      final fallback = await exchangeDefault(
+        Stream.fromIterable([verifyDead(1, workspaceRoot, workspace: true)]),
+        createCacheDirectory: () async {
+          throw const FileSystemException('cache unavailable');
+        },
+      );
+      expect(textOf(fallback.single), dead);
+      expect(diagnostics.toString(), contains('temporary cache unavailable'));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 }
