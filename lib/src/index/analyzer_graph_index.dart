@@ -1776,8 +1776,36 @@ Future<bool> _incrementalInputsUnchanged(
 /// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
 /// [aggregateWorkspace]는 `AnalyzerGraphIndex`의 같은 이름과 같은 계약이다 —
 /// 선언된 워크스페이스 멤버의 표준 소스 디렉터리도 열거한다.
+///
+/// 모든 유닛을 리스트로 붙잡으므로 유닛 사이를 오가는 2단계 방문(route 호출의
+/// 값 선언 색인)이 쓴다. 유닛마다 독립인 방문은 [resolveProjectUnitsEach]를 써서
+/// 프로젝트 전체의 resolved AST를 동시에 붙잡지 않는다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(
   String rootPath, {
+  Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
+}) async {
+  final units = <ResolvedUnitResult>[];
+  await resolveProjectUnitsEach(
+    rootPath,
+    units.add,
+    linkEscapes: linkEscapes,
+    aggregateWorkspace: aggregateWorkspace,
+  );
+  return units;
+}
+
+/// [resolveProjectUnits]와 같은 유닛을 같은 순서로 해석하는 즉시 [onUnit]에
+/// 넘긴다.
+///
+/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]의
+/// 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석 컨텍스트를 닫기 전에
+/// 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다 독립인
+/// 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
+/// 않는다. [onUnit]이 던진 예외는 컨텍스트를 닫은 뒤 그대로 전파된다.
+Future<void> resolveProjectUnitsEach(
+  String rootPath,
+  void Function(ResolvedUnitResult unit) onUnit, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
@@ -1799,7 +1827,6 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     sdkPath: _dartSdkPath(),
   );
   try {
-    final units = <ResolvedUnitResult>[];
     for (final path in _dartFilesUnder(
       root,
       collection,
@@ -1811,9 +1838,8 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
         collection,
         path,
       ).currentSession.getResolvedUnit(path);
-      if (result is ResolvedUnitResult) units.add(result);
+      if (result is ResolvedUnitResult) onUnit(result);
     }
-    return units;
   } finally {
     await collection.dispose();
   }

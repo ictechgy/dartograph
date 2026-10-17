@@ -29,15 +29,16 @@ final class RuntimeScanner {
     bool aggregateWorkspace = false,
   }) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
-    final units = await resolveProjectUnits(
+    final facts = <RuntimeFact>[];
+    // 방문은 유닛마다 독립이라 해석하는 즉시 방문하고 유닛을 붙잡지 않는다 —
+    // 프로젝트 전체의 resolved AST가 스캔 끝까지 상주하지 않는다. 유닛 순서가
+    // 같고 끝에 _dedupeSorted를 거치므로 출력은 리스트로 모을 때와 같다.
+    await resolveProjectUnitsEach(
       rootPath,
+      (unit) => unit.unit.accept(_RuntimeFactVisitor(root, facts, unit)),
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
     );
-    final facts = <RuntimeFact>[];
-    for (final unit in units) {
-      unit.unit.accept(_RuntimeFactVisitor(root, facts, unit));
-    }
     facts.addAll(_pubspecAssetFacts(root));
     return _dedupeSorted(facts);
   }

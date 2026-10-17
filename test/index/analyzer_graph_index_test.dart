@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
@@ -775,6 +776,55 @@ environment:
       );
     },
     skip: Platform.isWindows,
+  );
+
+  test(
+    'resolveProjectUnitsEach hands over units one by one in path order',
+    () async {
+      final package = await Directory.systemTemp.createTemp(
+        'dartograph-units-each.',
+      );
+      addTearDown(() => package.delete(recursive: true));
+      for (final entry in const {
+        'pubspec.yaml': 'name: units_each\nenvironment:\n  sdk: ^3.11.0\n',
+        'lib/b.dart': 'class B {}\n',
+        'lib/a.dart': 'class A {}\n',
+        'test/c_test.dart': 'void main() {}\n',
+        'bin/tool.dart': 'void main() {}\n',
+        // 표준 소스 디렉터리 밖이라 그래프와 같이 제외된다.
+        'tool/ignored.dart': 'void main() {}\n',
+      }.entries) {
+        final file = File(p.join(package.path, entry.key));
+        await file.create(recursive: true);
+        await file.writeAsString(entry.value);
+      }
+      final root = package.resolveSymbolicLinksSync();
+      String relative(String path) =>
+          p.posix.joinAll(p.split(p.relative(path, from: root)));
+
+      final visited = <String>[];
+      final declared = <String>[];
+      await resolveProjectUnitsEach(package.path, (unit) {
+        visited.add(relative(unit.path));
+        // 콜백 안에서 해석된 AST를 그대로 읽는다 — 호출자는 유닛을 붙잡지
+        // 않고 바로 방문한다.
+        declared.addAll(
+          unit.unit.declarations.whereType<ClassDeclaration>().map(
+            (declaration) => declaration.namePart.typeName.lexeme,
+          ),
+        );
+      });
+
+      expect(visited, [
+        'bin/tool.dart',
+        'lib/a.dart',
+        'lib/b.dart',
+        'test/c_test.dart',
+      ]);
+      expect(declared, ['A', 'B']);
+      final listed = await resolveProjectUnits(package.path);
+      expect([for (final unit in listed) relative(unit.path)], visited);
+    },
   );
 
   test(
