@@ -127,6 +127,33 @@ final class AnalyzerGraphResult {
   /// `--workspace` 집계로 함께 분석된 워크스페이스 멤버의 매니페스트 사실
   /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
   final List<WorkspacePackage> workspacePackages;
+
+  /// [limitationDetails] 끝에 [detail] 하나만 더하고 나머지 필드는 그대로 둔
+  /// 복사본이다.
+  ///
+  /// 결과를 호출부에서 손으로 복사하면 필드가 추가될 때 한 곳이 빠져 결과가
+  /// 조용히 바뀐다 — 증분 캐시 쓰기 실패 분기가 [workspacePackages]를 잃어
+  /// `deps --workspace`가 거짓 발견을 낸 사례다. 복사를 필드 선언 옆에 두어
+  /// 필드 목록과 함께 고치게 한다.
+  AnalyzerGraphResult withAddedLimitationDetail(String detail) =>
+      AnalyzerGraphResult(
+        graph: graph,
+        limitations: limitations,
+        limitationDetails: [...limitationDetails, detail],
+        retentionRoots: retentionRoots,
+        packageName: packageName,
+        declaredDependencies: declaredDependencies,
+        declaredDevDependencies: declaredDevDependencies,
+        declaredDependencyOverrides: declaredDependencyOverrides,
+        packageImports: packageImports,
+        complexity: complexity,
+        tokenSegments: tokenSegments,
+        includeGlobs: includeGlobs,
+        excludeGlobs: excludeGlobs,
+        metricsDistanceThreshold: metricsDistanceThreshold,
+        metricsComplexityThreshold: metricsComplexityThreshold,
+        workspacePackages: workspacePackages,
+      );
 }
 
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
@@ -496,26 +523,7 @@ final class AnalyzerGraphIndex {
     });
     if (!written) {
       incremental.stats.cacheNotUpdated = true;
-      result = AnalyzerGraphResult(
-        graph: result.graph,
-        limitations: result.limitations,
-        limitationDetails: [
-          ...result.limitationDetails,
-          _cacheWriteFailureDetail,
-        ],
-        retentionRoots: result.retentionRoots,
-        packageName: result.packageName,
-        declaredDependencies: result.declaredDependencies,
-        declaredDevDependencies: result.declaredDevDependencies,
-        declaredDependencyOverrides: result.declaredDependencyOverrides,
-        packageImports: result.packageImports,
-        complexity: result.complexity,
-        tokenSegments: result.tokenSegments,
-        includeGlobs: result.includeGlobs,
-        excludeGlobs: result.excludeGlobs,
-        metricsDistanceThreshold: result.metricsDistanceThreshold,
-        metricsComplexityThreshold: result.metricsComplexityThreshold,
-      );
+      result = result.withAddedLimitationDetail(_cacheWriteFailureDetail);
     }
     return result;
   }
