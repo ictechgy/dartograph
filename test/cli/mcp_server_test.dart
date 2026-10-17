@@ -580,6 +580,54 @@ void main() {
     },
   );
 
+  test(
+    'option-shaped tool values are rejected before they reach the CLI',
+    () async {
+      writeSource(directory.path, 'class Foo {}');
+      Object tool(int id, String name, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': name,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+      final responses = await exchange([
+        // 값 자리의 `--record`는 뒤따르는 packageRoot를 원장 디렉터리로 삼아
+        // 읽기 전용 도구가 분석 대상 저장소에 ledger.jsonl을 썼다.
+        query(1, directory.path, '--record'),
+        tool(2, verifyToolName, {
+          'command': 'dead',
+          'kinds': ['--record'],
+        }),
+        tool(3, verifyToolName, {'command': 'dead', 'since': '--record'}),
+        tool(4, verifyToolName, {'command': 'dead', 'baseline': '--record'}),
+        tool(5, verifyToolName, {'command': 'rules', 'config': '--record'}),
+        tool(6, impactToolName, {'since': '--incremental'}),
+        tool(7, impactToolName, {'symbol': '--workspace'}),
+        tool(8, dependencyToolName, {
+          'batch': ['Foo', '-x'],
+        }),
+        tool(9, dependencyToolName, {'symbol': 'Foo', 'baseline': '--record'}),
+        explore(10, directory.path, {'impactSymbol': '--record'}),
+        explore(11, directory.path, {
+          'command': 'dead',
+          'kinds': ['declaration', '-x'],
+        }),
+      ]);
+
+      expect(responses, hasLength(11));
+      for (final response in responses) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        // CLI usage(64)가 아니라 MCP 계층의 인자 오류로 거부된다.
+        expect(textOf(response), contains('Invalid arguments: '));
+        expect(textOf(response), isNot(contains('exitCode:')));
+      }
+      expect(
+        File(p.join(directory.path, 'ledger.jsonl')).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([
       // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.

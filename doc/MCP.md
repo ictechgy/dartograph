@@ -58,6 +58,12 @@ dartograph mcp
 패키지만 분석할 수 있다. 경계 밖이거나 존재하지 않는 경로는 인자 오류
 (`isError: true`)로 거부된다.
 
+도구 값은 CLI 인자로 전달된다. 그래서 `symbol`·`impactSymbol`·`batch` 항목·
+`since`·`baseline`·`config`·`kinds` 항목이 `-`로 시작하면 인자 오류다 — 옵션
+모양 값이 `--record` 같은 CLI 플래그로 재해석되어 읽기 전용 도구가 파일을 쓰지
+않게 한다. 심볼 ID·git revision은 `-`로 시작하지 않는다. 이항 `-` 연산자는
+`Vector.-`처럼 한정 이름으로 묻고, `-`로 시작하는 실제 경로는 `./-name`처럼 준다.
+
 stdio 프레이밍은 JSON-RPC 메시지 한 줄당 1MiB 상한이 있다. 상한을 넘는 메시지는
 잘려서 `Invalid JSON`(-32700) 응답이 되고 연결은 유지된다.
 

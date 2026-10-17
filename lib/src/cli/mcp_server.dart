@@ -1073,6 +1073,7 @@ Future<Map<String, Object?>> _impactTool({
       if (since is! String || since.trim().isEmpty) {
         return _toolError('since must be a non-empty string');
       }
+      if (_isOptionShaped(since)) return _optionShapedError('since');
       args.addAll(['--since', since]);
     } else if (arguments['changed'] != null) {
       final changed = arguments['changed'];
@@ -1093,6 +1094,7 @@ Future<Map<String, Object?>> _impactTool({
       if (symbol is! String || symbol.trim().isEmpty) {
         return _toolError('symbol must be a non-empty string');
       }
+      if (_isOptionShaped(symbol)) return _optionShapedError('symbol');
       args.addAll(['--symbol', symbol]);
     }
     final depth = _positiveInt(arguments['depth']);
@@ -1136,6 +1138,7 @@ Future<Map<String, Object?>> _dependencyTool({
       if (symbol is! String || symbol.trim().isEmpty) {
         return _toolError('symbol must be a non-empty string');
       }
+      if (_isOptionShaped(symbol)) return _optionShapedError('symbol');
       args.add(symbol);
     } else {
       if (batch is! List || batch.isEmpty || batch.length > 1000) {
@@ -1143,6 +1146,10 @@ Future<Map<String, Object?>> _dependencyTool({
       }
       if (batch.any((item) => item is! String || item.trim().isEmpty)) {
         return _toolError('batch entries must be non-empty strings');
+      }
+      // 파일로 넘겨 argv에는 들어가지 않지만 symbol과 같은 값을 받게 한다.
+      if (batch.cast<String>().any(_isOptionShaped)) {
+        return _optionShapedError('batch entries');
       }
       final file = await _writeScratch(
         createScratch,
@@ -1160,6 +1167,7 @@ Future<Map<String, Object?>> _dependencyTool({
       if (baseline is! String || baseline.trim().isEmpty) {
         return _toolError('baseline must be a non-empty string');
       }
+      if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
       args.addAll(['--baseline', baseline]);
     }
     final withSource = arguments['withSource'];
@@ -1229,6 +1237,7 @@ Future<Map<String, Object?>> _verifyTool({
     if (since is! String || since.trim().isEmpty) {
       return _toolError('since must be a non-empty string');
     }
+    if (_isOptionShaped(since)) return _optionShapedError('since');
     args.addAll(['--since', since]);
   }
   final baseline = arguments['baseline'];
@@ -1236,6 +1245,7 @@ Future<Map<String, Object?>> _verifyTool({
     if (baseline is! String || baseline.trim().isEmpty) {
       return _toolError('baseline must be a non-empty string');
     }
+    if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
     args.addAll(['--baseline', baseline]);
   }
   final config = arguments['config'];
@@ -1243,6 +1253,7 @@ Future<Map<String, Object?>> _verifyTool({
     if (config is! String || config.trim().isEmpty) {
       return _toolError('config must be a non-empty string');
     }
+    if (_isOptionShaped(config)) return _optionShapedError('config');
     args.addAll(['--config', config]);
   }
   final minTokens = arguments['minTokens'];
@@ -1271,6 +1282,9 @@ Future<Map<String, Object?>> _verifyTool({
       return _toolError(
         'kinds must be a non-empty list of strings without commas',
       );
+    }
+    if (kinds.cast<String>().any(_isOptionShaped)) {
+      return _optionShapedError('kinds entries');
     }
     args.addAll(['--kinds', kinds.join(',')]);
   }
@@ -1569,12 +1583,24 @@ Map<String, Object?> _exploreHelp(Map<String, Object?> arguments) {
   };
 }
 
+/// MCP 도구가 CLI에 넘기지 않는 전역 플래그다. 원장을 쓸 위치(`--record`)와
+/// 캐시 위치(`--incremental`)를 도구 값이 정하지 못하게 한다.
+const _toolForbiddenFlags = {'--record', '--incremental'};
+
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.
+///
+/// 도구 값 검사가 놓친 값이 전역 플래그로 재해석되지 않게, MCP가 넣지 않는
+/// [_toolForbiddenFlags] 토큰이 든 인자는 실행하지 않고 인자 오류로 답한다.
 Future<Map<String, Object?>> _runCapture(
   List<String> arguments, {
   _McpIndexing? indexing,
   ChangedFilesSince? changedFilesSince,
 }) async {
+  if (arguments.any(_toolForbiddenFlags.contains)) {
+    return _toolError(
+      '--record and --incremental are not available through MCP tools',
+    );
+  }
   final stdoutBuffer = StringBuffer();
   final stderrBuffer = StringBuffer();
   final status = await runDartograph(
@@ -1607,6 +1633,21 @@ Map<String, Object?> _toolError(String message) => {
   ],
   'isError': true,
 };
+
+/// 도구의 문자열 값이 옵션 모양(`-`로 시작)인지 본다.
+///
+/// 도구 값은 CLI 인자에 그대로 들어간다. `-`로 시작하는 값은 앞 옵션의 값이나
+/// 위치 인자로 남지 않고 `--record <dir>` 같은 전역 플래그로 재해석될 수
+/// 있다(읽기 전용 도구가 packageRoot에 원장을 쓴다). 심볼 ID·git revision·
+/// 경로는 `-`로 시작하지 않고 CLI도 옵션 모양 경로를 usage로 거부하므로 정상
+/// 호출에는 영향이 없다.
+bool _isOptionShaped(String value) => value.startsWith('-');
+
+/// [name] 값이 옵션 모양이라 거부하는 인자 오류다.
+Map<String, Object?> _optionShapedError(String name) => _toolError(
+  '$name must not start with "-" (option-shaped values would be read as '
+  'CLI flags)',
+);
 
 int? _positiveInt(Object? value) {
   if (value is int && value >= 1) return value;
