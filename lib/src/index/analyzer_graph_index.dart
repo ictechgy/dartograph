@@ -1189,8 +1189,18 @@ AnalyzerGraphResult _assembleResult({
   }
   // 대표 라이브러리 판정은 소스 경로로 한다(노드 ID는 package URI일 수 있다).
   // 후보가 있는 라이브러리는 대표 라이브러리 하나뿐이라 순서는 유닛 순서를 따른다.
+  // 멤버 색인은 후보가 처음 나올 때 한 번만 만든다 — 라이브러리마다 전체 정점을
+  // 다시 훑으면 비용이 O(라이브러리 수 × 정점 수)다. 이 루프는 정점을 더하지
+  // 않으므로 한 번 만든 색인이 모든 대표 라이브러리(--workspace 멤버 포함)에 맞다.
+  Map<String, List<String>>? membersByDeclaration;
   for (final library in libraries.values) {
-    _addPublicApiRoots(graph, retentionRoots, library.publicApi);
+    if (library.publicApi.isEmpty) continue;
+    _addPublicApiRoots(
+      graph,
+      retentionRoots,
+      library.publicApi,
+      membersByDeclaration ??= _publicMembersByDeclaration(graph),
+    );
   }
   for (final source in sources) {
     for (final edge in facts[source]!.edges) {
@@ -3226,15 +3236,30 @@ bool _isExternalBindingElement(ElementAnnotation annotation) {
 ///
 /// 후보 ID는 라이브러리 해석에서 나온다(`_libraryFacts`). 여기서는 전역 정점
 /// 집합으로 존재 여부만 판정한다 — 전체 해석과 증분 해석이 같은 정점 집합을
-/// 보므로 같은 결정을 낸다.
+/// 보므로 같은 결정을 낸다. [membersByDeclaration]은 호출자가 완성된 그래프로
+/// 한 번 만든 [_publicMembersByDeclaration]이다.
 void _addPublicApiRoots(
   CodeGraph graph,
   Map<String, RetentionReason> roots,
   Iterable<String> exportedIds,
+  Map<String, List<String>> membersByDeclaration,
 ) {
-  // export 심볼마다 노드 전체를 다시 스캔하면 O(export 수 × 노드 수)다 —
-  // 선언 prefix 기준으로 한 번만 묶어 멤버 조회를 O(멤버 수)로 만든다
-  // (감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
+  for (final id in exportedIds) {
+    if (!graph.containsNode(id)) continue;
+    roots.putIfAbsent(id, () => RetentionReason.publicApi);
+    for (final nodeId in membersByDeclaration[id] ?? const <String>[]) {
+      roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
+    }
+  }
+}
+
+/// 선언 ID → 그 선언의 공개 직접 멤버 ID 목록(정점 ID 순)이다.
+///
+/// export 심볼마다 노드 전체를 다시 스캔하면 O(export 수 × 노드 수)다 —
+/// 선언 prefix 기준으로 한 번만 묶어 멤버 조회를 O(멤버 수)로 만든다
+/// (감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist). 정점이 모두 더해진 뒤에
+/// 만들어야 한다 — 그 뒤에 더한 정점은 색인에 없다.
+Map<String, List<String>> _publicMembersByDeclaration(CodeGraph graph) {
   final membersByDeclaration = <String, List<String>>{};
   for (final nodeId in graph.nodes.keys) {
     final dot = nodeId.lastIndexOf('.');
@@ -3247,13 +3272,7 @@ void _addPublicApiRoots(
         .putIfAbsent(nodeId.substring(0, dot), () => [])
         .add(nodeId);
   }
-  for (final id in exportedIds) {
-    if (!graph.containsNode(id)) continue;
-    roots.putIfAbsent(id, () => RetentionReason.publicApi);
-    for (final nodeId in membersByDeclaration[id] ?? const <String>[]) {
-      roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
-    }
-  }
+  return membersByDeclaration;
 }
 
 bool _overridesInheritedMember(Element element) {
