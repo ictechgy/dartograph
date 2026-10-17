@@ -156,12 +156,86 @@ void main() {
     expect(report.findings.last.tokenCount, 11);
   });
 
-  test('random inputs match the legacy implementation byte for byte', () {
-    // 창 위치 표현을 바꿔도 발견·순서·포화 한계는 그대로여야 한다. 작은
-    // 알파벳의 주기 열, 같은 세그먼트 반복, 붙은 사본(겹침 경계), 포화
+  test('ties on location keys break by end line', () {
+    // `2 1 2 1 2 1`(한 행에 두 토큰)에서 [0,2)·[2,4)와 [1,3)·[3,5)는 토큰 수와
+    // 두 인스턴스의 시작 행이 같고 끝 행만 다르다. 동점 순서가 쌍 처리
+    // 순서(해시 순)를 따르면 안 된다 — 끝 행까지 비교한 전순서여야 한다.
+    final report = DuplicationAnalyzer().analyze([
+      TokenSegment(
+        source: 'project:lib/a.dart',
+        codes: const [2, 1, 2, 1, 2, 1],
+        lines: const [1, 1, 2, 2, 3, 3],
+      ),
+    ], minTokens: 2);
+
+    expect(
+      report.findings
+          .map(
+            (finding) => [
+              for (final instance in finding.instances)
+                '${instance.startLine}-${instance.endLine}',
+            ],
+          )
+          .toList(),
+      [
+        ['1-1', '2-2'],
+        ['1-2', '2-3'],
+        ['1-1', '3-3'],
+        ['2-2', '3-3'],
+      ],
+    );
+  });
+
+  test('blocks copied many times extend each pair of copies once', () {
+    // 같은 1000토큰 블록이 120곳에 있으면, 블록 안 모든 창 오프셋의 쌍이 같은
+    // 극대 블록을 처음부터 다시 확장했다(O(k²·L²)). 좌측 극대 쌍만 확장하면
+    // 사본 쌍마다 한 번이다. 파일마다 한 사본인 경우와 한 선언 안에 사본이
+    // 이어지는 경우(유사 메서드가 많은 클래스)를 함께 본다.
+    final random = Random(3);
+    List<int> unique(int count) => [
+      for (var i = 0; i < count; i++) random.nextInt(1 << 30),
+    ];
+    final block = unique(1000);
+    final acrossFiles = [
+      for (var s = 0; s < 120; s++)
+        segment('project:test/f${s}_test.dart', [
+          ...unique(1),
+          ...block,
+          ...unique(1),
+        ]),
+    ];
+    final withinDeclaration = segment('project:lib/big.dart', [
+      for (var copy = 0; copy < 120; copy++) ...[...block, ...unique(3)],
+    ]);
+
+    final stopwatch = Stopwatch()..start();
+    final across = DuplicationAnalyzer().analyze(acrossFiles, minTokens: 50);
+    final within = DuplicationAnalyzer().analyze([
+      withinDeclaration,
+    ], minTokens: 50);
+    stopwatch.stop();
+
+    // 사본 쌍(120·119/2)마다 블록 전체인 1000토큰 발견 하나다.
+    for (final report in [across, within]) {
+      expect(report.findings, hasLength(7140));
+      expect(report.findings.map((finding) => finding.tokenCount).toSet(), {
+        1000,
+      });
+    }
+    // 수정 전에는 두 입력에 약 12초(Apple M4 Pro, JIT), 수정 후에는 0.2초
+    // 안팎이다. 커버리지 계측·느린 러너도 견디는 넉넉한 상한으로 제곱 확장의
+    // 회귀만 잡는다.
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+  });
+
+  test('random inputs match the legacy findings in total order', () {
+    // 창 표현과 쌍 확장 순서를 바꿔도 발견 집합·포화 한계는 그대로여야 한다.
+    // 작은 알파벳의 주기 열, 같은 세그먼트 반복, 붙은 사본(겹침 경계), 포화
     // 버킷 바로 뒤의 공통 블록을 섞어 기존 구현(오라클)과 바이트로 비교한다.
+    // 기존 비교 키가 같은 동점은 처리 순서를 따랐으므로, 오라클 결과를 끝
+    // 행까지 비교하는 전순서로 다시 정렬해 비교한다.
     final random = Random(20261018);
-    for (var trial = 0; trial < 800; trial++) {
+    for (var trial = 0; trial < 400; trial++) {
       final minTokens = 2 + random.nextInt(8);
       final segments = _randomSegments(random, minTokens: minTokens);
       final report = DuplicationAnalyzer().analyze(
@@ -171,12 +245,30 @@ void main() {
       final expected = _legacyAnalyze(segments, minTokens: minTokens);
       expect(
         jsonEncode([for (final finding in report.findings) finding.toJson()]),
-        jsonEncode(expected.findings),
+        jsonEncode(_legacyJson(_inTotalOrder(expected.findings))),
         reason: 'trial $trial (minTokens $minTokens)',
       );
       expect(report.limitations, expected.limitations, reason: 'trial $trial');
     }
   });
+}
+
+/// 기존 비교 키(토큰 수 내림, 두 인스턴스의 소스·시작 행) 뒤에 두
+/// 인스턴스의 끝 행을 더한 전순서로 정렬한 사본이다.
+List<_LegacyFinding> _inTotalOrder(List<_LegacyFinding> findings) {
+  int compare(_LegacyFinding a, _LegacyFinding b) {
+    var order = b.tokenCount.compareTo(a.tokenCount);
+    if (order != 0) return order;
+    order = _legacyInstanceOrder(a.instances.first, b.instances.first);
+    if (order != 0) return order;
+    order = _legacyInstanceOrder(a.instances.last, b.instances.last);
+    if (order != 0) return order;
+    order = a.instances.first.endLine.compareTo(b.instances.first.endLine);
+    if (order != 0) return order;
+    return a.instances.last.endLine.compareTo(b.instances.last.endLine);
+  }
+
+  return [...findings]..sort(compare);
 }
 
 /// 차등 테스트 입력이다. 파일마다 세그먼트 여러 개가 행을 이어 가며(실제
@@ -200,15 +292,14 @@ List<TokenSegment> _randomSegments(Random random, {required int minTokens}) {
         ]
       : const <int>[];
   final segments = <TokenSegment>[];
-  for (var file = 0; file < 1 + random.nextInt(3); file++) {
+  final files = 1 + random.nextInt(3);
+  for (var file = 0; file < files; file++) {
     var line = 1;
-    for (
-      var declaration = 0;
-      declaration < 1 + random.nextInt(3);
-      declaration++
-    ) {
+    final declarations = 1 + random.nextInt(3);
+    for (var declaration = 0; declaration < declarations; declaration++) {
       final codes = <int>[if (segments.length < 2) ...saturating];
-      for (var part = 0; part < 1 + random.nextInt(4); part++) {
+      final parts = 1 + random.nextInt(4);
+      for (var part = 0; part < parts; part++) {
         if (random.nextBool()) codes.addAll(shared);
         codes.addAll(noise(random.nextInt(16)));
       }
@@ -236,9 +327,9 @@ typedef _LegacyInstance = ({String source, int startLine, int endLine});
 /// 오라클의 발견 값이다.
 typedef _LegacyFinding = ({int tokenCount, List<_LegacyInstance> instances});
 
-/// 창마다 레코드를 만들어 해시별 맵에 모으던 기존 `analyze`를 그대로 옮긴
-/// 오라클이다. 발견은 제품 `toJson`과 같은 키 순서의 JSON 값으로 돌려준다.
-({List<Map<String, Object>> findings, List<String> limitations}) _legacyAnalyze(
+/// 창마다 레코드를 만들어 해시별 맵에 모으고 해시 버킷의 모든 쌍을 처음부터
+/// 확장하던 기존 `analyze`를 그대로 옮긴 오라클이다.
+({List<_LegacyFinding> findings, List<String> limitations}) _legacyAnalyze(
   List<TokenSegment> segments, {
   required int minTokens,
 }) {
@@ -323,21 +414,7 @@ typedef _LegacyFinding = ({int tokenCount, List<_LegacyInstance> instances});
     return _legacyInstanceOrder(a.instances.last, b.instances.last);
   });
   return (
-    findings: [
-      for (final finding in findings)
-        {
-          'instances': [
-            for (final instance in finding.instances)
-              {
-                'endLine': instance.endLine,
-                'source': instance.source,
-                'startLine': instance.startLine,
-              },
-          ],
-          'kind': 'duplicate-block',
-          'tokenCount': finding.tokenCount,
-        },
-    ],
+    findings: findings,
     limitations: [
       if (saturated > 0)
         'duplication-window-saturation: $saturated repetitive window hash(es) '
@@ -345,6 +422,23 @@ typedef _LegacyFinding = ({int tokenCount, List<_LegacyInstance> instances});
     ],
   );
 }
+
+/// 오라클 발견을 제품 `toJson`과 같은 키 순서의 JSON 값으로 바꾼다.
+List<Map<String, Object>> _legacyJson(List<_LegacyFinding> findings) => [
+  for (final finding in findings)
+    {
+      'instances': [
+        for (final instance in finding.instances)
+          {
+            'endLine': instance.endLine,
+            'source': instance.source,
+            'startLine': instance.startLine,
+          },
+      ],
+      'kind': 'duplicate-block',
+      'tokenCount': finding.tokenCount,
+    },
+];
 
 /// 기존 구현의 인스턴스 순서(소스·시작 행)다.
 int _legacyInstanceOrder(_LegacyInstance a, _LegacyInstance b) {

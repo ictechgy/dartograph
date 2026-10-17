@@ -89,7 +89,7 @@ final class DuplicationAnalyzer {
       final count = codes.length - minTokens + 1;
       windows.add(count <= 0 ? _noWindows : _rollingHashes(codes, minTokens));
     }
-    final (:offsets, :positions, :saturated) = _windowGroups(windows);
+    final (:offsets, :positions, :grouped, :saturated) = _windowGroups(windows);
     final seen = <String>{};
     final findings = <DuplicationFinding>[];
     for (var group = 0; group + 1 < offsets.length; group++) {
@@ -105,6 +105,23 @@ final class DuplicationAnalyzer {
           if (sameSegment && indexB - indexA < minTokens) continue;
           final aHashes = windows[segmentA];
           final bHashes = windows[segmentB];
+          // 좌측 극대 쌍에서만 확장한다. 앞 창 쌍도 같은 해시이고 그 버킷이
+          // 열거되면, 그 쌍이 같은 시작·길이(같은 서명)의 블록을 만든다 —
+          // 블록 안 모든 창 오프셋에서 같은 블록을 다시 확장하면 사본 k개·
+          // 블록 창 L개에 O(k²·L²)가 든다.
+          if (indexA > 0 &&
+              indexB > 0 &&
+              aHashes[indexA - 1] == bHashes[indexB - 1] &&
+              grouped[segmentA][indexA - 1] != 0 &&
+              (!sameSegment ||
+                  _leftPairSameBlock(
+                    aHashes,
+                    indexA,
+                    indexB - indexA,
+                    minTokens,
+                  ))) {
+            continue;
+          }
           // 뒤쪽 확장도 비겹침 상한을 지킨다 — 같은 세그먼트에서
           // back > 거리 - minTokens이면 두 블록이 토큰에서 겹친다.
           var backLimit = indexA < indexB ? indexA : indexB;
@@ -157,10 +174,19 @@ final class DuplicationAnalyzer {
       final order = b.tokenCount.compareTo(a.tokenCount);
       if (order != 0) return order;
       // 위치 쌍별 발견은 첫 인스턴스가 같을 수 있다([P,Q]·[P,R]) — 둘째까지
-      // 비교해 전순서를 만들어 List.sort의 비안정성이 출력에 새지 않게 한다.
+      // 비교해 List.sort의 비안정성이 출력에 새지 않게 한다.
       final first = _instanceOrder(a.instances.first, b.instances.first);
       if (first != 0) return first;
-      return _instanceOrder(a.instances.last, b.instances.last);
+      final last = _instanceOrder(a.instances.last, b.instances.last);
+      if (last != 0) return last;
+      // 한 행에 토큰이 여럿이면 시작 행이 같고 끝 행만 다른 발견이 생긴다.
+      // 끝 행까지 비교해 내용 기준 전순서로 만든다 — 쌍 처리 순서가 동점
+      // 순서로 새지 않는다. 앞 키가 정하던 순서는 바꾸지 않는다.
+      final firstEnd = a.instances.first.endLine.compareTo(
+        b.instances.first.endLine,
+      );
+      if (firstEnd != 0) return firstEnd;
+      return a.instances.last.endLine.compareTo(b.instances.last.endLine);
     });
     return DuplicationReport(findings, [
       if (saturated > 0)
@@ -172,20 +198,54 @@ final class DuplicationAnalyzer {
   /// 창이 없는 세그먼트가 함께 쓰는 빈 해시 열이다.
   static final _noWindows = Int64List(0);
 
+  /// 창이 없는 세그먼트가 함께 쓰는 빈 그룹 소속 표시다.
+  static final _noFlags = Uint8List(0);
+
   /// 패킹한 위치 `(세그먼트 << 32) | 인덱스`에서 인덱스를 꺼내는 마스크다.
   static const _indexMask = 0xffffffff;
+
+  /// 같은 세그먼트 쌍에서 앞 창 쌍이 같은 블록(같은 서명)으로 확장되는지다.
+  ///
+  /// 뒤쪽 확장은 비겹침 상한 `limit = distance - minTokens`에서 멈춘다. 이
+  /// 쌍의 뒤쪽 일치가 상한을 넘게 이어지면(스스로 겹치는 주기 반복) 앞 쌍과
+  /// 시작이 다른 블록이 되므로, 일치가 상한 안에서 끊김을 확인할 때만 true다.
+  /// [indexA]가 상한 이하이면 세그먼트 시작이 먼저 끊는다. 아니면 오프셋
+  /// 2..limit+1의 창에서 불일치를 찾는다 — 토큰 하나의 차이는 연속한
+  /// [minTokens]개 창을 불일치시키므로 그 간격과 끝 오프셋만 본다. 못 찾으면
+  /// false로 확장하고, 같은 블록이면 서명 중복 제거가 걸러 결과는 같다.
+  static bool _leftPairSameBlock(
+    Int64List hashes,
+    int indexA,
+    int distance,
+    int minTokens,
+  ) {
+    final limit = distance - minTokens;
+    if (indexA <= limit) return true;
+    final indexB = indexA + distance;
+    for (var offset = 2; offset <= limit + 1; offset += minTokens) {
+      if (hashes[indexA - offset] != hashes[indexB - offset]) return true;
+    }
+    return limit > 0 &&
+        hashes[indexA - limit - 1] != hashes[indexB - limit - 1];
+  }
 
   /// 쌍을 비교할 창 해시 그룹을 해시 오름차순으로 모은다.
   ///
   /// 그룹 `g`의 위치는 `positions[offsets[g]..offsets[g + 1])`이고 세그먼트·
   /// 인덱스 오름차순이다 — 해시별 맵을 해시 순으로 돌던 순서와 같다. 위치가
   /// 2..[positionCap]개인 해시만 담고, 상한을 넘은 해시는 `saturated`로 센다.
+  /// `grouped[s][i]`는 창 (s, i)가 쌍을 열거하는 그룹에 들었는지(1)다.
   ///
   /// 창마다 맵 항목·리스트·레코드를 만들면 토큰당 약 160B가 든다. 대부분의
   /// 창 해시는 한 번만 나오므로 정렬한 해시 사본에서 2회 이상인 해시만 고르고
   /// 그 위치만 모은다. 사본 버퍼는 위치 버퍼로 다시 써서 최대 메모리가 창
-  /// 해시 두 벌(토큰당 약 16B)을 넘지 않게 한다.
-  static ({Int32List offsets, Int64List positions, int saturated})
+  /// 해시 두 벌(토큰당 약 16B)과 소속 표시(토큰당 1B)를 넘지 않게 한다.
+  static ({
+    Int32List offsets,
+    Int64List positions,
+    List<Uint8List> grouped,
+    int saturated,
+  })
   _windowGroups(List<Int64List> windows) {
     var total = 0;
     for (final hashes in windows) {
@@ -201,10 +261,15 @@ final class DuplicationAnalyzer {
     final runs = _groupRuns(sorted);
     // 그룹 위치 수 ≤ 창 수이므로 정렬이 끝난 사본을 위치 버퍼로 쓴다.
     final positions = Int64List.sublistView(sorted, 0, runs.offsets.last);
-    _fillPositions(windows, runs.hashes, runs.offsets, positions);
+    final grouped = [
+      for (final hashes in windows)
+        hashes.isEmpty ? _noFlags : Uint8List(hashes.length),
+    ];
+    _fillPositions(windows, runs.hashes, runs.offsets, positions, grouped);
     return (
       offsets: runs.offsets,
       positions: positions,
+      grouped: grouped,
       saturated: runs.saturated,
     );
   }
@@ -251,7 +316,8 @@ final class DuplicationAnalyzer {
     return end;
   }
 
-  /// 그룹에 속한 창의 위치를 세그먼트·인덱스 순서로 [positions]에 채운다.
+  /// 그룹에 속한 창의 위치를 세그먼트·인덱스 순서로 [positions]에 채우고
+  /// [grouped]에 소속을 표시한다.
   ///
   /// [positions]가 정렬 사본과 버퍼를 공유하므로 [hashes]·[offsets]를 다
   /// 만든 뒤에만 부른다.
@@ -260,6 +326,7 @@ final class DuplicationAnalyzer {
     Int64List hashes,
     Int32List offsets,
     Int64List positions,
+    List<Uint8List> grouped,
   ) {
     if (hashes.isEmpty) return;
     final cursors = Int32List.fromList(offsets);
@@ -267,7 +334,9 @@ final class DuplicationAnalyzer {
       final segmentHashes = windows[s];
       for (var i = 0; i < segmentHashes.length; i++) {
         final group = _indexOf(hashes, segmentHashes[i]);
-        if (group >= 0) positions[cursors[group]++] = (s << 32) | i;
+        if (group < 0) continue;
+        positions[cursors[group]++] = (s << 32) | i;
+        grouped[s][i] = 1;
       }
     }
   }
