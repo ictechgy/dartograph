@@ -413,9 +413,10 @@ final class ReachabilityAnalyzer {
     // 메서드 안에서만 유효하다(limitations 인자가 바뀌면 결과도 바뀐다) —
     // source만 키로 하는 더 긴 수명의 저장소로 승격하지 않는다.
     final sourceLimitations = <String, List<String>>{};
+    final limitationIndex = _SourceLimitations(limitations);
     List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
       source,
-      () => limitationsForSource(limitations, source),
+      () => limitationIndex.forSource(source),
     );
     // enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화는 상수를
     // 직접 참조하지 않아 usage 간선이 없으므로, 보존하지 않으면 enum 상수가
@@ -674,9 +675,10 @@ final class ReachabilityAnalyzer {
     // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
     // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다.
     final sourceLimitations = <String, List<String>>{};
+    final limitationIndex = _SourceLimitations(limitations);
     List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
       source,
-      () => limitationsForSource(limitations, source),
+      () => limitationIndex.forSource(source),
     );
     for (final node in graph.nodes) {
       final id = node.id;
@@ -759,14 +761,47 @@ bool _isTestRoot(RetentionReason reason, String? source) =>
     reason == RetentionReason.visibleForTesting && _isTestSource(source);
 
 /// 소스 한계는 관측된 파일에만 붙이고 전역 한계는 모든 finding에 보존한다.
-List<String> limitationsForSource(List<String> limitations, String source) =>
-    limitations
-        .where(
-          (item) => !item.startsWith('source-') || item.endsWith(': $source'),
-        )
-        .toSet()
-        .toList()
-      ..sort();
+///
+/// limitation 목록을 한 번만 분류해 둔다. source마다 전체 목록을 다시 훑으면
+/// source 수 × limitation 수가 되고, `source-*` 한계는 파일 수에 비례해 결국
+/// 파일 수의 제곱이 된다.
+final class _SourceLimitations {
+  /// [limitations]를 전역 한계와 마지막 `': '` 뒤 꼬리별 소스 한계로 나눈다.
+  _SourceLimitations(List<String> limitations) {
+    for (final item in limitations) {
+      if (!item.startsWith('source-')) {
+        _global.add(item);
+        continue;
+      }
+      // `': '`가 없는 소스 한계는 어떤 source로도 끝나지 않는다.
+      final separator = item.lastIndexOf(': ');
+      if (separator < 0) continue;
+      (_byTail[item.substring(separator + 2)] ??= <String>[]).add(item);
+    }
+  }
+
+  /// `source-`로 시작하지 않아 모든 finding에 붙는 한계다.
+  final _global = <String>[];
+
+  /// 소스 한계를 마지막 `': '` 뒤 꼬리로 묶은 후보다.
+  final _byTail = <String, List<String>>{};
+
+  /// [source]에 붙는 한계를 중복 없이 정렬해 돌려준다.
+  ///
+  /// `item.endsWith(': $source')`이면 item의 마지막 `': '` 뒤 꼬리는 [source]의
+  /// 마지막 `': '` 뒤 꼬리(없으면 [source] 전체)와 같다. 그래서 그 꼬리의 후보만
+  /// 같은 술어로 거른다. source에 `': '`가 없는 보통 경로는 후보가 모두 맞는다.
+  List<String> forSource(String source) {
+    final separator = source.lastIndexOf(': ');
+    final tail = separator < 0 ? source : source.substring(separator + 2);
+    final suffix = ': $source';
+    return {
+      ..._global,
+      for (final item in _byTail[tail] ?? const <String>[])
+        if (item.endsWith(suffix)) item,
+    }.toList()..sort();
+  }
+}
 
 String _librarySource(String id) {
   final uri = Uri.parse(id);
@@ -785,7 +820,7 @@ String _librarySource(String id) {
   }
   // Uri.path는 퍼센트 인코딩을 유지한다(%20 등). analyzer가 실제 파일 경로에서 만든
   // source 한계 ID는 디코딩된 경로를 쓰므로, 같은 모양으로 디코딩해야
-  // limitationsForSource의 endsWith 매칭이 성립해 그 파일의 한계가 finding에서
+  // _SourceLimitations의 endsWith 매칭이 성립해 그 파일의 한계가 finding에서
   // 조용히 사라지지 않는다.
   return '$prefix${Uri.decodeComponent(encoded)}';
 }
