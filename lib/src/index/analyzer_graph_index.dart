@@ -223,7 +223,7 @@ final class AnalyzerGraphIndex {
         : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
     if (cache == null && _incremental == null) {
       // 캐시가 전혀 없는 경로는 입력 열거가 안 돌아 여기서 탈출 링크를 기록한다.
-      await _analysisInputFiles(root, linkEscapes: linkEscapes);
+      await _recordLinkEscapes(root, linkEscapes);
     }
     if (cache != null && initialCacheKey != null) {
       final cached = await _readCachedAnalysis(cache, initialCacheKey);
@@ -1812,7 +1812,7 @@ Future<void> resolveProjectUnitsEach(
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   if (linkEscapes != null) {
     // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록을 따로 한다.
-    await _analysisInputFiles(root, linkEscapes: linkEscapes);
+    await _recordLinkEscapes(root, linkEscapes);
   }
   final sourcePackages = _readSourcePackages(root);
   final workspace = aggregateWorkspace
@@ -1915,6 +1915,22 @@ const _cacheSchemaVersion = 7;
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v17-build-config';
 
+/// 캐시 키를 계산하지 않는 경로에서 분석 입력을 열거해 [linkEscapes]만 기록한다.
+///
+/// 기록은 보고용 부수 효과다. 열거가 [FileSystemException]으로 멈추면(읽을 수
+/// 없는 디렉터리, 순회 중 사라진 대상) 분석을 멈추지 않고 그 지점까지의 기록을
+/// 남긴다. 전체 결과 캐시 경로가 같은 열거 실패를 [_tryAnalysisCacheKey]로
+/// 흡수하므로, 이렇게 해야 캐시 유무에 따라 종료 코드가 갈라지지 않는다.
+/// analyzer도 읽지 못하는 디렉터리는 조용히 건너뛴다.
+Future<void> _recordLinkEscapes(String root, Set<String> linkEscapes) async {
+  try {
+    await _analysisInputFiles(root, linkEscapes: linkEscapes);
+  } on FileSystemException {
+    // 위 문서 주석의 수습이다. 결과에는 이미 모은 탈출 링크만 남는다.
+    return;
+  }
+}
+
 Future<String?> _tryAnalysisCacheKey(
   String root, [
   Set<String>? linkEscapes,
@@ -2009,17 +2025,24 @@ Future<List<File>> _analysisInputFiles(
       packageConfiguration = ancestor;
       addFile(packageConfiguration);
     }
-    final document =
-        (jsonDecode(await packageConfiguration.readAsString()) as Map)
-            .cast<String, Object?>();
-    final packages = document['packages']! as List<Object?>;
-    for (final value in packages) {
-      final package = (value! as Map).cast<String, Object?>();
-      final rootUri = packageConfiguration.parent.uri
-          .resolve(package['rootUri']! as String)
-          .normalizePath();
-      if (rootUri.scheme != 'file') continue;
-      final dependencyRoot = await _resolved(Directory(rootUri.toFilePath()));
+    final String content;
+    try {
+      content = await packageConfiguration.readAsString();
+    } on FileSystemException {
+      // 읽기·UTF-8 디코드 실패다. analyzer도 이 문서를 버리고 패키지 없이
+      // 해석하므로 의존 열거만 건너뛴다(설정 바이트는 위에서 키에 들어갔다).
+      return;
+    }
+    for (final rootPath in _packageRootPaths(packageConfiguration, content)) {
+      final Directory dependencyRoot;
+      try {
+        dependencyRoot = await _resolved(Directory(rootPath));
+      } on FileSystemException {
+        // 지운 path 의존·옮긴 pub cache처럼 루트가 사라진 항목에는 해시할
+        // 파일이 없다. rootUri는 package_config 바이트로 이미 지문에 들었고,
+        // 디렉터리가 다시 생기면 그 pubspec·lib가 더해져 키가 바뀐다.
+        continue;
+      }
       if (p.equals(dependencyRoot.path, packageRoot.path)) continue;
       addFile(File(p.join(dependencyRoot.path, 'pubspec.yaml')));
       addFile(File(p.join(dependencyRoot.path, 'analysis_options.yaml')));
@@ -2077,6 +2100,45 @@ Future<List<File>> _analysisInputFiles(
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// package_config [content]가 가리키는 `file:` 의존 루트 경로다(문서 순서).
+///
+/// 문서가 JSON이 아니거나 `packages`·`rootUri` 모양이 기대와 다르면 빈
+/// 목록이다. analyzer도 이런 문서는 통째로 버리고 패키지 없이 해석하므로
+/// (`parsePackageConfigJsonFile`) 의존 내용은 해석 결과에 쓰이지 않는다. 깨진
+/// 설정 하나로 캐시 키 열거가 실패하면 증분·runtime 경로만 종료 2가 되고
+/// 전체 결과 캐시 경로는 정상 결과를 내 두 경로가 갈라진다.
+List<String> _packageRootPaths(File configuration, String content) {
+  final Object? document;
+  try {
+    document = jsonDecode(content);
+  } on FormatException {
+    return const [];
+  }
+  if (document is! Map<String, Object?>) return const [];
+  final packages = document['packages'];
+  if (packages is! List<Object?>) return const [];
+  final paths = <String>[];
+  for (final package in packages) {
+    if (package is! Map<String, Object?>) return const [];
+    final rootUri = package['rootUri'];
+    if (rootUri is! String) return const [];
+    final Uri resolved;
+    try {
+      resolved = configuration.parent.uri.resolve(rootUri).normalizePath();
+    } on FormatException {
+      return const [];
+    }
+    if (resolved.scheme != 'file') continue;
+    try {
+      paths.add(resolved.toFilePath());
+    } on UnsupportedError {
+      // query·fragment가 붙은 file URI다. analyzer는 이 문서도 버린다.
+      return const [];
+    }
+  }
+  return paths;
 }
 
 Future<Directory> _resolved(Directory directory) async =>

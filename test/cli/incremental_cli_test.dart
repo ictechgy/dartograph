@@ -168,6 +168,72 @@ void main() {
     },
   );
 
+  test(
+    'stale or malformed package_config entries do not fail analysis',
+    () async {
+      final configuration = File(
+        p.join(root.path, '.dart_tool', 'package_config.json'),
+      );
+      await configuration.parent.create(recursive: true);
+      // 지운 path 의존·옮긴 pub cache처럼 루트가 사라진 항목과, 잘려서 깨진
+      // 문서다. 캐시 키 열거만 이 입력에서 실패했다 — 전체 결과 캐시 경로는
+      // 실패를 흡수했지만 증분·runtime 경로는 종료 2가 됐다.
+      final gone = p.join(workspace.path, 'gone');
+      final documents = {
+        'stale': jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {
+              'name': 'app',
+              'rootUri': '../',
+              'packageUri': 'lib/',
+              'languageVersion': '3.11',
+            },
+            {
+              'name': 'gone',
+              'rootUri': '${p.toUri(gone)}/',
+              'packageUri': 'lib/',
+              'languageVersion': '3.11',
+            },
+          ],
+        }),
+        'malformed': '{"configVersion": 2, "packages": [',
+      };
+      // 선언 없는 배럴 lib/app.dart는 두 경우 모두 dead-file이다(종료 1).
+      // 남은 app 항목은 계속 해석돼 package: ID가 되고, 깨진 문서는 package:
+      // URI를 못 풀어 project: ID가 된다.
+      const barrels = {
+        'stale': 'package:app/app.dart',
+        'malformed': 'project:lib/app.dart',
+      };
+      for (final MapEntry(key: name, value: document) in documents.entries) {
+        await configuration.writeAsString(document);
+        final plain = await _run(['dead', '--format', 'json', root.path]);
+        final incremental = await _run([
+          'dead',
+          '--incremental',
+          p.join(workspace.path, 'facts-$name'),
+          '--format',
+          'json',
+          root.path,
+        ]);
+        final runtime = await _run([
+          'runtime',
+          '--no-verify',
+          '--format',
+          'json',
+          root.path,
+        ]);
+
+        expect(plain.status, 1, reason: '$name: ${plain.error}');
+        expect(plain.output, contains('"id":"${barrels[name]}"'));
+        expect(incremental.status, plain.status, reason: incremental.error);
+        expect(incremental.output, plain.output, reason: name);
+        expect(runtime.status, 0, reason: '$name: ${runtime.error}');
+      }
+    },
+  );
+
   test('incremental option errors are usage errors', () async {
     for (final invocation in [
       ['graph', '--format', 'json', '--incremental', root.path],

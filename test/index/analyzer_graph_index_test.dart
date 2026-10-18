@@ -778,6 +778,53 @@ environment:
     skip: Platform.isWindows,
   );
 
+  test('an unreadable directory in a path dependency does not stop link-escape '
+      'recording', () async {
+    final workspace = await Directory.systemTemp.createTemp(
+      'dartograph-unreadable-dependency.',
+    );
+    addTearDown(() => workspace.delete(recursive: true));
+    final app = '${workspace.path}/app';
+    final shared = '${workspace.path}/shared';
+    for (final entry in {
+      '$app/pubspec.yaml': 'name: app\nenvironment:\n  sdk: ^3.11.0\n',
+      '$app/lib/a.dart': 'class A {}\n',
+      '$app/.dart_tool/package_config.json':
+          '{"configVersion":2,"packages":['
+          '{"name":"app","rootUri":"../","packageUri":"lib/"},'
+          '{"name":"shared","rootUri":"../../shared/","packageUri":"lib/"}]}',
+      '$shared/pubspec.yaml': 'name: shared\n',
+      '$shared/lib/shared.dart': 'class Shared {}\n',
+    }.entries) {
+      await File(entry.key).create(recursive: true);
+      await File(entry.key).writeAsString(entry.value);
+    }
+    // path 의존의 lib/는 내용이 바뀌므로 키 열거가 통째로 훑는다. 루트 밖이라
+    // 그래프 파일 열거(_dartFilesUnder)와 analyzer는 이 디렉터리를 보지 않는다.
+    final locked = Directory('$shared/lib/locked');
+    await locked.create();
+    final chmod = await Process.run('chmod', ['000', locked.path]);
+    expect(chmod.exitCode, 0, reason: chmod.stderr as String);
+    // 정리는 역순으로 돈다 — 권한을 먼저 되돌려야 재귀 삭제가 성공한다.
+    addTearDown(() => Process.run('chmod', ['700', locked.path]));
+    if (_canList(locked)) {
+      markTestSkipped('directory permissions are not enforced (root?)');
+      return;
+    }
+
+    final units = <String>[];
+    final escapes = <String>{};
+    await resolveProjectUnitsEach(
+      app,
+      (unit) => units.add(p.basename(unit.path)),
+      linkEscapes: escapes,
+    );
+
+    // runtime이 쓰는 경로다. 링크 탈출 기록용 열거가 실패해 종료 2가 됐다.
+    expect(units, ['a.dart']);
+    expect(escapes, isEmpty);
+  }, skip: Platform.isWindows);
+
   test(
     'resolveProjectUnitsEach hands over units one by one in path order',
     () async {

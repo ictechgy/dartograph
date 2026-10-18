@@ -174,6 +174,53 @@ void main() {
     expect(diagnostics.toString(), isEmpty);
   });
 
+  test('a stale package_config entry keeps the CLI exit code', () async {
+    writeSource(directory.path, 'class Foo {}');
+    File(
+      p.join(directory.path, 'pubspec.yaml'),
+    ).writeAsStringSync('name: app\nenvironment:\n  sdk: ^3.11.0\n');
+    // 지운 path 의존처럼 rootUri 디렉터리가 사라진 항목이다. 세션은 항상
+    // 증분 캐시를 쓰는데, 그 키 열거만 이 항목에서 실패해 종료 2가 됐다.
+    File(p.join(directory.path, '.dart_tool', 'package_config.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {'name': 'app', 'rootUri': '../', 'packageUri': 'lib/'},
+            {
+              'name': 'gone',
+              'rootUri': '${p.toUri(p.join(directory.path, 'gone'))}/',
+              'packageUri': 'lib/',
+            },
+          ],
+        }),
+      );
+    final cli = await runDartograph(
+      ['dead', '--format', 'json', directory.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+    );
+
+    final responses = await exchangeDefault(
+      Stream.fromIterable([
+        request(1, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'format': 'json',
+          },
+        }),
+      ]),
+      createCacheDirectory: createCache,
+    );
+
+    // 미참조 Foo는 dead finding이다(종료 1).
+    expect(cli, 1);
+    expect(textOf(responses.single), startsWith('exitCode: $cli\n'));
+  });
+
   test('cache creation failure falls back to full analysis', () async {
     writeSource(directory.path, 'class Foo {}');
     final responses = await exchangeDefault(
