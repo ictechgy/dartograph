@@ -312,6 +312,54 @@ class TodoItems extends Table {
     }
   });
 
+  test(
+    'build.yaml 별칭은 공유 노드를 한 번만 훑고 별칭 안의 키도 찾는다',
+    () async {
+      await write('lib/tables.dart', r'''
+import 'package:drift/drift.dart';
+
+class TodoItems extends Table {
+  IntColumn get id => integer().named('id')();
+  IntColumn get createdAt => integer()();
+}
+''');
+      // 단계마다 앞 단계 별칭이 10개다. 고유 노드는 12개지만 논리 노드는
+      // 10^12개라, 공유 노드를 다시 훑으면 1 KiB 남짓한 파일로 끝나지 않는다.
+      final levels = [
+        'l0: &l0 [${List.filled(10, 'x').join(', ')}]',
+        for (var level = 1; level < 12; level++)
+          'l$level: &l$level '
+              '[${List.filled(10, '*l${level - 1}').join(', ')}]',
+      ];
+      await write('build.yaml', '${levels.join('\n')}\n');
+
+      final bomb = await indexSchema(root.path);
+
+      // 키가 없으므로 기본 snake_case 파생 그대로다.
+      expect(summarize(bomb), [
+        'todo_items@3',
+        'todo_items#id@4',
+        'todo_items#created_at@5',
+      ]);
+
+      // 이미 본 공유 노드를 건너뛰어도 첫 발견 의미는 같다.
+      await write('build.yaml', '''
+targets:
+  a: &shared {options: {case_from_dart_to_sql: none}}
+  b: *shared
+''');
+
+      final aliased = await indexSchema(root.path);
+
+      expect(
+        aliased.limitations,
+        contains(contains('build.yaml sets case_from_dart_to_sql to none')),
+      );
+    },
+    // 수정 후에는 수 밀리초다. 넉넉한 상한은 부하가 큰 CI에서도 흔들리지 않게 한다.
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
+
   test('UTF-8이 아닌 pubspec은 의존성 게이트만 비운다', () async {
     await File(
       p.join(root.path, 'pubspec.yaml'),

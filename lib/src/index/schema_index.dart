@@ -317,6 +317,7 @@ String? _driftNamingReason(String path) {
     final value = _findYamlKey(
       loadYaml(readConfigurationSync(file)),
       'case_from_dart_to_sql',
+      Set.identity(),
     );
     if (value == null || value == 'snake_case') return null;
     return 'build.yaml sets case_from_dart_to_sql to $value';
@@ -328,16 +329,25 @@ String? _driftNamingReason(String path) {
   }
 }
 
-Object? _findYamlKey(Object? node, String key) {
+/// [node] 아래에서 [key]의 첫 값을 깊이 우선으로 찾는다.
+///
+/// package:yaml은 별칭(`*a`)을 같은 노드 객체로 공유한다. 파싱은 싸지만 공유
+/// 노드를 매번 다시 훑으면 1 KiB 남짓한 별칭 폭탄도 논리 노드 수(단계마다
+/// 10배)만큼 방문해 끝나지 않는다. [visited]는 이미 훑은 맵·리스트의 identity다.
+/// 다시 만난 노드는 앞에서 이미 null을 돌려준 노드이므로(찾았다면 그때 멈췄다)
+/// 건너뛰어도 첫 발견 결과가 같고, 방문은 고유 노드 수에 비례한다.
+Object? _findYamlKey(Object? node, String key, Set<Object> visited) {
   if (node is YamlMap) {
+    if (!visited.add(node)) return null;
     if (node.containsKey(key)) return node[key];
     for (final value in node.values) {
-      final found = _findYamlKey(value, key);
+      final found = _findYamlKey(value, key, visited);
       if (found != null) return found;
     }
   } else if (node is YamlList) {
+    if (!visited.add(node)) return null;
     for (final value in node) {
-      final found = _findYamlKey(value, key);
+      final found = _findYamlKey(value, key, visited);
       if (found != null) return found;
     }
   }
