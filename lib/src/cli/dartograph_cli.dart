@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';

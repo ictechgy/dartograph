@@ -207,6 +207,40 @@ class Screen {
       expect(await revision(), isNull);
     });
 
+    test(
+      'roots-from stops reading as soon as the input passes 16 MiB',
+      () async {
+        // 쓰는 쪽이 16 MiB 남짓을 흘린 뒤 EOF 없이 파이프를 붙잡는다. 전부
+        // 모은 뒤에야 길이를 보면 EOF를 기다리느라 상한 진단에 이르지 못하고,
+        // 끝나지 않는 입력이면 메모리가 먼저 고갈된다.
+        final fifo = p.join(root.path, 'roots.pipe');
+        final mkfifo = await Process.run('mkfifo', [fifo]);
+        expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+        final writer = await Process.start('sh', [
+          '-c',
+          r'exec 3> "$1"; head -c 17000000 /dev/zero >&3; exec sleep 120',
+          'sh',
+          fifo,
+        ]);
+        addTearDown(writer.kill);
+
+        final result = await run([
+          'impact',
+          '--format',
+          'language-traversal',
+          '--roots-from',
+          fifo,
+          root.path,
+        ]);
+
+        expect(result.code, 64, reason: result.error);
+        expect(result.error, contains('--roots-from exceeds 16 MiB.'));
+        expect(result.output, isEmpty);
+      },
+      skip: Platform.isWindows,
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+
     test('roots-from reads a JSON string array', () {
       expect(parseTraversalRoots('["a","b"]'), ['a', 'b']);
       expect(
