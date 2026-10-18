@@ -1019,6 +1019,156 @@ void main() {
   );
 
   test(
+    'config and baseline paths must be regular files inside the boundary',
+    () async {
+      // exchangeDefault의 경계는 directory다. outside는 그 밖의 임시 디렉터리다.
+      final outside = await Directory.systemTemp.createTemp('mcp-outside.');
+      addTearDown(() => outside.delete(recursive: true));
+      // 경계 밖 YAML의 첫 최상위 키가 rules 진단에 실려 돌아왔다.
+      final secret = File(p.join(outside.path, 'layers.yaml'))
+        ..writeAsStringSync('outside_only_key: 1\n');
+      final foreignBaseline = File(p.join(outside.path, 'baseline.json'))
+        ..writeAsStringSync(
+          '{"fingerprints":[],"formatVersion":1,"tool":"dartograph"}\n',
+        );
+      final escape = Link(p.join(directory.path, 'escape.yaml'))
+        ..createSync(secret.path);
+      final layers = File(p.join(directory.path, 'layers.yaml'))
+        ..writeAsStringSync(
+          'layers:\n  - name: first\n    match: [x]\nrules: []\n',
+        );
+      final alias = Link(p.join(directory.path, 'alias.yaml'))
+        ..createSync(layers.path);
+      // 미참조 Bar 선언 finding 하나를 억제하는 경계 안 baseline이다.
+      final baseline = File(p.join(directory.path, 'baseline.json'))
+        ..writeAsStringSync(
+          r'{"fingerprints":["{\"id\":\"project:lib/b.dart::Bar\",'
+          r'\"kind\":\"declaration\"}"],"formatVersion":1,'
+          '"tool":"dartograph"}\n',
+        );
+      Object verify(int id, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          verify(1, {'command': 'rules', 'config': secret.path}),
+          verify(2, {
+            'command': 'rules',
+            'config': p.join(outside.path, 'missing.yaml'),
+          }),
+          verify(3, {'command': 'rules', 'config': escape.path}),
+          verify(4, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': foreignBaseline.path,
+          }),
+          request(5, 'tools/call', {
+            'name': dependencyToolName,
+            'arguments': {
+              'packageRoot': directory.path,
+              'symbol': 'Foo',
+              'baseline': foreignBaseline.path,
+            },
+          }),
+          explore(6, directory.path, {
+            'symbol': 'Foo',
+            'baseline': foreignBaseline.path,
+          }),
+          explore(7, directory.path, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': foreignBaseline.path,
+          }),
+          // 경계 안의 정규 파일은 링크·서버 작업 디렉터리 기준 상대 경로로도
+          // 받는다.
+          verify(8, {'command': 'rules', 'config': layers.path}),
+          verify(9, {'command': 'rules', 'config': alias.path}),
+          verify(10, {'command': 'rules', 'config': p.relative(layers.path)}),
+          verify(11, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': baseline.path,
+          }),
+          verify(12, {'command': 'dead', 'format': 'json'}),
+        ]),
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(responses, hasLength(12));
+      for (final response in responses.take(7)) {
+        expect((response['result'] as Map)['isError'], isTrue);
+        expect(textOf(response), contains('Invalid arguments: '));
+        expect(textOf(response), isNot(contains('exitCode:')));
+        expect(textOf(response), isNot(contains('outside_only_key')));
+      }
+      // 부재·경계 밖·탈출 링크가 같은 문구라 경계 밖 파일의 존재가 새지 않는다.
+      expect(textOf(responses[1]), textOf(responses[0]));
+      expect(textOf(responses[2]), textOf(responses[0]));
+      expect(textOf(responses[7]), startsWith('exitCode: 0\n'));
+      expect(responses[8]['result'], responses[7]['result']);
+      expect(responses[9]['result'], responses[7]['result']);
+      // 해석된 경계 안 baseline이 실제로 읽혀 finding 하나를 억제한다.
+      expect(textOf(responses[10]), startsWith('exitCode: 1\n'));
+      expect(textOf(responses[10]), contains('"suppressedCount":1'));
+      expect(textOf(responses[11]), startsWith('exitCode: 1\n'));
+      expect(textOf(responses[11]), contains('"suppressedCount":0'));
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
+    'FIFO and device paths for config or baseline do not block the server',
+    () async {
+      final fifo = p.join(directory.path, 'layers.pipe');
+      final mkfifo = await Process.run('mkfifo', [fifo]);
+      expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+      final device = Link(p.join(directory.path, 'baseline.json'))
+        ..createSync('/dev/null');
+      Object verify(int id, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+
+      // 서버는 요청을 차례로 처리한다. 쓰는 쪽이 없는 FIFO를 읽으려 들면 이어지는
+      // ping까지 영구히 막혔다.
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          verify(1, {'command': 'rules', 'config': fifo}),
+          verify(2, {'command': 'dead', 'format': 'json', 'baseline': fifo}),
+          request(3, 'tools/call', {
+            'name': dependencyToolName,
+            'arguments': {
+              'packageRoot': directory.path,
+              'symbol': 'Foo',
+              'baseline': fifo,
+            },
+          }),
+          verify(4, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': device.path,
+          }),
+          request(5, 'ping'),
+        ]),
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(responses, hasLength(5));
+      for (final response in responses.take(4)) {
+        expect((response['result'] as Map)['isError'], isTrue);
+        expect(textOf(response), startsWith('Invalid arguments: '));
+      }
+      expect(responses.last['result'], <String, Object?>{});
+    },
+    skip: Platform.isWindows,
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
+
+  test(
     'oversized lines are rejected and the connection stays usable',
     () async {
       final output = StringBuffer();

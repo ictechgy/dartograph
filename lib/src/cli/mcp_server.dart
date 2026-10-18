@@ -1005,6 +1005,7 @@ Future<Map<String, Object?>?> _callTool({
         indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       );
     case impactToolName:
       return _impactTool(
@@ -1020,6 +1021,7 @@ Future<Map<String, Object?>?> _callTool({
         arguments: arguments,
         indexing: indexing,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       );
     case verifyToolName:
       return _verifyTool(
@@ -1027,6 +1029,7 @@ Future<Map<String, Object?>?> _callTool({
         arguments: arguments,
         indexing: indexing,
         changedFilesSince: changedFilesSince,
+        rootBoundary: rootBoundary,
       );
     case _runtimeToolName:
       return _runtimeTool(root: resolvedRoot, arguments: arguments);
@@ -1049,6 +1052,36 @@ String? _resolveToolRoot(String root, String boundary) {
   if (!FileSystemEntity.isDirectorySync(resolved)) return null;
   return isPathWithinRoot(resolved, boundary) ? resolved : null;
 }
+
+/// 도구 인자 `baseline`·`config`를 [boundary] 안의 정규 파일로 해석한다.
+///
+/// packageRoot와 같은 경계다([_resolveToolRoot]). CLI는 이 경로를 그대로 열어
+/// 읽는다. 검사하지 않으면 경계 밖 임의 파일의 존재와 YAML 첫 최상위 키가 rules
+/// 진단(`unknown configuration key: …`)으로 돌아가고, 쓰는 쪽이 없는 FIFO는
+/// 열기에서 영구 대기해 요청을 차례로 처리하는 서버 전체를 멈춘다. 링크를 따라간
+/// 실제 경로가 경계 안의 정규 파일일 때만 그 경로를 돌려주고, 아니면 `null`이다.
+/// 상대 경로는 지금처럼 서버 작업 디렉터리 기준이다(packageRoot 기준으로 바꾸는
+/// 것은 도구 계약 변경이다). 해석된 경로를 넘겨 검사 뒤 링크 교체도 줄인다.
+String? _resolveToolFile(String path, String boundary) {
+  final String resolved;
+  try {
+    resolved = File(path).absolute.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
+  }
+  if (!isPathWithinRoot(resolved, boundary)) return null;
+  final type = FileSystemEntity.typeSync(resolved);
+  return type == FileSystemEntityType.file ? resolved : null;
+}
+
+/// [name] 경로가 경계 안의 정규 파일이 아니라 거부하는 인자 오류다.
+///
+/// 부재·경계 밖·디렉터리·장치·FIFO를 한 문구로 답해 경계 밖 파일의 존재를
+/// 드러내지 않는다.
+Map<String, Object?> _toolFileError(String name) => _toolError(
+  '$name must be an existing regular file within the server working '
+  'directory',
+);
 
 Future<Map<String, Object?>> _impactTool({
   required String root,
@@ -1125,6 +1158,7 @@ Future<Map<String, Object?>> _dependencyTool({
   required Map<String, Object?> arguments,
   required _McpIndexing indexing,
   required Future<Directory> Function() createScratch,
+  required String rootBoundary,
 }) async {
   final symbol = arguments['symbol'];
   final batch = arguments['batch'];
@@ -1168,7 +1202,9 @@ Future<Map<String, Object?>> _dependencyTool({
         return _toolError('baseline must be a non-empty string');
       }
       if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
-      args.addAll(['--baseline', baseline]);
+      final resolved = _resolveToolFile(baseline, rootBoundary);
+      if (resolved == null) return _toolFileError('baseline');
+      args.addAll(['--baseline', resolved]);
     }
     final withSource = arguments['withSource'];
     final sourceContext = arguments['sourceContext'];
@@ -1210,6 +1246,7 @@ Future<Map<String, Object?>> _verifyTool({
   required Map<String, Object?> arguments,
   required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
+  required String rootBoundary,
 }) async {
   final command = arguments['command'];
   const commands = {'dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'};
@@ -1246,7 +1283,9 @@ Future<Map<String, Object?>> _verifyTool({
       return _toolError('baseline must be a non-empty string');
     }
     if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
-    args.addAll(['--baseline', baseline]);
+    final resolved = _resolveToolFile(baseline, rootBoundary);
+    if (resolved == null) return _toolFileError('baseline');
+    args.addAll(['--baseline', resolved]);
   }
   final config = arguments['config'];
   if (config != null) {
@@ -1254,7 +1293,9 @@ Future<Map<String, Object?>> _verifyTool({
       return _toolError('config must be a non-empty string');
     }
     if (_isOptionShaped(config)) return _optionShapedError('config');
-    args.addAll(['--config', config]);
+    final resolved = _resolveToolFile(config, rootBoundary);
+    if (resolved == null) return _toolFileError('config');
+    args.addAll(['--config', resolved]);
   }
   final minTokens = arguments['minTokens'];
   if (minTokens != null) {
@@ -1348,6 +1389,7 @@ Future<Map<String, Object?>> _exploreTool({
   required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
+  required String rootBoundary,
 }) async {
   final command = arguments['command'];
   if (command != null) {
@@ -1396,6 +1438,7 @@ Future<Map<String, Object?>> _exploreTool({
         arguments: arguments,
         indexing: indexing,
         changedFilesSince: changedFilesSince,
+        rootBoundary: rootBoundary,
       ),
       verifyToolName,
     );
@@ -1473,6 +1516,7 @@ Future<Map<String, Object?>> _exploreTool({
         arguments: query,
         indexing: indexing,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       ),
       dependencyToolName,
     );

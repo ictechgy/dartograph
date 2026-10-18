@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../core/atomic_write.dart';
+import '../core/config_source.dart';
 import 'reachability_analyzer.dart';
 
 /// 기존 코드베이스에서 이미 확인된 발견의 결정적 지문 모음이다.
@@ -53,6 +54,18 @@ final class BaselineFilterResult {
 
 /// 베이스라인 파일의 검증된 입출력 경계다.
 abstract final class BaselineStore {
+  /// [read]가 받아들이는 baseline 파일 크기의 상한(64 MiB)이다.
+  ///
+  /// baseline은 finding 수에 비례해 커지므로 설정 상한(1 MiB)과 따로 둔다.
+  /// 지문 한 줄은 들여쓰기·이스케이프를 합쳐 대개 100~300바이트라, 수십만
+  /// finding을 기록한 대형 모노레포 baseline도 이 안에 든다. 상한은 저장소가
+  /// 커밋한 baseline 링크나 MCP 도구 인자가 장치·과대 파일을 가리켜 메모리를
+  /// 채우지 않게 하는 fail-closed 경계다.
+  static const sizeLimit = 64 * 1024 * 1024;
+
+  static const _tooLarge =
+      'baseline file exceeds the ${sizeLimit ~/ (1024 * 1024)} MiB limit';
+
   /// 부모 디렉터리를 만들고 결정적 JSON을 쓴다.
   ///
   /// 임시 파일의 배타적 생성·원자적 교체·실패 시 정리는 AtomicWrite 경계가
@@ -67,9 +80,16 @@ abstract final class BaselineStore {
   }
 
   /// 스키마와 모든 지문 타입을 검증한 뒤 읽는다.
+  ///
+  /// 정규 파일이 아니거나(장치·FIFO·소켓) [sizeLimit]을 넘으면 열거나 끝까지
+  /// 읽기 전에 [FormatException]으로 실패한다([readBoundedFile]). 쓰는 쪽이 없는
+  /// FIFO는 열기에서 영구 대기하고, 문자 장치는 길이를 0으로 보고한 채 EOF 없이
+  /// 읽힌다. 부재·읽기·UTF-8 디코드 실패는 지금처럼 [FileSystemException]이다.
   static Future<Baseline> read(File file) async {
     try {
-      final value = jsonDecode(await file.readAsString());
+      final value = jsonDecode(
+        await readBoundedFile(file, sizeLimit, tooLargeMessage: _tooLarge),
+      );
       if (value is! Map<String, Object?> ||
           value['tool'] != 'dartograph' ||
           value['formatVersion'] != Baseline.formatVersion ||

@@ -30,5 +30,9 @@ issue로 비공개 연락 경로를 요청하십시오.
 다만 분석 트리의 링크가 정규 파일이 아닌 대상(문자·블록 장치, FIFO, 소켓)을 가리키면
 dartograph는 analyzer보다 먼저 읽기를 거부하고 종료 코드 2로 끝난다. 이런 대상은 길이를
 0으로 보고해 크기 상한을 통과한 뒤 EOF 없이 읽히거나(메모리 소진) 영구 대기한다. 저장소
-설정 파일도 열기 전에 정규 파일인지 확인하고 1 MiB(`package_config.json`은 16 MiB)까지만
-읽는다.
+설정 파일과 `--baseline` 파일도 열기 전에 정규 파일인지 확인하고 1 MiB(`package_config.json`은
+16 MiB, baseline은 64 MiB)까지만 읽는다.
+
+MCP 도구 인자는 분석 대상 저장소의 문서에 심은 지시를 따른 에이전트가 보낼 수 있다. 그래서
+`packageRoot`·`baseline`·`config`는 서버 작업 디렉터리 안의 실제 디렉터리·정규 파일로만
+받는다([MCP](doc/MCP.md)).

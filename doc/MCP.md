@@ -58,6 +58,13 @@ dartograph mcp
 패키지만 분석할 수 있다. 경계 밖이거나 존재하지 않는 경로는 인자 오류
 (`isError: true`)로 거부된다.
 
+`baseline`·`config` 파일 경로도 같은 경계 안의 **정규 파일**이어야 한다. 링크는
+실제 대상으로 판정하고, 상대 경로는 `packageRoot`가 아니라 서버 작업 디렉터리
+기준이다. 경계 밖·부재·디렉터리·장치·FIFO는 모두 같은 인자 오류로 거부된다 —
+경계 밖 파일의 존재나 내용(YAML 첫 키 등)이 응답에 실리지 않고, 쓰는 쪽이 없는
+FIFO가 요청을 차례로 처리하는 서버를 멈추지 않는다. 읽기 상한은 CLI와 같다
+(`config` 1 MiB, baseline 64 MiB).
+
 도구 값은 CLI 인자로 전달된다. 그래서 `symbol`·`impactSymbol`·`batch` 항목·
 `since`·`baseline`·`config`·`kinds` 항목이 `-`로 시작하면 인자 오류다 — 옵션
 모양 값이 `--record` 같은 CLI 플래그로 재해석되어 읽기 전용 도구가 파일을 쓰지
