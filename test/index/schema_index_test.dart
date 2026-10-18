@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartograph/src/core/config_source.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:dartograph/src/index/schema_index.dart';
 import 'package:path/path.dart' as p;
@@ -280,6 +281,51 @@ class TodoItems extends Table {
       result.limitations,
       contains(contains('build.yaml sets case_from_dart_to_sql to preserve')),
     );
+  });
+
+  test('읽지 못한 build.yaml은 schema를 멈추지 않고 drift 파생만 뺀다', () async {
+    await write('lib/tables.dart', r'''
+import 'package:drift/drift.dart';
+
+class TodoItems extends Table {
+  IntColumn get id => integer().named('id')();
+  IntColumn get createdAt => integer()();
+}
+''');
+    final build = File(p.join(root.path, 'build.yaml'));
+    // UTF-8이 아닌 바이트와 설정 상한(1 MiB)을 넘는 문서다. graph 색인은 같은
+    // 파일을 build-yaml-unparsed 한계로 낮추는데 schema만 종료 2가 됐다.
+    final unreadable = [
+      [0xFF, 0xFE, ...'targets: {}\n'.codeUnits],
+      '# ${'x' * configurationSizeLimit}\n'.codeUnits,
+    ];
+    for (final bytes in unreadable) {
+      await build.writeAsBytes(bytes);
+
+      final result = await indexSchema(root.path);
+
+      expect(summarize(result), ['~TodoItems@3']);
+      expect(
+        result.limitations,
+        contains(contains('(build.yaml could not be parsed)')),
+      );
+    }
+  });
+
+  test('UTF-8이 아닌 pubspec은 의존성 게이트만 비운다', () async {
+    await File(
+      p.join(root.path, 'pubspec.yaml'),
+    ).writeAsBytes([0xFF, 0xFE, ...'name: app\n'.codeUnits]);
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) => db.rawQuery('SELECT * FROM users');
+''');
+
+    final result = await indexSchema(root.path);
+
+    // import 게이트는 그대로라 sqflite 사실은 남는다.
+    expect(summarize(result), ['users@3']);
   });
 
   test('floor Entity·ColumnInfo·ignore·Query·DatabaseView를 읽는다', () async {

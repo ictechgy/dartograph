@@ -10,6 +10,7 @@ import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import '../core/config_source.dart';
 import 'analyzer_graph_index.dart'
     show enclosingGraphDeclarationId, resolveProjectUnitsAt;
 import 'bridge_index.dart'
@@ -286,32 +287,43 @@ Set<String> _pubspecDependencies(String path) {
   final file = File(path);
   if (!file.existsSync()) return const {};
   try {
-    final document = loadYaml(file.readAsStringSync());
+    final document = loadYaml(readConfigurationSync(file));
     if (document is! YamlMap) return const {};
     return {
       for (final key in const ['dependencies', 'dev_dependencies'])
         if (document[key] case final YamlMap section)
           ...section.keys.whereType<String>(),
     };
-  } on YamlException {
+  } on FormatException {
     // 의존성 게이트는 import 게이트의 보조다 — 못 읽으면 import만 믿는다.
+    // YamlException도 FormatException이고, 설정 상한 초과도 같은 수습이다.
+    return const {};
+  } on FileSystemException {
+    // UTF-8 디코드·읽기 실패도 같다. graph 색인처럼 분석을 멈추지 않는다.
     return const {};
   }
 }
 
 /// drift는 `case_from_dart_to_sql` 옵션으로 이름 변환을 바꿀 수 있다
 /// (기본 snake_case). 다른 값이거나 설정을 읽지 못하면 파생 이름을 싣지 않는다.
+///
+/// 읽기는 다른 저장소 설정과 같은 상한 경계([readConfigurationSync])를 지난다.
+/// YAML 오류·상한 초과·UTF-8 디코드 실패는 graph 색인의 build.yaml 처리처럼
+/// 종료 코드 2가 아니라 이 한계 사유로 낮춘다.
 String? _driftNamingReason(String path) {
   final file = File(path);
   if (!file.existsSync()) return null;
   try {
     final value = _findYamlKey(
-      loadYaml(file.readAsStringSync()),
+      loadYaml(readConfigurationSync(file)),
       'case_from_dart_to_sql',
     );
     if (value == null || value == 'snake_case') return null;
     return 'build.yaml sets case_from_dart_to_sql to $value';
-  } on YamlException {
+  } on FormatException {
+    // YamlException도 FormatException이다.
+    return 'build.yaml could not be parsed';
+  } on FileSystemException {
     return 'build.yaml could not be parsed';
   }
 }
