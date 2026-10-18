@@ -360,6 +360,35 @@ targets:
     timeout: const Timeout(Duration(seconds: 30)),
   );
 
+  test('장치를 가리키는 링크 입력은 schema를 FormatException으로 멈춘다', () async {
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) => db.rawQuery('SELECT * FROM users');
+''');
+    // /dev/null은 길이 0·즉시 EOF라 수정 전 코드도 멈추지 않는 안전한
+    // 대역이다. /dev/zero라면 build.yaml·pubspec 읽기가 메모리를 채우고,
+    // 사실이 난 파일의 해석(analyzer)은 package_config를 상한 없이 읽는다.
+    for (final target in const [
+      'build.yaml',
+      'pubspec.yaml',
+      'lib/x.dart',
+      'lib/schema.drift',
+      '.dart_tool/package_config.json',
+    ]) {
+      final link = Link(p.join(root.path, target));
+      await link.parent.create(recursive: true);
+      await link.create('/dev/null');
+
+      await expectLater(
+        indexSchema(root.path),
+        throwsFormatException,
+        reason: target,
+      );
+      await link.delete();
+    }
+  }, skip: Platform.isWindows);
+
   test('UTF-8이 아닌 pubspec은 의존성 게이트만 비운다', () async {
     await File(
       p.join(root.path, 'pubspec.yaml'),

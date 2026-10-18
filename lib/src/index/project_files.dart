@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../core/config_source.dart';
+
 /// 인덱스 순회가 건너뛰는 디렉터리 이름이다 — analyzer 그래프와 구문 bridge
 /// 스캐너가 같은 목록을 쓴다. 한쪽만 바뀌면 두 표면의 스캔 범위가 어긋난다.
 const indexExcludedDirectories = {'.dart_tool', '.git', 'build'};
@@ -48,6 +50,11 @@ bool isPathWithinRoot(String path, String root, {p.Context? context}) {
 /// 계속 따라간다 — 루트 밖 대상도 analyzer가 해석하는 입력이므로 차단하면
 /// 스캔 공백이 생긴다. 기록은 "저장소 콘텐츠가 루트 밖 파일을 분석 입력으로
 /// 끌어왔다"는 사실을 보고서에 남기기 위한 것이다.
+///
+/// 대상이 파일도 디렉터리도 아닌데 존재하는 링크(장치·FIFO·소켓)는
+/// [nonRegularFileMessage]의 [FormatException]으로 순회를 멈춘다(fail-closed).
+/// analyzer와 구문 스캐너는 그런 대상을 EOF 없이 읽거나(메모리 소진) FIFO에서
+/// 영구 대기한다. 끊어진 링크는 지금처럼 조용히 건너뛴다.
 Iterable<File> indexProjectFiles(
   Directory directory, {
   bool skipHiddenDirectories = false,
@@ -113,6 +120,10 @@ Iterable<File> _projectFilesIn(
             linkEscapes: linkEscapes,
           );
         }
+      } else if (type != FileSystemEntityType.directory &&
+          File(entity.path).existsSync()) {
+        // 장치는 notFound 종류로 보고되지만 존재한다. FIFO·소켓도 여기다.
+        throw const FormatException(nonRegularFileMessage);
       }
     }
   }

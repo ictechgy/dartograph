@@ -221,9 +221,10 @@ final class AnalyzerGraphIndex {
     final initialCacheKey = cache == null
         ? null
         : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
-    if (cache == null && _incremental == null) {
-      // 캐시가 전혀 없는 경로는 입력 열거가 안 돌아 여기서 탈출 링크를 기록한다.
-      await _recordLinkEscapes(root, linkEscapes);
+    if (cache == null) {
+      // 캐시 키를 계산하지 않는 경로(무캐시·증분)는 키 열거가 analyzer보다 먼저
+      // 돌지 않는다. 여기서 열거해 탈출 링크를 기록하고 비정규 입력을 거부한다.
+      await _scanAnalysisInputs(root, linkEscapes);
     }
     if (cache != null && initialCacheKey != null) {
       final cached = await _readCachedAnalysis(cache, initialCacheKey);
@@ -1810,10 +1811,9 @@ Future<void> resolveProjectUnitsEach(
   bool aggregateWorkspace = false,
 }) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
-  if (linkEscapes != null) {
-    // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록을 따로 한다.
-    await _recordLinkEscapes(root, linkEscapes);
-  }
+  // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록과 비정규 입력
+  // 거부를 따로 한다([linkEscapes]가 없어도 analyzer보다 먼저 거부한다).
+  await _scanAnalysisInputs(root, linkEscapes);
   final sourcePackages = _readSourcePackages(root);
   final workspace = aggregateWorkspace
       ? _resolveWorkspace(root, _readPubspec(root))
@@ -1859,6 +1859,7 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
   if (paths.isEmpty) return const {};
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   final wanted = {for (final path in paths) p.normalize(path)};
+  await _scanAnalysisInputs(root, null);
   final collection = AnalysisContextCollection(
     includedPaths: [root],
     sdkPath: _dartSdkPath(),
@@ -1915,14 +1916,21 @@ const _cacheSchemaVersion = 7;
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v17-build-config';
 
-/// 캐시 키를 계산하지 않는 경로에서 분석 입력을 열거해 [linkEscapes]만 기록한다.
+/// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
-/// 기록은 보고용 부수 효과다. 열거가 [FileSystemException]으로 멈추면(읽을 수
-/// 없는 디렉터리, 순회 중 사라진 대상) 분석을 멈추지 않고 그 지점까지의 기록을
-/// 남긴다. 전체 결과 캐시 경로가 같은 열거 실패를 [_tryAnalysisCacheKey]로
-/// 흡수하므로, 이렇게 해야 캐시 유무에 따라 종료 코드가 갈라지지 않는다.
-/// analyzer도 읽지 못하는 디렉터리는 조용히 건너뛴다.
-Future<void> _recordLinkEscapes(String root, Set<String> linkEscapes) async {
+/// 두 역할이 있다. [linkEscapes]가 있으면 루트 밖 링크를 기록한다. 그리고
+/// 장치·FIFO·소켓 입력을 [FormatException]으로 거부한다(fail-closed) —
+/// AnalysisContextCollection은 만들 때 pubspec·analysis_options·package_config를,
+/// 해석할 때 .dart를 크기 상한 없이 읽어 그런 입력에서 메모리를 소진하거나
+/// 영구 대기한다. 전체 결과 캐시 경로는 키 열거([_tryAnalysisCacheKey])가 같은
+/// 거부를 먼저 한다.
+///
+/// 링크 기록은 보고용 부수 효과다. 열거가 [FileSystemException]으로 멈추면(읽을
+/// 수 없는 디렉터리, 순회 중 사라진 대상) 분석을 멈추지 않고 그 지점까지의
+/// 기록을 남긴다. 전체 결과 캐시 경로가 같은 열거 실패를 흡수하므로, 이렇게
+/// 해야 캐시 유무에 따라 종료 코드가 갈라지지 않는다. analyzer도 읽지 못하는
+/// 디렉터리는 조용히 건너뛴다.
+Future<void> _scanAnalysisInputs(String root, Set<String>? linkEscapes) async {
   try {
     await _analysisInputFiles(root, linkEscapes: linkEscapes);
   } on FileSystemException {
@@ -1942,6 +1950,10 @@ Future<String?> _tryAnalysisCacheKey(
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
     );
+  } on FormatException {
+    // 장치·FIFO·소켓 입력과 상한을 넘는 package_config는 캐시 실패가 아니라
+    // 분석 실패다(fail-closed). 흡수하면 analyzer가 같은 입력을 상한 없이 읽는다.
+    rethrow;
   } on Object {
     return null;
   }
@@ -1990,7 +2002,11 @@ Future<List<File>> _analysisInputFiles(
   final files = <String, File>{};
 
   void addFile(File file) {
-    if (file.existsSync()) files[p.normalize(file.absolute.path)] = file;
+    // 존재하는 장치·FIFO·소켓은 FormatException이다 — 키 해시가 장치를 끝없이
+    // 스트리밍하거나 FIFO에서 영구 대기하지 않게 한다.
+    if (regularFileExistsSync(file)) {
+      files[p.normalize(file.absolute.path)] = file;
+    }
   }
 
   void addDirectory(Directory directory, String boundary, String displayBase) {
@@ -2027,7 +2043,12 @@ Future<List<File>> _analysisInputFiles(
     }
     final String content;
     try {
-      content = await packageConfiguration.readAsString();
+      // 비정규 파일·상한 초과는 FormatException으로 전파한다(fail-closed).
+      content = await readBoundedFile(
+        packageConfiguration,
+        _packageConfigurationSizeLimit,
+        tooLargeMessage: _packageConfigurationTooLarge,
+      );
     } on FileSystemException {
       // 읽기·UTF-8 디코드 실패다. analyzer도 이 문서를 버리고 패키지 없이
       // 해석하므로 의존 열거만 건너뛴다(설정 바이트는 위에서 키에 들어갔다).
@@ -2101,6 +2122,17 @@ Future<List<File>> _analysisInputFiles(
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
 }
+
+/// 캐시 키 열거가 읽는 package_config의 상한이다.
+///
+/// 항목 하나는 이름·rootUri·packageUri·languageVersion으로 200바이트 안팎이라,
+/// 설정 상한(1 MiB, 약 5천 항목)은 대형 모노레포에서 넘을 수 있다. 16 MiB는 약
+/// 8만 항목이다 — 정상 해석에는 넉넉하고, 비정상적으로 큰 문서가 키 계산
+/// 메모리를 키우기 전에 실패한다(종료 코드 2).
+const _packageConfigurationSizeLimit = 16 * 1024 * 1024;
+
+const _packageConfigurationTooLarge =
+    'package configuration exceeds the 16 MiB limit';
 
 /// package_config [content]가 가리키는 `file:` 의존 루트 경로다(문서 순서).
 ///

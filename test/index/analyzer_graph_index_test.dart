@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -776,6 +777,98 @@ environment:
       );
     },
     skip: Platform.isWindows,
+  );
+
+  test(
+    'device and FIFO links among analysis inputs fail closed before analysis',
+    () async {
+      final workspace = await Directory.systemTemp.createTemp(
+        'dartograph-special-inputs.',
+      );
+      addTearDown(() => workspace.delete(recursive: true));
+      var fixtures = 0;
+
+      /// [target]만 [linkTarget]을 가리키는 링크인 최소 패키지다.
+      Future<String> package(String target, String linkTarget) async {
+        final root = p.join(workspace.path, 'package-${fixtures++}');
+        for (final entry in const {
+          'pubspec.yaml':
+              'name: special_inputs\nenvironment:\n'
+              '  sdk: ^3.11.0\n',
+          'lib/a.dart': 'class A {}\n',
+        }.entries) {
+          await File(p.join(root, entry.key)).create(recursive: true);
+          await File(p.join(root, entry.key)).writeAsString(entry.value);
+        }
+        final link = File(p.join(root, target));
+        if (link.existsSync()) await link.delete();
+        await link.parent.create(recursive: true);
+        await Link(link.path).create(linkTarget);
+        return root;
+      }
+
+      // 이 경로는 analyzer(pubspec·analysis_options·package_config·.dart)나
+      // dartograph(dartograph.yaml·build.yaml)가 상한 없이 읽던 입력이다.
+      // /dev/null은 길이 0·즉시 EOF라 수정 전 코드도 멈추지 않는 안전한
+      // 대역이다 — /dev/zero라면 같은 경로가 EOF 없이 메모리를 채운다.
+      const targets = [
+        'pubspec.yaml',
+        'analysis_options.yaml',
+        '.dart_tool/package_config.json',
+        'dartograph.yaml',
+        'build.yaml',
+        'lib/x.dart',
+      ];
+      for (final target in targets) {
+        final root = await package(target, '/dev/null');
+        await expectLater(
+          AnalyzerGraphIndex(cache: _ColdCache()).index(root),
+          throwsFormatException,
+          reason: target,
+        );
+        await expectLater(
+          AnalyzerGraphIndex(
+            cache: _ColdCache(),
+            incremental: IncrementalCache(p.join(root, '..', 'facts')),
+          ).index(root),
+          throwsFormatException,
+          reason: target,
+        );
+        // runtime·routes와 schema가 쓰는 해석 경로다.
+        await expectLater(
+          resolveProjectUnits(root),
+          throwsFormatException,
+          reason: target,
+        );
+        await expectLater(
+          resolveProjectUnitsAt(root, {p.join(root, 'lib', 'a.dart')}),
+          throwsFormatException,
+          reason: target,
+        );
+      }
+
+      // 쓰는 쪽이 없는 FIFO는 열기에서 영구 대기한다. 전체 결과 캐시 경로가
+      // 먼저 키 해시를 비동기로 열어, 수정 전 코드라면 동기 읽기가 isolate를
+      // 막기 전에 테스트 timeout으로 실패한다.
+      final fifo = p.join(workspace.path, 'pipe');
+      final mkfifo = await Process.run('mkfifo', [fifo]);
+      expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+      final root = await package('pubspec.yaml', fifo);
+      await expectLater(
+        AnalyzerGraphIndex(cache: _ColdCache()).index(root),
+        throwsFormatException,
+      );
+      await expectLater(
+        AnalyzerGraphIndex(
+          cache: _ColdCache(),
+          incremental: IncrementalCache(p.join(workspace.path, 'facts')),
+        ).index(root),
+        throwsFormatException,
+      );
+      await expectLater(resolveProjectUnits(root), throwsFormatException);
+    },
+    skip: Platform.isWindows,
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 
   test('an unreadable directory in a path dependency does not stop link-escape '

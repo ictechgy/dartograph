@@ -57,6 +57,35 @@ void run(Database db) => db.rawQuery('SELECT * FROM users');
     });
   });
 
+  test('장치 링크 입력은 schema와 dead를 종료 2로 멈춘다', () async {
+    await Directory(p.join(root.path, 'lib')).create();
+    await File(p.join(root.path, 'lib', 'repo.dart')).writeAsString('''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) => db.rawQuery('SELECT * FROM users');
+''');
+    // 저장소가 커밋할 수 있는 장치 링크다. /dev/null은 즉시 EOF라 수정 전
+    // 코드에서도 안전하지만, 같은 경로의 /dev/zero는 메모리를 채우고 FIFO는
+    // 영구 대기한다. 수정 전에는 schema가 0, dead가 1로 끝났다.
+    for (final target in const [
+      'dartograph.yaml',
+      'pubspec.yaml',
+      'build.yaml',
+      'lib/x.dart',
+    ]) {
+      final link = Link(p.join(root.path, target));
+      await link.create('/dev/null');
+
+      final schema = await run(['schema', '--format', 'json', root.path]);
+      final dead = await run(['dead', '--format', 'json', root.path]);
+
+      expect(schema.code, 2, reason: '$target: ${schema.error}');
+      expect(dead.code, 2, reason: '$target: ${dead.error}');
+      expect(schema.output, isEmpty);
+      await link.delete();
+    }
+  }, skip: Platform.isWindows);
+
   test('사실이 없으면 target은 null이다', () async {
     final result = await run(['schema', '--format', 'json', root.path]);
 
