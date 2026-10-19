@@ -442,10 +442,49 @@ String? removeCodexConfig(String? existing) {
   return _stripCodexBlock(existing);
 }
 
+/// 훅 항목 하나가 dartograph가 등록한 명령인지 판정한다.
+///
+/// 설치 판정([mergeClaudeSettings])과 제거([removeClaudeSettingsHook])가 같은
+/// 기준을 쓴다. 그룹 전체가 아니라 그룹 `hooks` 목록의 명령 항목 단위로 본다 —
+/// 사용자가 같은 matcher 그룹에 덧붙인 다른 명령은 dartograph 것이 아니다.
+/// 명령 문자열에 스크립트 이름이 들어 있으면 인용을 바꾼 등록도 같은 훅으로
+/// 본다. 그래야 제거가 스크립트를 지운 뒤 끊긴 등록을 남기지 않는다.
+bool _isDartographHookCommand(Object? hook) {
+  if (hook is! Map<String, Object?>) return false;
+  final command = hook['command'];
+  return command is String && command.contains(agentHookScriptName);
+}
+
+/// `PostToolUse` 그룹 하나의 `hooks` 목록이다. 모양이 다르면 `null`이다.
+List<Object?>? _groupHookCommands(Object? group) {
+  if (group is! Map<String, Object?>) return null;
+  final commands = group['hooks'];
+  return commands is List<Object?> ? commands : null;
+}
+
+/// `PostToolUse` 그룹들에서 dartograph 명령 항목만 지운다. 지웠으면 `true`다.
+///
+/// 그 명령만 담던 그룹은 설치가 만든 그룹이므로 matcher째 지운다. 다른 명령이
+/// 남은 그룹과 원래 비어 있던 그룹은 그대로 둔다.
+bool _removeDartographHookCommands(List<Object?> groups) {
+  var removed = false;
+  groups.removeWhere((group) {
+    final commands = _groupHookCommands(group);
+    if (commands == null) return false;
+    final before = commands.length;
+    commands.removeWhere(_isDartographHookCommand);
+    if (commands.length == before) return false;
+    removed = true;
+    return commands.isEmpty;
+  });
+  return removed;
+}
+
 /// `.claude/settings.json`에서 dartograph 훅 항목을 제거한다.
 ///
-/// 없으면 `null`, `hooks` 모양이 다르면 [FormatException]이다. 빈 컨테이너는
-/// 함께 지워 원래 설정을 최대한 되돌린다.
+/// 없으면 `null`, `hooks` 모양이 다르면 [FormatException]이다. 그룹의 다른
+/// 명령은 남기고, 비게 된 그룹·`PostToolUse`·`hooks`는 함께 지워 원래 설정을
+/// 최대한 되돌린다.
 String? removeClaudeSettingsHook(String? existing) {
   final settings = _decodeObject(existing);
   final hooks = settings['hooks'];
@@ -462,13 +501,7 @@ String? removeClaudeSettingsHook(String? existing) {
     }
     return null;
   }
-  final before = postToolUse.length;
-  postToolUse.removeWhere(
-    (entry) =>
-        entry is Map<String, Object?> &&
-        jsonEncode(entry).contains(agentHookScriptName),
-  );
-  if (postToolUse.length == before) return null;
+  if (!_removeDartographHookCommands(postToolUse)) return null;
   if (postToolUse.isEmpty) hooks.remove('PostToolUse');
   if (hooks.isEmpty) settings.remove('hooks');
   return '${const JsonEncoder.withIndent('  ').convert(settings)}\n';
@@ -532,9 +565,9 @@ String? mergeClaudeSettings(String? existing) {
   if (postToolUse is! List<Object?>) {
     throw const FormatException('"hooks.PostToolUse" is not a JSON array');
   }
-  for (final entry in postToolUse) {
-    if (entry is Map<String, Object?> &&
-        jsonEncode(entry).contains(agentHookScriptName)) {
+  for (final group in postToolUse) {
+    final commands = _groupHookCommands(group);
+    if (commands != null && commands.any(_isDartographHookCommand)) {
       return null;
     }
   }
