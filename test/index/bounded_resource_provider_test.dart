@@ -147,7 +147,8 @@ void main() {
     );
   });
 
-  test('analyzer 밖의 직접 읽기도 같은 경계를 지나고 나머지 실패는 dart:io와 같다', () async {
+  test('analyzer 밖의 직접 읽기도 같은 경계를 지나고 '
+      '나머지 실패는 dart:io와 같다', () async {
     final source = write('lib/a.dart', 'class A {}\n');
     expect(readAnalysisInputSync(io.File(source)), 'class A {}\n');
     expect(
