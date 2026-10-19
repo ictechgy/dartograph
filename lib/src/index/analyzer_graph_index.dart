@@ -3195,7 +3195,9 @@ int _addConfiguredRetentionRoots(
     for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
   ];
   var added = 0;
-  for (final node in graph.snapshot().nodes) {
+  // 정점만 훑는다. snapshot()은 호출마다 전체 간선을 복사·정렬·검증하므로
+  // 캐시된 정렬 뷰(같은 ID 순서)를 쓴다. 보존 루트 삽입 순서가 같다.
+  for (final node in graph.nodes.values) {
     if (node.isLibrary) continue;
     final id = node.id;
     final separator = id.indexOf('::');
