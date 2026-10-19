@@ -453,6 +453,9 @@ abstract final class ImpactAnalysis {
       tests: tests,
       nodeById: nodeById,
       reverse: reverse,
+      // maxDepth가 없으면 영향 BFS가 씨앗에 닿는 정점을 이미 모두 모았다 —
+      // 순환 판정이 이 집합을 가지치기에 다시 쓴다.
+      reachesSeed: maxDepth == null ? depths.containsKey : null,
     );
 
     final shown = limit == null ? impacted : impacted.take(limit).toList();
@@ -505,6 +508,7 @@ abstract final class ImpactAnalysis {
     required List<ImpactedTest> tests,
     required Map<String, GraphNode> nodeById,
     required Map<String, List<GraphEdge>> reverse,
+    required bool Function(String id)? reachesSeed,
   }) {
     final factors = <ImpactRiskFactor>[];
 
@@ -569,7 +573,15 @@ abstract final class ImpactAnalysis {
       ),
     );
 
-    final cyclicWeight = _hasCyclicSeed(seeds, graph) ? 15 : 0;
+    // BFS가 maxDepth로 잘렸으면 판정할 앞 50개 씨앗의 의존자 영역을 따로 모은다.
+    final cyclicWeight =
+        _hasCyclicSeed(
+          seeds,
+          graph.edges,
+          reachesSeed ?? _dependentClosure(seeds.take(50), reverse).contains,
+        )
+        ? 15
+        : 0;
     factors.add(
       ImpactRiskFactor(
         name: 'cycle-participation',
@@ -599,26 +611,130 @@ abstract final class ImpactAnalysis {
   }
 
   /// 씨앗이 사용 간선을 따라 자기 자신으로 돌아오면 순환에 참여한다.
-  static bool _hasCyclicSeed(List<String> seeds, GraphSnapshot graph) {
-    if (seeds.isEmpty) return false;
-    final forward = <String, List<String>>{};
-    for (final edge in graph.edges) {
-      if (!edge.kind.impliesUsage) continue;
-      (forward[edge.sourceId] ??= <String>[]).add(edge.targetId);
+  ///
+  /// 정렬된 앞 50개 씨앗에서 정방향 반복형 Tarjan을 한 번 돈다. 씨앗이 크기 2
+  /// 이상인 강한 연결 요소에 속하거나 자기 루프를 가지면 참이다. 씨앗마다 전방
+  /// 탐색을 새로 하면 O(씨앗 × (V+E))다.
+  ///
+  /// [reachesSeed]는 판정할 씨앗에 사용 간선으로 닿는 모든 정점(씨앗 포함)에서
+  /// 참이어야 한다. 더 넓어도 결과는 같다. 씨앗을 지나는 순환의 정점은 모두 그
+  /// 씨앗에 닿으므로, 거짓인 정점으로 건너지 않아도 순환을 놓치지 않는다. 그래서
+  /// 탐색은 씨앗에서 닿으면서 씨앗에 다시 닿는 정점 안에 머문다. 나가는 간선은
+  /// 출발점 순으로 정렬된 [edges]에서 이분 탐색으로 찾아, 호출마다 정방향 인접을
+  /// 만들지 않는다.
+  static bool _hasCyclicSeed(
+    List<String> seeds,
+    List<GraphEdge> edges,
+    bool Function(String id) reachesSeed,
+  ) {
+    // 판정 범위는 정렬된 앞 50개 씨앗이다 — 씨앗마다 탐색하던 때의 비용
+    // 상한이었지만 cycle-participation 결과가 바뀌지 않게 그대로 둔다.
+    final checked = seeds.take(50).toSet();
+    // 정점은 발견 순번으로 다룬다. 순번별 판정 씨앗 여부·low·스택 표시다.
+    final order = <String, int>{};
+    final isChecked = <bool>[];
+    final low = <int>[];
+    final onStack = <bool>[];
+    final component = <int>[];
+    // 재귀 대신 (정점 순번, ID, 다음 간선 위치) 호출 스택을 쓴다 — 깊은 사용
+    // 사슬에서도 스택이 넘치지 않는다.
+    final callNodes = <int>[];
+    final callIds = <String>[];
+    final callPositions = <int>[];
+    void enter(String id) {
+      final index = low.length;
+      order[id] = index;
+      isChecked.add(checked.contains(id));
+      low.add(index);
+      onStack.add(true);
+      component.add(index);
+      callNodes.add(index);
+      callIds.add(id);
+      callPositions.add(_firstEdgeFrom(edges, id));
     }
-    // 씨앗 수를 상한해 대형 변경 집합에서 O(seeds×(V+E))가 폭주하지 않게 한다.
-    for (final seed in seeds.take(50)) {
-      final seen = <String>{};
-      final queue = <String>[seed];
-      while (queue.isNotEmpty) {
-        final current = queue.removeLast();
-        for (final next in forward[current] ?? const <String>[]) {
-          if (next == seed) return true;
-          if (seen.add(next)) queue.add(next);
+
+    for (final root in checked) {
+      if (order.containsKey(root)) continue;
+      enter(root);
+      while (callNodes.isNotEmpty) {
+        final node = callNodes.last;
+        final id = callIds.last;
+        var position = callPositions.last;
+        String? next;
+        while (position < edges.length && edges[position].sourceId == id) {
+          final edge = edges[position++];
+          if (edge.kind.impliesUsage && reachesSeed(edge.targetId)) {
+            next = edge.targetId;
+            break;
+          }
         }
+        if (next != null) {
+          callPositions.last = position;
+          final seen = order[next];
+          if (seen == null) {
+            enter(next);
+          } else if (onStack[seen]) {
+            // 스택의 정점은 모두 현재 정점에 닿으므로 next는 순환 위에 있다(자기
+            // 루프 포함). 판정 씨앗이면 요소가 끝나기를 기다리지 않는다.
+            if (isChecked[seen]) return true;
+            if (seen < low[node]) low[node] = seen;
+          }
+          continue;
+        }
+        callNodes.removeLast();
+        callIds.removeLast();
+        callPositions.removeLast();
+        if (callNodes.isNotEmpty && low[node] < low[callNodes.last]) {
+          low[callNodes.last] = low[node];
+        }
+        if (low[node] != node) continue;
+        // node가 뿌리인 강한 연결 요소를 꺼낸다.
+        var size = 0;
+        var hasChecked = false;
+        int member;
+        do {
+          member = component.removeLast();
+          onStack[member] = false;
+          size++;
+          if (isChecked[member]) hasChecked = true;
+        } while (member != node);
+        if (hasChecked && size > 1) return true;
       }
     }
     return false;
+  }
+
+  /// [starts]와, 사용 간선을 따라 그중 하나에 닿는 정점(의존자)의 집합이다.
+  static Set<String> _dependentClosure(
+    Iterable<String> starts,
+    Map<String, List<GraphEdge>> reverse,
+  ) {
+    final closure = starts.toSet();
+    final queue = closure.toList();
+    for (var cursor = 0; cursor < queue.length; cursor++) {
+      for (final edge in reverse[queue[cursor]] ?? const <GraphEdge>[]) {
+        if (closure.add(edge.sourceId)) queue.add(edge.sourceId);
+      }
+    }
+    return closure;
+  }
+
+  /// 출발점 순으로 정렬된 [edges]에서 [id]가 출발점인 첫 간선의 위치다.
+  ///
+  /// GraphSnapshot.edges는 compareGraphEdges로 출발점부터 정렬된다. [id]에서
+  /// 나가는 간선이 없으면 그 출발점이 들어갈 자리를 돌려준다.
+  static int _firstEdgeFrom(List<GraphEdge> edges, String id) {
+    var low = 0;
+    var high = edges.length;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (edges[middle].sourceId.compareTo(id) < 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
   }
 
   static String? _declarationName(String id) {
