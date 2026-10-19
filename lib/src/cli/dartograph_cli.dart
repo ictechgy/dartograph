@@ -2497,6 +2497,22 @@ List<String> _limitations(AnalyzerGraphResult result) {
   return details.toSet().toList()..sort();
 }
 
+/// dead·deps·dup의 `--format` 값을 [ReportFormat]으로 읽는다. 모르는 값은 null이다.
+///
+/// 세 명령이 같은 철자 표를 쓰도록 한곳에 둔다. 명령마다 enum 이름과 직접
+/// 비교하면 도움말·USAGE·MCP가 광고하는 `github-actions`를 deps·dup만 거부하는
+/// 식으로 어긋난다. 문서 밖 enum 이름 `githubActions`도 이전 릴리스가 받아 온
+/// 값이라 계속 받는다(거부하면 기존 호출이 usage로 깨진다). `codeowners`는
+/// dead 전용이라 호출자가 먼저 처리한다.
+ReportFormat? _parseReportFormat(String value) => switch (value) {
+  'text' => ReportFormat.text,
+  'json' => ReportFormat.json,
+  'markdown' => ReportFormat.markdown,
+  'github-actions' || 'githubActions' => ReportFormat.githubActions,
+  'sarif' => ReportFormat.sarif,
+  _ => null,
+};
+
 Future<int> _runDead(
   List<String> arguments,
   StringSink output,
@@ -2564,11 +2580,7 @@ Future<int> _runDead(
             reportFormat = null;
           } else {
             codeownersFormat = false;
-            reportFormat = value == 'github-actions'
-                ? ReportFormat.githubActions
-                : ReportFormat.values
-                      .where((item) => item.name == value)
-                      .firstOrNull;
+            reportFormat = _parseReportFormat(value);
             if (reportFormat == null) {
               error.writeln(
                 'Unknown report format: $value '
@@ -2844,9 +2856,7 @@ Future<int> _runDeps(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
-      format = ReportFormat.values
-          .where((item) => item.name == value)
-          .firstOrNull;
+      format = _parseReportFormat(value);
       if (format == null) {
         error.writeln(
           'Unknown report format: $value '
@@ -3115,9 +3125,7 @@ Future<int> _runDup(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
-      format = ReportFormat.values
-          .where((item) => item.name == value)
-          .firstOrNull;
+      format = _parseReportFormat(value);
       if (format == null) {
         error.writeln(
           'Unknown report format: $value '

@@ -148,7 +148,11 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 0 "deps clean manifest" deps fixtures/closed_app
   expect_status 64 "deps usage error" deps
   expect_status 64 "deps unknown format" deps --format xml fixtures/closed_app
+  expect_status 1 "deps format github-actions findings" deps --format github-actions fixtures/dependency_audit
+  expect_status 0 "deps format github-actions clean" deps --format github-actions fixtures/closed_app
   expect_status 1 "dup findings" dup --format json fixtures/duplication
+  expect_status 1 "dup format github-actions findings" dup --format github-actions fixtures/duplication
+  expect_status 0 "dup format github-actions clean" dup --format github-actions --min-tokens 200 fixtures/duplication
   expect_status 1 "dup kinds duplicate-block" dup --kinds duplicate-block --format json fixtures/duplication
   expect_status 64 "dup unknown kind" dup --kinds declaration fixtures/duplication
   expect_status 64 "dup usage error" dup --min-tokens

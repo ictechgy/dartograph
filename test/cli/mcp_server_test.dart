@@ -944,6 +944,29 @@ void main() {
     },
   );
 
+  test('verify_run runs deps and dup with the github-actions format', () async {
+    // 도구 스키마가 deps·dup에 광고하는 형식이다. CLI가 이 철자를 거부하면
+    // 도구가 스스로 허용한 값이 usage(64)·isError가 된다.
+    final responses = await exchange([
+      for (final (id, command) in [(10, 'deps'), (11, 'dup')])
+        request(id, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': command,
+            'format': 'github-actions',
+          },
+        }),
+    ]);
+
+    expect(responses, hasLength(2));
+    for (final response in responses) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isFalse, reason: textOf(response));
+      expect(textOf(response), startsWith('exitCode: 0\n::'));
+    }
+  });
+
   test('verify_run rejects a packageRoot that does not exist', () async {
     final responses = await exchange([
       request(8, 'tools/call', {
