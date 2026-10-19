@@ -3419,6 +3419,16 @@ Future<int> _runGraph(
     if (collapse != null) {
       snapshot = GraphProjection.collapse(snapshot, collapse);
     }
+    // json·anon은 문서를 한 문자열로 만들지 않고 output에 조각으로 쓴다.
+    if (format == 'json') {
+      GraphExporter.writeJson(output, snapshot, limitations: limitations);
+      return ExitStatus.success.code;
+    }
+    if (format == 'anon') {
+      // anon은 json 문서에서 식별 문자열만 결정적으로 치환한다(공유용).
+      GraphExporter.writeAnon(output, snapshot, limitations: limitations);
+      return ExitStatus.success.code;
+    }
     output.write(switch (format) {
       // 순환 색칠은 dot 전용(madge 패리티)이다. 판정은 CycleDetector가
       // 담당하고(투영된·그려지는 그래프 기준), 다른 포맷에 계산 비용을
@@ -3431,10 +3441,7 @@ Future<int> _runGraph(
             ...cycle.component,
         },
       ),
-      'json' => GraphExporter.json(snapshot, limitations: limitations),
       'html' => GraphExporter.html(snapshot, limitations: limitations),
-      // anon은 json 문서에서 식별 문자열만 결정적으로 치환한다(공유용).
-      'anon' => GraphExporter.anon(snapshot, limitations: limitations),
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),
     });
     return ExitStatus.success.code;

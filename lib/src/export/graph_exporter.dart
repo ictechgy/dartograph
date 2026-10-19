@@ -4,6 +4,7 @@ import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
 import 'anonymizer.dart';
+import 'json_chunks.dart';
 
 /// 그래프 사실을 결정론적인 교환 형식으로 직렬화한다.
 ///
@@ -34,12 +35,22 @@ abstract final class GraphExporter {
   static String json(
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
-  }) =>
-      '${jsonEncode({
-        'edges': [for (final edge in graph.edges) _edgeJson(edge, null)],
-        'limitations': limitations.toList()..sort(),
-        'nodes': [for (final node in graph.nodes) _nodeJson(node, null)],
-      })}\n';
+  }) {
+    final document = StringBuffer();
+    writeJson(document, graph, limitations: limitations);
+    return document.toString();
+  }
+
+  /// [json]과 같은 바이트를 [sink]에 조각으로 쓴다.
+  ///
+  /// 문서 전체를 한 문자열로 만들지 않는다. 정점·간선마다 Map을 쌓은 목록과
+  /// 그 단일 문자열, 보간 사본이 출력 크기의 몇 배를 잡기 때문이다. 원소를
+  /// 하나씩 `jsonEncode`해 이어 쓰므로 키 순서와 구분자는 [json]과 같다.
+  static void writeJson(
+    StringSink sink,
+    GraphSnapshot graph, {
+    Iterable<String> limitations = const [],
+  }) => _writeDocument(sink, graph, limitations, null);
 
   /// 식별 문자열만 치환한 JSON 문서를 만든다(anon 형식).
   ///
@@ -50,12 +61,43 @@ abstract final class GraphExporter {
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
   }) {
+    final document = StringBuffer();
+    writeAnon(document, graph, limitations: limitations);
+    return document.toString();
+  }
+
+  /// [anon]과 같은 바이트를 [sink]에 조각으로 쓴다([writeJson]과 같은 방식).
+  static void writeAnon(
+    StringSink sink,
+    GraphSnapshot graph, {
+    Iterable<String> limitations = const [],
+  }) {
     final anonymizer = GraphAnonymizer.forGraph(graph);
-    return '${jsonEncode({
-      'edges': [for (final edge in graph.edges) _edgeJson(edge, anonymizer)],
-      'limitations': [for (final limitation in limitations) anonymizer.anonymizeText(limitation)]..sort(),
-      'nodes': [for (final node in graph.nodes) _nodeJson(node, anonymizer)],
-    })}\n';
+    _writeDocument(sink, graph, limitations, anonymizer);
+  }
+
+  /// json·anon 문서를 간선, limitation, 정점 순서로 쓴다(키 정렬 순서).
+  ///
+  /// limitation 치환은 쓰기 전에 끝낸다. 실패하더라도 반쪽 문서가 출력되지
+  /// 않게 하려는 것이다. 치환표는 [GraphAnonymizer.forGraph]가 모든 정점으로
+  /// 미리 채우므로, 간선보다 먼저 치환해도 결과는 같다.
+  static void _writeDocument(
+    StringSink sink,
+    GraphSnapshot graph,
+    Iterable<String> limitations,
+    GraphAnonymizer? map,
+  ) {
+    final texts = [
+      for (final limitation in limitations)
+        map == null ? limitation : map.anonymizeText(limitation),
+    ]..sort();
+    JsonChunkWriter(sink)
+      ..write('{"edges":[')
+      ..writeElements(graph.edges.map((edge) => _edgeJson(edge, map)))
+      ..write('],"limitations":${jsonEncode(texts)},"nodes":[')
+      ..writeElements(graph.nodes.map((node) => _nodeJson(node, map)))
+      ..write(']}\n')
+      ..flush();
   }
 
   static Map<String, Object> _edgeJson(GraphEdge edge, GraphAnonymizer? map) =>

@@ -48,10 +48,17 @@ final class GraphAnonymizer {
 
   final _segments = <String, String>{};
   final _paths = <String, String>{};
+  final _ids = <String, String>{};
   RegExp? _textPattern;
 
   /// 정점 ID(라이브러리 또는 `<라이브러리>::<선언>`)를 익명화한다.
-  String anonymizeId(String id) {
+  ///
+  /// 결과는 ID별로 메모한다. 간선 양끝처럼 같은 ID를 거듭 묻는 호출자가
+  /// 정규식·split·join을 되풀이하지 않게 한다. 치환표가 결정적이라 메모해도
+  /// 결과는 같다.
+  String anonymizeId(String id) => _ids[id] ??= _anonymizeId(id);
+
+  String _anonymizeId(String id) {
     final separator = id.indexOf('::');
     if (separator < 0) return _library(id);
     final name = id.substring(separator + 2);

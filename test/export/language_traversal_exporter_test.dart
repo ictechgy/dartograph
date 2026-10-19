@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartograph/src/analysis/language_traversal.dart';
 import 'package:dartograph/src/core/graph_edge.dart';
 import 'package:dartograph/src/core/graph_node.dart';
@@ -7,8 +8,11 @@ import 'package:dartograph/src/core/graph_snapshot.dart';
 import 'package:dartograph/src/export/language_traversal_exporter.dart';
 import 'package:test/test.dart';
 
+import '../support/graph_fixture_support.dart';
+
 /// `language-traversal` 문서의 정점별 root 목록 상한(LANGUAGE-TRAVERSAL v1의
-/// `roots` 64개)과 `rootsTruncated` 판정을 손으로 적은 기대값으로 확인한다.
+/// `roots` 64개)·`rootsTruncated` 판정과 `graphRevision` 값을 손으로 적은
+/// 기대값과 오라클로 확인한다.
 void main() {
   final metadata = LanguageTraversalMetadata(
     generatedAt: DateTime.utc(2026),
@@ -81,5 +85,59 @@ void main() {
       document['limitations'],
       isNot(contains(startsWith('roots-per-reached:'))),
     );
+  });
+
+  test('graphRevision hashes the documented node and edge tuples', () {
+    final graph = GraphSnapshot(
+      nodes: [
+        GraphNode(id: 'a', isLibrary: true),
+        GraphNode(
+          id: 'b',
+          isTypeDeclaration: true,
+          isAbstract: true,
+          isSealed: true,
+          synthesized: true,
+        ),
+        GraphNode(id: 'é"q', isEnumConstant: true),
+      ],
+      edges: const [
+        GraphEdge(sourceId: 'b', targetId: 'a', kind: EdgeKind.call),
+      ],
+    );
+    // 아래 JSON의 UTF-8 바이트를 따로 해시한 값이다.
+    // {"edges":[["b","a","call"]],"nodes":[["a",true,false,false,false,false,
+    // false],["b",false,true,true,false,true,true],["é\"q",false,false,false,
+    // true,false,false]]}
+    expect(
+      graphRevisionOf(graph),
+      'sha256:'
+      '9e46ed1185c7b9bdd7107ff0ad8ca4a9b5080c1c81dd1d0d117c6bb3940ea63f',
+    );
+  });
+
+  test('graphRevision keeps the single-document hash on large graphs', () {
+    // 해시 입력을 조각으로 넣더라도 문서 전체를 한 번에 인코딩해 해시하던
+    // 값과 같다(오라클). 비 ASCII·짝 없는 서러게이트가 UTF-8 조각 경계를 넘긴다.
+    final graph = escapeHeavyGraph(1500);
+    final content = {
+      'edges': [
+        for (final edge in graph.edges)
+          [edge.sourceId, edge.targetId, edge.kind.name],
+      ],
+      'nodes': [
+        for (final node in graph.nodes)
+          [
+            node.id,
+            node.isLibrary,
+            node.isTypeDeclaration,
+            node.isAbstract,
+            node.isEnumConstant,
+            node.isSealed,
+            node.synthesized,
+          ],
+      ],
+    };
+    final whole = sha256.convert(utf8.encode(jsonEncode(content)));
+    expect(graphRevisionOf(graph), 'sha256:$whole');
   });
 }

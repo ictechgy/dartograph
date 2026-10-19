@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/export/anonymizer.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:test/test.dart';
+
+import '../support/graph_fixture_support.dart';
 
 void main() {
   const payloadMarker = '<script id="graph-data" type="application/json">';
@@ -201,6 +204,76 @@ void main() {
     );
     // enum 상수가 없는 기존 스냅샷의 골든은 무수정 — 위 테스트들이 증거다.
     expect(GraphExporter.json(snapshot), isNot(contains('isEnumConstant')));
+  });
+
+  test('json and anon keep the single-document bytes on large graphs', () {
+    // 문서를 조각으로 쓰더라도 한 번에 jsonEncode하던 문서와 바이트가 같다.
+    // 이스케이프·비 ASCII·조건부 필드를 섞어 조각 경계를 여러 번 넘긴다.
+    final graph = escapeHeavyGraph(1500);
+    const limitations = ['z-last', 'b-path: lib/plain0.dart', 'a-first'];
+    expect(
+      GraphExporter.json(graph, limitations: limitations),
+      _wholeDocument(graph, limitations),
+    );
+    expect(
+      GraphExporter.anon(graph, limitations: limitations),
+      _wholeDocument(graph, limitations, anonymize: true),
+    );
+  });
+
+  test('anon bytes stay pinned for a small graph', () {
+    // 토큰은 정렬된 정점 순서로 처음 본 세그먼트마다 붙는다. 관용 어휘(lib·
+    // src)·확장자·setter 접미·멤버 점은 남고, 문구 속 경로도 같은 토큰을 쓴다.
+    final graph = GraphSnapshot(
+      nodes: [
+        GraphNode(
+          id: 'project:lib/billing.dart',
+          sourceUri: 'project:lib/billing.dart',
+          isLibrary: true,
+        ),
+        GraphNode(
+          id: 'project:lib/billing.dart::Invoice.total',
+          sourceUri: 'project:lib/billing.dart',
+          line: 4,
+          column: 3,
+        ),
+        GraphNode(
+          id: 'package:shop/src/cart.g.dart::Cart.items=',
+          sourceUri: 'package:shop/src/cart.g.dart',
+        ),
+      ],
+      edges: const [
+        GraphEdge(
+          sourceId: 'project:lib/billing.dart::Invoice.total',
+          targetId: 'project:lib/billing.dart',
+          kind: EdgeKind.member,
+        ),
+        GraphEdge(
+          sourceId: 'project:lib/billing.dart::Invoice.total',
+          targetId: 'package:shop/src/cart.g.dart::Cart.items=',
+          kind: EdgeKind.call,
+        ),
+      ],
+    );
+    expect(
+      GraphExporter.anon(
+        graph,
+        limitations: const [
+          'configured-entry-point-without-main: lib/billing.dart',
+        ],
+      ),
+      '{"edges":[{"kind":"call","source":"project:lib/s6.dart::s7.s8",'
+      '"target":"package:s0/src/s2.g.dart::s3.s4="},{"kind":"member",'
+      '"source":"project:lib/s6.dart::s7.s8","target":"project:lib/s6.dart"}],'
+      '"limitations":["configured-entry-point-without-main: lib/s6.dart"],'
+      '"nodes":[{"id":"package:s0/src/s2.g.dart::s3.s4=","isAbstract":false,'
+      '"isTypeDeclaration":false,"sourceUri":"package:s0/src/s2.g.dart",'
+      '"synthesized":false},{"id":"project:lib/s6.dart","isAbstract":false,'
+      '"isTypeDeclaration":false,"sourceUri":"project:lib/s6.dart",'
+      '"synthesized":false},{"column":3,"id":"project:lib/s6.dart::s7.s8",'
+      '"isAbstract":false,"isTypeDeclaration":false,"line":4,'
+      '"sourceUri":"project:lib/s6.dart","synthesized":false}]}\n',
+    );
   });
 
   test('HTML output is self-contained with a deterministic payload', () {
@@ -479,4 +552,43 @@ void main() {
       'flowchart LR\n  n0["&lt;no-library&gt;"]\n  n1["a&amp;b"]\n',
     );
   });
+}
+
+/// 정점·간선 Map을 모두 쌓은 뒤 `jsonEncode` 한 번으로 만든 json·anon 문서다
+/// (오라클). 조각 쓰기 이전 GraphExporter의 조립을 그대로 옮겼다.
+String _wholeDocument(
+  GraphSnapshot graph,
+  List<String> limitations, {
+  bool anonymize = false,
+}) {
+  final map = anonymize ? GraphAnonymizer.forGraph(graph) : null;
+  String id(String value) => map?.anonymizeId(value) ?? value;
+  String text(String value) => map?.anonymizeText(value) ?? value;
+  String uri(String value) => map?.anonymizeUri(value) ?? value;
+  final document = {
+    'edges': [
+      for (final edge in graph.edges)
+        {
+          'kind': edge.kind.name,
+          'source': id(edge.sourceId),
+          'target': id(edge.targetId),
+        },
+    ],
+    'limitations': [for (final limitation in limitations) text(limitation)]
+      ..sort(),
+    'nodes': [
+      for (final node in graph.nodes)
+        {
+          if (node.column != null) 'column': node.column,
+          'id': id(node.id),
+          'isAbstract': node.isAbstract,
+          if (node.isEnumConstant) 'isEnumConstant': true,
+          'isTypeDeclaration': node.isTypeDeclaration,
+          if (node.line != null) 'line': node.line,
+          if (node.sourceUri != null) 'sourceUri': uri(node.sourceUri!),
+          'synthesized': node.synthesized,
+        },
+    ],
+  };
+  return '${jsonEncode(document)}\n';
 }
