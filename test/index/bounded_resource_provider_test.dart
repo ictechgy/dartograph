@@ -129,6 +129,61 @@ void main() {
     );
   });
 
+  test('나눠 읽기는 상한을 넘는 순간 멈추고 상한 초과 거부가 된다', () {
+    // 길이를 0으로 보고하는 가상 파일 전용 경로지만, 판정은 실제로 읽은 양으로
+    // 한다. 그래서 내용이 있는 정규 파일로도 같은 경계를 확인할 수 있다.
+    final path = write('chunks.dart', 'abcdefgh');
+
+    expect(readUnknownLengthSync(io.File(path), 8), 'abcdefgh'.codeUnits);
+    expect(
+      () => readUnknownLengthSync(io.File(path), 4),
+      throwsA(
+        isA<InputTooLargeException>().having(
+          (rejection) => rejection.message,
+          'message',
+          'analysis input exceeds the 4-byte read limit',
+        ),
+      ),
+    );
+  });
+
+  test('analyzer 밖의 직접 읽기도 같은 경계를 지나고 나머지 실패는 dart:io와 같다', () async {
+    final source = write('lib/a.dart', 'class A {}\n');
+    expect(readAnalysisInputSync(io.File(source)), 'class A {}\n');
+    expect(
+      readAnalysisInputBytesSync(io.File(source)),
+      'class A {}\n'.codeUnits,
+    );
+
+    // 구문 스캐너는 dart:io 읽기 실패를 '읽을 수 없는 파일' 한계로 센다.
+    // 부재와 UTF-8 디코드 실패가 그 모양(FileSystemException)을 지켜야
+    // 스캐너의 기존 수습이 그대로 적용된다.
+    final undecodable = p.join(workspace.path, 'bad.dart');
+    io.File(undecodable).writeAsBytesSync(const [0xff, 0xfe, 0x00]);
+    expect(
+      () => readAnalysisInputSync(io.File(undecodable)),
+      throwsA(isA<io.FileSystemException>()),
+    );
+    expect(
+      () => readAnalysisInputSync(io.File(p.join(workspace.path, 'none'))),
+      throwsA(isA<io.PathNotFoundException>()),
+    );
+
+    final device = p.join(workspace.path, 'device.dart');
+    await io.Link(device).create('/dev/null');
+    expect(
+      () => readAnalysisInputBytesSync(io.File(device)),
+      throwsA(isA<NonRegularFileException>()),
+    );
+
+    final large = p.join(workspace.path, 'large.dart');
+    await writeOversizedSource(large, analysisReadLimit);
+    expect(
+      () => readAnalysisInputSync(io.File(large)),
+      throwsA(isA<InputTooLargeException>()),
+    );
+  }, skip: io.Platform.isWindows);
+
   test('길이를 0으로 보고하는 가상 파일은 상한까지만 나눠 읽는다', () {
     // procfs 파일은 길이 0을 보고하지만 내용이 있다. dart:io 전체 읽기는
     // 이런 파일을 EOF까지 읽는다(`/proc/self/pagemap`은 끝없이 길다).
