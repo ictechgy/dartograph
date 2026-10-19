@@ -76,7 +76,9 @@ Future<int> _emitTraversal(
   final indexed = await indexPackage(root);
   final snapshot = indexed.graph.snapshot();
   final result = LanguageTraversal.traverse(snapshot, roots, options.direction);
-  final revision = options.revision ?? await _cleanGitHead(root);
+  final observed = options.revision != null
+      ? (revision: options.revision, limitation: null)
+      : await _cleanGitHead(root);
   output.write(
     exportLanguageTraversal(
       result,
@@ -85,9 +87,13 @@ Future<int> _emitTraversal(
         project: exchange.project,
         packageRoot: root,
         graphRevision: graphRevisionOf(snapshot),
-        revision: revision,
+        revision: observed.revision,
       ),
-      limitations: [..._limitations(indexed), ...exchange.limitations],
+      limitations: [
+        ..._limitations(indexed),
+        ...exchange.limitations,
+        ?observed.limitation,
+      ],
     ),
   );
   return result.rootNotFound ? ExitStatus.usage.code : ExitStatus.success.code;
@@ -258,27 +264,89 @@ bool isExchangeText(String value) {
   return true;
 }
 
+/// `--revision` 없이 문서에 실을 revision과, 일부러 확인하지 않아 싣지 못한
+/// 이유(`revision-unverified:` limitation)다. 둘 다 없을 수 있다.
+typedef _ObservedRevision = ({String? revision, String? limitation});
+
+/// revision도 이유도 없다. git이 없거나 저장소가 아니거나 작업 트리가 깨끗하지
+/// 않으면 지금처럼 revision만 비운다 — revision이 없다는 것 자체가 신호다.
+const _ObservedRevision _noRevision = (revision: null, limitation: null);
+
 /// 작업 트리가 깨끗할 때만 git HEAD다 — 편집 중인 소스를 분석한 문서를 isthmus가
-/// 현재 revision으로 믿지 않게 한다. git이 없거나 저장소가 아니면 null이다.
-Future<String?> _cleanGitHead(String root) async {
+/// 현재 revision으로 믿지 않게 한다.
+///
+/// 모든 git 호출은 [AnalysisGit]을 지나 저장소 설정의 명령을 실행하지 않는다.
+/// 그래서 filter가 정규화하던 파일(git-lfs 등)은 stat 정보가 낡으면 바뀐 것으로
+/// 보이고, 그때는 깨끗하다고 주장하지 않는다(fail-safe, DECISIONS D1). 끌 수 없는
+/// filter 드라이버 이름 때문에 git을 실행하지 않았으면 그 이유를 limitation으로
+/// 남긴다.
+Future<_ObservedRevision> _cleanGitHead(String root) async {
   try {
-    final status = await Process.run('git', [
-      '-C',
-      root,
+    final status = await AnalysisGit.run(root, const [
       'status',
       '--porcelain',
       '--untracked-files=normal',
+      '--ignore-submodules=all',
       '--',
       '.',
     ]);
-    if (status.exitCode != 0 || (status.stdout as String).trim().isNotEmpty) {
-      return null;
+    if (status.exitCode != 0 ||
+        latin1.decode(status.stdout).trim().isNotEmpty) {
+      return _noRevision;
     }
-    final head = await Process.run('git', ['-C', root, 'rev-parse', 'HEAD']);
-    if (head.exitCode != 0) return null;
-    final value = (head.stdout as String).trim();
-    return RegExp(r'^[0-9a-f]{40,64}$').hasMatch(value) ? value : null;
+    return await _headUnlessSubmodules(root);
   } on ProcessException {
-    return null;
+    return _noRevision;
+  } on AnalysisGitException catch (refused) {
+    return refused.refusal == AnalysisGitRefusal.unneutralizableFilterDriver
+        ? (revision: null, limitation: _unneutralizableRevisionNote)
+        : _noRevision;
   }
 }
+
+/// 깨끗한 작업 트리의 HEAD다. 서브모듈(index의 gitlink)이 있으면 싣지 않는다.
+///
+/// 서브모듈 작업 트리를 보려면 git이 그 안에서 서브모듈 저장소 자신의 설정을
+/// 따르므로 보지 않았다(status의 `--ignore-submodules=all`). 그러니 깨끗함을
+/// 증명할 수 없다.
+Future<_ObservedRevision> _headUnlessSubmodules(String root) async {
+  final index = await AnalysisGit.run(root, const [
+    'ls-files',
+    '--stage',
+    '-z',
+    '--',
+    '.',
+  ]);
+  if (index.exitCode != 0) return _noRevision;
+  final submodules = _gitlinkCount(index.stdout);
+  if (submodules > 0) {
+    return (revision: null, limitation: _submoduleRevisionNote(submodules));
+  }
+  final head = await AnalysisGit.run(root, const ['rev-parse', 'HEAD']);
+  if (head.exitCode != 0) return _noRevision;
+  final value = latin1.decode(head.stdout).trim();
+  final valid = RegExp(r'^[0-9a-f]{40,64}$').hasMatch(value);
+  return (revision: valid ? value : null, limitation: null);
+}
+
+/// `git ls-files --stage -z` 출력의 gitlink(mode 160000) 경로 수다. 충돌 중인
+/// 항목은 stage마다 한 줄씩 나오므로 경로로 센다.
+int _gitlinkCount(List<int> output) => {
+  for (final entry in latin1.decode(output).split('\u0000'))
+    if (entry.startsWith('160000 ')) entry.substring(entry.indexOf('\t') + 1),
+}.length;
+
+/// 서브모듈 때문에 revision을 싣지 않은 이유다.
+String _submoduleRevisionNote(int count) =>
+    'revision-unverified: the package root has $count git submodule(s); '
+    'dartograph does not run git inside them (that would follow their own '
+    'repository configuration, such as filter commands), so a clean HEAD '
+    'cannot be confirmed; pass --revision to record the analyzed revision';
+
+/// 끌 수 없는 filter 드라이버 이름 때문에 git을 실행하지 않은 이유다. 이름 원문은
+/// 신뢰하지 않는 설정 값이라 싣지 않는다.
+const _unneutralizableRevisionNote =
+    'revision-unverified: the git configuration defines a filter driver whose '
+    "name contains '=' or is not valid UTF-8, which git cannot be told to "
+    'skip, so dartograph did not inspect the work tree; pass --revision to '
+    'record the analyzed revision';

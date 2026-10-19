@@ -297,6 +297,18 @@ Limitations:
   `receiveBroadcastStream()` call as a `stream-listen` fact, even if the
   returned stream is never consumed. It does not prove that the call executes,
   a listener is attached, a subscription is active, or an event is received.
+- Git queries run none of the commands a repository configures (see
+  Guarantees), so git reads raw work-tree content and leaves its stat cache
+  alone. `--since` and `affected` therefore count a file as changed when only
+  its timestamps changed, and also a file that a filter normally normalizes
+  (Git LFS and the like) when git's stat cache is stale for it. In a checkout
+  you trust, run `git status` first to refresh the stat cache.
+- `impact --format language-traversal` records `revision` only when it can
+  confirm a clean HEAD without running repository commands. A stale filtered
+  file reads as an edit, so `revision` is omitted. A package root with git
+  submodules gets no automatic `revision` either, because git is not run
+  inside them; the document carries a `revision-unverified:` limitation. Pass
+  `--revision` to record the analyzed revision.
 
 Guarantees:
 
@@ -309,6 +321,17 @@ Guarantees:
 - For findings with more than 20 retention roots, dartograph records the total
   count, the first 20 as a sample, and `retentionRootsTruncated: true` to keep
   output bounded. The fact that evidence was truncated is never hidden.
+- Git queries — `--since`, `affected` (and MCP `since`), the clean-HEAD
+  `revision` of `impact --format language-traversal`, and the `--record`
+  ledger commit — never run a command named by the analyzed repository or your
+  git configuration. Every call disables the configured filter drivers
+  (`clean`, `smudge`, `process`) and `core.fsmonitor`, keeps git from
+  rewriting the index (which would run the `post-index-change` hook), turns
+  off external diff and textconv, and does not start git inside submodules. A
+  filter driver whose name git cannot be told to skip (it contains `=` or is
+  not valid UTF-8) stops the query: `--since` and `affected` exit 2 naming the
+  cause, and the traversal document omits `revision` with a
+  `revision-unverified:` limitation.
 
 ## Documents
 

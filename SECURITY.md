@@ -39,6 +39,21 @@ analyzer가 해석하며 여는 모든 파일을 읽기 직전에 확인한다. 
 `--baseline` 파일도 열기 전에 정규 파일인지 확인하고 1 MiB(`package_config.json`은 16 MiB,
 baseline은 64 MiB)까지만 읽는다.
 
+`--since`·`affected`(MCP `since` 포함)의 변경 파일 계산, `impact --format language-traversal`의
+깨끗한 HEAD `revision` 판독, `--record` 원장의 commit 관측은 분석 대상에서 git을 읽기 전용으로
+실행한다. `.git`째로 받은 저장소라면 그 설정은 공격자가 고를 수 있다. 그래서 이 호출들은 저장소와
+사용자 git 설정이 정한 명령을 실행하지 않는다. 호출마다 바로 앞에서 `git config`로 filter 드라이버
+이름을 다시 모아 clean·smudge·process를 빈 명령으로, required를 false로 덮는다. 모든 호출에
+`core.fsmonitor=false`·`log.showSignature=false`·`--no-optional-locks`를 붙인다. 작업 트리를 비교하는
+diff에는 `diff.autoRefreshIndex=false`를 붙여 index를 다시 쓰지 않는다. index를 쓰면
+`post-index-change` 훅이 돈다. diff에는 `--no-ext-diff --no-textconv`를, 작업 트리를 보는 diff와
+status에는 `--ignore-submodules=all`을 붙여 서브모듈 저장소의 설정을 따르는 git을 띄우지 않는다.
+`=`가 들었거나 UTF-8이 아닌 드라이버 이름은 `-c`로 덮을 수 없으므로 git을 실행하지 않는다
+(fail-closed). 그 대가로 git-lfs처럼 filter가 정규화하던 파일은 stat 정보가 낡으면 바뀐 것으로
+보이고, `--since`는 stat만 바뀐 파일도 변경으로 센다(보수적 방향). 깨끗한 HEAD 판정은 그런 파일이나
+서브모듈이 있으면 revision을 싣지 않는다. PATH의 git 실행 파일과 git이 설정 파일을 읽는 동작
+자체(include가 가리키는 파일 포함)는 여전히 신뢰 경계 안이다.
+
 MCP 도구 인자는 분석 대상 저장소의 문서에 심은 지시를 따른 에이전트가 보낼 수 있다. 그래서
 `packageRoot`·`baseline`·`config`는 서버 작업 디렉터리 안의 실제 디렉터리·정규 파일로만
 받는다([MCP](doc/MCP.md)).

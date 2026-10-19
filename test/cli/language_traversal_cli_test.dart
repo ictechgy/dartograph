@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
+import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/hostile_git_support.dart';
 import '../support/route_fixture_support.dart';
 
 /// `dartograph impact --format language-traversal` — isthmus trace용 순회
@@ -205,6 +208,123 @@ class Screen {
         p.join(root.path, 'lib', 'extra.dart'),
       ).writeAsString('void e() {}\n');
       expect(await revision(), isNull);
+    });
+
+    group('revision in a repository whose git settings name commands', () {
+      // 색인은 가짜로 두어 git 판정만 본다. root가 그래프에 있어 종료 코드는 0이다.
+      Future<Map<String, Object?>> traverse(String packageRoot) async {
+        final graph = CodeGraph()
+          ..addNode(
+            GraphNode(
+              id: 'project:lib/fx.dart::Alpha',
+              sourceUri: 'project:lib/fx.dart',
+            ),
+          );
+        final output = StringBuffer();
+        final error = StringBuffer();
+        final code = await runDartograph(
+          [
+            'impact',
+            '--format',
+            'language-traversal',
+            packageRoot,
+            'project:lib/fx.dart::Alpha',
+          ],
+          output: output,
+          error: error,
+          indexPackage: (_) async =>
+              AnalyzerGraphResult(graph: graph, limitations: const []),
+          now: () => fixedNow,
+        );
+        expect(code, 0, reason: error.toString());
+        return jsonDecode(output.toString()) as Map<String, Object?>;
+      }
+
+      List<String> unverified(Map<String, Object?> document) => [
+        for (final limitation in document['limitations']! as List)
+          if ('$limitation'.startsWith('revision-unverified:')) '$limitation',
+      ];
+
+      const submoduleSettings = {
+        HostileGitSetting.submoduleFilter,
+        HostileGitSetting.submoduleFsmonitor,
+        HostileGitSetting.submoduleHook,
+      };
+
+      for (final setting in HostileGitSetting.values) {
+        test(
+          '${setting.name} runs nothing while judging a clean HEAD',
+          () async {
+            final repository = await createHostileRepository(root, setting);
+
+            final document = await traverse(repository.root);
+
+            expect(repository.commandRan, isFalse);
+            if (submoduleSettings.contains(setting)) {
+              // 서브모듈 작업 트리는 보지 않으므로 깨끗하다고 주장하지 않는다.
+              expect(document['revision'], isNull);
+              expect(unverified(document), [
+                startsWith(
+                  'revision-unverified: the package root has 1 git '
+                  'submodule(s);',
+                ),
+              ]);
+            } else {
+              expect(document['revision'], repository.head);
+              expect(unverified(document), isEmpty);
+            }
+          },
+          skip: Platform.isWindows
+              ? 'the fixture plants POSIX sh scripts'
+              : false,
+        );
+      }
+
+      test(
+        'a file its filter normalized is not claimed clean when its stat is stale',
+        () async {
+          // git-lfs처럼 clean filter가 커밋 내용을 바꾼 파일이다. filter를 끄면
+          // 작업 트리 원본과 blob이 달라 보이므로 revision을 싣지 않는다(fail-safe).
+          final repository = await createNormalizedFilterRepository(root);
+
+          final document = await traverse(repository.root);
+
+          expect(document['revision'], isNull);
+          expect(unverified(document), isEmpty);
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+
+      for (final (label, rawName) in [
+        ("'='", 'a=b'.codeUnits),
+        ('invalid UTF-8', const [0xff, 0xfe]),
+      ]) {
+        test(
+          'a driver name with $label leaves the revision unverified',
+          () async {
+            final repository = await createRepositoryWithFilterName(
+              root,
+              rawName,
+            );
+
+            final document = await traverse(repository.root);
+
+            expect(repository.commandRan, isFalse);
+            expect(document['revision'], isNull);
+            expect(unverified(document), [
+              startsWith(
+                'revision-unverified: the git configuration defines a filter '
+                'driver',
+              ),
+            ]);
+          },
+          skip: Platform.isWindows
+              ? 'the fixture plants POSIX sh scripts'
+              : false,
+        );
+      }
     });
 
     test(

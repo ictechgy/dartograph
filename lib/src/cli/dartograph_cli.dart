@@ -50,6 +50,7 @@ import '../runtime/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
 import 'agent_setup.dart';
 import 'agent_skill.dart';
+import 'analysis_git.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
 import 'mcp_server.dart';
@@ -552,15 +553,17 @@ Map<String, String> _ledgerInputs(List<String> arguments) {
 }
 
 /// 관측한 Git HEAD SHA다. 계산하지 못하면 null이다(추정값을 넣지 않는다).
+///
+/// [AnalysisGit]을 지나 cwd 저장소 설정의 명령을 실행하지 않는다. 설정을 읽지
+/// 못하거나 끌 수 없는 filter 드라이버 이름이 있어도 null이다.
 Future<String?> _observeCommit() async {
   try {
-    final result = await Process.run(
-      'git',
-      const ['rev-parse', 'HEAD'],
-      workingDirectory: Directory.current.path,
-    ).timeout(const Duration(seconds: 5));
+    final result = await AnalysisGit.run(Directory.current.path, const [
+      'rev-parse',
+      'HEAD',
+    ]).timeout(const Duration(seconds: 5));
     if (result.exitCode != 0) return null;
-    final value = (result.stdout as String).trim();
+    final value = latin1.decode(result.stdout).trim();
     return RegExp(r'^[0-9a-f]{7,64}$').hasMatch(value) ? value : null;
   } on Object {
     return null;
@@ -724,11 +727,8 @@ Future<int> _runAffected(
       ),
     );
     return ExitStatus.success.code;
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on FileSystemException {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -924,11 +924,8 @@ Future<int> _runImpact(
       return ExitStatus.findings.code;
     }
     return ExitStatus.success.code;
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on InputRejectedException catch (exception) {
     // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
     // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
@@ -2878,11 +2875,8 @@ Future<int> _runDead(
         : ExitStatus.findings.code;
   } on _InvalidBaseline {
     return _reportInvalidBaseline(error);
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on FileSystemException {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -3787,6 +3781,26 @@ Future<int> _runMcp(
   );
 }
 
+/// `--since`·`affected`가 Git 변경 파일을 계산하지 못한 원인을 알린다.
+///
+/// 끌 수 없는 filter 드라이버 이름 때문에 git을 실행하지 않았으면 이력 fetch가
+/// 아니라 그 설정을 고치라고 안내한다. 이름 원문은 신뢰하지 않는 설정 값이라
+/// 싣지 않는다.
+int _reportChangedFilesFailure(
+  StringSink error,
+  ChangedFilesException failure,
+) {
+  error.writeln(
+    failure.unneutralizableFilterDriver
+        ? 'Changed files could not be computed: the git configuration defines '
+              "a filter driver whose name contains '=' or is not valid UTF-8, "
+              'which git cannot be told to skip. Rename or remove that filter '
+              'driver.'
+        : 'Changed files could not be computed. In CI, fetch full Git history.',
+  );
+  return ExitStatus.failure.code;
+}
+
 /// 색인·추출 실패를 정적 문구로 보고하고 종료 코드 2를 돌려준다.
 ///
 /// [cause]가 읽기 경계의 거부([InputRejectedException])면 원인과 해결 방향을
@@ -4096,7 +4110,9 @@ reached declaration carries every root that reaches it (at most 64 listed),
 a shortest via/depth witness and evidence: direct for analyzer-resolved
 edges, candidate when some root needs an overriding-member dispatch edge.
 unresolvedCalls and dispatch are not reported. revision is --revision, else
-the git HEAD when <package-root> has no uncommitted or untracked changes;
+the git HEAD when <package-root> has no uncommitted or untracked changes and
+no git submodules; git runs no command the repository configures, so a file a
+filter normalizes reads as changed when its stat information is stale.
 graphRevision hashes the graph content. A root that is not an exact graph
 id stays listed without a symbol, adds root-not-found and exits 64; roots
 or --revision with control characters are usage errors (64).

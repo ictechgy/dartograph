@@ -39,6 +39,13 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
 
 - **`--since <ref>`가 비교 대상을 못 찾는다.** 얕은 클론이면 비교 ref가 없다. CI에서는
   `actions/checkout`에 `fetch-depth: 0`을 준다.
+- **`Changed files could not be computed: the git configuration defines a filter driver ...`**
+  git 설정(저장소나 전역)의 `[filter "<이름>"]` 이름에 `=`가 있거나 UTF-8이 아니면 git이 그
+  드라이버를 건너뛰게 할 수 없다. dartograph는 그 명령을 실행하지 않으려고 git을 부르지 않고 2로
+  끝난다. 드라이버 이름을 바꾸거나 그 절을 지운다.
+- **`--since`·`affected`의 변경 파일이 기대보다 많다.** git 조회가 stat 캐시를 새로 고치지 않아,
+  내용은 같고 시각만 바뀐 파일과 git-lfs처럼 filter가 정규화하던 파일도 변경으로 센다. 신뢰하는
+  checkout이면 먼저 `git status`를 실행한다.
 - **`--changed <changes.json>` 형식 오류**는 64로 끝난다. 파일 경로와 형식을 확인한다.
 - **결과가 비어 보인다.** `changed`가 비어 있으면 씨앗이 없다. `coverage`의
   `missedWithoutPrecheck`를 함께 읽는다 — 직접 변경만 봤을 때 놓쳤을 항목을 세는 필드다.

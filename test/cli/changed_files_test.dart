@@ -4,6 +4,8 @@ import 'package:dartograph/src/cli/changed_files.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/hostile_git_support.dart';
+
 void main() {
   test(
     'git output decoding folds non-UTF8 bytes into ChangedFilesException',
@@ -136,6 +138,87 @@ void main() {
       });
     },
   );
+
+  group('since in a repository whose git settings name commands', () {
+    for (final setting in HostileGitSetting.values) {
+      test(
+        '${setting.name} runs nothing and still lists the edited file',
+        () async {
+          final workspace = await Directory.systemTemp.createTemp(
+            'changed-files-hostile.',
+          );
+          addTearDown(() => workspace.delete(recursive: true));
+          final repository = await createHostileRepository(workspace, setting);
+          File(
+            repository.path('lib/edited.dart'),
+          ).writeAsStringSync('class Edited {\n  int value = 0;\n}\n');
+
+          final changed = await ChangedFiles.since('HEAD', repository.root);
+
+          expect(repository.commandRan, isFalse);
+          expect(changed, {
+            repository.path('lib/edited.dart'),
+            // 내용은 그대로이고 stat만 낡은 파일도 변경으로 센다. git이 내용을
+            // 다시 읽어 index를 새로 고치지 않기 때문이다(보수적 상위집합).
+            repository.path('lib/fx.dart'),
+          });
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+    }
+
+    test(
+      'an empty driver name is still disabled',
+      () async {
+        // `* filter=`는 이름이 빈 드라이버를 고르고 git은 `filter..clean`을 실행한다.
+        final workspace = await Directory.systemTemp.createTemp(
+          'changed-files-empty-driver.',
+        );
+        addTearDown(() => workspace.delete(recursive: true));
+        final repository = await createRepositoryWithFilterName(
+          workspace,
+          const [],
+        );
+
+        final changed = await ChangedFiles.since('HEAD', repository.root);
+
+        expect(repository.commandRan, isFalse);
+        expect(changed, {repository.path('lib/fx.dart')});
+      },
+      skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+    );
+
+    for (final (label, rawName) in [
+      ("'='", 'a=b'.codeUnits),
+      ('invalid UTF-8', const [0xff, 0xfe]),
+    ]) {
+      test(
+        'a driver name with $label that git cannot be told to skip fails closed',
+        () async {
+          // git은 `-c` 값을 첫 `=`에서 나누고, 프로세스 인자는 UTF-8로만 넘어간다.
+          final workspace = await Directory.systemTemp.createTemp(
+            'changed-files-unsafe-driver.',
+          );
+          addTearDown(() => workspace.delete(recursive: true));
+          final repository = await createRepositoryWithFilterName(
+            workspace,
+            rawName,
+          );
+
+          await expectLater(
+            ChangedFiles.since('HEAD', repository.root),
+            throwsA(isA<ChangedFilesException>()),
+          );
+          expect(repository.commandRan, isFalse);
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+    }
+  });
 }
 
 Future<String> _git(Directory directory, List<String> arguments) async {
