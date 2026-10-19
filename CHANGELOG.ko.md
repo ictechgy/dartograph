@@ -5,6 +5,28 @@
 ## Unreleased
 
 - 패키지·워크스페이스의 `build.yaml` 생성·수정·삭제·파싱 실패가 분석 캐시를 무효화한다. builder 보존 루트와 파싱 한계가 새 분석과 같아지며 이전 캐시 항목은 폐기한다.
+- MCP 도구가 `workspace: true`를 반영한다. pub workspace 루트에서 `impact_query`·`dependency_query`·`verify_run`·`dartograph_explore`가 `--workspace`를 버리고 루트 패키지만 분석해, 멤버 코드가 finding·영향 결과·심볼 조회(`notFound`)에서 빠지던 문제를 고친다. 이제 결과와 종료 코드가 CLI `--workspace`와 같다. 세션 캐시는 패키지 루트와 workspace 모드마다 나뉘고 전체 분석 폴백도 모드를 유지한다.
+- MCP 도구는 `-`로 시작하는 문자열 값(`symbol`·`impactSymbol`·`since`·`baseline`·`config`와 `batch`·`kinds` 항목)을 인자 오류로 거부한다. 그래서 `--record` 같은 값 때문에 읽기 전용 도구가 패키지 루트에 `ledger.jsonl`을 쓰지 않는다. 이항 `-` 연산자는 `Vector.-`처럼 한정 이름으로 묻는다.
+- MCP `baseline`·`config` 경로도 `packageRoot`처럼 서버 작업 디렉터리 안의 정규 파일로 해석돼야 한다. 부재·경계 밖·디렉터리·장치·FIFO는 한 가지 인자 오류로 거부한다. 그래서 응답에 경계 밖 파일의 존재나 YAML 첫 키가 드러나지 않고, FIFO가 서버를 멈추지 않는다. 상대 경로는 여전히 서버 작업 디렉터리 기준이다.
+- `--record` 원장 입력에 인라인 값을 남기지 않고 패키지 루트를 값으로 삼키지 않는다. 종료 코드 64로 거부되는 `--key=value` 토큰은 플래그 이름만, `--env=`·`--dart-define=`은 `KEY`만 기록하고, `--no-verify`·`--strict`·`--workspace` 같은 값 없는 스위치는 `true`로 기록한다.
+- 장치·FIFO·소켓을 가리키는 심볼릭 링크 분석 입력(예: `/dev/zero`에 연결한 `dartograph.yaml`·`pubspec.yaml`·`build.yaml`·`analysis_options.yaml`·`.dart_tool/package_config.json`·`.dart` 소스)은 메모리를 소진하거나 멈추지 않고, analyzer가 읽기 전에 종료 코드 2로 실행을 멈춘다. 설정 파일은 정규 파일인지 확인한 뒤 상한(1 MiB, `package_config.json`은 16 MiB)까지만 읽고, baseline 파일은 64 MiB 이하의 정규 파일일 때만 읽는다. 그래서 길이를 0으로 보고하는 장치가 크기 상한을 우회하지 못한다.
+- `--roots-from`은 입력이 16 MiB를 넘는 즉시 읽기를 멈추고 기존 상한 진단(종료 코드 64)으로 끝난다. 끝나지 않는 stdin·파이프를 먼저 모두 버퍼에 올리지 않는다.
+- 낡거나 깨진 `.dart_tool/package_config.json`(지운 path 의존, 옮긴 pub cache, 잘린 파일) 때문에 `--incremental` 실행·`runtime`·MCP 도구가 종료 코드 2로 실패하지 않는다. 사라진 의존만 건너뛰며 `--incremental` 출력은 기본 실행과 byte 단위로 같다.
+- `build`·`.dart_tool`·`.git` 디렉터리 안에 읽을 수 없는 디렉터리가 있어도 분석이 종료 코드 2로 실패하지 않는다. 생성 파일 보충 열거가 트리 전체를 훑지 않고 이 제외 디렉터리를 건너뛴다.
+- `deps --workspace --incremental <dir>`는 사실 캐시를 쓰지 못해도 workspace 멤버 매니페스트를 유지한다. 지금까지는 멤버 소스를 루트 `pubspec.yaml`과만 대조해 거짓 `undeclared-dependency`와 종료 코드 1을 냈다.
+- `schema`가 YAML 별칭을 중첩한 `build.yaml`(별칭 폭탄)에서 멈추지 않는다. 공유 별칭 노드는 한 번만 훑고, 별칭 안에 둔 `case_from_dart_to_sql`도 그대로 반영한다.
+- `schema`는 `pubspec.yaml`·`build.yaml`을 1 MiB 설정 상한으로 읽는다. UTF-8이 아니거나 상한을 넘는 `build.yaml`은 종료 코드 2가 아니라 기존 한계(`build.yaml could not be parsed`)가 되고, 그런 `pubspec.yaml`은 의존성 게이트만 비운다(import 게이트는 그대로).
+- 저장소가 정하는 glob(`dartograph.yaml`의 `include`·`exclude`·`retained_names`·`retained_files`, `dead --format codeowners`의 CODEOWNERS 파일, `layers.yaml`의 `match`)을 백트래킹 정규식 대신 선형 시간 매처로 판정한다. `**a**a**a**b`처럼 와일드카드를 반복한 glob 하나가 분석을 수 분~수 시간 멈추게 하지 않는다. 깊이 되돌아가야 하던 경로를 불일치로 판정해 보존 루트·소유자·레이어를 놓치던 문제도 없어진다. 그 밖의 판정 규칙은 같다.
+- `deps`·`dup`이 문서화된 `--format github-actions`를 받는다. 지금까지는 `dead`만 받고 이 둘은 종료 코드 64로 거부해, 이 명령에 GitHub Actions 주석을 요청한 CI 단계와 MCP `verify_run` 호출이 실패했다. 문서 밖 철자 `githubActions`도 `dead`·`deps`·`dup`에서 계속 받는다.
+- `dead --format codeowners`는 패키지를 분석하기 전에 CODEOWNERS 파일을 읽는다. 전체 분석 뒤 `unable to index the package`로 끝나는 대신, 파일이 없거나 읽을 수 없으면 바로 `Analysis failed: unable to read the CODEOWNERS file: <path>.`로, 내용이 잘못됐으면 `Analysis failed: invalid CODEOWNERS file: <detail>`로 실패한다. 종료 코드는 그대로 2다.
+- `query --batch`는 batch 파일이 없거나 읽을 수 없으면 내용 오류 문구 대신 `Batch file could not be read: <path>`로 알린다. 종료 코드는 그대로 64다.
+- `rules --config` 진단은 설정 경로와 YAML 키·레이어 이름의 제어문자를 이스케이프한다(`\n`, `\x1b` 등). 조작한 `layers.yaml`로 진단 줄·워크플로 명령·ANSI 시퀀스를 위조할 수 없다. 일반 입력의 진단은 byte 단위로 같다.
+- Markdown 리포트(`dead`·`deps`·`dup`·`impact`·`runtime`)가 저장소가 정한 문자열을 Markdown으로 렌더링하지 않는다. ID·경로는 항상 내용 안 가장 긴 백틱 run보다 긴 구분자의 code span으로 쓴다(`impact`·`runtime`은 단일 백틱이었다). limitation과 `runtime`의 detail·evidence·reason은 역슬래시·백틱·`<`·`&`·`|`와 `](`의 `(`를 이스케이프하고 `@` 뒤에 폭 없는 공백(`@&#8203;`)을 넣는다. 그래서 조작한 `dartograph.yaml` 키·`build.yaml` 값·소스 리터럴이 PR 코멘트로 게시된 리포트에 링크·이미지·HTML·`@` 멘션을 더하지 못한다. `runtime --execute`의 stderr 블록은 출력 안 가장 긴 백틱 run보다 긴 펜스를 쓰고 개행·탭 외 제어문자를 이스케이프한다. 그 밖의 출력은 byte 단위로 같다. 예외로 `runtime`의 자리표시 `<computed>`는 `\<computed>`로 쓴다. 지금까지는 HTML 태그로 파싱돼 렌더링에서 사라졌다.
+- `graph --format anon`은 끝의 `.dart`와 생성 파일 확장자(`.g.dart`·`.freezed.dart`·`.pb.dart`·`.pbenum.dart`·`.pbgrpc.dart`·`.pbjson.dart`·`.pbserver.dart`)만 남기고 파일·디렉터리 이름의 나머지 점 구분 부분을 모두 치환한다. 지금까지는 첫 마침표 뒤를 그대로 남겨 `com.acme.internal` 같은 디렉터리 이름에서 `.acme.internal`이 드러났다(예: `s1.acme.internal`). 이름의 점이 보존 확장자에만 있는 그래프(`cart.dart`·`cart.g.dart` 등)는 예전과 같은 바이트로 나간다. 다른 그래프에서는 치환한 부분마다 토큰을 받으므로 뒤따르는 토큰 번호가 바뀔 수 있다.
+- 합성 액션은 실패 리포트(종료 코드 2·64)를 작업 로그에 반향하는 동안 무작위 토큰의 `::stop-commands::`로 워크플로 명령 처리를 멈춘다. 그래서 리포트 안의 `::error`·`::add-mask` 줄은 일반 텍스트로 남는다. 토큰을 만들 수 없으면 리포트를 반향하지 않고 종료 코드만 그대로 전파한다.
+- `setup --uninstall`은 Claude Code `PostToolUse` 그룹에서 dartograph 명령만 지운다. 같은 matcher 그룹에 사용자가 덧붙인 명령(예: `dart format .`)은 남는다. 지금까지는 그룹 전체가 삭제됐다. dartograph 훅만 담던 그룹은 여전히 지우고, 비게 된 `PostToolUse`·`hooks` 키도 함께 정리한다.
+- VS Code 확장의 "Check Impact of Current File" 명령이 이제 동작한다. 변경 목록을 파일로 `impact --changed`에 넘기고, 영향 항목마다 `risk`를 읽는다.
+- 성능: 공개 API 보존 루트를 라이브러리마다가 아니라 분석마다 한 번 만든 멤버 색인으로 계산해 큰 패키지 분석, 특히 `--incremental` warm 실행이 빨라진다. `runtime`은 resolved AST를 스캔 끝까지 붙잡지 않고 해석 즉시 방문한다. `*.g.dart` 같은 비고정 glob이 경로 길이의 제곱 비용을 쓰지 않고, CODEOWNERS 묶기·include/exclude 필터·`retained_files`는 소스 경로마다 한 번만 판정한다. 설정 보존 루트는 전체 그래프 snapshot 대신 캐시된 정점 뷰를 훑는다. `impact --format language-traversal`은 선언당 root 64개·행 10만 상한을 적용하기 전에 도달 선언마다 root 집합 전체를 풀지 않는다. `graph --format json`·`anon`은 문서를 한 문자열로 만들지 않고 조각으로 쓰며, `anon`은 식별자마다 한 번만 치환을 계산한다. `graphRevision`은 조각 단위로 해시하고, `affected`·`impact --since`는 그래프 snapshot을 한 번만 만든다. 출력은 바뀌지 않는다.
 
 ## 0.16.2
 
