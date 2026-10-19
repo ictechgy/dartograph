@@ -3021,9 +3021,13 @@ Future<int> _runDeps(
 }
 
 /// `dartograph.yaml`의 include/exclude glob을 컴파일한 매처다.
+///
+/// `verdicts`는 소스별 판정 메모다. 판정은 소스만으로 정해지는데 finding은
+/// 소스마다 여럿이라, 같은 소스를 다시 매칭하지 않는다.
 typedef _ScopeMatchers = ({
   List<PathGlobMatcher> include,
   List<PathGlobMatcher> exclude,
+  Map<String, bool> verdicts,
 });
 
 /// `dartograph.yaml`의 include/exclude glob을 한 번 컴파일해 둔다.
@@ -3037,11 +3041,16 @@ _ScopeMatchers? _scopeMatchers(
   return (
     include: [for (final pattern in includeGlobs) PathGlob.compile(pattern)!],
     exclude: [for (final pattern in excludeGlobs) PathGlob.compile(pattern)!],
+    verdicts: <String, bool>{},
   );
 }
 
-/// [source]가 include/exclude 범위 안인지 본다. 매칭은 소스 ID의 스킴을 뗀다.
-bool _inScope(_ScopeMatchers scope, String source) {
+/// [source]가 include/exclude 범위 안인지 본다. 같은 소스는 한 번만 매칭한다.
+bool _inScope(_ScopeMatchers scope, String source) =>
+    scope.verdicts.putIfAbsent(source, () => _matchesScope(scope, source));
+
+/// [source]를 include/exclude glob에 맞춘다. 매칭은 소스 ID의 스킴을 뗀다.
+bool _matchesScope(_ScopeMatchers scope, String source) {
   final separator = source.indexOf(':');
   final path = separator < 0 ? source : source.substring(separator + 1);
   if (scope.include.isNotEmpty &&

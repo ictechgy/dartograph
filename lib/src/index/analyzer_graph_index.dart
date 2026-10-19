@@ -3195,6 +3195,9 @@ int _addConfiguredRetentionRoots(
     for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
   ];
   var added = 0;
+  // 한 파일의 선언은 sourceUri가 같다. 파일 glob 판정은 파일마다 한 번만
+  // 한다(정점마다 하면 정점 수 × glob 수 매칭이다).
+  final retainedFiles = <String?, bool>{};
   // 정점만 훑는다. snapshot()은 호출마다 전체 간선을 복사·정렬·검증하므로
   // 캐시된 정렬 뷰(같은 ID 순서)를 쓴다. 보존 루트 삽입 순서가 같다.
   for (final node in graph.nodes.values) {
@@ -3202,8 +3205,11 @@ int _addConfiguredRetentionRoots(
     final id = node.id;
     final separator = id.indexOf('::');
     if (separator < 0) continue;
-    var retain = fileMatchers.any(
-      (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+    var retain = retainedFiles.putIfAbsent(
+      node.sourceUri,
+      () => fileMatchers.any(
+        (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+      ),
     );
     if (!retain) {
       final name = id.substring(separator + 2);
