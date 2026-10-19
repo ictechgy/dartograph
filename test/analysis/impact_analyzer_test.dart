@@ -417,6 +417,66 @@ void main() {
     );
   });
 
+  test('cycle participation cost does not grow with the checked seeds', () {
+    // 씨앗 50개가 모두 같은 긴 전방 전용 사슬의 머리를 부르고, 사슬은 어느 씨앗에도
+    // 돌아오지 않는다. 씨앗마다 전방 탐색을 새로 하면 사슬 전체를 씨앗 수만큼
+    // 훑는다. 수정 전후의 판정 결과가 같고, GraphSnapshot·GraphEdge가 final
+    // 클래스라 방문 수를 셀 주입 지점도 없다. 그래서 같은 그래프에서 씨앗 수만
+    // 다른 두 analyze의 시간 비를 본다. 기계 속도·커버리지 계측은 두 쪽을 함께
+    // 늦추므로 비는 거의 그대로다. 수정 전 구현은 비가 약 11~14배, 가지치기한
+    // Tarjan 한 번은 약 1배였다(Apple M4 Pro, JIT, 다른 테스트와 함께 돌린 부하
+    // 평균 10 안팎 포함). 상한 5배는 그 사이에서 양쪽에 여유를 둔다. 회차마다 두
+    // analyze를 바로 이어 재서 같은 부하를 받게 하고, 회차 비의 중앙값으로 한두
+    // 회차의 튐을 걸러 낸다.
+    const length = 100000;
+    String link(int index) => 'c${'$index'.padLeft(6, '0')}';
+    final seeds = [for (var i = 0; i < 50; i++) _seed(i)];
+    final single = seeds.take(1).toList();
+    final graph = _usageGraph([
+      for (final seed in seeds) (seed, link(0), EdgeKind.call),
+      for (var i = 1; i < length; i++) (link(i - 1), link(i), EdgeKind.call),
+    ]);
+
+    // maxDepth가 없으면 영향 BFS의 depths로, 있으면 따로 모은 의존자 영역으로
+    // 가지치기한다. 두 경로를 모두 본다.
+    for (final maxDepth in const <int?>[null, 1]) {
+      int timed(List<String> changed) {
+        final stopwatch = Stopwatch()..start();
+        final weight = _cycleWeight(graph, changed, maxDepth: maxDepth);
+        stopwatch.stop();
+        expect(weight, 0);
+        return stopwatch.elapsedMicroseconds;
+      }
+
+      // 앞 두 회차는 JIT 컴파일을 포함하므로 버린다.
+      for (var round = 0; round < 2; round++) {
+        timed(single);
+        timed(seeds);
+      }
+      final ratios = <double>[];
+      for (var round = 0; round < 5; round++) {
+        // 먼저 잰 쪽이 남긴 GC 부담이 한쪽에만 쌓이지 않게 순서를 번갈아 바꾼다.
+        final int one;
+        final int fifty;
+        if (round.isEven) {
+          one = timed(single);
+          fifty = timed(seeds);
+        } else {
+          fifty = timed(seeds);
+          one = timed(single);
+        }
+        ratios.add(fifty / one);
+      }
+      ratios.sort();
+      final shown = ratios.map((ratio) => ratio.toStringAsFixed(2)).join(', ');
+      expect(
+        ratios[ratios.length ~/ 2],
+        lessThan(5),
+        reason: 'maxDepth $maxDepth: 50-seed/1-seed time ratios [$shown]',
+      );
+    }
+  });
+
   test('a changed source without any node is reported unattributed', () {
     final report = ImpactAnalysis.analyze(
       _graph().snapshot(),
