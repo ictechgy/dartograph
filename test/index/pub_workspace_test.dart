@@ -202,6 +202,56 @@ void testMain() { Foo(); }
     );
 
     test(
+      'public API roots of several representative libraries keep their order',
+      () async {
+        final workspace = await _makeWorkspace();
+        addTearDown(() => workspace.delete(recursive: true));
+        // 루트와 두 멤버가 모두 대표 라이브러리를 가진다. 보존 루트의 삽입
+        // 순서는 explain의 rootsChecked로 드러나므로 키·이유와 함께 고정한다:
+        // 라이브러리 유닛 순서 → export 이름순 → 선언의 공개 멤버 ID순이고,
+        // 이미 루트인 ID(pkg_b의 main·재export된 Foo)는 자리를 옮기지 않는다.
+        await File('${workspace.path}/lib/ws_root.dart').writeAsString('''
+export 'root.dart';
+
+class Zeta {
+  void omega() {}
+  void alpha() {}
+  void _hidden() {}
+}
+''');
+        await File('${workspace.path}/pkgs/pkg_a/lib/pkg_a.dart').writeAsString(
+          "export 'a.dart';\n\nclass Alpha {\n  void run() {}\n}\n",
+        );
+        await File('${workspace.path}/pkgs/pkg_b/lib/pkg_b.dart').writeAsString(
+          "export 'b.dart';\nexport 'package:pkg_a/a.dart' show Foo;\n",
+        );
+
+        final result = await AnalyzerGraphIndex(
+          cache: _MemoryCache(),
+          aggregateWorkspace: true,
+        ).index(workspace.path);
+
+        expect(
+          [
+            for (final entry in result.retentionRoots.entries)
+              '${entry.key}=${entry.value.name}',
+          ],
+          [
+            'package:pkg_b/b.dart::main=mainEntryPoint',
+            'package:ws_root/root.dart::RootPackage=publicApi',
+            'package:ws_root/ws_root.dart::Zeta=publicApi',
+            'package:ws_root/ws_root.dart::Zeta.alpha=publicApi',
+            'package:ws_root/ws_root.dart::Zeta.omega=publicApi',
+            'package:pkg_a/pkg_a.dart::Alpha=publicApi',
+            'package:pkg_a/pkg_a.dart::Alpha.run=publicApi',
+            'package:pkg_a/a.dart::Foo=publicApi',
+            'package:pkg_a/a.dart::Foo.call=publicApi',
+          ],
+        );
+      },
+    );
+
+    test(
       'requires a pub workspace root when aggregation is explicit',
       () async {
         final workspace = await _makeWorkspace();

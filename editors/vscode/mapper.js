@@ -97,6 +97,8 @@ function mapReport(report) {
 }
 
 /// 영향 보고서의 impacted/tests 항목을 진단 레코드로 변환한다.
+/// 항목의 위험 등급은 `risk` 키(`low`·`medium`·`high`)다. 문서 최상위 `risk`는
+/// 변경 집합 전체의 위험 객체라 항목 진단에 쓰지 않는다.
 function mapImpact(report) {
   const items = [];
   for (const item of report.impacted || []) {
@@ -105,9 +107,8 @@ function mapImpact(report) {
     items.push({
       file: impactedFile,
       range: pointRange(item.line, item.column),
-      message:
-        `impacted by change (risk: ${item.riskLevel}, depth: ${item.depth})`,
-      severity: item.riskLevel === 'high' ? 'warning' : 'information',
+      message: `impacted by change (risk: ${item.risk}, depth: ${item.depth})`,
+      severity: item.risk === 'high' ? 'warning' : 'information',
     });
   }
   for (const item of report.tests || []) {

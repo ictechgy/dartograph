@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/export/anonymizer.dart';
 import 'package:test/test.dart';
@@ -72,10 +74,11 @@ void main() {
     // dartograph 고정 어휘는 치환하지 않는다.
     expect(anonymizer.anonymizeId('<no-library>'), '<no-library>');
 
-    // 확장자 규칙: 첫 마침표 뒤는 그대로 둔다(a.spec.dart → s?.spec.dart).
+    // 확장자 규칙: 끝의 `.dart`만 보존하고 나머지 점 구분 부분은 치환한다
+    // (a.spec.dart → s?.s?.dart).
     expect(
       anonymizer.anonymizeUri('project:lib/generated/a.spec.dart'),
-      matches(r'^project:lib/s\d+/s\d+\.spec\.dart$'),
+      matches(r'^project:lib/s\d+/s\d+\.s\d+\.dart$'),
     );
 
     // 같은 세그먼트는 어디서나 같은 토큰(ID와 sourceURI가 일치).
@@ -155,5 +158,112 @@ void main() {
       anonymizer.anonymizeUri('myapp:something/else.dart'),
       isNot(startsWith('myapp:')),
     );
+  });
+
+  test('dotted file and directory names keep only known Dart extensions', () {
+    final anonymizer = GraphAnonymizer.forGraph(
+      GraphSnapshot(
+        nodes: [
+          GraphNode(
+            id: 'project:lib/com.acme.internal/acme.billing_gateway.dart',
+            isLibrary: true,
+          ),
+          GraphNode(id: 'project:lib/x.g.dart', isLibrary: true),
+        ],
+        edges: const [],
+      ),
+    );
+
+    // 첫 마침표 뒤를 원문으로 두면 회사·모듈 이름이 거의 그대로 남는다.
+    final library = anonymizer.anonymizeId(
+      'project:lib/com.acme.internal/acme.billing_gateway.dart',
+    );
+    expect(
+      library,
+      matches(r'^project:lib/s\d+\.s\d+\.s\d+/s\d+\.s\d+\.dart$'),
+    );
+    for (final word in ['com', 'acme', 'internal', 'billing', 'gateway']) {
+      expect(library, isNot(contains(word)));
+    }
+
+    // 생성 파일 접미는 확장자로 보존된다(x.g.dart → s?.g.dart).
+    expect(
+      anonymizer.anonymizeId('project:lib/x.g.dart'),
+      matches(r'^project:lib/s\d+\.g\.dart$'),
+    );
+    for (final suffix in const [
+      '.freezed.dart',
+      '.pb.dart',
+      '.pbenum.dart',
+      '.pbgrpc.dart',
+      '.pbjson.dart',
+      '.pbserver.dart',
+    ]) {
+      expect(
+        anonymizer.anonymizeUri('project:lib/order$suffix'),
+        matches('^project:lib/s\\d+${RegExp.escape(suffix)}\$'),
+      );
+    }
+
+    // 목록 밖의 접미와 Dart가 아닌 확장자는 식별 문자열로 치환된다.
+    expect(
+      anonymizer.anonymizeUri('project:lib/acme.mocks.dart'),
+      matches(r'^project:lib/s\d+\.s\d+\.dart$'),
+    );
+    expect(
+      anonymizer.anonymizeUri('project:lib/acme.secrets.yaml'),
+      matches(r'^project:lib/s\d+\.s\d+\.s\d+$'),
+    );
+
+    // USAGE의 예시: 같은 부분(acme)은 디렉터리와 파일 이름에서 같은 토큰이다.
+    const usage = 'project:lib/com.acme.internal/acme.billing.dart';
+    final single = GraphAnonymizer.forGraph(
+      GraphSnapshot(
+        nodes: [GraphNode(id: usage, isLibrary: true)],
+        edges: const [],
+      ),
+    );
+    expect(single.anonymizeId(usage), 'project:lib/s1.s2.s3/s2.s5.dart');
+  });
+
+  test('part-wise replacement stays injective and deterministic', () {
+    // 점 구분 부분을 따로 치환해도 서로 다른 이름이 한 출력으로 접히지 않는다.
+    // 관용 어휘·확장자 조각·빈 부분·토큰 모양 이름을 섞어 경계를 넓게 훑는다.
+    const pieces = [
+      'a',
+      'acme',
+      'lib',
+      'main',
+      'dart',
+      'g',
+      'pb',
+      'freezed',
+      's1',
+      '',
+    ];
+    final random = Random(20261019);
+    String randomName() {
+      final count = random.nextInt(4) + 1;
+      final parts = [
+        for (var j = 0; j < count; j++) pieces[random.nextInt(pieces.length)],
+      ];
+      return parts.join('.');
+    }
+
+    final ids = {
+      for (var i = 0; i < 600; i++) 'project:lib/${randomName()}',
+    }.toList();
+    GraphAnonymizer build() => GraphAnonymizer.forGraph(
+      GraphSnapshot(
+        nodes: [for (final id in ids) GraphNode(id: id, isLibrary: true)],
+        edges: const [],
+      ),
+    );
+
+    final first = build();
+    final mapped = [for (final id in ids) first.anonymizeId(id)];
+    expect(mapped.toSet(), hasLength(ids.length));
+    final second = build();
+    expect([for (final id in ids) second.anonymizeId(id)], mapped);
   });
 }

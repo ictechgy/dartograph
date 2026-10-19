@@ -26,6 +26,12 @@ Future<int> _runRoutes(
   } on HttpWrappersFormatException catch (invalid) {
     error.writeln(invalid.message);
     return ExitStatus.usage.code;
+  } on NonRegularFileException {
+    error.writeln(
+      'The http-wrappers file must be a regular file (not a device, FIFO, or '
+      'socket); pass an existing JSON file (1 MiB max).',
+    );
+    return ExitStatus.usage.code;
   } on FileSystemException {
     error.writeln(
       'The http-wrappers file could not be read; pass an existing JSON file '
@@ -79,13 +85,17 @@ Future<int> _emitRoutes(
       ),
     );
     return ExitStatus.success.code;
+  } on InputRejectedException catch (exception) {
+    // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
+    // 진단으로 흘리면 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(
       'Routes extraction failed: a source path contains control characters.',
     );
     return ExitStatus.failure.code;
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -171,15 +181,24 @@ _RoutesOptions? _validateRoutes(
 /// isthmus가 거부하는 제어 문자다(C0·DEL·C1·U+2028·U+2029).
 final _controlCharacters = RegExp(r'[\x00-\x1F\x7F-\x9F  ]');
 
+/// `--wrappers`의 http-wrappers 선언을 읽는다. 없으면 빈 목록이다.
+///
+/// 요청 파일과 같은 경계로 읽는다([_readRequestFile]). 장치·FIFO·소켓은
+/// [NonRegularFileException]으로 호출자가 알린다. 1 MiB 초과는 기존 선언 오류
+/// 문구다.
 Future<List<HttpWrapperDeclaration>> _readWrappers(String? path) async {
   if (path == null) return const [];
-  final file = File(path);
-  if (await file.length() > 1024 * 1024) {
+  final String content;
+  try {
+    content = await _readRequestFile(path);
+  } on NonRegularFileException {
+    rethrow;
+  } on FormatException {
     throw const HttpWrappersFormatException(
       'invalid http-wrappers v1 declaration: the file exceeds 1 MiB',
     );
   }
-  return parseHttpWrappers(await file.readAsString());
+  return parseHttpWrappers(content);
 }
 
 /// 교환 문서의 `project`다. 명시적 `--project` > pub workspace 감지 > 스캔

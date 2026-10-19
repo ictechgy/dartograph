@@ -5,6 +5,8 @@ import 'package:dartograph/src/export/dead_reporter.dart';
 import 'package:dartograph/src/export/duplication_reporter.dart';
 import 'package:test/test.dart';
 
+import '../support/markdown_fixture_support.dart';
+
 void main() {
   const finding = DuplicationFinding(
     tokenCount: 77,
@@ -97,5 +99,18 @@ void main() {
     expect(report, contains('a%2Cb.dart'));
     expect(report, isNot(contains('\nnewline')));
     expect(report, contains('%0A'));
+  });
+
+  test('markdown limitations stay inert text', () {
+    // 저장소 유래 limitation이 링크·이미지·HTML·code span·멘션이 되지 않는다.
+    final markdown = DuplicationReporter.render(
+      ReportFormat.markdown,
+      [finding],
+      limitations: const [hostileMarkdownText],
+      minTokens: 40,
+    );
+    expect(markdown, contains('\n- $escapedMarkdownText\n'));
+    // 정상 위치 code span은 그대로다.
+    expect(markdown, contains('`lib/alpha.dart:3-12`<br>`lib/beta.dart:8-17`'));
   });
 }

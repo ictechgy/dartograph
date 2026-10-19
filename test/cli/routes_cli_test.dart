@@ -5,6 +5,7 @@ import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/read_boundary_support.dart';
 import '../support/route_fixture_support.dart';
 
 /// `dartograph routes --role client`와 `impact --format language-traversal` —
@@ -192,5 +193,40 @@ Future<void> a() => http.get(Uri.parse('https://api.example.test/a'));
       ]);
       expect(conflict.code, 64);
     });
+
+    test(
+      'a wrappers file that is a device or FIFO exits 64 by its cause',
+      () async {
+        await writeClient();
+        // 길이를 본 뒤 전체를 읽던 수정 전 코드는 /dev/zero 링크면 상한 없이
+        // 읽고 쓰는 쪽이 없는 FIFO면 영구 대기했다. 여기서는 /dev/null과 쓰는
+        // 쪽이 붙은 FIFO라 수정 전 코드도 빈 내용을 읽고 'not valid JSON'으로
+        // 끝난다.
+        final device = p.join(root.path, 'device.json');
+        await Link(device).create('/dev/null');
+        final fifo = await fifoWithRepeatingWriter(
+          p.join(root.path, 'pipe.json'),
+        );
+        for (final path in [device, fifo]) {
+          final result = await run([
+            'routes',
+            '--role',
+            'client',
+            '--wrappers',
+            path,
+            root.path,
+          ]);
+          expect(result.code, 64, reason: path);
+          expect(result.output, isEmpty, reason: path);
+          expect(
+            result.error,
+            'The http-wrappers file must be a regular file (not a device, '
+            'FIFO, or socket); pass an existing JSON file (1 MiB max).\n',
+            reason: path,
+          );
+        }
+      },
+      skip: Platform.isWindows,
+    );
   });
 }

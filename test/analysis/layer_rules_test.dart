@@ -311,4 +311,29 @@ rules:
     expect(evaluator.explainNode(graph.snapshot(), 'out').layer, isNull);
     expect(evaluator.explainNode(graph.snapshot(), 'deep').layer, isNull);
   });
+
+  test('repeated wildcards keep the layer of long candidates', () {
+    // front 패턴은 정점 ID의 앞쪽 a 10개와 b로만 맞는다. 백트래킹 정규식은
+    // 뒤쪽 a 배치를 모두 시도하느라 수십 초를 쓴 뒤 불일치로 답해 다음 레이어에
+    // 배치했다.
+    final rules = LayerRuleSet.parse(
+      'layers:\n'
+      '  - name: front\n'
+      '    match: ["${'*a' * 10}*b*"]\n'
+      '  - name: rest\n'
+      '    match: ["**"]\n'
+      'rules: []\n',
+    );
+    final id = '${'a' * 10}b${'a' * 30}';
+    final long = 'a' * 250;
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: id, sourceUri: 'project:lib/x.dart'))
+      ..addNode(GraphNode(id: long, sourceUri: 'project:lib/y.dart'));
+    final evaluator = LayerRuleEvaluator(rules);
+
+    final explained = evaluator.explainNode(graph.snapshot(), id);
+    expect(explained.layer, 'front');
+    expect(explained.matchedCandidate, id);
+    expect(evaluator.explainNode(graph.snapshot(), long).layer, 'rest');
+  });
 }

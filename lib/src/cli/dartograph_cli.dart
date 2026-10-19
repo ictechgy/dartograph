@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -20,6 +21,7 @@ import '../analysis/impact_analyzer.dart';
 import '../analysis/language_traversal.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
+import '../core/graph_snapshot.dart';
 import '../core/path_glob.dart';
 import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
@@ -33,6 +35,7 @@ import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
 import '../export/language_traversal_exporter.dart';
 import '../export/ledger_reporter.dart';
+import '../export/report_escapes.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
@@ -56,6 +59,18 @@ part 'traversal_command.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
+
+/// 색인 옵션을 반영한 [IndexPackage]를 고르는 주입 경계다.
+///
+/// MCP 서버처럼 `--workspace` 값마다 다른 세션 캐시를 써야 하는 호출자가 쓴다.
+/// 고정된 [IndexPackage] 주입은 옵션을 받을 수 없어 `--workspace`를 usage(64)로
+/// 거부한다. 이 경계는 `aggregateWorkspace`를 받아 그 값에 맞는 색인 함수를
+/// 돌려주므로 집계 요청이 조용히 단일 패키지 색인으로 바뀌지 않는다.
+typedef IndexPackageFactory =
+    IndexPackage Function({required bool aggregateWorkspace});
+
+/// 색인 명령이 쓸 색인 함수의 주입 상태다. 둘 다 null이면 기본 색인기를 쓴다.
+typedef _IndexSource = ({IndexPackage? fixed, IndexPackageFactory? factory});
 
 /// `--since`의 Git 접근을 대체할 수 있는 테스트 경계다.
 typedef ChangedFilesSince =
@@ -82,11 +97,15 @@ enum ExitStatus {
 }
 
 /// 명령줄 경계를 실행하고 프로세스 종료 코드를 돌려준다.
+///
+/// [indexFactory]가 있으면 색인 명령은 [indexPackage] 대신 팩터리가
+/// `--workspace` 값에 맞춰 고른 색인 함수를 쓴다.
 Future<int> runDartograph(
   List<String> arguments, {
   StringSink? output,
   StringSink? error,
   IndexPackage? indexPackage,
+  IndexPackageFactory? indexFactory,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
 }) async {
@@ -97,7 +116,7 @@ Future<int> runDartograph(
       arguments,
       stdoutSink,
       stderrSink,
-      indexPackage,
+      (fixed: indexPackage, factory: indexFactory),
       changedFilesSince,
       now,
     );
@@ -115,7 +134,7 @@ Future<int> _dispatch(
   List<String> arguments,
   StringSink stdoutSink,
   StringSink stderrSink,
-  IndexPackage? indexPackage,
+  _IndexSource indexSource,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
 ) async {
@@ -129,7 +148,7 @@ Future<int> _dispatch(
     ledger.arguments,
     stdoutSink,
     stderrSink,
-    indexPackage,
+    indexSource,
     changedFilesSince,
     now,
     failedItems,
@@ -152,7 +171,7 @@ Future<int> _dispatchCommand(
   List<String> arguments,
   StringSink stdoutSink,
   StringSink stderrSink,
-  IndexPackage? indexPackage,
+  _IndexSource indexSource,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
   List<String> failedItems,
@@ -160,7 +179,7 @@ Future<int> _dispatchCommand(
   final command = arguments.firstOrNull;
   switch (command) {
     case 'affected':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runAffected(
         indexed.arguments,
@@ -170,7 +189,7 @@ Future<int> _dispatchCommand(
         changedFilesSince ?? ChangedFiles.since,
       );
     case 'impact':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       if (_isLanguageTraversal(indexed.arguments)) {
         return await _runLanguageTraversal(
@@ -190,7 +209,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'compare':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return _runCompare(
         indexed.arguments,
@@ -207,7 +226,7 @@ Future<int> _dispatchCommand(
       stdoutSink.writeln('dartograph $toolVersion');
       return ExitStatus.success.code;
     case 'graph':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runGraph(
         indexed.arguments,
@@ -216,7 +235,7 @@ Future<int> _dispatchCommand(
         indexed.index,
       );
     case 'baseline':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runBaseline(
         indexed.arguments,
@@ -225,7 +244,7 @@ Future<int> _dispatchCommand(
         indexed.index,
       );
     case 'dead':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDead(
         indexed.arguments,
@@ -236,7 +255,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'deps':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDeps(
         indexed.arguments,
@@ -246,7 +265,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'dup':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDup(
         indexed.arguments,
@@ -256,7 +275,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'query':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runQuery(
         indexed.arguments,
@@ -299,7 +318,7 @@ Future<int> _dispatchCommand(
         now ?? DateTime.now,
       );
     case 'cycles':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runCycles(
         indexed.arguments,
@@ -309,7 +328,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'rules':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runRules(
         indexed.arguments,
@@ -319,7 +338,7 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'metrics':
-      final indexed = _indexArguments(arguments, stderrSink, indexPackage);
+      final indexed = _indexArguments(arguments, stderrSink, indexSource);
       if (indexed == null) return ExitStatus.usage.code;
       return await _runMetrics(
         indexed.arguments,
@@ -358,7 +377,8 @@ final class _IndexedArguments {
   /// 명령이 받는 나머지 인자다(명령 이름은 뺀 상태).
   final List<String> arguments;
 
-  /// 그 명령이 쓸 색인 함수다. 테스트 주입이 있으면 주입된 함수다.
+  /// 그 명령이 쓸 색인 함수다. 주입이 있으면 주입된 함수(팩터리가 고른
+  /// 함수 포함)다.
   final IndexPackage index;
 }
 
@@ -369,10 +389,14 @@ final class _IndexedArguments {
 /// usage(64)다 — 다른 옵션과 같은 규칙이다. `--workspace`는 값을 받지 않는
 /// 스위치다 — pub workspace 멤버를 같은 그래프로 집계한다(중복 지정은
 /// usage다). 옵션이 없으면 기존 경로 그대로 기본 색인을 쓴다.
+///
+/// 주입된 팩터리에는 `--workspace` 값을 넘긴다. 고정 주입 함수는 그 값을
+/// 반영할 수 없으므로 `--workspace`를 usage로 거부한다 — 떼어 낸 플래그를
+/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
-  IndexPackage? injected,
+  _IndexSource source,
 ) {
   final remaining = arguments.skip(1).toList();
   String? directory;
@@ -399,7 +423,22 @@ _IndexedArguments? _indexArguments(
     remaining.removeRange(index, index + 2);
     index--;
   }
-  if (injected != null) return _IndexedArguments(remaining, injected);
+  final factory = source.factory;
+  if (factory != null) {
+    final chosen = factory(aggregateWorkspace: workspace);
+    return _IndexedArguments(remaining, chosen);
+  }
+  final injected = source.fixed;
+  if (injected != null) {
+    if (workspace) {
+      error.writeln(
+        'Unsupported --workspace: the injected index function cannot '
+        'aggregate pub workspace members.',
+      );
+      return null;
+    }
+    return _IndexedArguments(remaining, injected);
+  }
   final target = directory;
   return _IndexedArguments(
     remaining,
@@ -460,22 +499,52 @@ _LedgerRequest? _extractLedgerDirectory(
   return (arguments: [command, ...remaining], directory: directory);
 }
 
+/// 값을 받지 않는 스위치다(`--` 뒤 이름). 원장 입력 요약이 뒤따르는 위치
+/// 인자(패키지 루트 등)를 스위치의 값으로 삼키지 않게 한다.
+///
+/// [_recordableCommands]의 파서가 받는 스위치와 맞춘다. 그 명령에 스위치를
+/// 추가하면 여기에도 더한다.
+const _ledgerSwitches = {
+  'closed-app',
+  'no-verify',
+  'report-redundant-public',
+  'report-test-only',
+  'strict',
+  'verify',
+  'with-source',
+  'workspace',
+};
+
 /// 실행 입력 요약을 만든다. 플래그와 그 값(경로 포함)만 담는다.
 ///
 /// `--env`·`--dart-define`은 값이 비밀일 수 있으므로 **키만** 남긴다. 반복
 /// 지정은 순서대로 이어 마지막 값만 남기지 않는다(더 보수적이다).
+/// [_ledgerSwitches]는 값을 받지 않으므로 `true`로 남기고 다음 토큰을 값으로
+/// 삼지 않는다.
 Map<String, String> _ledgerInputs(List<String> arguments) {
   final inputs = <String, String>{};
   for (var index = 0; index < arguments.length; index++) {
     final token = arguments[index];
     if (!token.startsWith('--')) continue;
-    final key = token.substring(2);
-    final hasValue =
-        index + 1 < arguments.length && !arguments[index + 1].startsWith('-');
-    final raw = hasValue ? arguments[++index] : 'true';
+    // `--key=value`는 CLI가 받지 않는 형식(usage)이라 실패한 실행에서만 온다.
+    // 인라인 값은 비밀일 수 있어 담지 않고 플래그 이름만 남긴다 — `--env`·
+    // `--dart-define`은 분리형과 같이 KEY 부분만 남는다.
+    final separator = token.indexOf('=');
+    final isInline = separator >= 0;
+    final key = token.substring(2, isInline ? separator : null);
+    final String raw;
+    if (isInline) {
+      raw = token.substring(separator + 1);
+    } else if (!_ledgerSwitches.contains(key) &&
+        index + 1 < arguments.length &&
+        !arguments[index + 1].startsWith('-')) {
+      raw = arguments[++index];
+    } else {
+      raw = 'true';
+    }
     final value = switch (key) {
       'env' || 'dart-define' => raw.split('=').first,
-      _ => raw,
+      _ => isInline ? 'true' : raw,
     };
     inputs[key] = inputs.containsKey(key) ? '${inputs[key]},$value' : value;
   }
@@ -631,7 +700,7 @@ Future<int> _runAffected(
     // file:// URI를 돌려준다) — 의존 패키지 소스가 같은 스킴으로 오매칭될
     // 여지가 없다.
     final matched = await _matchChangedSources(
-      indexed: indexed,
+      snapshot: snapshot,
       changed: changed,
       canonicalRoot: canonicalRoot,
     );
@@ -666,8 +735,8 @@ Future<int> _runAffected(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -797,7 +866,7 @@ Future<int> _runImpact(
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
       final matched = await _matchChangedSources(
-        indexed: indexed,
+        snapshot: snapshot,
         changed: changed,
         canonicalRoot: canonicalRoot,
       );
@@ -806,6 +875,9 @@ Future<int> _runImpact(
     } else if (changedFile != null) {
       try {
         changedSources.addAll(await _readChangedEntries(changedFile));
+      } on NonRegularFileException {
+        // 사용자가 준 입력 경로 문제(64)다. 아래 분석 입력 거부(2)로 흘리지 않는다.
+        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
       } on FileSystemException {
         // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
         // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
@@ -857,6 +929,10 @@ Future<int> _runImpact(
       'Changed files could not be computed. In CI, fetch full Git history.',
     );
     return ExitStatus.failure.code;
+  } on InputRejectedException catch (exception) {
+    // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
+    // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(
       'Invalid changed list: provide a JSON array of 1–1000 non-empty '
@@ -869,8 +945,8 @@ Future<int> _runImpact(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -884,10 +960,9 @@ int _riskRank(String level) => switch (level) {
 /// `--changed`의 JSON 문자열 배열을 `project:` 소스 URI 집합으로 읽는다.
 ///
 /// query --batch와 같은 상한(1 MiB, 1–1000개, 비어 있지 않은 문자열)을 쓴다.
+/// 장치·FIFO·소켓이면 [NonRegularFileException]이다([_readRequestFile]).
 Future<Set<String>> _readChangedEntries(String path) async {
-  final file = File(path);
-  if (await file.length() > 1024 * 1024) throw const FormatException();
-  final value = jsonDecode(await file.readAsString());
+  final value = jsonDecode(await _readRequestFile(path));
   if (value is! List ||
       value.isEmpty ||
       value.length > 1000 ||
@@ -897,6 +972,38 @@ Future<Set<String>> _readChangedEntries(String path) async {
   return {
     for (final entry in value.cast<String>()) _relativeToProjectSource(entry),
   };
+}
+
+/// CLI 인자로 받는 요청 파일(`query --batch`·`impact --changed`·
+/// `routes --wrappers`)의 읽기 상한이다. 세 문서 모두 정상 입력은 이보다 훨씬
+/// 작다(요청·경로 1000개 이하).
+const _requestFileSizeLimit = 1024 * 1024;
+
+/// CLI 인자로 받은 요청 파일 [path]를 [_requestFileSizeLimit]까지만 읽는다.
+///
+/// 길이를 먼저 보고 전체를 읽으면 장치·FIFO 링크에서 상한이 듣지 않는다. 장치는
+/// 길이를 0으로 보고한 뒤 EOF 없이 읽히고(`/dev/zero`), 쓰는 쪽이 없는 FIFO는
+/// 여는 순간 영구 대기한다. 그런 경로는 CI에서 저장소 파일을 가리키기 쉽다.
+/// 그래서 정규 파일인지 열기 전에 확인하고 상한까지만 읽는다.
+/// - 장치·FIFO·소켓: [NonRegularFileException]. 호출자가 원인대로 알린다.
+/// - 상한 초과: 일반 [FormatException]. 호출자의 기존 내용 오류 진단을 탄다.
+/// - 부재·권한·UTF-8 디코드 실패: [FileSystemException](기존 읽기 실패와 같다).
+Future<String> _readRequestFile(String path) => readBoundedFile(
+  File(path),
+  _requestFileSizeLimit,
+  tooLargeMessage: 'request file exceeds 1 MiB',
+);
+
+/// CLI 인자로 받은 [kind] 파일이 정규 파일이 아니라고 알리고 64를 돌려준다.
+///
+/// 내용 오류 문구('Invalid …')로 알리면 사용자가 JSON을 고치려 든다. 경로는
+/// 사용자가 준 값이라 반향하되 제어문자는 이스케이프한다.
+int _reportNonRegularRequestFile(StringSink error, String kind, String path) {
+  error.writeln(
+    '$kind must be a regular file (not a device, FIFO, or socket): '
+    '${ReportEscapes.escapeText(path)}',
+  );
+  return ExitStatus.usage.code;
 }
 
 /// 프로젝트 상대 경로를 `project:` 소스 URI로 정규화한다.
@@ -915,6 +1022,9 @@ String _relativeToProjectSource(String entry) {
 /// 에서 비매치로 처리한다 — git은 삭제 파일을 변경 집합에 넣지 않으므로 사라진
 /// 파일의 라이브러리를 '변경됨'으로 보고하면 오보다. 매치된 절대 경로와 함께
 /// 라이브러리로 귀속되지 못한 변경 Dart 파일 수를 돌려준다.
+///
+/// [snapshot]은 호출자가 분석에 쓰려고 이미 만든 것을 받는다.
+/// CodeGraph.snapshot()은 캐시 없이 호출마다 전체 정렬과 끝점 검증을 다시 한다.
 Future<
   ({
     Set<String> matchedSources,
@@ -923,12 +1033,12 @@ Future<
   })
 >
 _matchChangedSources({
-  required AnalyzerGraphResult indexed,
+  required GraphSnapshot snapshot,
   required Set<String> changed,
   required String canonicalRoot,
 }) async {
   final sources = <String>{
-    for (final node in indexed.graph.snapshot().nodes)
+    for (final node in snapshot.nodes)
       if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
   }.toList()..sort();
   // 소스마다 resolveSymbolicLinks syscall이 필요하다 — 파일 수에 비례하므로
@@ -1014,8 +1124,8 @@ Future<int> _runCompare(
       ),
     );
     return ExitStatus.success.code;
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   }
@@ -1111,8 +1221,8 @@ Future<int> _runCycles(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1225,8 +1335,8 @@ Future<int> _runRules(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1318,8 +1428,8 @@ Future<int> _runMetrics(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1483,9 +1593,7 @@ Future<int> _runQuery(
     }
     if (positional.length == 5) baselinePath = positional[3];
     try {
-      final file = File(batchPath);
-      if (await file.length() > 1024 * 1024) throw const FormatException();
-      final value = jsonDecode(await file.readAsString());
+      final value = jsonDecode(await _readRequestFile(batchPath));
       if (value is! List ||
           value.isEmpty ||
           value.length > 1000 ||
@@ -1493,6 +1601,15 @@ Future<int> _runQuery(
         throw const FormatException();
       }
       requests = value.cast<String>();
+    } on NonRegularFileException {
+      return _reportNonRegularRequestFile(error, 'Batch file', batchPath);
+    } on FileSystemException {
+      // 파일 부재·권한·디코드 실패는 내용 오류가 아니다. --changed처럼 어느
+      // 파일을 읽지 못했는지 가리키고 분류(64)는 그대로 둔다.
+      error.writeln(
+        'Batch file could not be read: ${ReportEscapes.escapeText(batchPath)}',
+      );
+      return ExitStatus.usage.code;
     } on Exception {
       error.writeln(
         'Invalid batch: provide a JSON array of 1–1000 non-empty symbol names (maximum 1 MiB).',
@@ -1566,8 +1683,8 @@ Future<int> _runQuery(
     return _reportInvalidBaseline(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -2302,6 +2419,10 @@ Future<int> _runBridges(
       ),
     );
     return ExitStatus.success.code;
+  } on InputRejectedException catch (exception) {
+    // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
+    // 진단으로 흘리면 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
@@ -2314,8 +2435,8 @@ Future<int> _runBridges(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -2430,6 +2551,22 @@ List<String> _limitations(AnalyzerGraphResult result) {
   return details.toSet().toList()..sort();
 }
 
+/// dead·deps·dup의 `--format` 값을 [ReportFormat]으로 읽는다. 모르는 값은 null이다.
+///
+/// 세 명령이 같은 철자 표를 쓰도록 한곳에 둔다. 명령마다 enum 이름과 직접
+/// 비교하면 도움말·USAGE·MCP가 광고하는 `github-actions`를 deps·dup만 거부하는
+/// 식으로 어긋난다. 문서 밖 enum 이름 `githubActions`도 이전 릴리스가 받아 온
+/// 값이라 계속 받는다(거부하면 기존 호출이 usage로 깨진다). `codeowners`는
+/// dead 전용이라 호출자가 먼저 처리한다.
+ReportFormat? _parseReportFormat(String value) => switch (value) {
+  'text' => ReportFormat.text,
+  'json' => ReportFormat.json,
+  'markdown' => ReportFormat.markdown,
+  'github-actions' || 'githubActions' => ReportFormat.githubActions,
+  'sarif' => ReportFormat.sarif,
+  _ => null,
+};
+
 Future<int> _runDead(
   List<String> arguments,
   StringSink output,
@@ -2497,11 +2634,7 @@ Future<int> _runDead(
             reportFormat = null;
           } else {
             codeownersFormat = false;
-            reportFormat = value == 'github-actions'
-                ? ReportFormat.githubActions
-                : ReportFormat.values
-                      .where((item) => item.name == value)
-                      .firstOrNull;
+            reportFormat = _parseReportFormat(value);
             if (reportFormat == null) {
               error.writeln(
                 'Unknown report format: $value '
@@ -2579,6 +2712,20 @@ Future<int> _runDead(
       ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
+  }
+  // CODEOWNERS는 사용자가 준 입력 파일이라 rules --config처럼 색인 전에 읽는다.
+  // 전체 분석 뒤에 읽으면 경로 오타가 큰 저장소에서 늦게, 그것도 색인 실패
+  // 문구로 원인을 반대로 가리켜 보고된다.
+  CodeOwners? codeOwners;
+  if (codeownersFormat) {
+    final path = codeownersPath!;
+    try {
+      codeOwners = CodeOwners.parse(await readConfiguration(File(path)));
+    } on FileSystemException {
+      return _reportCodeownersUnreadable(error, path);
+    } on FormatException catch (exception) {
+      return _reportCodeownersInvalid(error, exception.message);
+    }
   }
   try {
     final indexed = await indexPackage(rootPath);
@@ -2701,11 +2848,11 @@ Future<int> _runDead(
       reported = filtered.findings;
       suppressedCount = filtered.suppressedCount;
     }
-    if (codeownersFormat) {
+    if (codeOwners != null) {
       output.write(
         CodeownersReporter.render(
           reported,
-          CodeOwners.parse(await readConfiguration(File(codeownersPath!))),
+          codeOwners,
           report: report,
           limitations: limitations,
           suppressedCount: suppressedCount,
@@ -2742,8 +2889,8 @@ Future<int> _runDead(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -2777,9 +2924,7 @@ Future<int> _runDeps(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
-      format = ReportFormat.values
-          .where((item) => item.name == value)
-          .firstOrNull;
+      format = _parseReportFormat(value);
       if (format == null) {
         error.writeln(
           'Unknown report format: $value '
@@ -2948,15 +3093,25 @@ Future<int> _runDeps(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
+
+/// `dartograph.yaml`의 include/exclude glob을 컴파일한 매처다.
+///
+/// `verdicts`는 소스별 판정 메모다. 판정은 소스만으로 정해지는데 finding은
+/// 소스마다 여럿이라, 같은 소스를 다시 매칭하지 않는다.
+typedef _ScopeMatchers = ({
+  List<PathGlobMatcher> include,
+  List<PathGlobMatcher> exclude,
+  Map<String, bool> verdicts,
+});
 
 /// `dartograph.yaml`의 include/exclude glob을 한 번 컴파일해 둔다.
 ///
 /// 반환값이 null이면 설정이 없다는 뜻이다 — 매칭 비용도 한계 문구도 없다.
-({List<RegExp> include, List<RegExp> exclude})? _scopeMatchers(
+_ScopeMatchers? _scopeMatchers(
   List<String> includeGlobs,
   List<String> excludeGlobs,
 ) {
@@ -2964,14 +3119,16 @@ Future<int> _runDeps(
   return (
     include: [for (final pattern in includeGlobs) PathGlob.compile(pattern)!],
     exclude: [for (final pattern in excludeGlobs) PathGlob.compile(pattern)!],
+    verdicts: <String, bool>{},
   );
 }
 
-/// [source]가 include/exclude 범위 안인지 본다. 매칭은 소스 ID의 스킴을 뗀다.
-bool _inScope(
-  ({List<RegExp> include, List<RegExp> exclude}) scope,
-  String source,
-) {
+/// [source]가 include/exclude 범위 안인지 본다. 같은 소스는 한 번만 매칭한다.
+bool _inScope(_ScopeMatchers scope, String source) =>
+    scope.verdicts.putIfAbsent(source, () => _matchesScope(scope, source));
+
+/// [source]를 include/exclude glob에 맞춘다. 매칭은 소스 ID의 스킴을 뗀다.
+bool _matchesScope(_ScopeMatchers scope, String source) {
   final separator = source.indexOf(':');
   final path = separator < 0 ? source : source.substring(separator + 1);
   if (scope.include.isNotEmpty &&
@@ -3036,9 +3193,7 @@ Future<int> _runDup(
         return ExitStatus.usage.code;
       }
       final value = arguments[index];
-      format = ReportFormat.values
-          .where((item) => item.name == value)
-          .firstOrNull;
+      format = _parseReportFormat(value);
       if (format == null) {
         error.writeln(
           'Unknown report format: $value '
@@ -3132,8 +3287,8 @@ Future<int> _runDup(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3184,8 +3339,8 @@ Future<int> _runBaseline(
     return ExitStatus.success.code;
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3310,6 +3465,16 @@ Future<int> _runGraph(
     if (collapse != null) {
       snapshot = GraphProjection.collapse(snapshot, collapse);
     }
+    // json·anon은 문서를 한 문자열로 만들지 않고 output에 조각으로 쓴다.
+    if (format == 'json') {
+      GraphExporter.writeJson(output, snapshot, limitations: limitations);
+      return ExitStatus.success.code;
+    }
+    if (format == 'anon') {
+      // anon은 json 문서에서 식별 문자열만 결정적으로 치환한다(공유용).
+      GraphExporter.writeAnon(output, snapshot, limitations: limitations);
+      return ExitStatus.success.code;
+    }
     output.write(switch (format) {
       // 순환 색칠은 dot 전용(madge 패리티)이다. 판정은 CycleDetector가
       // 담당하고(투영된·그려지는 그래프 기준), 다른 포맷에 계산 비용을
@@ -3322,10 +3487,7 @@ Future<int> _runGraph(
             ...cycle.component,
         },
       ),
-      'json' => GraphExporter.json(snapshot, limitations: limitations),
       'html' => GraphExporter.html(snapshot, limitations: limitations),
-      // anon은 json 문서에서 식별 문자열만 결정적으로 치환한다(공유용).
-      'anon' => GraphExporter.anon(snapshot, limitations: limitations),
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),
     });
     return ExitStatus.success.code;
@@ -3335,8 +3497,8 @@ Future<int> _runGraph(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3591,8 +3753,8 @@ Future<int> _runRuntime(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3625,25 +3787,78 @@ Future<int> _runMcp(
   );
 }
 
-int _reportAnalysisFailure(StringSink error) {
-  error.writeln('Analysis failed: unable to index the package.');
+/// 색인·추출 실패를 정적 문구로 보고하고 종료 코드 2를 돌려준다.
+///
+/// [cause]가 읽기 경계의 거부([InputRejectedException])면 원인과 해결 방향을
+/// 짚는다. 그 거부도 FormatException이라, 일반 문구나 명령별 형식 오류
+/// 문구(제어문자·변경 목록)로 보고하면 사용자가 엉뚱한 곳을 고친다. 그 밖의
+/// 원인은 경로·내부 상세를 반향하지 않는 일반 문구다.
+int _reportAnalysisFailure(StringSink error, [Object? cause]) {
+  error.writeln(
+    cause is InputRejectedException
+        ? _inputRejectedDiagnostic(cause)
+        : 'Analysis failed: unable to index the package.',
+  );
   return ExitStatus.failure.code;
 }
+
+/// 읽기 경계가 분석 입력을 거부했다는 진단이다.
+///
+/// 저장소 경로를 반향하지 않는다(다른 색인 실패 진단과 같은 경계). 그런 입력은
+/// 대개 장치·FIFO·큰 호스트 파일을 가리키는 심볼릭 링크나 절대 경로 import로
+/// 들어오므로 해결 방향으로 그 둘을 짚는다.
+String _inputRejectedDiagnostic(InputRejectedException rejection) =>
+    switch (rejection) {
+      NonRegularFileException() =>
+        'Analysis failed: an input is not a regular file (device, FIFO, or '
+            'socket). Point the symbolic link or import at a regular file, or '
+            'remove it.',
+      InputTooLargeException(:final message) =>
+        'Analysis failed: an $message. Remove the symbolic link or import '
+            'that reaches it.',
+    };
 
 int _reportBaselineWriteFailure(StringSink error) {
   error.writeln('Baseline write failed: unable to write the baseline file.');
   return ExitStatus.failure.code;
 }
 
+// rules 설정 진단은 --config 값과 파서 상세(저장소 YAML 키·레이어 이름)를
+// 반향한다. 따옴표 YAML 키는 개행·ESC를 담을 수 있어, 그대로 쓰면 둘째 진단줄이나
+// `::` 워크플로 명령 줄을 위조하고 ANSI 시퀀스를 주입한다. text 리포터와 같은
+// escapeText로 제어문자만 가시 이스케이프한다(정상 입력은 바이트 불변).
 int _reportRulesConfigUnreadable(StringSink error, String config) {
   error.writeln(
-    'Analysis failed: unable to read the rules configuration: $config.',
+    'Analysis failed: unable to read the rules configuration: '
+    '${ReportEscapes.escapeText(config)}.',
   );
   return ExitStatus.failure.code;
 }
 
 int _reportRulesConfigInvalid(StringSink error, String detail) {
-  error.writeln('Analysis failed: invalid rules configuration: $detail');
+  error.writeln(
+    'Analysis failed: invalid rules configuration: '
+    '${ReportEscapes.escapeText(detail)}',
+  );
+  return ExitStatus.failure.code;
+}
+
+// CODEOWNERS 진단은 rules 설정 진단과 같은 형태다. 읽기 실패는 사용자가 준
+// 경로를, 내용 오류는 상세를 가리킨다. 종료 코드는 기존 계약대로 2다(입력 파일
+// 오류를 64로 통일할지는 계약 결정이다). 반향하는 값은 escapeText를 거친다.
+int _reportCodeownersUnreadable(StringSink error, String path) {
+  error.writeln(
+    'Analysis failed: unable to read the CODEOWNERS file: '
+    '${ReportEscapes.escapeText(path)}.',
+  );
+  return ExitStatus.failure.code;
+}
+
+int _reportCodeownersInvalid(StringSink error, String detail) {
+  error.writeln(
+    'Analysis failed: invalid CODEOWNERS file: '
+    '${ReportEscapes.escapeText(detail)}',
+  );
   return ExitStatus.failure.code;
 }
 

@@ -5,13 +5,19 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/atomic_write.dart';
+import '../core/config_source.dart';
+import 'bounded_resource_provider.dart';
 
 /// 파일 내용의 sha256 hex다. 증분 캐시 키의 파일 부분이다.
 ///
 /// 동기 읽기다. 호출자는 파일을 순서대로 하나씩 해싱하므로 비동기 `readAsBytes`의
 /// 이벤트 루프 왕복이 이득 없이 비용만 더한다(600파일 기준 실측 41ms → 14ms).
+/// analyzer가 같은 파일을 읽는 경계([readAnalysisInputBytesSync])를 지난다.
+/// 장치·FIFO는 [NonRegularFileException], 상한([analysisReadLimit]) 초과는
+/// [InputTooLargeException]이다. 길이를 0으로 보고하는 가상 파일도 상한까지만
+/// 나눠 읽는다 — 전체 읽기는 그런 파일을 EOF까지 읽어 메모리를 소진한다.
 String fileContentHash(File file) =>
-    sha256.convert(file.readAsBytesSync()).toString();
+    sha256.convert(readAnalysisInputBytesSync(file)).toString();
 
 /// 캐시 한 항목이다. 해석 키와 그 파일에서 추출한 사실 JSON을 함께 둔다.
 final class CachedFacts {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartograph/src/cli/dartograph_cli.dart';
+import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -83,6 +84,60 @@ example/
     ]);
     expect(result.status, 2, reason: result.error);
   });
+
+  test(
+    'CODEOWNERS is read before indexing and failures name the file',
+    () async {
+      // 사용자가 준 입력 파일의 오류다. 전체 분석을 마친 뒤 읽으면 큰 저장소에서
+      // 늦게 실패하고, 색인 실패 문구로 원인을 반대로 가리킨다.
+      var indexCalls = 0;
+      Future<AnalyzerGraphResult> mustNotIndex(String _) async {
+        indexCalls++;
+        throw StateError('must not index');
+      }
+
+      final absent = p.join(workspace.path, 'absent');
+      final missing = StringBuffer();
+      expect(
+        await runDartograph(
+          ['dead', '--format', 'codeowners', '--codeowners', absent, root.path],
+          output: StringBuffer(),
+          error: missing,
+          indexPackage: mustNotIndex,
+        ),
+        2,
+      );
+      expect(
+        missing.toString(),
+        'Analysis failed: unable to read the CODEOWNERS file: $absent.\n',
+      );
+
+      // 역순 범위 클래스는 규칙을 컴파일할 수 없는 내용 오류다.
+      await File(codeownersPath).writeAsString('[z-a] @team\n');
+      final invalid = StringBuffer();
+      expect(
+        await runDartograph(
+          [
+            'dead',
+            '--format',
+            'codeowners',
+            '--codeowners',
+            codeownersPath,
+            root.path,
+          ],
+          output: StringBuffer(),
+          error: invalid,
+          indexPackage: mustNotIndex,
+        ),
+        2,
+      );
+      expect(
+        invalid.toString(),
+        startsWith('Analysis failed: invalid CODEOWNERS file: '),
+      );
+      expect(indexCalls, 0);
+    },
+  );
 }
 
 Future<({int status, String output, String error})> _run(

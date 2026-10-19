@@ -21,6 +21,7 @@ import '../core/path_glob.dart';
 import '../core/retention_reason.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
+import 'bounded_resource_provider.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
@@ -127,6 +128,33 @@ final class AnalyzerGraphResult {
   /// `--workspace` 집계로 함께 분석된 워크스페이스 멤버의 매니페스트 사실
   /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
   final List<WorkspacePackage> workspacePackages;
+
+  /// [limitationDetails] 끝에 [detail] 하나만 더하고 나머지 필드는 그대로 둔
+  /// 복사본이다.
+  ///
+  /// 결과를 호출부에서 손으로 복사하면 필드가 추가될 때 한 곳이 빠져 결과가
+  /// 조용히 바뀐다 — 증분 캐시 쓰기 실패 분기가 [workspacePackages]를 잃어
+  /// `deps --workspace`가 거짓 발견을 낸 사례다. 복사를 필드 선언 옆에 두어
+  /// 필드 목록과 함께 고치게 한다.
+  AnalyzerGraphResult withAddedLimitationDetail(String detail) =>
+      AnalyzerGraphResult(
+        graph: graph,
+        limitations: limitations,
+        limitationDetails: [...limitationDetails, detail],
+        retentionRoots: retentionRoots,
+        packageName: packageName,
+        declaredDependencies: declaredDependencies,
+        declaredDevDependencies: declaredDevDependencies,
+        declaredDependencyOverrides: declaredDependencyOverrides,
+        packageImports: packageImports,
+        complexity: complexity,
+        tokenSegments: tokenSegments,
+        includeGlobs: includeGlobs,
+        excludeGlobs: excludeGlobs,
+        metricsDistanceThreshold: metricsDistanceThreshold,
+        metricsComplexityThreshold: metricsComplexityThreshold,
+        workspacePackages: workspacePackages,
+      );
 }
 
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
@@ -194,9 +222,10 @@ final class AnalyzerGraphIndex {
     final initialCacheKey = cache == null
         ? null
         : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
-    if (cache == null && _incremental == null) {
-      // 캐시가 전혀 없는 경로는 입력 열거가 안 돌아 여기서 탈출 링크를 기록한다.
-      await _analysisInputFiles(root, linkEscapes: linkEscapes);
+    if (cache == null) {
+      // 캐시 키를 계산하지 않는 경로(무캐시·증분)는 키 열거가 analyzer보다 먼저
+      // 돌지 않는다. 여기서 열거해 탈출 링크를 기록하고 비정규 입력을 거부한다.
+      await _scanAnalysisInputs(root, linkEscapes);
     }
     if (cache != null && initialCacheKey != null) {
       final cached = await _readCachedAnalysis(cache, initialCacheKey);
@@ -206,10 +235,7 @@ final class AnalyzerGraphIndex {
         return cached;
       }
     }
-    final collection = AnalysisContextCollection(
-      includedPaths: [root],
-      sdkPath: _dartSdkPath(),
-    );
+    final collection = await _openCollection(root);
     try {
       final result = await _analyze(
         root,
@@ -496,26 +522,7 @@ final class AnalyzerGraphIndex {
     });
     if (!written) {
       incremental.stats.cacheNotUpdated = true;
-      result = AnalyzerGraphResult(
-        graph: result.graph,
-        limitations: result.limitations,
-        limitationDetails: [
-          ...result.limitationDetails,
-          _cacheWriteFailureDetail,
-        ],
-        retentionRoots: result.retentionRoots,
-        packageName: result.packageName,
-        declaredDependencies: result.declaredDependencies,
-        declaredDevDependencies: result.declaredDevDependencies,
-        declaredDependencyOverrides: result.declaredDependencyOverrides,
-        packageImports: result.packageImports,
-        complexity: result.complexity,
-        tokenSegments: result.tokenSegments,
-        includeGlobs: result.includeGlobs,
-        excludeGlobs: result.excludeGlobs,
-        metricsDistanceThreshold: result.metricsDistanceThreshold,
-        metricsComplexityThreshold: result.metricsComplexityThreshold,
-      );
+      result = result.withAddedLimitationDetail(_cacheWriteFailureDetail);
     }
     return result;
   }
@@ -599,10 +606,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
   required Set<String> entryLibraryPaths,
   required List<String> memberRelPaths,
 }) async {
-  final resolved = await _contextIncluding(
-    collection,
-    path,
-  ).currentSession.getResolvedUnit(path);
+  final resolved = await _resolvedUnit(collection, path);
   if (resolved is! ResolvedUnitResult) return null;
   final source = _relativeSourcePath(path, root);
   if (source == null) return null;
@@ -1181,8 +1185,18 @@ AnalyzerGraphResult _assembleResult({
   }
   // 대표 라이브러리 판정은 소스 경로로 한다(노드 ID는 package URI일 수 있다).
   // 후보가 있는 라이브러리는 대표 라이브러리 하나뿐이라 순서는 유닛 순서를 따른다.
+  // 멤버 색인은 후보가 처음 나올 때 한 번만 만든다 — 라이브러리마다 전체 정점을
+  // 다시 훑으면 비용이 O(라이브러리 수 × 정점 수)다. 이 루프는 정점을 더하지
+  // 않으므로 한 번 만든 색인이 모든 대표 라이브러리(--workspace 멤버 포함)에 맞다.
+  Map<String, List<String>>? membersByDeclaration;
   for (final library in libraries.values) {
-    _addPublicApiRoots(graph, retentionRoots, library.publicApi);
+    if (library.publicApi.isEmpty) continue;
+    _addPublicApiRoots(
+      graph,
+      retentionRoots,
+      library.publicApi,
+      membersByDeclaration ??= _publicMembersByDeclaration(graph),
+    );
   }
   for (final source in sources) {
     for (final edge in facts[source]!.edges) {
@@ -1715,8 +1729,11 @@ _incrementalInputs(
   for (final source in unitSources) {
     if (unitHashes.containsKey(source)) continue;
     // 방어: 분석 입력 열거에 없는 분석 대상(경계 밖 링크 등)도 키를 갖는다.
+    // 열거가 건너뛰는 디렉터리(`build` 등) 안 단위는 여기서 처음 읽힌다. 그래서
+    // 장치·FIFO 링크는 해시하기 전에 거부한다 — 해석보다 먼저라 analyzer 읽기
+    // 경계가 막기 전에 이 해시가 FIFO에서 영구 대기한다.
     final file = File(p.join(root, source));
-    if (!file.existsSync()) continue;
+    if (!regularFileExistsSync(file)) continue;
     unitHashes[source] = fileContentHash(file);
   }
   final fingerprint = sha256
@@ -1758,16 +1775,43 @@ Future<bool> _incrementalInputsUnchanged(
 /// 읽지도 쓰지도 않는다 — 캐시를 재사용하면 런타임 사실이 낡은 해석을 보게 된다.
 /// [aggregateWorkspace]는 `AnalyzerGraphIndex`의 같은 이름과 같은 계약이다 —
 /// 선언된 워크스페이스 멤버의 표준 소스 디렉터리도 열거한다.
+///
+/// 모든 유닛을 리스트로 붙잡으므로 유닛 사이를 오가는 2단계 방문(route 호출의
+/// 값 선언 색인)이 쓴다. 유닛마다 독립인 방문은 [resolveProjectUnitsEach]를 써서
+/// 프로젝트 전체의 resolved AST를 동시에 붙잡지 않는다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(
   String rootPath, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
+  final units = <ResolvedUnitResult>[];
+  await resolveProjectUnitsEach(
+    rootPath,
+    units.add,
+    linkEscapes: linkEscapes,
+    aggregateWorkspace: aggregateWorkspace,
+  );
+  return units;
+}
+
+/// [resolveProjectUnits]와 같은 유닛을 같은 순서로 해석하는 즉시 [onUnit]에
+/// 넘긴다.
+///
+/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]의
+/// 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석 컨텍스트를 닫기 전에
+/// 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다 독립인
+/// 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
+/// 않는다. [onUnit]이 던진 예외는 컨텍스트를 닫은 뒤 그대로 전파된다.
+Future<void> resolveProjectUnitsEach(
+  String rootPath,
+  void Function(ResolvedUnitResult unit) onUnit, {
+  Set<String>? linkEscapes,
+  bool aggregateWorkspace = false,
+}) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
-  if (linkEscapes != null) {
-    // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록을 따로 한다.
-    await _analysisInputFiles(root, linkEscapes: linkEscapes);
-  }
+  // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록과 비정규 입력
+  // 거부를 따로 한다([linkEscapes]가 없어도 analyzer보다 먼저 거부한다).
+  await _scanAnalysisInputs(root, linkEscapes);
   final sourcePackages = _readSourcePackages(root);
   final workspace = aggregateWorkspace
       ? _resolveWorkspace(root, _readPubspec(root))
@@ -1776,12 +1820,8 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     for (final member in workspace?.members ?? const <_WorkspaceMember>[])
       member.absPath,
   ];
-  final collection = AnalysisContextCollection(
-    includedPaths: [root],
-    sdkPath: _dartSdkPath(),
-  );
+  final collection = await _openCollection(root);
   try {
-    final units = <ResolvedUnitResult>[];
     for (final path in _dartFilesUnder(
       root,
       collection,
@@ -1789,13 +1829,9 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
     )) {
-      final result = await _contextIncluding(
-        collection,
-        path,
-      ).currentSession.getResolvedUnit(path);
-      if (result is ResolvedUnitResult) units.add(result);
+      final result = await _resolvedUnit(collection, path);
+      if (result is ResolvedUnitResult) onUnit(result);
     }
-    return units;
   } finally {
     await collection.dispose();
   }
@@ -1815,10 +1851,8 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
   if (paths.isEmpty) return const {};
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   final wanted = {for (final path in paths) p.normalize(path)};
-  final collection = AnalysisContextCollection(
-    includedPaths: [root],
-    sdkPath: _dartSdkPath(),
-  );
+  await _scanAnalysisInputs(root, null);
+  final collection = await _openCollection(root);
   try {
     final units = <String, ResolvedUnitResult>{};
     final files = _dartFilesUnder(
@@ -1829,10 +1863,7 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
       const [],
     ).where((path) => wanted.contains(p.normalize(path)));
     for (final path in files) {
-      final result = await _contextIncluding(
-        collection,
-        path,
-      ).currentSession.getResolvedUnit(path);
+      final result = await _resolvedUnit(collection, path);
       if (result is ResolvedUnitResult) units[p.normalize(path)] = result;
     }
     return units;
@@ -1868,8 +1899,34 @@ const _cacheSchemaVersion = 7;
 // 패턴으로만 읽는 필드를 dead로 남기므로 identity를 올려 폐기한다.
 // build.yaml 입력 누락(v17)을 고친다. 파일이 이미 삭제된 경우에도 옛 키로
 // 저장한 builder 보존·파싱 한계가 재사용되지 않도록 이전 캐시를 폐기한다.
+// analyzer 읽기 경계(v18)는 import로 끌어온 장치·FIFO·상한 초과 입력을 분석
+// 실패로 바꾼다. 그런 대상(숨김 디렉터리·build 디렉터리 안 파일, 절대 경로)은
+// 키 열거 밖이라, 같은 도구 버전의 이전 캐시가 남긴 성공 결과가 거부를 가린다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v17-build-config';
+    'dartograph-analysis-$toolVersion-cache-v18-read-boundary';
+
+/// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
+///
+/// 두 역할이 있다. [linkEscapes]가 있으면 루트 밖 링크를 기록한다. 그리고
+/// 열거한 장치·FIFO·소켓 입력을 [NonRegularFileException]으로 일찍 거부한다.
+/// 이 거부는 보장이 아니라 빠른 실패다. 열거는 숨김 디렉터리를 건너뛰고,
+/// import가 가리키는 절대 경로를 모르며, 아래처럼 중간에 멈출 수 있다. analyzer가
+/// 실제로 여는 모든 파일은 읽기 경계([BoundedResourceProvider])가 확인한다.
+/// 전체 결과 캐시 경로는 키 열거([_tryAnalysisCacheKey])가 같은 거부를 먼저 한다.
+///
+/// 링크 기록은 보고용 부수 효과다. 열거가 [FileSystemException]으로 멈추면(읽을
+/// 수 없는 디렉터리, 순회 중 사라진 대상) 분석을 멈추지 않고 그 지점까지의
+/// 기록을 남긴다. 전체 결과 캐시 경로가 같은 열거 실패를 흡수하므로, 이렇게
+/// 해야 캐시 유무에 따라 종료 코드가 갈라지지 않는다. analyzer도 읽지 못하는
+/// 디렉터리는 조용히 건너뛴다. 남은 링크는 읽기 경계가 막는다.
+Future<void> _scanAnalysisInputs(String root, Set<String>? linkEscapes) async {
+  try {
+    await _analysisInputFiles(root, linkEscapes: linkEscapes);
+  } on FileSystemException {
+    // 위 문서 주석의 수습이다. 결과에는 이미 모은 탈출 링크만 남는다.
+    return;
+  }
+}
 
 Future<String?> _tryAnalysisCacheKey(
   String root, [
@@ -1882,6 +1939,11 @@ Future<String?> _tryAnalysisCacheKey(
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
     );
+  } on FormatException {
+    // 장치·FIFO·소켓 입력과 상한을 넘는 입력·package_config는 캐시 실패가 아니라
+    // 분석 실패다(fail-closed). 흡수하면 같은 입력이 캐시 유무에 따라 종료 2와
+    // 다른 결과로 갈린다.
+    rethrow;
   } on Object {
     return null;
   }
@@ -1909,12 +1971,18 @@ Future<String> _analysisCacheKey(
       p.relative(file.path, from: root).split(p.separator),
     );
     final stat = await file.stat();
+    // analyzer 읽기 경계와 같은 상한이다. 길이를 0으로 보고하는 가상 파일은
+    // 스트림이 끝나지 않으므로 읽은 양으로도 센다.
+    if (stat.size > analysisReadLimit) throw analysisInputTooLarge();
     bytes
       ..add(utf8.encode(relative))
       ..add(const [0])
       ..add(utf8.encode(stat.modified.microsecondsSinceEpoch.toString()))
       ..add(const [0]);
+    var read = 0;
     await for (final chunk in file.openRead()) {
+      read += chunk.length;
+      if (read > analysisReadLimit) throw analysisInputTooLarge();
       bytes.add(chunk);
     }
     bytes.add(const [0]);
@@ -1930,7 +1998,11 @@ Future<List<File>> _analysisInputFiles(
   final files = <String, File>{};
 
   void addFile(File file) {
-    if (file.existsSync()) files[p.normalize(file.absolute.path)] = file;
+    // 존재하는 장치·FIFO·소켓은 FormatException이다 — 키 해시가 장치를 끝없이
+    // 스트리밍하거나 FIFO에서 영구 대기하지 않게 한다.
+    if (regularFileExistsSync(file)) {
+      files[p.normalize(file.absolute.path)] = file;
+    }
   }
 
   void addDirectory(Directory directory, String boundary, String displayBase) {
@@ -1965,17 +2037,29 @@ Future<List<File>> _analysisInputFiles(
       packageConfiguration = ancestor;
       addFile(packageConfiguration);
     }
-    final document =
-        (jsonDecode(await packageConfiguration.readAsString()) as Map)
-            .cast<String, Object?>();
-    final packages = document['packages']! as List<Object?>;
-    for (final value in packages) {
-      final package = (value! as Map).cast<String, Object?>();
-      final rootUri = packageConfiguration.parent.uri
-          .resolve(package['rootUri']! as String)
-          .normalizePath();
-      if (rootUri.scheme != 'file') continue;
-      final dependencyRoot = await _resolved(Directory(rootUri.toFilePath()));
+    final String content;
+    try {
+      // 비정규 파일·상한 초과는 FormatException으로 전파한다(fail-closed).
+      content = await readBoundedFile(
+        packageConfiguration,
+        _packageConfigurationSizeLimit,
+        tooLargeMessage: _packageConfigurationTooLarge,
+      );
+    } on FileSystemException {
+      // 읽기·UTF-8 디코드 실패다. analyzer도 이 문서를 버리고 패키지 없이
+      // 해석하므로 의존 열거만 건너뛴다(설정 바이트는 위에서 키에 들어갔다).
+      return;
+    }
+    for (final rootPath in _packageRootPaths(packageConfiguration, content)) {
+      final Directory dependencyRoot;
+      try {
+        dependencyRoot = await _resolved(Directory(rootPath));
+      } on FileSystemException {
+        // 지운 path 의존·옮긴 pub cache처럼 루트가 사라진 항목에는 해시할
+        // 파일이 없다. rootUri는 package_config 바이트로 이미 지문에 들었고,
+        // 디렉터리가 다시 생기면 그 pubspec·lib가 더해져 키가 바뀐다.
+        continue;
+      }
       if (p.equals(dependencyRoot.path, packageRoot.path)) continue;
       addFile(File(p.join(dependencyRoot.path, 'pubspec.yaml')));
       addFile(File(p.join(dependencyRoot.path, 'analysis_options.yaml')));
@@ -2033,6 +2117,56 @@ Future<List<File>> _analysisInputFiles(
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// 캐시 키 열거가 읽는 package_config의 상한이다.
+///
+/// 항목 하나는 이름·rootUri·packageUri·languageVersion으로 200바이트 안팎이라,
+/// 설정 상한(1 MiB, 약 5천 항목)은 대형 모노레포에서 넘을 수 있다. 16 MiB는 약
+/// 8만 항목이다 — 정상 해석에는 넉넉하고, 비정상적으로 큰 문서가 키 계산
+/// 메모리를 키우기 전에 실패한다(종료 코드 2).
+const _packageConfigurationSizeLimit = 16 * 1024 * 1024;
+
+const _packageConfigurationTooLarge =
+    'package configuration exceeds the 16 MiB limit';
+
+/// package_config [content]가 가리키는 `file:` 의존 루트 경로다(문서 순서).
+///
+/// 문서가 JSON이 아니거나 `packages`·`rootUri` 모양이 기대와 다르면 빈
+/// 목록이다. analyzer도 이런 문서는 통째로 버리고 패키지 없이 해석하므로
+/// (`parsePackageConfigJsonFile`) 의존 내용은 해석 결과에 쓰이지 않는다. 깨진
+/// 설정 하나로 캐시 키 열거가 실패하면 증분·runtime 경로만 종료 2가 되고
+/// 전체 결과 캐시 경로는 정상 결과를 내 두 경로가 갈라진다.
+List<String> _packageRootPaths(File configuration, String content) {
+  final Object? document;
+  try {
+    document = jsonDecode(content);
+  } on FormatException {
+    return const [];
+  }
+  if (document is! Map<String, Object?>) return const [];
+  final packages = document['packages'];
+  if (packages is! List<Object?>) return const [];
+  final paths = <String>[];
+  for (final package in packages) {
+    if (package is! Map<String, Object?>) return const [];
+    final rootUri = package['rootUri'];
+    if (rootUri is! String) return const [];
+    final Uri resolved;
+    try {
+      resolved = configuration.parent.uri.resolve(rootUri).normalizePath();
+    } on FormatException {
+      return const [];
+    }
+    if (resolved.scheme != 'file') continue;
+    try {
+      paths.add(resolved.toFilePath());
+    } on UnsupportedError {
+      // query·fragment가 붙은 file URI다. analyzer는 이 문서도 버린다.
+      return const [];
+    }
+  }
+  return paths;
 }
 
 Future<Directory> _resolved(Directory directory) async =>
@@ -3050,20 +3184,28 @@ int _addConfiguredRetentionRoots(
   if (scope.retainedNameGlobs.isEmpty && scope.retainedFileGlobs.isEmpty) {
     return 0;
   }
-  final nameMatchers = <RegExp>[
+  final nameMatchers = <PathGlobMatcher>[
     for (final pattern in scope.retainedNameGlobs) PathGlob.compile(pattern)!,
   ];
-  final fileMatchers = <RegExp>[
+  final fileMatchers = <PathGlobMatcher>[
     for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
   ];
   var added = 0;
-  for (final node in graph.snapshot().nodes) {
+  // 한 파일의 선언은 sourceUri가 같다. 파일 glob 판정은 파일마다 한 번만
+  // 한다(정점마다 하면 정점 수 × glob 수 매칭이다).
+  final retainedFiles = <String?, bool>{};
+  // 정점만 훑는다. snapshot()은 호출마다 전체 간선을 복사·정렬·검증하므로
+  // 캐시된 정렬 뷰(같은 ID 순서)를 쓴다. 보존 루트 삽입 순서가 같다.
+  for (final node in graph.nodes.values) {
     if (node.isLibrary) continue;
     final id = node.id;
     final separator = id.indexOf('::');
     if (separator < 0) continue;
-    var retain = fileMatchers.any(
-      (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+    var retain = retainedFiles.putIfAbsent(
+      node.sourceUri,
+      () => fileMatchers.any(
+        (matcher) => matcher.hasMatch(_sourceGlobPath(node.sourceUri ?? '')),
+      ),
     );
     if (!retain) {
       final name = id.substring(separator + 2);
@@ -3218,15 +3360,30 @@ bool _isExternalBindingElement(ElementAnnotation annotation) {
 ///
 /// 후보 ID는 라이브러리 해석에서 나온다(`_libraryFacts`). 여기서는 전역 정점
 /// 집합으로 존재 여부만 판정한다 — 전체 해석과 증분 해석이 같은 정점 집합을
-/// 보므로 같은 결정을 낸다.
+/// 보므로 같은 결정을 낸다. [membersByDeclaration]은 호출자가 완성된 그래프로
+/// 한 번 만든 [_publicMembersByDeclaration]이다.
 void _addPublicApiRoots(
   CodeGraph graph,
   Map<String, RetentionReason> roots,
   Iterable<String> exportedIds,
+  Map<String, List<String>> membersByDeclaration,
 ) {
-  // export 심볼마다 노드 전체를 다시 스캔하면 O(export 수 × 노드 수)다 —
-  // 선언 prefix 기준으로 한 번만 묶어 멤버 조회를 O(멤버 수)로 만든다
-  // (감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist).
+  for (final id in exportedIds) {
+    if (!graph.containsNode(id)) continue;
+    roots.putIfAbsent(id, () => RetentionReason.publicApi);
+    for (final nodeId in membersByDeclaration[id] ?? const <String>[]) {
+      roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
+    }
+  }
+}
+
+/// 선언 ID → 그 선언의 공개 직접 멤버 ID 목록(정점 ID 순)이다.
+///
+/// export 심볼마다 노드 전체를 다시 스캔하면 O(export 수 × 노드 수)다 —
+/// 선언 prefix 기준으로 한 번만 묶어 멤버 조회를 O(멤버 수)로 만든다
+/// (감사 P2; CodeGraph 뷰 캐시와 별개의 루프 측 hoist). 정점이 모두 더해진 뒤에
+/// 만들어야 한다 — 그 뒤에 더한 정점은 색인에 없다.
+Map<String, List<String>> _publicMembersByDeclaration(CodeGraph graph) {
   final membersByDeclaration = <String, List<String>>{};
   for (final nodeId in graph.nodes.keys) {
     final dot = nodeId.lastIndexOf('.');
@@ -3239,13 +3396,7 @@ void _addPublicApiRoots(
         .putIfAbsent(nodeId.substring(0, dot), () => [])
         .add(nodeId);
   }
-  for (final id in exportedIds) {
-    if (!graph.containsNode(id)) continue;
-    roots.putIfAbsent(id, () => RetentionReason.publicApi);
-    for (final nodeId in membersByDeclaration[id] ?? const <String>[]) {
-      roots.putIfAbsent(nodeId, () => RetentionReason.publicApi);
-    }
-  }
+  return membersByDeclaration;
 }
 
 bool _overridesInheritedMember(Element element) {
@@ -3684,20 +3835,30 @@ List<String> _dartFilesUnder(
       ),
     );
   }
+  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리는
+  // 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터 결과에서 빠졌으므로 결과는
+  // 같고, build 산출물·git 객체를 분석마다 열거하거나 그 안의 읽을 수 없는
+  // 디렉터리 하나로 색인 전체가 실패하지 않는다.
   paths.addAll(
-    Directory(root)
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .map((file) => file.path)
-        .where(_isGenerated)
-        .where(inAnalysisScope)
-        .where(
-          (path) => !p
-              .split(p.relative(path, from: root))
-              .any((segment) => segment == '.dart_tool' || segment == 'build'),
-        ),
+    _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
+}
+
+/// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
+///
+/// [indexExcludedDirectories] 이름의 디렉터리에는 내려가지 않는다. 링크는 파일을
+/// 가리켜도 `Link`로 나와 제외된다 — `listSync(recursive: true,
+/// followLinks: false)`에서 `File`만 고르던 규칙과 같다.
+Iterable<String> _filePathsUnder(Directory directory) sync* {
+  for (final entity in directory.listSync(followLinks: false)) {
+    if (entity is Directory) {
+      if (indexExcludedDirectories.contains(p.basename(entity.path))) continue;
+      yield* _filePathsUnder(entity);
+    } else if (entity is File) {
+      yield entity.path;
+    }
+  }
 }
 
 bool _isStandardSourcePath(String path, String root) {
@@ -3713,6 +3874,69 @@ const _sourceDirectories = {
   'lib',
   'test',
 };
+
+/// [_openCollection]이 만든 컨텍스트 모음마다 그 모음의 읽기 경계다.
+///
+/// [_resolvedUnit]은 해석 뒤 이 경계의 거부를 확인한다. 경계를 analyzer가 돌려주는
+/// 컨텍스트(`contextRoot.resourceProvider`)에서 찾지 않는 것은, analyzer가 받은
+/// provider를 다른 provider로 감싸 넘기는 순간 확인이 조용히 빠지기(fail-open)
+/// 때문이다. 모음이 사라지면 항목도 함께 사라진다.
+final _readBoundaries = Expando<BoundedResourceProvider>('readBoundary');
+
+/// [root]를 분석하는 컨텍스트 모음을 analyzer 읽기 경계 위에 만든다.
+///
+/// analyzer는 모음을 만들며 pubspec·analysis_options·package_config를 읽는다.
+/// 경계가 그중 하나를 거부했으면 모음을 닫고 그 거부를 던진다. analyzer가
+/// 거부를 수습하지 않고 예외로 내보낸 경우(루트 pubspec 등)도 원인은 같은
+/// 거부다.
+Future<AnalysisContextCollection> _openCollection(String root) async {
+  final boundary = BoundedResourceProvider();
+  final AnalysisContextCollection collection;
+  try {
+    collection = AnalysisContextCollection(
+      includedPaths: [root],
+      resourceProvider: boundary,
+      sdkPath: _dartSdkPath(),
+    );
+  } on Object {
+    boundary.throwIfRejected();
+    rethrow;
+  }
+  try {
+    boundary.throwIfRejected();
+  } on InputRejectedException {
+    await collection.dispose();
+    rethrow;
+  }
+  _readBoundaries[collection] = boundary;
+  return collection;
+}
+
+/// [path]의 resolved unit이다. 해석 중 읽기 경계가 막은 입력이 있으면 실패한다.
+///
+/// 해석은 import·part 폐쇄 전체와 그 패키지 설정을 읽는다. analyzer는 막힌
+/// 파일을 대개 '없음'으로 다루고 계속하므로, 여기서 확인하지 않으면 결과가
+/// 조용히 달라지고 증분·결과 캐시에 그 결과가 남는다. [collection]은
+/// [_openCollection]이 만든 모음이어야 한다. 경계가 없는 모음이면 확인 없이
+/// 해석하지 않고 [StateError]로 실패한다(분석 실패, 종료 코드 2).
+Future<SomeResolvedUnitResult> _resolvedUnit(
+  AnalysisContextCollection collection,
+  String path,
+) async {
+  final boundary =
+      _readBoundaries[collection] ??
+      (throw StateError('The analysis collection has no read boundary.'));
+  final context = _contextIncluding(collection, path);
+  final SomeResolvedUnitResult result;
+  try {
+    result = await context.currentSession.getResolvedUnit(path);
+  } on Object {
+    boundary.throwIfRejected();
+    rethrow;
+  }
+  boundary.throwIfRejected();
+  return result;
+}
 
 AnalysisContext _contextIncluding(
   AnalysisContextCollection collection,

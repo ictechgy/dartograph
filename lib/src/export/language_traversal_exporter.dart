@@ -5,12 +5,14 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../analysis/language_traversal.dart';
+import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
 import '../core/tool_info.dart';
+import 'json_chunks.dart';
 
 /// 정점 하나가 싣는 root 인덱스 상한이다(LANGUAGE-TRAVERSAL v1).
-const maxRootsPerReached = 64;
+const maxRootsPerReached = LanguageTraversal.maxRootsPerReached;
 
 const _maxRelationships = 32;
 
@@ -47,27 +49,47 @@ final class LanguageTraversalMetadata {
 /// 순서(정점 id, 간선 출발·도착·종류)로 담는다. 위치는 넣지 않는다 —
 /// 줄만 옮긴 편집은 순회 결과를 바꾸지 않는다. 방향과 무관한 입력만 쓰므로 같은
 /// 그래프 위의 정·역방향 문서가 같은 값을 낸다.
+///
+/// 해시 입력은 `{"edges":[[출발,도착,종류],…],"nodes":[[id,플래그…],…]}` JSON의
+/// UTF-8 바이트다. 이 문서를 목록·문자열·바이트로 통째로 만들지 않고 조각으로
+/// 해시에 넣는다. 그래야 순회와 무관한 해시 하나에 그래프 크기만큼의 메모리를
+/// 더 쓰지 않는다.
 String graphRevisionOf(GraphSnapshot graph) {
-  final content = {
-    'edges': [
-      for (final edge in graph.edges)
-        [edge.sourceId, edge.targetId, edge.kind.name],
-    ],
-    'nodes': [
-      for (final node in graph.nodes)
-        [
-          node.id,
-          node.isLibrary,
-          node.isTypeDeclaration,
-          node.isAbstract,
-          node.isEnumConstant,
-          node.isSealed,
-          node.synthesized,
-        ],
-    ],
-  };
-  return 'sha256:${sha256.convert(utf8.encode(jsonEncode(content)))}';
+  late Digest digest;
+  final hash = sha256.startChunkedConversion(
+    ChunkedConversionSink<Digest>.withCallback(
+      (digests) => digest = digests.single,
+    ),
+  );
+  final text = utf8.encoder.startChunkedConversion(hash).asStringSink();
+  JsonChunkWriter(text)
+    ..write('{"edges":[')
+    ..writeElements(graph.edges.map(_edgeTuple))
+    ..write('],"nodes":[')
+    ..writeElements(graph.nodes.map(_nodeTuple))
+    ..write(']}')
+    ..flush();
+  text.close();
+  return 'sha256:$digest';
 }
+
+/// [graphRevisionOf]가 해시하는 간선 한 개의 값이다.
+List<Object> _edgeTuple(GraphEdge edge) => [
+  edge.sourceId,
+  edge.targetId,
+  edge.kind.name,
+];
+
+/// [graphRevisionOf]가 해시하는 정점 한 개의 값이다.
+List<Object> _nodeTuple(GraphNode node) => [
+  node.id,
+  node.isLibrary,
+  node.isTypeDeclaration,
+  node.isAbstract,
+  node.isEnumConstant,
+  node.isSealed,
+  node.synthesized,
+];
 
 /// isthmus `trace`가 읽는 `language-traversal` v1 문서를 키 정렬 JSON으로 낸다.
 ///
@@ -80,7 +102,7 @@ String exportLanguageTraversal(
   List<String> limitations = const [],
 }) {
   final rootsTruncated = result.reached.any(
-    (row) => row.roots.length > maxRootsPerReached,
+    (row) => row.rootCount > maxRootsPerReached,
   );
   final reasons = [
     if (result.depthTruncated) 'depth',

@@ -111,6 +111,67 @@ void main() {
     expect(inputs['dart-define'], 'FLAVOR');
   });
 
+  test('inline --key=value tokens never record their values', () async {
+    final run = await _run([
+      'runtime',
+      '--record',
+      ledgerDirectory,
+      '--env=API_TOKEN=s3cr3t-value',
+      '--dart-define=FLAVOR=prod-secret',
+      '--format=json',
+      '--no-verify',
+      root.path,
+    ]);
+    // CLI는 `--key=value` 형식을 받지 않는다. 실패한 실행도 원장에 남는다.
+    expect(run.status, 64, reason: run.error);
+
+    final ledger = File(
+      p.join(ledgerDirectory, 'ledger.jsonl'),
+    ).readAsStringSync();
+    expect(ledger, isNot(contains('s3cr3t-value')));
+    expect(ledger, isNot(contains('prod-secret')));
+    expect(ledger, isNot(contains(root.path)));
+    final entry = jsonDecode(ledger.trim()) as Map<String, Object?>;
+    expect(entry['inputs'], {
+      'dart-define': 'FLAVOR',
+      'env': 'API_TOKEN',
+      'format': 'true',
+      'no-verify': 'true',
+    });
+  });
+
+  test('value-less switches do not swallow the package root', () async {
+    final cache = p.join(workspace.path, 'cache');
+    for (final arguments in [
+      ['cycles', '--strict', root.path],
+      ['dead', '--format', 'json', '--workspace', root.path],
+      ['query', 'Service', '--with-source', root.path],
+    ]) {
+      await _run([
+        arguments.first,
+        '--record',
+        ledgerDirectory,
+        '--incremental',
+        cache,
+        ...arguments.skip(1),
+      ]);
+    }
+
+    final lines = File(
+      p.join(ledgerDirectory, 'ledger.jsonl'),
+    ).readAsLinesSync();
+    // 값을 받는 옵션은 값을 그대로 남기고, 스위치는 뒤따르는 위치 인자를
+    // 값으로 삼키지 않는다.
+    expect(
+      [for (final line in lines) (jsonDecode(line) as Map)['inputs']],
+      [
+        {'incremental': cache, 'strict': 'true'},
+        {'format': 'json', 'incremental': cache, 'workspace': 'true'},
+        {'incremental': cache, 'with-source': 'true'},
+      ],
+    );
+  });
+
   test('a damaged line is reported, not fatal', () async {
     final file = File(p.join(ledgerDirectory, 'ledger.jsonl'));
     await file.create(recursive: true);

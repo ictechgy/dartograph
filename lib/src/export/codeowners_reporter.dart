@@ -29,9 +29,14 @@ abstract final class CodeownersReporter {
         (a, b) => '${a.kind}\u0000${a.id}'.compareTo('${b.kind}\u0000${b.id}'),
       );
     final groups = <String, List<DeadFinding>>{};
+    // 소유자는 소스 경로만으로 정해진다. finding은 소스마다 여럿이므로 규칙
+    // 목록은 경로마다 한 번만 훑는다(finding마다 훑으면 규칙 수 × finding 수다).
+    final ownersByPath = <String, List<String>>{};
     for (final finding in sorted) {
-      final ownerList = owners.ownersOf(
-        ReportEscapes.sourcePath(finding.source),
+      final path = ReportEscapes.sourcePath(finding.source);
+      final ownerList = ownersByPath.putIfAbsent(
+        path,
+        () => owners.ownersOf(path),
       );
       final key = ownerList.isEmpty ? unowned : ownerList.join(', ');
       groups.putIfAbsent(key, () => []).add(finding);

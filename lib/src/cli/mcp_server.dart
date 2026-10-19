@@ -159,7 +159,11 @@ Future<int> runMcpServer({
       input: input,
       output: output,
       error: error,
-      indexPackage: indexPackage ?? session.index,
+      // 운영 경로는 세션 팩터리다 — `--workspace` 값마다 맞는 색인을 고른다.
+      indexing: (
+        fixed: indexPackage,
+        factory: indexPackage == null ? session.indexer : null,
+      ),
       changedFilesSince: changedFilesSince,
       scratchFactory: scratchFactory,
       rootBoundary: rootBoundary,
@@ -170,11 +174,15 @@ Future<int> runMcpServer({
   }
 }
 
+/// 도구 호출이 `runDartograph`에 넘기는 색인 주입이다. 테스트가 준 고정
+/// 함수(`fixed`)나 `--workspace`를 반영하는 세션 팩터리(`factory`) 중 하나다.
+typedef _McpIndexing = ({IndexPackage? fixed, IndexPackageFactory? factory});
+
 Future<int> _serveMcpRequests({
   required Stream<String> input,
   required StringSink output,
   required StringSink error,
-  required IndexPackage indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() scratchFactory,
   required String rootBoundary,
@@ -312,7 +320,7 @@ Future<int> _serveMcpRequests({
             arguments: arguments is Map<String, Object?>
                 ? arguments
                 : const <String, Object?>{},
-            indexPackage: indexPackage,
+            indexing: indexing,
             changedFilesSince: changedFilesSince,
             createScratch: scratchFactory,
             rootBoundary: rootBoundary,
@@ -341,43 +349,60 @@ final class _McpIndexSession {
 
   final Future<Directory> Function() createDirectory;
   final StringSink error;
-  final directories = <String, String>{};
+  // (packageRoot, workspace 집계) 쌍마다 하위 디렉터리를 따로 둔다. 같은 루트의
+  // 집계·단일 패키지 색인은 설정 지문이 달라, 한 캐시를 공유하면 번갈아
+  // 질의할 때마다 서로의 사실을 덮어쓴다.
+  final directories = <(String, bool), String>{};
   Directory? directory;
   bool isDisabled = false;
 
-  Future<AnalyzerGraphResult> index(String root) async {
-    if (isDisabled) return _fullIndex(root);
+  /// `--workspace` 값에 맞는 세션 색인 함수다([IndexPackageFactory]).
+  IndexPackage indexer({required bool aggregateWorkspace}) =>
+      (root) => index(root, aggregateWorkspace: aggregateWorkspace);
+
+  Future<AnalyzerGraphResult> index(
+    String root, {
+    required bool aggregateWorkspace,
+  }) async {
+    if (isDisabled) return _fullIndex(root, aggregateWorkspace);
     try {
       directory ??= await createDirectory();
     } on Object {
-      return _fallback(root);
+      return _fallback(root, aggregateWorkspace);
     }
+    final key = (root, aggregateWorkspace);
     final cachePath = directories.putIfAbsent(
-      root,
+      key,
       () => p.join(directory!.path, 'package-${directories.length}'),
     );
     final result = await AnalyzerGraphIndex(
       incremental: IncrementalCache(cachePath),
+      aggregateWorkspace: aggregateWorkspace,
     ).index(root);
     if (result.limitationDetails.any(
       (detail) => detail.startsWith(incrementalCacheWriteFailurePrefix),
     )) {
-      return _fallback(root);
+      return _fallback(root, aggregateWorkspace);
     }
     return result;
   }
 
-  Future<AnalyzerGraphResult> _fallback(String root) {
+  Future<AnalyzerGraphResult> _fallback(String root, bool aggregateWorkspace) {
     isDisabled = true;
     error.writeln(
       'dartograph mcp: temporary cache unavailable; using full analysis for '
       'this session. Check OS temporary storage permissions and free space.',
     );
-    return _fullIndex(root);
+    return _fullIndex(root, aggregateWorkspace);
   }
 
-  Future<AnalyzerGraphResult> _fullIndex(String root) =>
-      AnalyzerGraphIndex(cache: const _McpUncachedFacts()).index(root);
+  Future<AnalyzerGraphResult> _fullIndex(String root, bool aggregateWorkspace) {
+    final uncached = AnalyzerGraphIndex(
+      cache: const _McpUncachedFacts(),
+      aggregateWorkspace: aggregateWorkspace,
+    );
+    return uncached.index(root);
+  }
 
   Future<void> close() async {
     final owned = directory;
@@ -949,7 +974,7 @@ String _deadPrompt(String packageRoot, Object? closedApp) {
 Future<Map<String, Object?>?> _callTool({
   required String name,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
   required String rootBoundary,
@@ -977,15 +1002,16 @@ Future<Map<String, Object?>?> _callTool({
       return _exploreTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       );
     case impactToolName:
       return _impactTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
       );
@@ -993,15 +1019,17 @@ Future<Map<String, Object?>?> _callTool({
       return _dependencyTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       );
     case verifyToolName:
       return _verifyTool(
         root: resolvedRoot,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
+        rootBoundary: rootBoundary,
       );
     case _runtimeToolName:
       return _runtimeTool(root: resolvedRoot, arguments: arguments);
@@ -1025,10 +1053,40 @@ String? _resolveToolRoot(String root, String boundary) {
   return isPathWithinRoot(resolved, boundary) ? resolved : null;
 }
 
+/// 도구 인자 `baseline`·`config`를 [boundary] 안의 정규 파일로 해석한다.
+///
+/// packageRoot와 같은 경계다([_resolveToolRoot]). CLI는 이 경로를 그대로 열어
+/// 읽는다. 검사하지 않으면 경계 밖 임의 파일의 존재와 YAML 첫 최상위 키가 rules
+/// 진단(`unknown configuration key: …`)으로 돌아가고, 쓰는 쪽이 없는 FIFO는
+/// 열기에서 영구 대기해 요청을 차례로 처리하는 서버 전체를 멈춘다. 링크를 따라간
+/// 실제 경로가 경계 안의 정규 파일일 때만 그 경로를 돌려주고, 아니면 `null`이다.
+/// 상대 경로는 지금처럼 서버 작업 디렉터리 기준이다(packageRoot 기준으로 바꾸는
+/// 것은 도구 계약 변경이다). 해석된 경로를 넘겨 검사 뒤 링크 교체도 줄인다.
+String? _resolveToolFile(String path, String boundary) {
+  final String resolved;
+  try {
+    resolved = File(path).absolute.resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
+  }
+  if (!isPathWithinRoot(resolved, boundary)) return null;
+  final type = FileSystemEntity.typeSync(resolved);
+  return type == FileSystemEntityType.file ? resolved : null;
+}
+
+/// [name] 경로가 경계 안의 정규 파일이 아니라 거부하는 인자 오류다.
+///
+/// 부재·경계 밖·디렉터리·장치·FIFO를 한 문구로 답해 경계 밖 파일의 존재를
+/// 드러내지 않는다.
+Map<String, Object?> _toolFileError(String name) => _toolError(
+  '$name must be an existing regular file within the server working '
+  'directory',
+);
+
 Future<Map<String, Object?>> _impactTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
 }) async {
@@ -1048,6 +1106,7 @@ Future<Map<String, Object?>> _impactTool({
       if (since is! String || since.trim().isEmpty) {
         return _toolError('since must be a non-empty string');
       }
+      if (_isOptionShaped(since)) return _optionShapedError('since');
       args.addAll(['--since', since]);
     } else if (arguments['changed'] != null) {
       final changed = arguments['changed'];
@@ -1068,6 +1127,7 @@ Future<Map<String, Object?>> _impactTool({
       if (symbol is! String || symbol.trim().isEmpty) {
         return _toolError('symbol must be a non-empty string');
       }
+      if (_isOptionShaped(symbol)) return _optionShapedError('symbol');
       args.addAll(['--symbol', symbol]);
     }
     final depth = _positiveInt(arguments['depth']);
@@ -1079,7 +1139,7 @@ Future<Map<String, Object?>> _impactTool({
     args.addAll(['--format', 'json', root]);
     return await _runCapture(
       args,
-      indexPackage: indexPackage,
+      indexing: indexing,
       changedFilesSince: changedFilesSince,
     );
   } finally {
@@ -1096,8 +1156,9 @@ Future<Map<String, Object?>> _impactTool({
 Future<Map<String, Object?>> _dependencyTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required Future<Directory> Function() createScratch,
+  required String rootBoundary,
 }) async {
   final symbol = arguments['symbol'];
   final batch = arguments['batch'];
@@ -1111,6 +1172,7 @@ Future<Map<String, Object?>> _dependencyTool({
       if (symbol is! String || symbol.trim().isEmpty) {
         return _toolError('symbol must be a non-empty string');
       }
+      if (_isOptionShaped(symbol)) return _optionShapedError('symbol');
       args.add(symbol);
     } else {
       if (batch is! List || batch.isEmpty || batch.length > 1000) {
@@ -1118,6 +1180,10 @@ Future<Map<String, Object?>> _dependencyTool({
       }
       if (batch.any((item) => item is! String || item.trim().isEmpty)) {
         return _toolError('batch entries must be non-empty strings');
+      }
+      // 파일로 넘겨 argv에는 들어가지 않지만 symbol과 같은 값을 받게 한다.
+      if (batch.cast<String>().any(_isOptionShaped)) {
+        return _optionShapedError('batch entries');
       }
       final file = await _writeScratch(
         createScratch,
@@ -1135,7 +1201,10 @@ Future<Map<String, Object?>> _dependencyTool({
       if (baseline is! String || baseline.trim().isEmpty) {
         return _toolError('baseline must be a non-empty string');
       }
-      args.addAll(['--baseline', baseline]);
+      if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
+      final resolved = _resolveToolFile(baseline, rootBoundary);
+      if (resolved == null) return _toolFileError('baseline');
+      args.addAll(['--baseline', resolved]);
     }
     final withSource = arguments['withSource'];
     final sourceContext = arguments['sourceContext'];
@@ -1160,7 +1229,7 @@ Future<Map<String, Object?>> _dependencyTool({
     final workspaceError = _appendWorkspace(args, arguments);
     if (workspaceError != null) return workspaceError;
     args.add(root);
-    return await _runCapture(args, indexPackage: indexPackage);
+    return await _runCapture(args, indexing: indexing);
   } finally {
     for (final directory in scratch) {
       try {
@@ -1175,8 +1244,9 @@ Future<Map<String, Object?>> _dependencyTool({
 Future<Map<String, Object?>> _verifyTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
+  required String rootBoundary,
 }) async {
   final command = arguments['command'];
   const commands = {'dead', 'deps', 'dup', 'cycles', 'rules', 'metrics'};
@@ -1204,6 +1274,7 @@ Future<Map<String, Object?>> _verifyTool({
     if (since is! String || since.trim().isEmpty) {
       return _toolError('since must be a non-empty string');
     }
+    if (_isOptionShaped(since)) return _optionShapedError('since');
     args.addAll(['--since', since]);
   }
   final baseline = arguments['baseline'];
@@ -1211,14 +1282,20 @@ Future<Map<String, Object?>> _verifyTool({
     if (baseline is! String || baseline.trim().isEmpty) {
       return _toolError('baseline must be a non-empty string');
     }
-    args.addAll(['--baseline', baseline]);
+    if (_isOptionShaped(baseline)) return _optionShapedError('baseline');
+    final resolved = _resolveToolFile(baseline, rootBoundary);
+    if (resolved == null) return _toolFileError('baseline');
+    args.addAll(['--baseline', resolved]);
   }
   final config = arguments['config'];
   if (config != null) {
     if (config is! String || config.trim().isEmpty) {
       return _toolError('config must be a non-empty string');
     }
-    args.addAll(['--config', config]);
+    if (_isOptionShaped(config)) return _optionShapedError('config');
+    final resolved = _resolveToolFile(config, rootBoundary);
+    if (resolved == null) return _toolFileError('config');
+    args.addAll(['--config', resolved]);
   }
   final minTokens = arguments['minTokens'];
   if (minTokens != null) {
@@ -1247,6 +1324,9 @@ Future<Map<String, Object?>> _verifyTool({
         'kinds must be a non-empty list of strings without commas',
       );
     }
+    if (kinds.cast<String>().any(_isOptionShaped)) {
+      return _optionShapedError('kinds entries');
+    }
     args.addAll(['--kinds', kinds.join(',')]);
   }
   // `dead`·`deps`·`dup`는 5형식을, `cycles`·`rules`·`metrics`는 text·json·sarif를
@@ -1267,7 +1347,7 @@ Future<Map<String, Object?>> _verifyTool({
   args.add(root);
   return await _runCapture(
     args,
-    indexPackage: indexPackage,
+    indexing: indexing,
     changedFilesSince: changedFilesSince,
   );
 }
@@ -1306,9 +1386,10 @@ Future<Map<String, Object?>> _runtimeTool({
 Future<Map<String, Object?>> _exploreTool({
   required String root,
   required Map<String, Object?> arguments,
-  required IndexPackage? indexPackage,
+  required _McpIndexing indexing,
   required ChangedFilesSince? changedFilesSince,
   required Future<Directory> Function() createScratch,
+  required String rootBoundary,
 }) async {
   final command = arguments['command'];
   if (command != null) {
@@ -1355,8 +1436,9 @@ Future<Map<String, Object?>> _exploreTool({
       await _verifyTool(
         root: root,
         arguments: arguments,
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
+        rootBoundary: rootBoundary,
       ),
       verifyToolName,
     );
@@ -1401,7 +1483,7 @@ Future<Map<String, Object?>> _exploreTool({
           if (arguments['workspace'] != null)
             'workspace': arguments['workspace'],
         },
-        indexPackage: indexPackage,
+        indexing: indexing,
         changedFilesSince: changedFilesSince,
         createScratch: createScratch,
       ),
@@ -1432,8 +1514,9 @@ Future<Map<String, Object?>> _exploreTool({
       await _dependencyTool(
         root: root,
         arguments: query,
-        indexPackage: indexPackage,
+        indexing: indexing,
         createScratch: createScratch,
+        rootBoundary: rootBoundary,
       ),
       dependencyToolName,
     );
@@ -1544,19 +1627,32 @@ Map<String, Object?> _exploreHelp(Map<String, Object?> arguments) {
   };
 }
 
+/// MCP 도구가 CLI에 넘기지 않는 전역 플래그다. 원장을 쓸 위치(`--record`)와
+/// 캐시 위치(`--incremental`)를 도구 값이 정하지 못하게 한다.
+const _toolForbiddenFlags = {'--record', '--incremental'};
+
 /// 기존 CLI 실행 경로를 그대로 재사용해 출력과 종료 코드를 모은다.
+///
+/// 도구 값 검사가 놓친 값이 전역 플래그로 재해석되지 않게, MCP가 넣지 않는
+/// [_toolForbiddenFlags] 토큰이 든 인자는 실행하지 않고 인자 오류로 답한다.
 Future<Map<String, Object?>> _runCapture(
   List<String> arguments, {
-  IndexPackage? indexPackage,
+  _McpIndexing? indexing,
   ChangedFilesSince? changedFilesSince,
 }) async {
+  if (arguments.any(_toolForbiddenFlags.contains)) {
+    return _toolError(
+      '--record and --incremental are not available through MCP tools',
+    );
+  }
   final stdoutBuffer = StringBuffer();
   final stderrBuffer = StringBuffer();
   final status = await runDartograph(
     arguments,
     output: stdoutBuffer,
     error: stderrBuffer,
-    indexPackage: indexPackage,
+    indexPackage: indexing?.fixed,
+    indexFactory: indexing?.factory,
     changedFilesSince: changedFilesSince,
   );
   final text = stdoutBuffer.toString();
@@ -1581,6 +1677,21 @@ Map<String, Object?> _toolError(String message) => {
   ],
   'isError': true,
 };
+
+/// 도구의 문자열 값이 옵션 모양(`-`로 시작)인지 본다.
+///
+/// 도구 값은 CLI 인자에 그대로 들어간다. `-`로 시작하는 값은 앞 옵션의 값이나
+/// 위치 인자로 남지 않고 `--record <dir>` 같은 전역 플래그로 재해석될 수
+/// 있다(읽기 전용 도구가 packageRoot에 원장을 쓴다). 심볼 ID·git revision·
+/// 경로는 `-`로 시작하지 않고 CLI도 옵션 모양 경로를 usage로 거부하므로 정상
+/// 호출에는 영향이 없다.
+bool _isOptionShaped(String value) => value.startsWith('-');
+
+/// [name] 값이 옵션 모양이라 거부하는 인자 오류다.
+Map<String, Object?> _optionShapedError(String name) => _toolError(
+  '$name must not start with "-" (option-shaped values would be read as '
+  'CLI flags)',
+);
 
 int? _positiveInt(Object? value) {
   if (value is int && value >= 1) return value;

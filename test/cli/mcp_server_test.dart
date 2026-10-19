@@ -174,6 +174,53 @@ void main() {
     expect(diagnostics.toString(), isEmpty);
   });
 
+  test('a stale package_config entry keeps the CLI exit code', () async {
+    writeSource(directory.path, 'class Foo {}');
+    File(
+      p.join(directory.path, 'pubspec.yaml'),
+    ).writeAsStringSync('name: app\nenvironment:\n  sdk: ^3.11.0\n');
+    // 지운 path 의존처럼 rootUri 디렉터리가 사라진 항목이다. 세션은 항상
+    // 증분 캐시를 쓰는데, 그 키 열거만 이 항목에서 실패해 종료 2가 됐다.
+    File(p.join(directory.path, '.dart_tool', 'package_config.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {'name': 'app', 'rootUri': '../', 'packageUri': 'lib/'},
+            {
+              'name': 'gone',
+              'rootUri': '${p.toUri(p.join(directory.path, 'gone'))}/',
+              'packageUri': 'lib/',
+            },
+          ],
+        }),
+      );
+    final cli = await runDartograph(
+      ['dead', '--format', 'json', directory.path],
+      output: StringBuffer(),
+      error: StringBuffer(),
+    );
+
+    final responses = await exchangeDefault(
+      Stream.fromIterable([
+        request(1, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': 'dead',
+            'format': 'json',
+          },
+        }),
+      ]),
+      createCacheDirectory: createCache,
+    );
+
+    // 미참조 Foo는 dead finding이다(종료 1).
+    expect(cli, 1);
+    expect(textOf(responses.single), startsWith('exitCode: $cli\n'));
+  });
+
   test('cache creation failure falls back to full analysis', () async {
     writeSource(directory.path, 'class Foo {}');
     final responses = await exchangeDefault(
@@ -580,6 +627,54 @@ void main() {
     },
   );
 
+  test(
+    'option-shaped tool values are rejected before they reach the CLI',
+    () async {
+      writeSource(directory.path, 'class Foo {}');
+      Object tool(int id, String name, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': name,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+      final responses = await exchange([
+        // 값 자리의 `--record`는 뒤따르는 packageRoot를 원장 디렉터리로 삼아
+        // 읽기 전용 도구가 분석 대상 저장소에 ledger.jsonl을 썼다.
+        query(1, directory.path, '--record'),
+        tool(2, verifyToolName, {
+          'command': 'dead',
+          'kinds': ['--record'],
+        }),
+        tool(3, verifyToolName, {'command': 'dead', 'since': '--record'}),
+        tool(4, verifyToolName, {'command': 'dead', 'baseline': '--record'}),
+        tool(5, verifyToolName, {'command': 'rules', 'config': '--record'}),
+        tool(6, impactToolName, {'since': '--incremental'}),
+        tool(7, impactToolName, {'symbol': '--workspace'}),
+        tool(8, dependencyToolName, {
+          'batch': ['Foo', '-x'],
+        }),
+        tool(9, dependencyToolName, {'symbol': 'Foo', 'baseline': '--record'}),
+        explore(10, directory.path, {'impactSymbol': '--record'}),
+        explore(11, directory.path, {
+          'command': 'dead',
+          'kinds': ['declaration', '-x'],
+        }),
+      ]);
+
+      expect(responses, hasLength(11));
+      for (final response in responses) {
+        final result = response['result'] as Map<String, Object?>;
+        expect(result['isError'], isTrue);
+        // CLI usage(64)가 아니라 MCP 계층의 인자 오류로 거부된다.
+        expect(textOf(response), contains('Invalid arguments: '));
+        expect(textOf(response), isNot(contains('exitCode:')));
+      }
+      expect(
+        File(p.join(directory.path, 'ledger.jsonl')).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
   test('id 없는 요청 형태 메시지는 notification이라 응답하지 않는다', () async {
     final responses = await exchange([
       // JSON-RPC notification은 어떤 메서드든 id가 없으면 응답을 받지 않는다.
@@ -849,6 +944,29 @@ void main() {
     },
   );
 
+  test('verify_run runs deps and dup with the github-actions format', () async {
+    // 도구 스키마가 deps·dup에 광고하는 형식이다. CLI가 이 철자를 거부하면
+    // 도구가 스스로 허용한 값이 usage(64)·isError가 된다.
+    final responses = await exchange([
+      for (final (id, command) in [(10, 'deps'), (11, 'dup')])
+        request(id, 'tools/call', {
+          'name': verifyToolName,
+          'arguments': {
+            'packageRoot': directory.path,
+            'command': command,
+            'format': 'github-actions',
+          },
+        }),
+    ]);
+
+    expect(responses, hasLength(2));
+    for (final response in responses) {
+      final result = response['result'] as Map<String, Object?>;
+      expect(result['isError'], isFalse, reason: textOf(response));
+      expect(textOf(response), startsWith('exitCode: 0\n::'));
+    }
+  });
+
   test('verify_run rejects a packageRoot that does not exist', () async {
     final responses = await exchange([
       request(8, 'tools/call', {
@@ -921,6 +1039,156 @@ void main() {
       // 경계 위반 요청 이후에도 서버는 계속 응답한다.
       expect(responses[1]['result'], <String, Object?>{});
     },
+  );
+
+  test(
+    'config and baseline paths must be regular files inside the boundary',
+    () async {
+      // exchangeDefault의 경계는 directory다. outside는 그 밖의 임시 디렉터리다.
+      final outside = await Directory.systemTemp.createTemp('mcp-outside.');
+      addTearDown(() => outside.delete(recursive: true));
+      // 경계 밖 YAML의 첫 최상위 키가 rules 진단에 실려 돌아왔다.
+      final secret = File(p.join(outside.path, 'layers.yaml'))
+        ..writeAsStringSync('outside_only_key: 1\n');
+      final foreignBaseline = File(p.join(outside.path, 'baseline.json'))
+        ..writeAsStringSync(
+          '{"fingerprints":[],"formatVersion":1,"tool":"dartograph"}\n',
+        );
+      final escape = Link(p.join(directory.path, 'escape.yaml'))
+        ..createSync(secret.path);
+      final layers = File(p.join(directory.path, 'layers.yaml'))
+        ..writeAsStringSync(
+          'layers:\n  - name: first\n    match: [x]\nrules: []\n',
+        );
+      final alias = Link(p.join(directory.path, 'alias.yaml'))
+        ..createSync(layers.path);
+      // 미참조 Bar 선언 finding 하나를 억제하는 경계 안 baseline이다.
+      final baseline = File(p.join(directory.path, 'baseline.json'))
+        ..writeAsStringSync(
+          r'{"fingerprints":["{\"id\":\"project:lib/b.dart::Bar\",'
+          r'\"kind\":\"declaration\"}"],"formatVersion":1,'
+          '"tool":"dartograph"}\n',
+        );
+      Object verify(int id, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          verify(1, {'command': 'rules', 'config': secret.path}),
+          verify(2, {
+            'command': 'rules',
+            'config': p.join(outside.path, 'missing.yaml'),
+          }),
+          verify(3, {'command': 'rules', 'config': escape.path}),
+          verify(4, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': foreignBaseline.path,
+          }),
+          request(5, 'tools/call', {
+            'name': dependencyToolName,
+            'arguments': {
+              'packageRoot': directory.path,
+              'symbol': 'Foo',
+              'baseline': foreignBaseline.path,
+            },
+          }),
+          explore(6, directory.path, {
+            'symbol': 'Foo',
+            'baseline': foreignBaseline.path,
+          }),
+          explore(7, directory.path, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': foreignBaseline.path,
+          }),
+          // 경계 안의 정규 파일은 링크·서버 작업 디렉터리 기준 상대 경로로도
+          // 받는다.
+          verify(8, {'command': 'rules', 'config': layers.path}),
+          verify(9, {'command': 'rules', 'config': alias.path}),
+          verify(10, {'command': 'rules', 'config': p.relative(layers.path)}),
+          verify(11, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': baseline.path,
+          }),
+          verify(12, {'command': 'dead', 'format': 'json'}),
+        ]),
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(responses, hasLength(12));
+      for (final response in responses.take(7)) {
+        expect((response['result'] as Map)['isError'], isTrue);
+        expect(textOf(response), contains('Invalid arguments: '));
+        expect(textOf(response), isNot(contains('exitCode:')));
+        expect(textOf(response), isNot(contains('outside_only_key')));
+      }
+      // 부재·경계 밖·탈출 링크가 같은 문구라 경계 밖 파일의 존재가 새지 않는다.
+      expect(textOf(responses[1]), textOf(responses[0]));
+      expect(textOf(responses[2]), textOf(responses[0]));
+      expect(textOf(responses[7]), startsWith('exitCode: 0\n'));
+      expect(responses[8]['result'], responses[7]['result']);
+      expect(responses[9]['result'], responses[7]['result']);
+      // 해석된 경계 안 baseline이 실제로 읽혀 finding 하나를 억제한다.
+      expect(textOf(responses[10]), startsWith('exitCode: 1\n'));
+      expect(textOf(responses[10]), contains('"suppressedCount":1'));
+      expect(textOf(responses[11]), startsWith('exitCode: 1\n'));
+      expect(textOf(responses[11]), contains('"suppressedCount":0'));
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
+    'FIFO and device paths for config or baseline do not block the server',
+    () async {
+      final fifo = p.join(directory.path, 'layers.pipe');
+      final mkfifo = await Process.run('mkfifo', [fifo]);
+      expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+      final device = Link(p.join(directory.path, 'baseline.json'))
+        ..createSync('/dev/null');
+      Object verify(int id, Map<String, Object?> arguments) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {'packageRoot': directory.path, ...arguments},
+          });
+
+      // 서버는 요청을 차례로 처리한다. 쓰는 쪽이 없는 FIFO를 읽으려 들면 이어지는
+      // ping까지 영구히 막혔다.
+      final responses = await exchangeDefault(
+        Stream.fromIterable([
+          verify(1, {'command': 'rules', 'config': fifo}),
+          verify(2, {'command': 'dead', 'format': 'json', 'baseline': fifo}),
+          request(3, 'tools/call', {
+            'name': dependencyToolName,
+            'arguments': {
+              'packageRoot': directory.path,
+              'symbol': 'Foo',
+              'baseline': fifo,
+            },
+          }),
+          verify(4, {
+            'command': 'dead',
+            'format': 'json',
+            'baseline': device.path,
+          }),
+          request(5, 'ping'),
+        ]),
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(responses, hasLength(5));
+      for (final response in responses.take(4)) {
+        expect((response['result'] as Map)['isError'], isTrue);
+        expect(textOf(response), startsWith('Invalid arguments: '));
+      }
+      expect(responses.last['result'], <String, Object?>{});
+    },
+    skip: Platform.isWindows,
+    timeout: const Timeout(Duration(seconds: 30)),
   );
 
   test(
@@ -1351,8 +1619,9 @@ void main() {
           'name': 'runtime_query',
           'arguments': {'packageRoot': directory.path, 'workspace': 'yes'},
         }),
-        // workspace: true — indexPackage 주입 경로에서는 플래그가 소비되고
-        // 정상 응답이 돌아온다.
+        // workspace: true — 주입된 고정 색인 함수는 --workspace를 반영할 수
+        // 없다. 조용히 단일 패키지 결과를 내지 않고 usage(64)로 거부돼야 한다
+        // (실제 집계는 세션 색인 테스트가 CLI와 비교한다).
         request(5, 'tools/call', {
           'name': dependencyToolName,
           'arguments': {
@@ -1388,16 +1657,17 @@ void main() {
           contains('workspace must be a boolean'),
         );
       }
-      expect(textOf(responses[4]), startsWith('exitCode: 0\n'));
-      expect(textOf(responses[5]), startsWith('exitCode: 0\n'));
+      expect(textOf(responses[4]), startsWith('exitCode: 64\n'));
+      expect(textOf(responses[4]), contains('--workspace'));
+      expect(textOf(responses[5]), startsWith('exitCode: 64\n'));
       expect(textOf(responses[6]), startsWith('exitCode: 2\n'));
       expect(
         textOf(responses[7]),
-        startsWith('routed: dependency_query\nexitCode: 0\n'),
+        startsWith('routed: dependency_query\nexitCode: 64\n'),
       );
       expect(
         textOf(responses[8]),
-        startsWith('routed: verify_run\nexitCode: 0\n'),
+        startsWith('routed: verify_run\nexitCode: 64\n'),
       );
       expect(
         textOf(responses[9]),
@@ -1405,5 +1675,178 @@ void main() {
       );
       expect(textOf(responses[10]), contains('workspace must be a boolean'));
     },
+  );
+
+  test(
+    'session index aggregates workspace members like CLI --workspace',
+    () async {
+      // b가 a를 import하는 두 멤버 workspace다. a의 비공개 _Unused는 집계
+      // 그래프에서만 미도달 finding이 되고, a의 변경은 집계해야 b에 닿는다.
+      final workspaceRoot = p.join(directory.path, 'ws');
+      void write(String path, String contents) =>
+          File(p.join(workspaceRoot, path))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(contents);
+      write(
+        'pubspec.yaml',
+        'name: ws_root\nenvironment:\n  sdk: ^3.8.0\n'
+            'workspace:\n  - pkgs/a\n  - pkgs/b\n',
+      );
+      // 루트에도 소스가 있어야 집계하지 않은 실행도 세션 캐시에 사실을 쓴다.
+      write('lib/ws_root.dart', 'class RootPackage {}\n');
+      write(
+        'pkgs/a/pubspec.yaml',
+        'name: a\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n',
+      );
+      write('pkgs/a/lib/a.dart', 'int helper() => 1;\n\nclass _Unused {}\n');
+      write(
+        'pkgs/b/pubspec.yaml',
+        'name: b\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n'
+            'dependencies:\n  a:\n',
+      );
+      write(
+        'pkgs/b/lib/b.dart',
+        "import 'package:a/a.dart';\n\nint useHelper() => helper() + 1;\n",
+      );
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: workspaceRoot);
+      expect(pubGet.exitCode, 0, reason: '${pubGet.stderr}');
+      // workspace를 선언하지 않은 루트다. CLI --workspace는 분석 실패(2)다.
+      final plainRoot = p.join(directory.path, 'plain');
+      writeSource(plainRoot, 'class Plain {}');
+      File(p.join(plainRoot, 'pubspec.yaml')).writeAsStringSync('name: p\n');
+
+      // CLI 기준값을 MCP 응답 본문 모양(exitCode 줄 + stdout, 실패면 stderr)
+      // 으로 만든다. 사용자 캐시를 건드리지 않게 실행마다 증분 캐시를 둔다.
+      final cliCaches = await Directory.systemTemp.createTemp('mcp-cli-cache.');
+      addTearDown(() => cliCaches.delete(recursive: true));
+      var cliRuns = 0;
+      Future<String> cli(List<String> arguments) async {
+        final output = StringBuffer();
+        final error = StringBuffer();
+        final status = await runDartograph(
+          [
+            arguments.first,
+            '--incremental',
+            p.join(cliCaches.path, 'run-${cliRuns++}'),
+            ...arguments.skip(1),
+          ],
+          output: output,
+          error: error,
+        );
+        final failed =
+            status == ExitStatus.failure.code ||
+            status == ExitStatus.usage.code;
+        return 'exitCode: $status\n$output${failed ? error : ''}';
+      }
+
+      final changes = File(p.join(cliCaches.path, 'changes.json'))
+        ..writeAsStringSync(jsonEncode(['pkgs/a/lib/a.dart']));
+      final dead = await cli([
+        'dead',
+        '--workspace',
+        '--format',
+        'json',
+        workspaceRoot,
+      ]);
+      final impact = await cli([
+        'impact',
+        '--changed',
+        changes.path,
+        '--workspace',
+        '--format',
+        'json',
+        workspaceRoot,
+      ]);
+      final found = await cli([
+        'query',
+        'helper',
+        '--workspace',
+        workspaceRoot,
+      ]);
+      final single = await cli(['dead', '--format', 'json', workspaceRoot]);
+      final plain = await cli([
+        'dead',
+        '--workspace',
+        '--format',
+        'json',
+        plainRoot,
+      ]);
+      // 손으로 확인한 기대값이다. 집계 그래프만 멤버의 미도달 선언과 멤버
+      // 사이 영향을 본다.
+      expect(dead, startsWith('exitCode: 1\n'));
+      expect(dead, contains('a.dart::_Unused'));
+      expect(impact, startsWith('exitCode: 0\n'));
+      expect(impact, contains('package:b/b.dart::useHelper'));
+      expect(found, startsWith('exitCode: 0\n'));
+      expect(single, startsWith('exitCode: 0\n'));
+      expect(single, contains('workspace-members-not-indexed'));
+      expect(plain, startsWith('exitCode: 2\n'));
+
+      Object verifyDead(int id, String root, {bool? workspace}) =>
+          request(id, 'tools/call', {
+            'name': verifyToolName,
+            'arguments': {
+              'packageRoot': root,
+              'command': 'dead',
+              'format': 'json',
+              'workspace': ?workspace,
+            },
+          });
+      Stream<Object?> messages() async* {
+        yield verifyDead(1, workspaceRoot, workspace: true);
+        yield request(2, 'tools/call', {
+          'name': impactToolName,
+          'arguments': {
+            'packageRoot': workspaceRoot,
+            'changed': ['pkgs/a/lib/a.dart'],
+            'workspace': true,
+          },
+        });
+        yield request(3, 'tools/call', {
+          'name': dependencyToolName,
+          'arguments': {
+            'packageRoot': workspaceRoot,
+            'symbol': 'helper',
+            'workspace': true,
+          },
+        });
+        yield verifyDead(4, workspaceRoot);
+        // 같은 루트라도 workspace 값마다 세션 캐시 하위 디렉터리가 따로다.
+        for (final name in ['package-0', 'package-1']) {
+          final facts = File(p.join(scratch.single.path, name, 'facts.json'));
+          expect(facts.existsSync(), isTrue, reason: name);
+        }
+        yield verifyDead(5, plainRoot, workspace: true);
+      }
+
+      final responses = await exchangeDefault(
+        messages(),
+        createCacheDirectory: createCache,
+      );
+      expect(responses.map(textOf).toList(), [
+        dead,
+        impact,
+        found,
+        single,
+        plain,
+      ]);
+      expect(diagnostics.toString(), isEmpty);
+      expect(scratch.single.existsSync(), isFalse);
+
+      // 캐시를 만들 수 없는 세션의 전체 해석 폴백도 workspace 값을 지킨다.
+      final fallback = await exchangeDefault(
+        Stream.fromIterable([verifyDead(1, workspaceRoot, workspace: true)]),
+        createCacheDirectory: () async {
+          throw const FileSystemException('cache unavailable');
+        },
+      );
+      expect(textOf(fallback.single), dead);
+      expect(diagnostics.toString(), contains('temporary cache unavailable'));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 }

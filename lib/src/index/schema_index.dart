@@ -10,8 +10,10 @@ import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
+import '../core/config_source.dart';
 import 'analyzer_graph_index.dart'
     show enclosingGraphDeclarationId, resolveProjectUnitsAt;
+import 'bounded_resource_provider.dart' show readAnalysisInputSync;
 import 'bridge_index.dart'
     show enclosingFactSymbol, rejectFactControlCharacters;
 import 'project_files.dart';
@@ -81,7 +83,12 @@ Future<SchemaIndexResult> indexSchema(
     rejectFactControlCharacters(relative);
     final String source;
     try {
-      source = file.readAsStringSync();
+      // analyzer와 같은 읽기 경계다. 장치·FIFO·상한 초과는 '읽을 수 없는 파일'
+      // 한계가 아니라 분석 실패다(종료 코드 2) — 다른 명령과 같은 입력이
+      // 여기서만 결과에 한계 한 줄로 묻히지 않게 한다.
+      source = readAnalysisInputSync(file);
+    } on InputRejectedException {
+      rethrow;
     } on FileSystemException {
       counts.unreadableFiles++;
       continue;
@@ -286,46 +293,67 @@ Set<String> _pubspecDependencies(String path) {
   final file = File(path);
   if (!file.existsSync()) return const {};
   try {
-    final document = loadYaml(file.readAsStringSync());
+    final document = loadYaml(readConfigurationSync(file));
     if (document is! YamlMap) return const {};
     return {
       for (final key in const ['dependencies', 'dev_dependencies'])
         if (document[key] case final YamlMap section)
           ...section.keys.whereType<String>(),
     };
-  } on YamlException {
+  } on FormatException {
     // 의존성 게이트는 import 게이트의 보조다 — 못 읽으면 import만 믿는다.
+    // YamlException도 FormatException이고, 설정 상한 초과도 같은 수습이다.
+    return const {};
+  } on FileSystemException {
+    // UTF-8 디코드·읽기 실패도 같다. graph 색인처럼 분석을 멈추지 않는다.
     return const {};
   }
 }
 
 /// drift는 `case_from_dart_to_sql` 옵션으로 이름 변환을 바꿀 수 있다
 /// (기본 snake_case). 다른 값이거나 설정을 읽지 못하면 파생 이름을 싣지 않는다.
+///
+/// 읽기는 다른 저장소 설정과 같은 상한 경계([readConfigurationSync])를 지난다.
+/// YAML 오류·상한 초과·UTF-8 디코드 실패는 graph 색인의 build.yaml 처리처럼
+/// 종료 코드 2가 아니라 이 한계 사유로 낮춘다.
 String? _driftNamingReason(String path) {
   final file = File(path);
   if (!file.existsSync()) return null;
   try {
     final value = _findYamlKey(
-      loadYaml(file.readAsStringSync()),
+      loadYaml(readConfigurationSync(file)),
       'case_from_dart_to_sql',
+      Set.identity(),
     );
     if (value == null || value == 'snake_case') return null;
     return 'build.yaml sets case_from_dart_to_sql to $value';
-  } on YamlException {
+  } on FormatException {
+    // YamlException도 FormatException이다.
+    return 'build.yaml could not be parsed';
+  } on FileSystemException {
     return 'build.yaml could not be parsed';
   }
 }
 
-Object? _findYamlKey(Object? node, String key) {
+/// [node] 아래에서 [key]의 첫 값을 깊이 우선으로 찾는다.
+///
+/// package:yaml은 별칭(`*a`)을 같은 노드 객체로 공유한다. 파싱은 싸지만 공유
+/// 노드를 매번 다시 훑으면 1 KiB 남짓한 별칭 폭탄도 논리 노드 수(단계마다
+/// 10배)만큼 방문해 끝나지 않는다. [visited]는 이미 훑은 맵·리스트의 identity다.
+/// 다시 만난 노드는 앞에서 이미 null을 돌려준 노드이므로(찾았다면 그때 멈췄다)
+/// 건너뛰어도 첫 발견 결과가 같고, 방문은 고유 노드 수에 비례한다.
+Object? _findYamlKey(Object? node, String key, Set<Object> visited) {
   if (node is YamlMap) {
+    if (!visited.add(node)) return null;
     if (node.containsKey(key)) return node[key];
     for (final value in node.values) {
-      final found = _findYamlKey(value, key);
+      final found = _findYamlKey(value, key, visited);
       if (found != null) return found;
     }
   } else if (node is YamlList) {
+    if (!visited.add(node)) return null;
     for (final value in node) {
-      final found = _findYamlKey(value, key);
+      final found = _findYamlKey(value, key, visited);
       if (found != null) return found;
     }
   }

@@ -693,4 +693,59 @@ void main() {
     ]);
     expect(gated.status, 1);
   });
+
+  test('markdown은 리터럴과 --execute stderr를 렌더링 가능한 문법으로 내지 않는다', () async {
+    // 소스 리터럴은 detail·evidence에 원문으로 실리고, --execute 자식은 stderr를
+    // 마음대로 쓴다. PR 코멘트에서 링크·HTML·멘션·위조 제목이 되면 안 된다.
+    write(
+      'lib/env.dart',
+      "import 'dart:io';\n"
+          "String? token() => Platform.environment['[x](https://evil.example) "
+          "<img src=y> @team'];\n"
+          "const fallback = String.fromEnvironment('B', "
+          "defaultValue: '<b>@team</b> [d](https://evil.example)');\n",
+    );
+    write(
+      'bin/probe_spoof.dart',
+      "import 'dart:io';\n"
+          'void main() { '
+          r"stderr.write('```\n## Injected\n\x1b[31mred'); "
+          'exit(3); }\n',
+    );
+
+    final result = await run([
+      'runtime',
+      '--execute',
+      'bin/probe_spoof.dart',
+      '--format',
+      'markdown',
+      directory.path,
+    ]);
+
+    expect(result.status, 0);
+    // 이름은 code span 안이라 그대로다.
+    expect(
+      result.out,
+      contains('| `[x](https://evil.example) <img src=y> @team` |'),
+    );
+    expect(
+      result.out,
+      contains(
+        r'| Platform.environment["[x]\(https://evil.example) \<img src=y> '
+        r'@&#8203;team"] |',
+      ),
+    );
+    expect(
+      result.out,
+      contains(
+        r'| default value "\<b>@&#8203;team\</b> [d]\(https://evil.example)" |',
+      ),
+    );
+    // 펜스는 내용의 가장 긴 백틱 run보다 길고, 위조 제목은 블록 안에 남는다.
+    expect(
+      result.out,
+      contains('\n````text\n```\n## Injected\n\\x1b[31mred\n````\n'),
+    );
+    expect(result.out, isNot(contains('\x1b')));
+  });
 }

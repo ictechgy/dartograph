@@ -157,26 +157,201 @@ void main() {
   test('single pass equals brute-force per-root BFS on random graphs', () {
     final random = Random(20260929);
     for (var round = 0; round < 60; round++) {
-      final size = 3 + random.nextInt(25);
-      final ids = [
-        for (var i = 0; i < size; i++) 'v${i.toString().padLeft(2, '0')}',
-      ];
-      final edges = <(String, String, EdgeKind)>{};
-      final count = random.nextInt(size * 3);
-      for (var i = 0; i < count; i++) {
-        final kind = EdgeKind.values[random.nextInt(EdgeKind.values.length)];
-        edges.add((ids[random.nextInt(size)], ids[random.nextInt(size)], kind));
-      }
-      final snapshot = graph(ids, edges.toList());
-      final roots = {
-        for (var i = 0; i < 1 + random.nextInt(4); i++)
-          ids[random.nextInt(size)],
-      }.toList();
+      final (snapshot, roots) = _randomCase(random);
       for (final direction in TraversalDirection.values) {
         _checkAgainstBruteForce(snapshot, roots, direction);
       }
     }
   });
+
+  group('rows reached from more than 64 roots', () {
+    // hub는 root 0이고 r01…r70(root 1…70)을 부른다. dependents에서 각 r이
+    // hub에 닿고, hub를 부르는 caller에는 root 71개가 모두 닿는다.
+    final callees = [
+      for (var i = 1; i <= 70; i++) 'r${i.toString().padLeft(2, '0')}',
+    ];
+    final requested = ['hub', ...callees];
+    List<int> range(int start, int end) => [
+      for (var i = start; i < end; i++) i,
+    ];
+
+    test('list the 64 smallest other-root indices and count them all', () {
+      final snapshot = graph(
+        ['caller', 'hub', ...callees],
+        [
+          ('caller', 'hub', EdgeKind.call),
+          for (final callee in callees) ('hub', callee, EdgeKind.call),
+        ],
+      );
+      final result = LanguageTraversal.traverse(
+        snapshot,
+        requested,
+        TraversalDirection.dependents,
+      );
+      expect(
+        [
+          for (final row in result.reached)
+            [row.node.id, row.via, row.depth, row.roots, row.rootCount],
+        ],
+        [
+          ['caller', 'hub', 1, range(0, 64), 71],
+          // hub 자신(root 0)은 목록과 개수에서 빠진다.
+          ['hub', 'r01', 1, range(1, 65), 70],
+        ],
+      );
+      expect(
+        [for (final row in result.reached) row.evidence],
+        [TraversalEvidence.direct, TraversalEvidence.direct],
+      );
+    });
+
+    test('evidence weighs roots past the 64 listed ones', () {
+      // r70(root 70)만 hub를 재정의해 동적 디스패치 후보로 hub에 닿는다.
+      // 목록에 실리지 않는 root 하나가 candidate면 정점 전체가 candidate다.
+      final snapshot = graph(
+        ['caller', 'hub', ...callees],
+        [
+          ('caller', 'hub', EdgeKind.call),
+          for (final callee in callees.take(69)) ('hub', callee, EdgeKind.call),
+          ('r70', 'hub', EdgeKind.override),
+        ],
+      );
+      final result = LanguageTraversal.traverse(
+        snapshot,
+        requested,
+        TraversalDirection.dependents,
+      );
+      expect(
+        [
+          for (final row in result.reached)
+            [
+              row.node.id,
+              row.via,
+              row.roots,
+              row.rootCount,
+              row.relationships,
+              row.evidence,
+            ],
+        ],
+        [
+          [
+            'caller',
+            'hub',
+            range(0, 64),
+            71,
+            ['call'],
+            TraversalEvidence.candidate,
+          ],
+          [
+            'hub',
+            'r01',
+            range(1, 65),
+            70,
+            ['call'],
+            TraversalEvidence.candidate,
+          ],
+          // hub와 r01…r69는 hub가 재정의된 쪽으로 가는 direct 간선으로 r70에 닿는다.
+          [
+            'r70',
+            'hub',
+            range(0, 64),
+            70,
+            ['override'],
+            TraversalEvidence.direct,
+          ],
+        ],
+      );
+      final capped = LanguageTraversal.traverse(
+        snapshot,
+        requested,
+        TraversalDirection.dependents,
+        reachedLimit: 1,
+      );
+      expect(
+        [
+          for (final row in capped.reached)
+            [row.node.id, row.roots, row.rootCount, row.evidence],
+        ],
+        [
+          ['caller', range(0, 64), 71, TraversalEvidence.candidate],
+        ],
+      );
+      expect(capped.reachedTruncated, isTrue);
+    });
+  });
+
+  test('the reached limit lists the (depth, id) prefix of the full result', () {
+    final random = Random(20261019);
+    for (var round = 0; round < 40; round++) {
+      final (snapshot, roots) = _randomCase(random);
+      for (final direction in TraversalDirection.values) {
+        final full = LanguageTraversal.traverse(snapshot, roots, direction);
+        for (var limit = 0; limit <= full.reached.length; limit++) {
+          _checkCapped(
+            LanguageTraversal.traverse(
+              snapshot,
+              roots,
+              direction,
+              reachedLimit: limit,
+            ),
+            full,
+            limit,
+          );
+        }
+      }
+    }
+  });
+}
+
+/// 무작위 그래프 하나와 root 1~4개를 만든다.
+(GraphSnapshot, List<String>) _randomCase(Random random) {
+  final size = 3 + random.nextInt(25);
+  final ids = [
+    for (var i = 0; i < size; i++) 'v${i.toString().padLeft(2, '0')}',
+  ];
+  final edges = <GraphEdge>{};
+  final count = random.nextInt(size * 3);
+  for (var i = 0; i < count; i++) {
+    // 난수는 종류·출발·도착 순으로 뽑는다(기존 오라클과 같은 그래프).
+    final kind = EdgeKind.values[random.nextInt(EdgeKind.values.length)];
+    final source = ids[random.nextInt(size)];
+    final target = ids[random.nextInt(size)];
+    edges.add(GraphEdge(sourceId: source, targetId: target, kind: kind));
+  }
+  final snapshot = GraphSnapshot(
+    nodes: [for (final id in ids) GraphNode(id: id)],
+    edges: edges,
+  );
+  final roots = {
+    for (var i = 0; i < 1 + random.nextInt(4); i++) ids[random.nextInt(size)],
+  }.toList();
+  return (snapshot, roots);
+}
+
+/// 상한 [limit]으로 자른 결과가 전체 결과의 앞 [limit]행과 필드까지 같고,
+/// 남은 행의 via가 모두 root이거나 남은 행인지 확인한다.
+void _checkCapped(
+  LanguageTraversalResult capped,
+  LanguageTraversalResult full,
+  int limit,
+) {
+  String describe(TraversalReached row) =>
+      '${row.node.id} ${row.via} ${row.depth} ${row.roots} ${row.rootCount} '
+      '${row.relationships} ${row.evidence}';
+  expect(
+    [for (final row in capped.reached) describe(row)],
+    [for (final row in full.reached.take(limit)) describe(row)],
+    reason: 'limit $limit',
+  );
+  expect(capped.reachedTruncated, limit < full.reached.length);
+  expect(capped.depthTruncated, full.depthTruncated);
+  final listed = {
+    for (final root in capped.roots) root.id,
+    for (final row in capped.reached) row.node.id,
+  };
+  for (final row in capped.reached) {
+    expect(listed, contains(row.via), reason: '${row.node.id} via');
+  }
 }
 
 /// root별 BFS로 계약의 정의를 직접 계산해 한 번 순회 결과와 비교한다.
@@ -210,7 +385,8 @@ void _checkAgainstBruteForce(
     expectedIds.add(node.id);
     final row = rows[node.id];
     expect(row, isNotNull, reason: '${node.id} reached');
-    expect(row!.roots, reaching, reason: '${node.id} roots');
+    expect(row!.roots, reaching.take(64), reason: '${node.id} roots');
+    expect(row.rootCount, reaching.length, reason: '${node.id} root count');
     final depth = reaching.map((i) => distances[i][node.id]!).reduce(min);
     expect(row.depth, depth, reason: '${node.id} depth');
     final directEverywhere = reaching.every(

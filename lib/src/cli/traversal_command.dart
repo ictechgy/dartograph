@@ -53,8 +53,8 @@ Future<int> _runLanguageTraversal(
       indexPackage,
       now,
     );
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -193,15 +193,21 @@ Future<List<String>> _traversalRoots(_TraversalOptions options) async {
   return roots.toList();
 }
 
+/// `--roots-from` 입력(파일 또는 `-`의 stdin)을 16 MiB까지 읽는다.
+///
+/// 청크를 모으다 상한을 넘는 즉시 멈춘다. 전부 읽은 뒤에야 길이를 보면 EOF가
+/// 오지 않는 파이프·장치에서 상한 진단에 이르지 못하고 메모리가 먼저
+/// 고갈된다. 프로세스 치환(`<(...)`)처럼 파이프인 경로도 정상 입력이다.
 Future<String> _readRootsSource(String source) async {
   const limit = 16 * 1024 * 1024;
-  final bytes = source == '-'
-      ? await stdin.fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
-      : await File(source).readAsBytes();
-  if (bytes.length > limit) {
-    throw const FormatException('--roots-from exceeds 16 MiB.');
+  final bytes = BytesBuilder(copy: false);
+  await for (final chunk in source == '-' ? stdin : File(source).openRead()) {
+    bytes.add(chunk);
+    if (bytes.length > limit) {
+      throw const FormatException('--roots-from exceeds 16 MiB.');
+    }
   }
-  return utf8.decode(bytes);
+  return utf8.decode(bytes.takeBytes());
 }
 
 /// `--roots-from` 내용에서 root를 읽는다. JSON 문자열 배열이거나

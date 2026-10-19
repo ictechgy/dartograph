@@ -4,6 +4,8 @@ import 'package:dartograph/src/analysis/reachability_analyzer.dart';
 import 'package:dartograph/src/export/dead_reporter.dart';
 import 'package:test/test.dart';
 
+import '../support/markdown_fixture_support.dart';
+
 void main() {
   final finding = DeadFinding(
     id: 'package:app/a.dart::dead',
@@ -266,6 +268,49 @@ void main() {
 
     final markdown = DeadReporter.render(ReportFormat.markdown, [hostile]);
     expect(markdown, contains('``package:app/a.dart::Foo`x``'));
+  });
+
+  test('markdown limitations cannot open links, html, spans, or mentions', () {
+    // limitation은 저장소가 정한 문자열(dartograph.yaml 미지 키 등)을 원문으로
+    // 싣는다. 리포트가 PR 코멘트로 게시돼도 링크·이미지·HTML·code span·멘션으로
+    // 렌더링되지 않아야 한다 — 전역 limitation과 finding별 limitation 모두.
+    final hostile = DeadFinding(
+      id: 'package:app/a.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/a.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+      limitations: const [hostileMarkdownText],
+    );
+
+    final markdown = DeadReporter.render(
+      ReportFormat.markdown,
+      [hostile],
+      limitations: const [hostileMarkdownText],
+    );
+    expect(
+      markdown,
+      contains('\n- `package:app/a.dart::x`: $escapedMarkdownText\n'),
+    );
+    expect(markdown, contains('\n- $escapedMarkdownText\n'));
+    expect(markdown, isNot(contains('\x1b')));
+  });
+
+  test('markdown limitations leave bare URLs as written', () {
+    // 맨 URL은 이스케이프하지 않는다. GitHub(cmark-gfm)는 `scheme://`를 앞
+    // 글자와 무관하게 자동 링크로 만들어, 막으려면 runtime detail의
+    // `Uri.parse("https://…")` 같은 정상 문구도 바꿔야 한다. 자동 링크의 글자는
+    // 주소 자체다. 막는 것은 글자로 목적지를 가리는 `[…](…)` 형태다.
+    const bare = 'see https://evil.example/login or www.evil.example';
+    const disguised = '[Approve](https://evil.example)';
+    final markdown = DeadReporter.render(
+      ReportFormat.markdown,
+      const [],
+      limitations: const [bare, disguised],
+    );
+
+    expect(markdown, contains('\n- $bare\n'));
+    expect(markdown, contains('\n- ${r'[Approve]\(https://evil.example)'}\n'));
   });
 
   test('sarif uri keeps backslashes and literal percent sequences', () {

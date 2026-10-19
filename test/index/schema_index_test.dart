@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartograph/src/core/config_source.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:dartograph/src/index/schema_index.dart';
 import 'package:path/path.dart' as p;
@@ -280,6 +281,128 @@ class TodoItems extends Table {
       result.limitations,
       contains(contains('build.yaml sets case_from_dart_to_sql to preserve')),
     );
+  });
+
+  test('읽지 못한 build.yaml은 schema를 멈추지 않고 drift 파생만 뺀다', () async {
+    await write('lib/tables.dart', r'''
+import 'package:drift/drift.dart';
+
+class TodoItems extends Table {
+  IntColumn get id => integer().named('id')();
+  IntColumn get createdAt => integer()();
+}
+''');
+    final build = File(p.join(root.path, 'build.yaml'));
+    // UTF-8이 아닌 바이트와 설정 상한(1 MiB)을 넘는 문서다. graph 색인은 같은
+    // 파일을 build-yaml-unparsed 한계로 낮추는데 schema만 종료 2가 됐다.
+    final unreadable = [
+      [0xFF, 0xFE, ...'targets: {}\n'.codeUnits],
+      '# ${'x' * configurationSizeLimit}\n'.codeUnits,
+    ];
+    for (final bytes in unreadable) {
+      await build.writeAsBytes(bytes);
+
+      final result = await indexSchema(root.path);
+
+      expect(summarize(result), ['~TodoItems@3']);
+      expect(
+        result.limitations,
+        contains(contains('(build.yaml could not be parsed)')),
+      );
+    }
+  });
+
+  test(
+    'build.yaml 별칭은 공유 노드를 한 번만 훑고 별칭 안의 키도 찾는다',
+    () async {
+      await write('lib/tables.dart', r'''
+import 'package:drift/drift.dart';
+
+class TodoItems extends Table {
+  IntColumn get id => integer().named('id')();
+  IntColumn get createdAt => integer()();
+}
+''');
+      // 단계마다 앞 단계 별칭이 10개다. 고유 노드는 12개지만 논리 노드는
+      // 10^12개라, 공유 노드를 다시 훑으면 1 KiB 남짓한 파일로 끝나지 않는다.
+      final levels = [
+        'l0: &l0 [${List.filled(10, 'x').join(', ')}]',
+        for (var level = 1; level < 12; level++)
+          'l$level: &l$level '
+              '[${List.filled(10, '*l${level - 1}').join(', ')}]',
+      ];
+      await write('build.yaml', '${levels.join('\n')}\n');
+
+      final bomb = await indexSchema(root.path);
+
+      // 키가 없으므로 기본 snake_case 파생 그대로다.
+      expect(summarize(bomb), [
+        'todo_items@3',
+        'todo_items#id@4',
+        'todo_items#created_at@5',
+      ]);
+
+      // 이미 본 공유 노드를 건너뛰어도 첫 발견 의미는 같다.
+      await write('build.yaml', '''
+targets:
+  a: &shared {options: {case_from_dart_to_sql: none}}
+  b: *shared
+''');
+
+      final aliased = await indexSchema(root.path);
+
+      expect(
+        aliased.limitations,
+        contains(contains('build.yaml sets case_from_dart_to_sql to none')),
+      );
+    },
+    // 수정 후에는 수 밀리초다. 넉넉한 상한은 부하가 큰 CI에서도 흔들리지 않게 한다.
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
+
+  test('장치를 가리키는 링크 입력은 schema를 FormatException으로 멈춘다', () async {
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) => db.rawQuery('SELECT * FROM users');
+''');
+    // /dev/null은 길이 0·즉시 EOF라 수정 전 코드도 멈추지 않는 안전한
+    // 대역이다. /dev/zero라면 build.yaml·pubspec 읽기가 메모리를 채우고,
+    // 사실이 난 파일의 해석(analyzer)은 package_config를 상한 없이 읽는다.
+    for (final target in const [
+      'build.yaml',
+      'pubspec.yaml',
+      'lib/x.dart',
+      'lib/schema.drift',
+      '.dart_tool/package_config.json',
+    ]) {
+      final link = Link(p.join(root.path, target));
+      await link.parent.create(recursive: true);
+      await link.create('/dev/null');
+
+      await expectLater(
+        indexSchema(root.path),
+        throwsFormatException,
+        reason: target,
+      );
+      await link.delete();
+    }
+  }, skip: Platform.isWindows);
+
+  test('UTF-8이 아닌 pubspec은 의존성 게이트만 비운다', () async {
+    await File(
+      p.join(root.path, 'pubspec.yaml'),
+    ).writeAsBytes([0xFF, 0xFE, ...'name: app\n'.codeUnits]);
+    await write('lib/repo.dart', r'''
+import 'package:sqflite/sqflite.dart';
+
+void run(Database db) => db.rawQuery('SELECT * FROM users');
+''');
+
+    final result = await indexSchema(root.path);
+
+    // import 게이트는 그대로라 sqflite 사실은 남는다.
+    expect(summarize(result), ['users@3']);
   });
 
   test('floor Entity·ColumnInfo·ignore·Query·DatabaseView를 읽는다', () async {

@@ -4,6 +4,7 @@ import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
 import 'anonymizer.dart';
+import 'json_chunks.dart';
 
 /// 그래프 사실을 결정론적인 교환 형식으로 직렬화한다.
 ///
@@ -20,6 +21,7 @@ import 'anonymizer.dart';
 /// | Mermaid | `#`·`\`·`"`·CR·LF → 문서화 엔티티 코드(`#35;`·`#92;`·`#quot;`·`#13;`·`#10;`), `&`·`<`·`>` → HTML 엔티티 — 라벨은 항상 한 물리행. 나머지 C0(탭·ESC 등)은 행 구조를 깨지 않아 그대로 둔다 |
 /// | HTML | 페이로드: `<` → `\u003c`(적법한 JSON 이스케이프, script-tag 토크나이저 보호) / 헤더 limitation: HTML 텍스트 엔티티(raw LF는 HTML이 공백으로 흡수) |
 /// | text(dead_reporter) | 동적 값 전체(path·id·kind·reason·evidence·limitation)의 C0·DEL → 가시 이스케이프 — `path:line:col:` 행 프로토콜 위조 방지. 가시 이스케이프는 표시 전용이며 소비자가 역변환할 계약은 없다 |
+/// | Markdown(dead·deps·dup·impact·runtime) | ID·경로·위치는 `mdCode` code span — 구분자를 내용의 가장 긴 백틱 run보다 길게 잡는다. 그 밖의 동적 문구(limitation·detail·evidence·reason)는 `mdText` — 제어문자는 가시 이스케이프, 역슬래시·백틱·`<`·`&`·`\|`와 `](`의 `(`는 역슬래시 이스케이프(링크·이미지·HTML·엔티티·code span 차단), 영숫자 앞 `@`는 `@&#8203;`(GitHub는 렌더링 뒤 멘션을 연결해 `\@`로 막지 못한다). `[`·`_`·`*`는 그대로다. 맨 URL(`https://…`·`ftp://…`·`www.…`)은 막지 않는다 — GitHub(cmark-gfm)는 `scheme://`이면 앞 글자와 무관하게 자동 링크로 만들어, 막으려면 정상 runtime detail(`Uri.parse("https://…")`)의 바이트도 바꿔야 한다. 자동 링크의 글자는 주소 자체라 목적지를 숨기지 못하고, 이 정책이 막는 것은 글자로 목적지를 가리는 링크다. 예외로 runtime의 자리표시 `<computed>`는 HTML 태그로 읽혀 사라지던 것이라 `\<computed>`로 바뀐다. `runtime --execute` stderr는 `mdCodeBlock` — 펜스를 내용의 가장 긴 백틱 run보다 1 길게(최소 3) 잡고 개행·탭 외 제어문자(CR 포함)를 가시 이스케이프한다 |
 /// | GitHub Actions(dead_reporter) | `%`·C0·DEL·C1·U+2028/2029·bidi(U+202A–202E·U+2066–2069) → 퍼센트 인코딩. 원문의 리터럴 `%XX`는 `%25` 선행 인코딩으로 단일 디코드 후 원문 그대로 표시된다 |
 /// | SARIF uri(dead_reporter) | project 상대 경로는 구분자 분리 + 세그먼트별 `Uri` 인코딩(`\`·`%` 손실 없음), `file:`·`package:` 소스는 이미 절대 URI라 그대로 통과 |
 ///
@@ -34,12 +36,22 @@ abstract final class GraphExporter {
   static String json(
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
-  }) =>
-      '${jsonEncode({
-        'edges': [for (final edge in graph.edges) _edgeJson(edge, null)],
-        'limitations': limitations.toList()..sort(),
-        'nodes': [for (final node in graph.nodes) _nodeJson(node, null)],
-      })}\n';
+  }) {
+    final document = StringBuffer();
+    writeJson(document, graph, limitations: limitations);
+    return document.toString();
+  }
+
+  /// [json]과 같은 바이트를 [sink]에 조각으로 쓴다.
+  ///
+  /// 문서 전체를 한 문자열로 만들지 않는다. 정점·간선마다 Map을 쌓은 목록과
+  /// 그 단일 문자열, 보간 사본이 출력 크기의 몇 배를 잡기 때문이다. 원소를
+  /// 하나씩 `jsonEncode`해 이어 쓰므로 키 순서와 구분자는 [json]과 같다.
+  static void writeJson(
+    StringSink sink,
+    GraphSnapshot graph, {
+    Iterable<String> limitations = const [],
+  }) => _writeDocument(sink, graph, limitations, null);
 
   /// 식별 문자열만 치환한 JSON 문서를 만든다(anon 형식).
   ///
@@ -50,12 +62,43 @@ abstract final class GraphExporter {
     GraphSnapshot graph, {
     Iterable<String> limitations = const [],
   }) {
+    final document = StringBuffer();
+    writeAnon(document, graph, limitations: limitations);
+    return document.toString();
+  }
+
+  /// [anon]과 같은 바이트를 [sink]에 조각으로 쓴다([writeJson]과 같은 방식).
+  static void writeAnon(
+    StringSink sink,
+    GraphSnapshot graph, {
+    Iterable<String> limitations = const [],
+  }) {
     final anonymizer = GraphAnonymizer.forGraph(graph);
-    return '${jsonEncode({
-      'edges': [for (final edge in graph.edges) _edgeJson(edge, anonymizer)],
-      'limitations': [for (final limitation in limitations) anonymizer.anonymizeText(limitation)]..sort(),
-      'nodes': [for (final node in graph.nodes) _nodeJson(node, anonymizer)],
-    })}\n';
+    _writeDocument(sink, graph, limitations, anonymizer);
+  }
+
+  /// json·anon 문서를 간선, limitation, 정점 순서로 쓴다(키 정렬 순서).
+  ///
+  /// limitation 치환은 쓰기 전에 끝낸다. 실패하더라도 반쪽 문서가 출력되지
+  /// 않게 하려는 것이다. 치환표는 [GraphAnonymizer.forGraph]가 모든 정점으로
+  /// 미리 채우므로, 간선보다 먼저 치환해도 결과는 같다.
+  static void _writeDocument(
+    StringSink sink,
+    GraphSnapshot graph,
+    Iterable<String> limitations,
+    GraphAnonymizer? map,
+  ) {
+    final texts = [
+      for (final limitation in limitations)
+        map == null ? limitation : map.anonymizeText(limitation),
+    ]..sort();
+    JsonChunkWriter(sink)
+      ..write('{"edges":[')
+      ..writeElements(graph.edges.map((edge) => _edgeJson(edge, map)))
+      ..write('],"limitations":${jsonEncode(texts)},"nodes":[')
+      ..writeElements(graph.nodes.map((node) => _nodeJson(node, map)))
+      ..write(']}\n')
+      ..flush();
   }
 
   static Map<String, Object> _edgeJson(GraphEdge edge, GraphAnonymizer? map) =>

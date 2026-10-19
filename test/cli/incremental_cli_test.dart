@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartograph/src/cli/dartograph_cli.dart';
@@ -87,6 +88,151 @@ void main() {
     expect(dead.status, 1, reason: dead.error);
     expect(dead.output, contains('project:lib/app.dart'));
   });
+
+  test(
+    'a failed fact cache write keeps the deps --workspace audit unchanged',
+    () async {
+      // 멤버 pkg_b가 pkg_a를 선언하고 import한다 — 멤버별 감사에서는 발견이
+      // 없다. 멤버 매니페스트를 잃은 결과는 루트 pubspec 하나로 감사하므로
+      // pkg_a를 미선언 의존으로 오판해 종료 1이 된다.
+      final workspaceRoot = p.join(workspace.path, 'ws');
+      Future<void> write(String path, String contents) async {
+        final file = File(p.join(workspaceRoot, path));
+        await file.create(recursive: true);
+        await file.writeAsString(contents);
+      }
+
+      await write(
+        'pubspec.yaml',
+        'name: ws_root\nenvironment:\n  sdk: ^3.8.0\n'
+            'workspace:\n  - pkgs/pkg_a\n  - pkgs/pkg_b\n',
+      );
+      await write('lib/ws_root.dart', 'class RootPackage {}\n');
+      await write(
+        'pkgs/pkg_a/pubspec.yaml',
+        'name: pkg_a\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n',
+      );
+      await write('pkgs/pkg_a/lib/pkg_a.dart', 'class Foo {}\n');
+      await write(
+        'pkgs/pkg_b/pubspec.yaml',
+        'name: pkg_b\nenvironment:\n  sdk: ^3.8.0\nresolution: workspace\n'
+            'dependencies:\n  pkg_a:\n',
+      );
+      await write(
+        'pkgs/pkg_b/lib/pkg_b.dart',
+        "import 'package:pkg_a/pkg_a.dart';\n\nFoo makeFoo() => Foo();\n",
+      );
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: workspaceRoot);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+      // facts.json 자리에 디렉터리를 두어 원자적 교체(rename)가 실패하게 한다.
+      final unwritable = p.join(workspace.path, 'unwritable-facts');
+      await Directory(p.join(unwritable, 'facts.json')).create(recursive: true);
+
+      final plain = await _run([
+        'deps',
+        '--format',
+        'json',
+        '--workspace',
+        workspaceRoot,
+      ]);
+      final failedWrite = await _run([
+        'deps',
+        '--format',
+        'json',
+        '--workspace',
+        '--incremental',
+        unwritable,
+        workspaceRoot,
+      ]);
+
+      expect(plain.status, 0, reason: '${plain.output}${plain.error}');
+      expect(failedWrite.status, plain.status, reason: failedWrite.output);
+      final expected = jsonDecode(plain.output) as Map<String, Object?>;
+      final actual = jsonDecode(failedWrite.output) as Map<String, Object?>;
+      expect(actual['findings'], expected['findings']);
+      // 쓰기 실패 한계 하나만 더해지고 나머지 한계는 그대로다.
+      const writeFailure =
+          'incremental-cache-write-failed: analysis is complete but the fact '
+          'cache was not updated';
+      final limitations = (actual['limitations']! as List<Object?>)
+          .cast<String>();
+      expect(limitations.where((item) => item == writeFailure), hasLength(1));
+      expect(
+        limitations.where((item) => item != writeFailure).toList(),
+        expected['limitations'],
+      );
+    },
+  );
+
+  test(
+    'stale or malformed package_config entries do not fail analysis',
+    () async {
+      final configuration = File(
+        p.join(root.path, '.dart_tool', 'package_config.json'),
+      );
+      await configuration.parent.create(recursive: true);
+      // 지운 path 의존·옮긴 pub cache처럼 루트가 사라진 항목과, 잘려서 깨진
+      // 문서다. 캐시 키 열거만 이 입력에서 실패했다 — 전체 결과 캐시 경로는
+      // 실패를 흡수했지만 증분·runtime 경로는 종료 2가 됐다.
+      final gone = p.join(workspace.path, 'gone');
+      final documents = {
+        'stale': jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {
+              'name': 'app',
+              'rootUri': '../',
+              'packageUri': 'lib/',
+              'languageVersion': '3.11',
+            },
+            {
+              'name': 'gone',
+              'rootUri': '${p.toUri(gone)}/',
+              'packageUri': 'lib/',
+              'languageVersion': '3.11',
+            },
+          ],
+        }),
+        'malformed': '{"configVersion": 2, "packages": [',
+      };
+      // 선언 없는 배럴 lib/app.dart는 두 경우 모두 dead-file이다(종료 1).
+      // 남은 app 항목은 계속 해석돼 package: ID가 되고, 깨진 문서는 package:
+      // URI를 못 풀어 project: ID가 된다.
+      const barrels = {
+        'stale': 'package:app/app.dart',
+        'malformed': 'project:lib/app.dart',
+      };
+      for (final MapEntry(key: name, value: document) in documents.entries) {
+        await configuration.writeAsString(document);
+        final plain = await _run(['dead', '--format', 'json', root.path]);
+        final incremental = await _run([
+          'dead',
+          '--incremental',
+          p.join(workspace.path, 'facts-$name'),
+          '--format',
+          'json',
+          root.path,
+        ]);
+        final runtime = await _run([
+          'runtime',
+          '--no-verify',
+          '--format',
+          'json',
+          root.path,
+        ]);
+
+        expect(plain.status, 1, reason: '$name: ${plain.error}');
+        expect(plain.output, contains('"id":"${barrels[name]}"'));
+        expect(incremental.status, plain.status, reason: incremental.error);
+        expect(incremental.output, plain.output, reason: name);
+        expect(runtime.status, 0, reason: '$name: ${runtime.error}');
+      }
+    },
+  );
 
   test('incremental option errors are usage errors', () async {
     for (final invocation in [

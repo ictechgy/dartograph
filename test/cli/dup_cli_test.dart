@@ -91,6 +91,56 @@ void main() {
     expect(output.toString(), contains('0 finding(s)'));
   });
 
+  test('dup --format github-actions gates with workflow commands', () async {
+    // 도움말·USAGE·MCP가 광고하는 철자다. enum 이름만 비교하던 파서는 이 값을
+    // usage(64)로 거부했다.
+    final fixture = await copyFixture('duplication');
+    final findings = StringBuffer();
+    expect(
+      await runDartograph([
+        'dup',
+        '--format',
+        'github-actions',
+        '--min-tokens',
+        '20',
+        fixture.path,
+      ], output: findings),
+      ExitStatus.findings.code,
+    );
+    final lines = const LineSplitter().convert(findings.toString());
+    expect(lines, everyElement(startsWith('::')));
+    expect(lines, anyElement(startsWith('::warning file=lib/alpha.dart,')));
+    // 문서 밖 enum 이름도 이전 릴리스부터 받아 온 값이라 같은 보고로 받는다.
+    final legacy = StringBuffer();
+    expect(
+      await runDartograph([
+        'dup',
+        '--format',
+        'githubActions',
+        '--min-tokens',
+        '20',
+        fixture.path,
+      ], output: legacy),
+      ExitStatus.findings.code,
+    );
+    expect(legacy.toString(), findings.toString());
+
+    final clean = StringBuffer();
+    expect(
+      await runDartograph([
+        'dup',
+        '--format',
+        'github-actions',
+        '--min-tokens',
+        '200',
+        fixture.path,
+      ], output: clean),
+      ExitStatus.success.code,
+      reason: clean.toString(),
+    );
+    expect(clean.toString(), isNot(contains('::warning')));
+  });
+
   test('dup rejects invalid and duplicate valued options', () async {
     final output = StringBuffer();
     final error = StringBuffer();

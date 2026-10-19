@@ -3,6 +3,7 @@ import 'package:yaml/yaml.dart';
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
+import '../core/path_glob.dart';
 
 /// YAML에서 읽은 레이어 정의와 허용·금지 규칙이다.
 final class LayerRuleSet {
@@ -208,10 +209,10 @@ final class LayerRuleEvaluator {
   /// 평가할 파싱 완료 규칙이다.
   final LayerRuleSet ruleSet;
 
-  // 패턴→RegExp 캐시: first-match 배치는 매치되지 않는 노드마다 전체 패턴을
-  // 훑는데 매번 RegExp를 재컴파일했다(감사 P4 — 노드 × 레이어 × 패턴 회).
+  // 패턴→매처 캐시: first-match 배치는 매치되지 않는 노드마다 전체 패턴을
+  // 훑는데 매번 재컴파일했다(감사 P4 — 노드 × 레이어 × 패턴 회).
   // 컴파일 결과는 패턴 문자열이 결정하므로 캐시가 매치를 바꾸지 않는다.
-  final Map<String, RegExp> _globCache = {};
+  final Map<String, PathGlobMatcher> _globCache = {};
 
   /// 각 위반에 직접 경로와 소스 위치를 붙여 결정적으로 반환한다.
   List<LayerViolation> evaluate(GraphSnapshot graph) {
@@ -296,9 +297,13 @@ final class LayerRuleEvaluator {
     ];
     for (final layer in ruleSet.layers) {
       for (final pattern in layer.patterns) {
-        final regex = _globCache.putIfAbsent(pattern, () => _glob(pattern));
+        // 레이어 패턴은 문자열 전체에 고정하고 `**`·`*`·`?`만 와일드카드다.
+        final matcher = _globCache.putIfAbsent(
+          pattern,
+          () => PathGlob.compileFullMatch(pattern),
+        );
         for (final candidate in candidates) {
-          if (regex.hasMatch(candidate)) {
+          if (matcher.hasMatch(candidate)) {
             return (layer: layer.name, pattern: pattern, candidate: candidate);
           }
         }
@@ -306,27 +311,6 @@ final class LayerRuleEvaluator {
     }
     return null;
   }
-}
-
-RegExp _glob(String pattern) {
-  final buffer = StringBuffer('^');
-  for (var index = 0; index < pattern.length; index++) {
-    final character = pattern[index];
-    if (character == '*' &&
-        index + 1 < pattern.length &&
-        pattern[index + 1] == '*') {
-      buffer.write('.*');
-      index++;
-    } else if (character == '*') {
-      buffer.write('[^/]*');
-    } else if (character == '?') {
-      buffer.write('[^/]');
-    } else {
-      buffer.write(RegExp.escape(character));
-    }
-  }
-  buffer.write(r'$');
-  return RegExp(buffer.toString());
 }
 
 YamlMap _map(Object? value, String label) {

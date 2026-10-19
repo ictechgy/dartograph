@@ -54,8 +54,13 @@ import 'dart:convert';
 import 'dart:io';
 Future<void> main(List<String> arguments) async {
   File(Platform.environment['CAPTURE']!).writeAsStringSync(jsonEncode(arguments));
-  stdout.writeln('report stdout 한글');
-  stderr.writeln('report stderr');
+  final report = Platform.environment['CLI_REPORT'];
+  if (report == null) {
+    stdout.writeln('report stdout 한글');
+    stderr.writeln('report stderr');
+  } else {
+    stdout.write(report);
+  }
   exitCode = int.parse(Platform.environment['CLI_STATUS'] ?? '0');
 }
 ''');
@@ -108,7 +113,11 @@ exec "${Platform.resolvedExecutable}" "${captureProgram.path}" "\$@"
       }
     });
 
-    Future<ProcessResult> run(String arguments, {int status = 0}) {
+    Future<ProcessResult> run(
+      String arguments, {
+      int status = 0,
+      String? cliReport,
+    }) {
       return Process.run(
         'bash',
         ['-c', script],
@@ -117,8 +126,21 @@ exec "${Platform.resolvedExecutable}" "${captureProgram.path}" "\$@"
           ...environment,
           'DARTOGRAPH_ARGS': arguments,
           'CLI_STATUS': '$status',
+          'CLI_REPORT': ?cliReport,
         },
       );
+    }
+
+    /// 종료 2·64에서 작업 로그로 반향한 리포트를 풀어 정지 토큰과 본문을 돌려준다.
+    ///
+    /// 반향은 `::stop-commands::<token>` 줄로 시작해 같은 토큰의 `::<token>::`
+    /// 줄로 끝나야 한다. 그 사이의 리포트 줄은 러너가 워크플로 명령으로 읽지 않는다.
+    ({String token, String body}) unwrapEcho(Object? stderr) {
+      final match = RegExp(
+        r'^::stop-commands::([0-9a-f]{32})\n([\s\S]*)::\1::\n$',
+      ).firstMatch(stderr! as String);
+      expect(match, isNotNull, reason: 'unpaused report echo: $stderr');
+      return (token: match!.group(1)!, body: match.group(2)!);
     }
 
     final vectors = <String, List<String>>{
@@ -204,7 +226,7 @@ exec "${Platform.resolvedExecutable}" "${captureProgram.path}" "\$@"
           expect(result.exitCode, 64);
           expect(captured.existsSync(), isFalse);
           expect(report.readAsStringSync(), contains('invalid args input'));
-          expect(result.stderr, report.readAsStringSync());
+          expect(unwrapEcho(result.stderr).body, report.readAsStringSync());
           expect(
             output.readAsStringSync(),
             'exit-code=64\noutput-file=${report.path}\n',
@@ -223,12 +245,54 @@ exec "${Platform.resolvedExecutable}" "${captureProgram.path}" "\$@"
           'exit-code=$status\noutput-file=${report.path}\n',
         );
         expect(result.stdout, isEmpty);
-        expect(
-          result.stderr,
-          status == 2 || status == 64 ? report.readAsStringSync() : isEmpty,
-        );
+        if (status == 2 || status == 64) {
+          expect(unwrapEcho(result.stderr).body, report.readAsStringSync());
+        } else {
+          expect(result.stderr, isEmpty);
+        }
       });
     }
+
+    test('pauses workflow commands while echoing a failed report', () async {
+      // 리포트는 저장소가 정한 문자열(설정 키·경로)을 반향할 수 있다. 러너는
+      // stderr의 `::` 줄도 명령으로 읽으므로 반향하는 동안 추측할 수 없는
+      // 토큰으로 명령 처리를 멈췄다가 같은 토큰으로 재개해야 한다.
+      const forged =
+          'Analysis failed: invalid rules configuration\n'
+          '::error file=lib/a.dart,line=1::forged\n'
+          '::add-mask::not-a-secret';
+      final first = await run('', status: 2, cliReport: forged);
+      expect(first.exitCode, 2);
+      expect(report.readAsStringSync(), forged);
+      final echoed = unwrapEcho(first.stderr);
+      // 끝 개행이 없는 리포트에서도 재개 명령은 줄 머리에서 시작한다.
+      expect(echoed.body, '$forged\n');
+
+      final second = await run('', status: 64, cliReport: forged);
+      expect(second.exitCode, 64);
+      expect(unwrapEcho(second.stderr).token, isNot(echoed.token));
+    });
+
+    test(
+      'keeps the exit code without echoing when no token is available',
+      () async {
+        // 토큰을 못 만들면 멈춤 없이 반향하지 않는다. `set -e`가 토큰 실패를
+        // 단계의 종료 코드로 바꾸지 않고 CLI 종료 코드를 그대로 전파해야 한다.
+        final failingOd = File('${temporary.path}/od')
+          ..writeAsStringSync('#!/usr/bin/env bash\nexit 1\n');
+        expect(Process.runSync('chmod', ['+x', failingOd.path]).exitCode, 0);
+        const forged = '::error file=lib/a.dart,line=1::forged\n';
+        final result = await run('', status: 2, cliReport: forged);
+        expect(result.exitCode, 2);
+        expect(report.readAsStringSync(), forged);
+        expect(
+          output.readAsStringSync(),
+          'exit-code=2\noutput-file=${report.path}\n',
+        );
+        expect(result.stderr, isNot(contains('::')));
+        expect(result.stderr, contains('read the output-file report'));
+      },
+    );
 
     test(
       'empty command retains the existing no-report usage contract',

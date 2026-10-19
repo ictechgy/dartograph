@@ -34,7 +34,9 @@ enum ImpactFormat {
 ///
 /// 동적 값(text·markdown·github-actions)에는 dead와 같은 제어문자 정책을
 /// 적용한다: C0·DEL은 가시 이스케이프로, GitHub property는 퍼센트 인코딩으로
-/// 바꿔 진단줄 위조·ANSI 주입·러너 로그 오염을 막는다. 정상 입력은 바이트 불변이다.
+/// 바꿔 진단줄 위조·ANSI 주입·러너 로그 오염을 막는다. Markdown은 ID·경로를
+/// [ReportEscapes.mdCode] span에, 그 밖의 문구를 [ReportEscapes.mdText]로 넣어
+/// 링크·HTML·멘션 주입도 막는다. 정상 입력은 바이트 불변이다.
 abstract final class ImpactReporter {
   /// [format]에 맞춰 [report]를 렌더링한다.
   static String render(
@@ -218,8 +220,8 @@ abstract final class ImpactReporter {
     output.writeln('|---|---:|---|');
     for (final factor in report.risk.factors) {
       output.writeln(
-        '| ${ReportEscapes.mdCell(factor.name)} | ${factor.weight} | '
-        '${ReportEscapes.mdCell(factor.detail)} |',
+        '| ${ReportEscapes.mdText(factor.name)} | ${factor.weight} | '
+        '${ReportEscapes.mdText(factor.detail)} |',
       );
     }
     output.writeln();
@@ -233,13 +235,13 @@ abstract final class ImpactReporter {
       for (final item in report.impacted) {
         final location = item.source == null
             ? ''
-            : '`${ReportEscapes.mdCell(item.source!)}:${item.line ?? 1}`';
+            : ReportEscapes.mdCode('${item.source!}:${item.line ?? 1}');
         output.writeln(
-          '| `${ReportEscapes.mdCell(item.id)}` | ${item.kind} | ${item.depth} | '
+          '| ${ReportEscapes.mdCode(item.id)} | ${item.kind} | ${item.depth} | '
           '${item.riskLevel} (${item.riskScore}) | $location |',
         );
         output.writeln(
-          '| ↳ path |  |  |  | `${item.path.map(ReportEscapes.mdCell).join(' → ')}` |',
+          '| ↳ path |  |  |  | ${ReportEscapes.mdCode(item.path.join(' → '))} |',
         );
       }
     }
@@ -257,7 +259,7 @@ abstract final class ImpactReporter {
     } else {
       for (final test in report.tests) {
         output.writeln(
-          '- `${ReportEscapes.mdCell(test.source ?? test.id)}` (depth ${test.depth})',
+          '- ${ReportEscapes.mdCode(test.source ?? test.id)} (depth ${test.depth})',
         );
       }
     }
@@ -270,10 +272,10 @@ abstract final class ImpactReporter {
       for (final call in report.callSites) {
         final location = call.fromSource == null
             ? ''
-            : ' at `${ReportEscapes.mdCell(call.fromSource!)}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}`';
+            : ' at ${ReportEscapes.mdCode('${call.fromSource!}:${call.fromLine ?? 1}:${call.fromColumn ?? 1}')}';
         output.writeln(
-          '- `${ReportEscapes.mdCell(call.fromId)}` → `${ReportEscapes.mdCell(call.toId)}` '
-          '(${ReportEscapes.mdCell(call.kind)})$location',
+          '- ${ReportEscapes.mdCode(call.fromId)} → ${ReportEscapes.mdCode(call.toId)} '
+          '(${ReportEscapes.mdText(call.kind)})$location',
         );
       }
     }
@@ -288,7 +290,7 @@ abstract final class ImpactReporter {
       output.writeln();
       output.writeln(
         'Requested symbols absent from the graph: '
-        '${report.missingSymbols.map((id) => '`${ReportEscapes.mdCell(id)}`').join(', ')}',
+        '${report.missingSymbols.map(ReportEscapes.mdCode).join(', ')}',
       );
     }
     if (limits.isNotEmpty) {
@@ -296,7 +298,7 @@ abstract final class ImpactReporter {
       output.writeln('## Limitations');
       output.writeln();
       for (final limitation in limits) {
-        output.writeln('- ${ReportEscapes.mdCell(limitation)}');
+        output.writeln('- ${ReportEscapes.mdText(limitation)}');
       }
     }
     output.writeln();

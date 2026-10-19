@@ -28,7 +28,11 @@ enum RuntimeFormat {
 /// 적용한다: C0·DEL은 가시 이스케이프로, GitHub property는 퍼센트 인코딩으로
 /// 바꿔 진단줄 위조·ANSI 주입·러너 로그 오염을 막는다. 정상 입력은 바이트
 /// 불변이다. 형식별 escaping 구현은 dead_reporter·impact_reporter와 같은
-/// 규약을 각자 들고 있다(공유 정책, 독립 구현).
+/// 규약을 각자 들고 있다(공유 정책, 독립 구현). Markdown은 이름·위치를
+/// [ReportEscapes.mdCode] span에, 리터럴이 실리는 detail·evidence·reason과
+/// limitation을 [ReportEscapes.mdText]로, `--execute` stderr를
+/// [ReportEscapes.mdCodeBlock]으로 넣는다. 그래서 `<computed>` 같은 자리표시는
+/// HTML 태그로 사라지지 않고 글자 그대로 보인다.
 abstract final class RuntimeReporter {
   /// [format]에 맞춰 [report]를 렌더링한다.
   static String render(RuntimeFormat format, RuntimeReport report) =>
@@ -207,8 +211,8 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---|---|');
       for (final fact in facts) {
         output.writeln(
-          '| `${ReportEscapes.mdCell(fact.name)}` | `${ReportEscapes.mdCell(_location(fact))}` | '
-          '${ReportEscapes.mdCell(fact.detail)} |',
+          '| ${ReportEscapes.mdCode(fact.name)} | ${ReportEscapes.mdCode(_location(fact))} | '
+          '${ReportEscapes.mdText(fact.detail)} |',
         );
       }
       output.writeln();
@@ -224,8 +228,8 @@ abstract final class RuntimeReporter {
         ...report.missing,
       ]) {
         output.writeln(
-          '| ${item.verdict.name} | `${ReportEscapes.mdCell(item.fact.name)}` | '
-          '`${ReportEscapes.mdCell(_location(item.fact))}` | ${ReportEscapes.mdCell(item.evidence)} |',
+          '| ${item.verdict.name} | ${ReportEscapes.mdCode(item.fact.name)} | '
+          '${ReportEscapes.mdCode(_location(item.fact))} | ${ReportEscapes.mdText(item.evidence)} |',
         );
       }
       output.writeln();
@@ -239,15 +243,15 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---|---|');
       for (final item in report.unverified) {
         output.writeln(
-          '| `${ReportEscapes.mdCell(item.fact.name)}` | '
-          '`${ReportEscapes.mdCell(_location(item.fact))}` | ${ReportEscapes.mdCell(item.reason)} |',
+          '| ${ReportEscapes.mdCode(item.fact.name)} | '
+          '${ReportEscapes.mdCode(_location(item.fact))} | ${ReportEscapes.mdText(item.reason)} |',
         );
       }
     }
     if (report.unverifiedReasonCounts.isNotEmpty) {
       output.writeln();
       output.writeln(
-        '_By reason: ${report.unverifiedReasonCounts.entries.map((entry) => '${ReportEscapes.mdCell(entry.key)} ${entry.value}').join(', ')}._',
+        '_By reason: ${report.unverifiedReasonCounts.entries.map((entry) => '${ReportEscapes.mdText(entry.key)} ${entry.value}').join(', ')}._',
       );
     }
     output.writeln();
@@ -260,8 +264,8 @@ abstract final class RuntimeReporter {
       output.writeln('|---|---:|---|');
       for (final factor in report.risk.factors) {
         output.writeln(
-          '| ${ReportEscapes.mdCell(factor.name)} | ${factor.weight} | '
-          '${ReportEscapes.mdCell(factor.detail)} |',
+          '| ${ReportEscapes.mdText(factor.name)} | ${factor.weight} | '
+          '${ReportEscapes.mdText(factor.detail)} |',
         );
       }
     }
@@ -271,21 +275,22 @@ abstract final class RuntimeReporter {
       output.writeln('## Execution');
       output.writeln();
       final reason = execution.unresolvedReason;
+      final command = ReportEscapes.mdCode('dart run ${execution.entrypoint}');
       if (reason != null) {
         output.writeln(
-          '`dart run ${ReportEscapes.mdCell(execution.entrypoint)}` was not run — '
-          '${ReportEscapes.mdCell(reason)}.',
+          '$command was not run — ${ReportEscapes.mdText(reason)}.',
         );
       } else {
         output.writeln(
-          '`dart run ${ReportEscapes.mdCell(execution.entrypoint)}` exited '
+          '$command exited '
           '${execution.exitCode}${execution.timedOut ? ' (timed out)' : ''}.',
         );
-        if (execution.stderrSummary.trim().isNotEmpty) {
+        final summary = execution.stderrSummary.trim();
+        if (summary.isNotEmpty) {
+          // 자식은 stderr를 마음대로 쓴다. 고정 ``` 펜스는 내용의 ``` 줄에 닫혀
+          // 뒤 내용이 Markdown으로 렌더링된다(위조 제목·표·ANSI).
           output.writeln();
-          output.writeln('```text');
-          output.writeln(execution.stderrSummary.trim());
-          output.writeln('```');
+          output.write(ReportEscapes.mdCodeBlock(summary, info: 'text'));
         }
       }
     }
@@ -300,7 +305,7 @@ abstract final class RuntimeReporter {
     output.writeln('## Limitations');
     output.writeln();
     for (final limitation in report.limitations) {
-      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdText(limitation)}');
     }
     output.writeln();
     output.writeln(

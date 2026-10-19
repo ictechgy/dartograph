@@ -146,6 +146,60 @@ void main() {
     expect(await runDartograph(['deps']), ExitStatus.usage.code);
   });
 
+  test('deps --format github-actions gates with workflow commands', () async {
+    // 도움말·USAGE·MCP가 광고하는 철자다. enum 이름만 비교하던 파서는 이 값을
+    // usage(64)로 거부해 문서대로 쓴 CI 단계가 처음부터 실패했다.
+    final audit = await copyFixture('dependency_audit');
+    final findings = StringBuffer();
+    expect(
+      await runDartograph([
+        'deps',
+        '--format',
+        'github-actions',
+        audit.path,
+      ], output: findings),
+      ExitStatus.findings.code,
+    );
+    final lines = const LineSplitter().convert(findings.toString());
+    expect(lines, isNotEmpty);
+    expect(lines, everyElement(startsWith('::')));
+    expect(
+      lines,
+      anyElement(
+        allOf(
+          startsWith('::warning file=pubspec.yaml,'),
+          contains('undeclared-dependency ghost_pkg'),
+        ),
+      ),
+    );
+    // 문서 밖 enum 이름도 이전 릴리스부터 받아 온 값이라 같은 보고로 받는다.
+    final legacy = StringBuffer();
+    expect(
+      await runDartograph([
+        'deps',
+        '--format',
+        'githubActions',
+        audit.path,
+      ], output: legacy),
+      ExitStatus.findings.code,
+    );
+    expect(legacy.toString(), findings.toString());
+
+    final clean = await copyFixture('closed_app');
+    final cleanOutput = StringBuffer();
+    expect(
+      await runDartograph([
+        'deps',
+        '--format',
+        'github-actions',
+        clean.path,
+      ], output: cleanOutput),
+      ExitStatus.success.code,
+      reason: cleanOutput.toString(),
+    );
+    expect(cleanOutput.toString(), isNot(contains('::warning')));
+  });
+
   test('deps --workspace audits each member against its own pubspec', () async {
     final fixture = await copyFixture('workspace_audit');
     final output = StringBuffer();

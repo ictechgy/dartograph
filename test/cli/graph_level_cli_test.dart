@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:dartograph/dartograph.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
@@ -130,6 +131,53 @@ entry_points:
       expect(text, contains('configured-entry-point-without-main: lib/'));
     },
   );
+
+  test('graph --format json and anon write the document in pieces', () async {
+    // 수십만 자 문서를 한 문자열로 만들어 한 번에 쓰면 출력 크기의 몇 배를
+    // 잡는다. 조각을 이어 붙인 바이트는 String API 문서와 같아야 한다.
+    final graph = CodeGraph();
+    for (var i = 0; i < 2000; i++) {
+      final library = 'project:lib/f$i.dart';
+      final member = '$library::C$i.m';
+      graph
+        ..addNode(GraphNode(id: library, sourceUri: library, isLibrary: true))
+        ..addNode(GraphNode(id: member, sourceUri: library, line: i + 1))
+        ..addEdge(
+          GraphEdge(sourceId: member, targetId: library, kind: EdgeKind.member),
+        );
+      if (i > 0) {
+        final callee = 'project:lib/f${i - 1}.dart::C${i - 1}.m';
+        graph.addEdge(
+          GraphEdge(sourceId: member, targetId: callee, kind: EdgeKind.call),
+        );
+      }
+    }
+    const limitations = ['configured-entry-point-without-main: lib/f1.dart'];
+    final indexed = AnalyzerGraphResult(
+      graph: graph,
+      limitations: const [],
+      limitationDetails: limitations,
+    );
+    final snapshot = graph.snapshot();
+    final expected = {
+      'json': GraphExporter.json(snapshot, limitations: limitations),
+      'anon': GraphExporter.anon(snapshot, limitations: limitations),
+    };
+    for (final MapEntry(key: format, value: document) in expected.entries) {
+      final output = _RecordingSink();
+      expect(
+        await runDartograph(
+          ['graph', '--format', format, '.'],
+          output: output,
+          indexPackage: (_) async => indexed,
+        ),
+        ExitStatus.success.code,
+      );
+      expect(output.writes.join(), document, reason: format);
+      final longest = output.writes.map((piece) => piece.length).reduce(max);
+      expect(longest, lessThan(document.length ~/ 2), reason: format);
+    }
+  });
 
   test('graph --format dot colors nodes that participate in cycles', () async {
     // a→b→a 순환: 참여 정점 둘만 붉게 색칠되고 순환 밖 c는 그대로다.
@@ -349,4 +397,23 @@ entry_points:
       contains('graph --collapse requires --level file.'),
     );
   });
+}
+
+/// 쓰기 호출마다 받은 문자열을 따로 남기는 sink다.
+final class _RecordingSink implements StringSink {
+  /// 받은 순서의 조각이다.
+  final writes = <String>[];
+
+  @override
+  void write(Object? object) => writes.add('$object');
+
+  @override
+  void writeAll(Iterable<Object?> objects, [String separator = '']) =>
+      write(objects.join(separator));
+
+  @override
+  void writeCharCode(int charCode) => write(String.fromCharCode(charCode));
+
+  @override
+  void writeln([Object? object = '']) => write('$object\n');
 }

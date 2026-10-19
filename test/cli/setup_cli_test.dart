@@ -345,6 +345,78 @@ void main() {
     expect((postToolUse.single as Map)['matcher'], 'Bash');
   });
 
+  test('removeClaudeSettingsHook keeps user hooks that share its group', () {
+    // 사용자가 dartograph 그룹의 hooks 목록에 덧붙인 명령은 같은 matcher 아래
+    // 남는다. 설치 판정도 같은 명령 항목 기준이라 혼합 그룹은 설치된 상태다.
+    final existing = jsonEncode({
+      'hooks': {
+        'PostToolUse': [
+          {
+            'matcher': 'Edit|MultiEdit|Write',
+            'hooks': [
+              {'type': 'command', 'command': agentHookCommand},
+              {'type': 'command', 'command': 'dart format .'},
+            ],
+          },
+        ],
+      },
+    });
+    expect(mergeClaudeSettings(existing), isNull);
+    expect(jsonDecode(removeClaudeSettingsHook(existing)!), {
+      'hooks': {
+        'PostToolUse': [
+          {
+            'matcher': 'Edit|MultiEdit|Write',
+            'hooks': [
+              {'type': 'command', 'command': 'dart format .'},
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  test('removeClaudeSettingsHook drops its own group and emptied keys', () {
+    const ownGroup = {
+      'matcher': 'Edit|MultiEdit|Write',
+      'hooks': [
+        {'type': 'command', 'command': agentHookCommand},
+      ],
+    };
+    const preToolUse = [
+      {
+        'matcher': 'Bash',
+        'hooks': [
+          {'type': 'command', 'command': 'audit'},
+        ],
+      },
+    ];
+    // dartograph 명령만 담던 그룹은 matcher째 사라지고, 비게 된 PostToolUse도
+    // 지운다. 다른 이벤트와 최상위 키는 그대로다.
+    final withOtherEvent = removeClaudeSettingsHook(
+      jsonEncode({
+        'env': {'KEEP': '1'},
+        'hooks': {
+          'PreToolUse': preToolUse,
+          'PostToolUse': [ownGroup],
+        },
+      }),
+    );
+    expect(jsonDecode(withOtherEvent!), {
+      'env': {'KEEP': '1'},
+      'hooks': {'PreToolUse': preToolUse},
+    });
+    // hooks까지 비면 hooks 키도 지운다.
+    final onlyOwn = removeClaudeSettingsHook(
+      jsonEncode({
+        'hooks': {
+          'PostToolUse': [ownGroup],
+        },
+      }),
+    );
+    expect(jsonDecode(onlyOwn!), <String, Object?>{});
+  });
+
   test('removeMcpServerEntry keeps unrelated servers', () {
     const existing =
         '{"mcpServers": {"other": {"command": "x"}, '
@@ -510,6 +582,63 @@ void main() {
       );
       // 블록만 담긴 CLAUDE.md는 설치가 만든 것이므로 함께 사라진다.
       expect(File('${temporary.path}/CLAUDE.md').existsSync(), isFalse);
+    },
+  );
+
+  test(
+    'setup --uninstall keeps a user hook added to the dartograph group',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'dartograph-setup-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      final installStatus = await runDartograph(
+        ['setup', '--install', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(installStatus, ExitStatus.success.code);
+      // 사용자가 설치된 그룹의 hooks 목록에 자기 명령을 덧붙인다.
+      final settingsFile = File('${temporary.path}/.claude/settings.json');
+      const userHook = {'type': 'command', 'command': 'dart format .'};
+      final installed = jsonDecode(settingsFile.readAsStringSync()) as Map;
+      final groups = (installed['hooks'] as Map)['PostToolUse'] as List;
+      ((groups.single as Map)['hooks'] as List).add(userHook);
+      settingsFile.writeAsStringSync(jsonEncode(installed));
+
+      final uninstallStatus = await runDartograph(
+        ['setup', '--uninstall', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(uninstallStatus, ExitStatus.success.code);
+      final userGroup = {
+        'matcher': 'Edit|MultiEdit|Write',
+        'hooks': [userHook],
+      };
+      expect(jsonDecode(settingsFile.readAsStringSync()), {
+        'hooks': {
+          'PostToolUse': [userGroup],
+        },
+      });
+
+      // 사용자 명령만 남은 그룹은 설치된 훅이 아니므로 다시 설치하면 등록된다.
+      final reinstallStatus = await runDartograph(
+        ['setup', '--install', temporary.path],
+        output: StringBuffer(),
+        error: StringBuffer(),
+      );
+      expect(reinstallStatus, ExitStatus.success.code);
+      final reinstalled = jsonDecode(settingsFile.readAsStringSync()) as Map;
+      expect((reinstalled['hooks'] as Map)['PostToolUse'], [
+        userGroup,
+        {
+          'matcher': 'Edit|MultiEdit|Write',
+          'hooks': [
+            {'type': 'command', 'command': agentHookCommand},
+          ],
+        },
+      ]);
     },
   );
 

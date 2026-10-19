@@ -91,7 +91,10 @@ pubspec은 분석 실패(exit 2)다. 멤버의
 `--record <dir>`를 주면 그 실행 하나를 `<dir>/ledger.jsonl`에 한 줄로 덧붙인다.
 각 줄은 도구 버전·UTC 시각·명령·종료 코드·관측한 Git `HEAD`(계산하지 못하면 null)·
 입력 플래그·보고한 문제 식별자를 담는다. `--env`·`--dart-define`은 값이 비밀일 수
-있어 **키만** 남긴다. 파일은 append-only다 — 기존 줄을 다시 쓰거나 지우지 않는다.
+있어 **키만** 남긴다. CLI가 받지 않는 `--key=value` 형식으로 실패한 실행도 인라인
+값은 남기지 않고 플래그 이름만 기록한다(`--env=`·`--dart-define=`은 KEY만). 값을
+받지 않는 스위치는 `true`로 기록한다. 파일은 append-only다 — 기존 줄을 다시 쓰거나
+지우지 않는다.
 
 `history --ledger <dir> [--commit <sha>] [--format text|json]`가 원장을 읽어
 되돌려준다. `--commit`은 그 SHA의 실행만 고른다. 쓰기가 중단돼 마지막 줄이 잘리면
@@ -190,9 +193,13 @@ Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 
 `graph --format anon`은 버그 리포트 공유용 JSON이다. 문서 모양은 `--format json`과
 같고 정점 ID·소스 URI·간선 양끝·limitation 문구의 경로만 결정적으로 치환한다
-(식별 문자열 → `s0`, `s1`, … 토큰; 스킴·디렉터리 계층·`::`·멤버 점 구분·확장자는
-보존, `lib`·`src` 같은 관용 어휘는 경로와 선언 이름 어느 쪽에도 그대로). 같은
-그래프는 항상 같은 문서를 내므로 출력끼리 직접 비교할 수 있다. 치환은 그래프에
+(식별 문자열 → `s0`, `s1`, … 토큰; 스킴·디렉터리 계층·`::`·멤버 점 구분과 끝의
+`.dart`·생성 파일 확장자(`.g.dart`·`.freezed.dart`·`.pb.dart` 등)는 보존, `lib`·`src`
+같은 관용 어휘는 경로와 선언 이름 어느 쪽에도 그대로). 파일·디렉터리 이름의 그 밖의
+점 구분 부분(`a.spec.dart`의 `spec`, `.yaml` 같은 다른 확장자 포함)은 부분마다
+치환한다. 예를 들어 정점이 `project:lib/com.acme.internal/acme.billing.dart`
+하나뿐이면 `project:lib/s1.s2.s3/s2.s5.dart`가 된다. 같은 그래프는 항상 같은
+문서를 내므로 출력끼리 직접 비교할 수 있다. 치환은 그래프에
 실린 다중 세그먼트 경로 전체만 대상이라 limitation 문구가 그래프에 없는 경로를
 담으면 그 문자열은 그대로 남는다.
 
@@ -424,8 +431,8 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 두 값 모두 1 미만·비정수·값 빠짐·중복 플래그는 usage(64)다. `--depth`·`--limit`은
 `--batch`·`--baseline`과 함께 쓸 수 있다.
 
-`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하이며
-요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
+`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하의
+정규 파일이며(장치·FIFO·소켓은 usage 64) 요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
 그래프·도달성·이웃 색인은 한 번만 만들고 baseline도 한 번 적용한다. 출력은
 `format: symbol-query-batch`, `version: 1`, `results: [...]`이며 각 결과는 단일 query
 문서다. 하나라도 `notFound`이면 전체 종료 코드는 64지만 나머지 결과도 모두 반환한다.
@@ -464,7 +471,7 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 
 씨앗은 정확히 하나를 준다: `--since <git-ref>`(Git 변경 파일, `affected`와 같은
 전체 이력·심볼릭 링크 양방향 매칭), `--changed <changes.json>`(프로젝트 상대 경로의
-JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상한), 또는
+JSON 문자열 배열, 1–1000개·1 MiB 이하 정규 파일, `query --batch`와 같은 상한), 또는
 `--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
 
 `--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과

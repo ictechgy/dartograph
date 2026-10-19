@@ -7,6 +7,8 @@ import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
 
+import '../core/config_source.dart' show InputRejectedException;
+import 'bounded_resource_provider.dart' show readAnalysisInputSync;
 import 'project_files.dart';
 
 /// Flutter 플랫폼 채널 구문 사실과 실제 동적 이름 개수다.
@@ -82,7 +84,8 @@ BridgeIndexResult indexBridges(
       p.relative(entity.path, from: pathBase).split(p.separator),
     );
     _rejectControlCharacters(relative);
-    final source = entity.readAsStringSync();
+    // analyzer와 같은 읽기 경계다(장치·FIFO·64 MiB 초과는 분석 실패).
+    final source = readAnalysisInputSync(entity);
     final parsed = parseString(
       content: source,
       path: entity.path,
@@ -1401,9 +1404,13 @@ bool _flutterServicesProvenanceVerified(Directory root) {
 /// [configFile]의 `flutter` 엔트리가 Flutter SDK·pub cache 레이아웃의 실제
 /// 패키지를 가리키는지 확인한다. 어떤 이유로든 확인이 안 되면 false다 —
 /// 호출자는 사실을 버리지 않고 limitation으로 남긴다.
+///
+/// 예외는 읽기 경계의 거부([InputRejectedException])다. 장치·FIFO를 가리키는
+/// package_config는 확인 실패가 아니라 분석 실패다(종료 코드 2). 상한 없이 읽으면
+/// `/dev/zero`는 메모리를 채우고 쓰는 쪽이 없는 FIFO는 영구 대기한다.
 bool _verifiedFlutterPackageEntry(File configFile) {
   try {
-    final decoded = jsonDecode(configFile.readAsStringSync());
+    final decoded = jsonDecode(readAnalysisInputSync(configFile));
     if (decoded is! Map) return false;
     final packages = decoded['packages'];
     if (packages is! List) return false;
@@ -1437,6 +1444,8 @@ bool _verifiedFlutterPackageEntry(File configFile) {
       }
     }
     return false;
+  } on InputRejectedException {
+    rethrow;
   } on Object {
     return false;
   }
