@@ -21,6 +21,7 @@ import '../analysis/impact_analyzer.dart';
 import '../analysis/language_traversal.dart';
 import '../core/atomic_write.dart';
 import '../core/config_source.dart';
+import '../core/graph_snapshot.dart';
 import '../core/path_glob.dart';
 import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
@@ -699,7 +700,7 @@ Future<int> _runAffected(
     // file:// URI를 돌려준다) — 의존 패키지 소스가 같은 스킴으로 오매칭될
     // 여지가 없다.
     final matched = await _matchChangedSources(
-      indexed: indexed,
+      snapshot: snapshot,
       changed: changed,
       canonicalRoot: canonicalRoot,
     );
@@ -865,7 +866,7 @@ Future<int> _runImpact(
       final changed = await changedFilesSince(since, rootPath);
       final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
       final matched = await _matchChangedSources(
-        indexed: indexed,
+        snapshot: snapshot,
         changed: changed,
         canonicalRoot: canonicalRoot,
       );
@@ -983,6 +984,9 @@ String _relativeToProjectSource(String entry) {
 /// 에서 비매치로 처리한다 — git은 삭제 파일을 변경 집합에 넣지 않으므로 사라진
 /// 파일의 라이브러리를 '변경됨'으로 보고하면 오보다. 매치된 절대 경로와 함께
 /// 라이브러리로 귀속되지 못한 변경 Dart 파일 수를 돌려준다.
+///
+/// [snapshot]은 호출자가 분석에 쓰려고 이미 만든 것을 받는다.
+/// CodeGraph.snapshot()은 캐시 없이 호출마다 전체 정렬과 끝점 검증을 다시 한다.
 Future<
   ({
     Set<String> matchedSources,
@@ -991,12 +995,12 @@ Future<
   })
 >
 _matchChangedSources({
-  required AnalyzerGraphResult indexed,
+  required GraphSnapshot snapshot,
   required Set<String> changed,
   required String canonicalRoot,
 }) async {
   final sources = <String>{
-    for (final node in indexed.graph.snapshot().nodes)
+    for (final node in snapshot.nodes)
       if (node.sourceUri?.startsWith('project:') ?? false) node.sourceUri!,
   }.toList()..sort();
   // 소스마다 resolveSymbolicLinks syscall이 필요하다 — 파일 수에 비례하므로
