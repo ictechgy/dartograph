@@ -93,6 +93,43 @@ void main() {
     },
   );
 
+  test('an unreadable batch file is reported apart from bad content', () async {
+    final directory = await Directory.systemTemp.createTemp('query-batch.');
+    addTearDown(() => directory.delete(recursive: true));
+    var calls = 0;
+    Future<AnalyzerGraphResult> mustNotIndex(String _) async {
+      calls++;
+      throw StateError('must not index');
+    }
+
+    final missing = '${directory.path}/absent.json';
+    final missingError = StringBuffer();
+    expect(
+      await runDartograph(
+        ['query', '--batch', missing, '.'],
+        error: missingError,
+        indexPackage: mustNotIndex,
+      ),
+      64,
+    );
+    final malformed = File('${directory.path}/requests.json')
+      ..writeAsStringSync('{');
+    final malformedError = StringBuffer();
+    expect(
+      await runDartograph(
+        ['query', '--batch', malformed.path, '.'],
+        error: malformedError,
+        indexPackage: mustNotIndex,
+      ),
+      64,
+    );
+    expect(calls, 0);
+    // 파일 부재는 내용 오류가 아니다. 어느 파일을 읽지 못했는지 가리킨다.
+    expect(missingError.toString(), contains(missing));
+    expect(missingError.toString(), isNot(contains('Invalid batch')));
+    expect(malformedError.toString(), startsWith('Invalid batch:'));
+  });
+
   test('malformed batch is rejected before indexing', () async {
     final directory = await Directory.systemTemp.createTemp('query-batch.');
     addTearDown(() => directory.delete(recursive: true));

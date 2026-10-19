@@ -1561,6 +1561,13 @@ Future<int> _runQuery(
         throw const FormatException();
       }
       requests = value.cast<String>();
+    } on FileSystemException {
+      // 파일 부재·권한·디코드 실패는 내용 오류가 아니다. --changed처럼 어느
+      // 파일을 읽지 못했는지 가리키고 분류(64)는 그대로 둔다.
+      error.writeln(
+        'Batch file could not be read: ${ReportEscapes.escapeText(batchPath)}',
+      );
+      return ExitStatus.usage.code;
     } on Exception {
       error.writeln(
         'Invalid batch: provide a JSON array of 1–1000 non-empty symbol names (maximum 1 MiB).',
@@ -2660,6 +2667,20 @@ Future<int> _runDead(
     error.write(_help);
     return ExitStatus.usage.code;
   }
+  // CODEOWNERS는 사용자가 준 입력 파일이라 rules --config처럼 색인 전에 읽는다.
+  // 전체 분석 뒤에 읽으면 경로 오타가 큰 저장소에서 늦게, 그것도 색인 실패
+  // 문구로 원인을 반대로 가리켜 보고된다.
+  CodeOwners? codeOwners;
+  if (codeownersFormat) {
+    final path = codeownersPath!;
+    try {
+      codeOwners = CodeOwners.parse(await readConfiguration(File(path)));
+    } on FileSystemException {
+      return _reportCodeownersUnreadable(error, path);
+    } on FormatException catch (exception) {
+      return _reportCodeownersInvalid(error, exception.message);
+    }
+  }
   try {
     final indexed = await indexPackage(rootPath);
     final limitations = _limitations(indexed);
@@ -2781,11 +2802,11 @@ Future<int> _runDead(
       reported = filtered.findings;
       suppressedCount = filtered.suppressedCount;
     }
-    if (codeownersFormat) {
+    if (codeOwners != null) {
       output.write(
         CodeownersReporter.render(
           reported,
-          CodeOwners.parse(await readConfiguration(File(codeownersPath!))),
+          codeOwners,
           report: report,
           limitations: limitations,
           suppressedCount: suppressedCount,
@@ -3738,6 +3759,25 @@ int _reportRulesConfigUnreadable(StringSink error, String config) {
 int _reportRulesConfigInvalid(StringSink error, String detail) {
   error.writeln(
     'Analysis failed: invalid rules configuration: '
+    '${ReportEscapes.escapeText(detail)}',
+  );
+  return ExitStatus.failure.code;
+}
+
+// CODEOWNERS 진단은 rules 설정 진단과 같은 형태다. 읽기 실패는 사용자가 준
+// 경로를, 내용 오류는 상세를 가리킨다. 종료 코드는 기존 계약대로 2다(입력 파일
+// 오류를 64로 통일할지는 계약 결정이다). 반향하는 값은 escapeText를 거친다.
+int _reportCodeownersUnreadable(StringSink error, String path) {
+  error.writeln(
+    'Analysis failed: unable to read the CODEOWNERS file: '
+    '${ReportEscapes.escapeText(path)}.',
+  );
+  return ExitStatus.failure.code;
+}
+
+int _reportCodeownersInvalid(StringSink error, String detail) {
+  error.writeln(
+    'Analysis failed: invalid CODEOWNERS file: '
     '${ReportEscapes.escapeText(detail)}',
   );
   return ExitStatus.failure.code;
