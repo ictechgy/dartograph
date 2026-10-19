@@ -77,6 +77,13 @@ abstract final class ReportEscapes {
   /// 정상 문구의 바이트는 바뀌지 않는다. `<`만은 정상 문구에도 나온다. runtime의
   /// 자리표시 `<computed>`는 HTML 태그로 읽혀 렌더링에서 사라지던 것이라
   /// `\<computed>`로 바뀌어 글자 그대로 보인다.
+  ///
+  /// 맨 URL(`https://…`·`ftp://…`·`www.…`)은 그대로 둔다. GitHub의 GFM
+  /// 렌더러(cmark-gfm)는 `scheme://`를 앞 글자와 무관하게 자동 링크로 만든다.
+  /// 그래서 이를 막으려면 runtime detail의 `Uri.parse("https://…")` 같은 정상
+  /// 문구에도 글자를 끼워 넣어 바이트와 복사한 주소를 바꿔야 한다. 자동 링크의
+  /// 글자는 주소 자체라 목적지를 숨기지 못한다. 이 함수가 막는 것은 링크 글자로
+  /// 목적지를 가리는 `[…](…)` 형태다.
   static String mdText(String value) {
     final runes = value.runes.toList();
     final output = StringBuffer();

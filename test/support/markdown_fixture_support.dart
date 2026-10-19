@@ -14,7 +14,9 @@ const hostileMarkdownText =
 ///
 /// `]` 바로 뒤 `(`·`<`·`&`·백틱·역슬래시·파이프는 백슬래시로 이스케이프되고,
 /// 영숫자 앞 `@` 뒤에는 `&#8203;`이 들어간다. `[`·`!`와 제어문자의 가시
-/// 이스케이프(`\x1b`)는 그대로다.
+/// 이스케이프(`\x1b`)는 그대로다. 링크 문법이 깨진 뒤 남는 맨 URL
+/// (`https://evil.example`)은 GFM에서 여전히 자동 링크가 된다. 글자가 곧 주소라
+/// 목적지를 숨기지 못한다(`ReportEscapes.mdText`의 경계).
 const escapedMarkdownText =
     r'keys: [Approve]\(https://evil.example) '
     r'![p]\(https://evil.example/p.png) '

@@ -296,6 +296,23 @@ void main() {
     expect(markdown, isNot(contains('\x1b')));
   });
 
+  test('markdown limitations leave bare URLs as written', () {
+    // 맨 URL은 이스케이프하지 않는다. GitHub(cmark-gfm)는 `scheme://`를 앞
+    // 글자와 무관하게 자동 링크로 만들어, 막으려면 runtime detail의
+    // `Uri.parse("https://…")` 같은 정상 문구도 바꿔야 한다. 자동 링크의 글자는
+    // 주소 자체다. 막는 것은 글자로 목적지를 가리는 `[…](…)` 형태다.
+    const bare = 'see https://evil.example/login or www.evil.example';
+    const disguised = '[Approve](https://evil.example)';
+    final markdown = DeadReporter.render(
+      ReportFormat.markdown,
+      const [],
+      limitations: const [bare, disguised],
+    );
+
+    expect(markdown, contains('\n- $bare\n'));
+    expect(markdown, contains('\n- ${r'[Approve]\(https://evil.example)'}\n'));
+  });
+
   test('sarif uri keeps backslashes and literal percent sequences', () {
     final backslash = DeadFinding(
       id: r'package:app/back\slash.dart::x',
