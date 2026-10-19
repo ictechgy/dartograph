@@ -13,6 +13,7 @@ import 'package:yaml/yaml.dart';
 import '../core/config_source.dart';
 import 'analyzer_graph_index.dart'
     show enclosingGraphDeclarationId, resolveProjectUnitsAt;
+import 'bounded_resource_provider.dart' show readAnalysisInputSync;
 import 'bridge_index.dart'
     show enclosingFactSymbol, rejectFactControlCharacters;
 import 'project_files.dart';
@@ -82,7 +83,12 @@ Future<SchemaIndexResult> indexSchema(
     rejectFactControlCharacters(relative);
     final String source;
     try {
-      source = file.readAsStringSync();
+      // analyzer와 같은 읽기 경계다. 장치·FIFO·상한 초과는 '읽을 수 없는 파일'
+      // 한계가 아니라 분석 실패다(종료 코드 2) — 다른 명령과 같은 입력이
+      // 여기서만 결과에 한계 한 줄로 묻히지 않게 한다.
+      source = readAnalysisInputSync(file);
+    } on InputRejectedException {
+      rethrow;
     } on FileSystemException {
       counts.unreadableFiles++;
       continue;

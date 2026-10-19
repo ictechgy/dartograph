@@ -77,11 +77,17 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
 - 저장소가 제공하는 YAML 설정(`dartograph.yaml`, `pubspec.yaml`, `build.yaml`,
   `layers.yaml`, `--config` 파일)은 **1 MiB**까지만 읽는다(`package_config.json`은
   16 MiB). 초과하면 경로를 반향하지 않는 정적 메시지로 거절한다.
-- 분석 트리의 링크가 정규 파일이 아닌 대상(문자·블록 장치, FIFO, 소켓)을 가리키면
-  읽기 전에 분석 실패(종료 코드 2)로 멈춘다. 진단은 모든 분석 명령에서 같다:
+- 분석 입력이 정규 파일이 아닌 대상(문자·블록 장치, FIFO, 소켓)이면 읽기 전에 분석
+  실패(종료 코드 2)로 멈춘다. 분석 트리의 링크뿐 아니라 import·part가 가리키는
+  파일(숨김·`build` 디렉터리 안 파일, 절대 경로)도 같다. 진단은 모든 분석 명령에서 같다:
   `Analysis failed: an input is not a regular file (device, FIFO, or socket).`
   이런 대상은 길이를 0으로 보고해 크기 상한을 통과한 뒤 EOF 없이 읽히거나 영구
-  대기한다. 링크를 정규 파일로 바꾸거나 지운다. 끊어진 링크는 지금처럼 건너뛴다.
+  대기한다. 링크나 import가 정규 파일을 가리키게 바꾸거나 지운다. 끊어진 링크는 지금처럼
+  건너뛴다.
+- 분석 입력 하나가 64 MiB를 넘으면 읽기 전에 분석 실패(종료 코드 2)로 멈춘다:
+  `Analysis failed: an analysis input exceeds the 64 MiB read limit.`
+  정상 Dart 소스는 생성 파일도 수 MB라, 이 진단은 대개 큰 호스트 파일이나 가상 파일
+  (`/proc/...`)을 가리키는 링크·import에서 나온다.
 
 ## 8. 캐시
 

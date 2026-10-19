@@ -205,6 +205,35 @@ JSON의 SHA-256이 일치했다.
   별도 분석 identity 변경은 하지 않는다. 이후 미검증 마이너도 테스트의
   검증 집합과 이 재검증 절차를 통과한 뒤 추가한다.
 
+## 파일 시스템 읽기 경계 표면 (2026-10-19)
+
+- 상태: 채택. index 어댑터가 analyzer 공개 파일 시스템 API를 새 표면으로 쓴다.
+- 이유: analyzer보다 먼저 분석 입력을 열거해 장치·FIFO를 거부하는 방식은
+  analyzer가 실제로 여는 파일을 다 덮지 못했다. 숨김·`build` 디렉터리 안을
+  가리키는 import, 절대 경로 import(`import '/dev/zero';`), 읽을 수 없는
+  디렉터리에서 멈춘 열거가 그 예다. 그래서 analyzer가 읽는 지점에서 확인한다.
+- 표면
+  - `package:analyzer/file_system/file_system.dart`의 `ResourceProvider`·`File`·
+    `Folder`를 구현한다(`lib/src/index/bounded_resource_provider.dart`).
+  - `PhysicalResourceProvider.INSTANCE`를 감싸고 내용 읽기
+    (`readAsStringSync`·`readAsBytesSync`)만 경계를 지나게 한다.
+  - `AnalysisContextCollection(resourceProvider:)`로 넘긴다.
+- 확인한 사실(설치된 소스)
+  - 14.3.0·14.4.0·14.5.0의 `file_system.dart`·`physical_file_system.dart`가 바이트
+    단위로 같다. `AnalysisContextCollection`의 `resourceProvider` 인자는 세 버전에
+    모두 있다(14.5.0은 `languageVersionOverride` 인자만 더했다).
+  - 파일 내용은 모두 넘긴 provider의 `File`로 읽는다. 소스는 `FileContentCache`,
+    analysis options·pubspec·package_config·SDK는 각자의 읽기 경로다. dart:io를
+    직접 쓰는 곳은 byte store·instrumentation·Blaze watcher처럼 dartograph가 쓰지
+    않는 경로뿐이다.
+  - `FileContentCache`는 읽기 예외를 '없는 파일'로 다룬다. 그래서 거부만으로는
+    결과가 조용히 달라진다. 어댑터는 모음을 만든 뒤와 `getResolvedUnit` 뒤에
+    거부를 확인해 분석 실패(종료 코드 2)로 바꾼다.
+  - analyzer는 요청받은 해석과 모음 생성 때만 파일을 읽는다. 모음은 드라이버에
+    파일을 더하지 않으므로 백그라운드 분석이 없다.
+- 함의: 이 인터페이스에 멤버가 더해지면 구현이 컴파일되지 않는다. 마이너를
+  검증 집합에 더할 때 위 두 파일과 내용 읽기 경로도 함께 비교한다.
+
 ## Phase 1에 넘기는 제약
 
 - analyzer 타입은 `lib/src/index/` 밖으로 노출하지 않는다.

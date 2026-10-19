@@ -14,15 +14,33 @@ const configurationSizeLimit = 1024 * 1024;
 const nonRegularFileMessage =
     'input is not a regular file (device, FIFO, or socket)';
 
-/// 정규 파일이 아닌 입력(장치·FIFO·소켓)을 열기 전에 거부했다는 실패다.
+/// 읽기 경계가 입력을 열기 전에, 또는 읽기 상한에서 거부했다는 실패다.
 ///
 /// [FormatException]을 상속해 호출자의 기존 수습(정적 메시지, 종료 코드 2)을
 /// 그대로 탄다. 다만 그 수습들은 원인을 형식 오류(설정 내용·제어문자)로 짚는다.
 /// 그래서 원인과 해결 방향을 알려야 하는 CLI 진단은 이 타입을 먼저 잡는다.
-/// 메시지는 경로를 담지 않는 [nonRegularFileMessage]다.
-final class NonRegularFileException extends FormatException {
+/// 메시지는 경로를 담지 않는 정적 문구다.
+sealed class InputRejectedException extends FormatException {
+  /// 정적 문구 [message]의 거부를 만든다.
+  const InputRejectedException(super.message);
+}
+
+/// 정규 파일이 아닌 입력(장치·FIFO·소켓)을 열기 전에 거부했다는 실패다.
+///
+/// 메시지는 [nonRegularFileMessage]다.
+final class NonRegularFileException extends InputRejectedException {
   /// [nonRegularFileMessage]의 거부를 만든다.
   const NonRegularFileException() : super(nonRegularFileMessage);
+}
+
+/// 정규 파일을 읽다가 상한에 이르러 멈췄다는 실패다.
+///
+/// analyzer 읽기 경계처럼 상한 초과가 설정 내용이 아니라 분석 입력 자체의
+/// 문제인 곳이 쓴다. 설정 파일의 상한 초과는 지금처럼 설정 오류로 진단되도록
+/// 일반 [FormatException]으로 남긴다([readBoundedFileSync]).
+final class InputTooLargeException extends InputRejectedException {
+  /// 경로를 담지 않는 정적 문구 [message]의 거부를 만든다.
+  const InputTooLargeException(super.message);
 }
 
 /// 경계 읽기가 한 번에 요청하는 바이트 수다. 상한까지 이 단위로 나눠 읽어 작은

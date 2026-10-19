@@ -5,6 +5,8 @@ import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/read_boundary_support.dart';
+
 /// `dartograph schema` — isthmus persistence 도메인 생산 명령의 CLI 계약이다.
 void main() {
   late Directory root;
@@ -97,6 +99,64 @@ void run(Database db) => db.rawQuery('SELECT * FROM users');
       await link.delete();
     }
   }, skip: Platform.isWindows);
+
+  test('Flutter 출처 확인이 읽는 package_config의 장치·FIFO 링크도 bridges를 '
+      '원인을 짚는 진단과 종료 2로 멈춘다', () async {
+    await Directory(p.join(root.path, 'lib')).create();
+    await File(p.join(root.path, 'lib', 'channel.dart')).writeAsString('''
+import 'package:flutter/services.dart';
+
+const channel = MethodChannel('x');
+void f() => channel.invokeMethod('m');
+''');
+    await Directory(p.join(root.path, '.dart_tool')).create();
+    final config = p.join(root.path, '.dart_tool', 'package_config.json');
+    // bridges는 analyzer 없이 구문만 훑고, services import의 출처를 이 파일로
+    // 확인한다. 수정 전에는 상한 없이 읽어 /dev/zero면 메모리를 채우고 쓰는
+    // 쪽이 없는 FIFO면 영구 대기했다. 여기서는 /dev/null과 쓰는 쪽이 붙은
+    // FIFO라 수정 전 코드도 빈 내용을 읽고 종료 0(출처 미확인 한계)으로 끝난다.
+    final fifo = await fifoWithRepeatingWriter(p.join(root.path, 'pipe'));
+    for (final target in ['/dev/null', fifo]) {
+      final link = Link(config);
+      await link.create(target);
+      final result = await run(['bridges', '--format', 'json', root.path]);
+      final reason = '$target: ${result.error}';
+      expect(result.code, 2, reason: reason);
+      expect(result.output, isEmpty, reason: reason);
+      expect(result.error, contains('not a regular file'), reason: reason);
+      await link.delete();
+    }
+  }, skip: Platform.isWindows);
+
+  test('읽기 상한을 넘는 분석 입력은 색인·추출 명령을 원인을 짚는 진단과 종료 2로 '
+      '멈춘다', () async {
+    await File(p.join(root.path, 'lib', 'repo.dart')).create(recursive: true);
+    // 64 MiB를 1바이트 넘는 공백 소스다. 상한은 읽기 전에 길이로 판정한다.
+    // schema·bridges는 analyzer 없이 소스를 직접 읽는 구문 스캐너라 같은
+    // 경계를 따로 지나야 한다.
+    await writeOversizedSource(
+      p.join(root.path, 'lib', 'big.dart'),
+      64 * 1024 * 1024,
+    );
+
+    for (final command in const [
+      ['dead', '--format', 'json'],
+      ['impact', '--symbol', 'project:lib/repo.dart::run'],
+      ['schema', '--format', 'json'],
+      ['bridges', '--format', 'json'],
+      ['routes', '--role', 'client'],
+    ]) {
+      final result = await run([...command, root.path]);
+      final reason = '${command.first}: ${result.error}';
+      expect(result.code, 2, reason: reason);
+      expect(result.output, isEmpty, reason: reason);
+      expect(
+        result.error,
+        contains('exceeds the 64 MiB read limit'),
+        reason: reason,
+      );
+    }
+  });
 
   test('사실이 없으면 target은 null이다', () async {
     final result = await run(['schema', '--format', 'json', root.path]);

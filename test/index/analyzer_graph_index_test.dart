@@ -3,10 +3,14 @@ import 'dart:isolate';
 
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/core/config_source.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/bounded_resource_provider.dart';
 import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../support/read_boundary_support.dart';
 
 void main() {
   late Directory fixtureDirectory;
@@ -870,6 +874,200 @@ environment:
     skip: Platform.isWindows,
     timeout: const Timeout(Duration(seconds: 60)),
   );
+
+  group('devices and FIFOs that only the analyzer opens', () {
+    late Directory workspace;
+    var fixtures = 0;
+
+    setUp(() async {
+      workspace = await Directory.systemTemp.createTemp(
+        'dartograph-read-boundary.',
+      );
+      // resolveProjectUnitsAt은 정규화한 루트 기준 경로로 대상을 고른다(macOS의
+      // /var → /private/var 같은 링크를 풀어 둔다).
+      workspace = Directory(workspace.resolveSymbolicLinksSync());
+    });
+    tearDown(() => workspace.delete(recursive: true));
+
+    /// pubspec과 [files]만 둔 패키지다. 값이 `-> `로 시작하면 그 대상의 링크다.
+    Future<String> package(Map<String, String> files) async {
+      final root = p.join(workspace.path, 'package-${fixtures++}');
+      final entries = {
+        'pubspec.yaml': 'name: read_boundary\nenvironment:\n  sdk: ^3.11.0\n',
+        ...files,
+      };
+      for (final MapEntry(key: path, value: content) in entries.entries) {
+        final target = p.join(root, path);
+        await Directory(p.dirname(target)).create(recursive: true);
+        if (content.startsWith('-> ')) {
+          await Link(target).create(content.substring(3));
+        } else {
+          await File(target).writeAsString(content);
+        }
+      }
+      return root;
+    }
+
+    /// 전체·증분 색인과 두 해석 경로가 [root]에서 [matcher]로 실패한다.
+    Future<void> expectAnalysisFails(
+      String root,
+      String unit, {
+      Matcher matcher = const TypeMatcher<NonRegularFileException>(),
+      String? reason,
+    }) async {
+      await expectLater(
+        AnalyzerGraphIndex(cache: _ColdCache()).index(root),
+        throwsA(matcher),
+        reason: reason,
+      );
+      await expectLater(
+        AnalyzerGraphIndex(
+          cache: _ColdCache(),
+          incremental: IncrementalCache('$root.facts'),
+        ).index(root),
+        throwsA(matcher),
+        reason: reason,
+      );
+      await expectLater(
+        resolveProjectUnits(root),
+        throwsA(matcher),
+        reason: reason,
+      );
+      await expectLater(
+        resolveProjectUnitsAt(root, {p.join(root, unit)}),
+        throwsA(matcher),
+        reason: reason,
+      );
+    }
+
+    // 사전 열거(캐시 키·탈출 링크 기록)가 보지 못하는 경로인데 analyzer는 연다.
+    // 수정 전에는 /dev/null은 빈 파일로 읽혀 분석이 성공했고, 쓰는 쪽이 없는
+    // FIFO나 /dev/zero라면 멈추거나 메모리를 소진했다. 링크 없이 절대 경로
+    // import 한 줄로도 같다. 쓰는 쪽을 붙인 FIFO는 회귀를 멈춤 대신 시간 안의
+    // 실패로 드러낸다.
+    test('imports into hidden or build directories and absolute imports '
+        'fail closed', () async {
+      final fifo = await fifoWithRepeatingWriter(
+        p.join(workspace.path, 'pipe'),
+      );
+      for (final target in ['/dev/null', fifo]) {
+        final reason = 'target $target';
+        // 숨김 디렉터리는 사전 열거가 가지치기한다.
+        await expectAnalysisFails(
+          await package({
+            'lib/a.dart': "import '.hidden/x.dart';\n\nvoid main() => x();\n",
+            'lib/.hidden/x.dart': '-> $target',
+          }),
+          'lib/a.dart',
+          reason: '$reason, hidden directory',
+        );
+        // build·.dart_tool·.git은 사전 열거가 건너뛰지만 analyzer는 lib/build를
+        // 분석 대상으로 연다. 증분 경로는 해석 전에 이 단위를 해시한다.
+        await expectAnalysisFails(
+          await package({
+            'lib/a.dart': 'class A {}\n',
+            'lib/build/x.dart': '-> $target',
+          }),
+          'lib/build/x.dart',
+          reason: '$reason, build directory',
+        );
+        await expectAnalysisFails(
+          await package({'lib/a.dart': "import '$target';\n\nclass A {}\n"}),
+          'lib/a.dart',
+          reason: '$reason, absolute import',
+        );
+      }
+    });
+
+    test(
+      'an unreadable linked directory that stops the pre-scan does not let a '
+      'later device link through',
+      () async {
+        final locked = Directory(p.join(workspace.path, 'locked'));
+        await locked.create();
+        final chmod = await Process.run('chmod', ['000', locked.path]);
+        expect(chmod.exitCode, 0, reason: chmod.stderr as String);
+        addTearDown(() => Process.run('chmod', ['700', locked.path]));
+        if (_canList(locked)) {
+          markTestSkipped('directory permissions are not enforced (root?)');
+          return;
+        }
+        final root = await package({
+          'lib/a.dart': 'class A {}\n',
+          'lib/zz.dart': '-> /dev/null',
+        });
+        // 사전 열거는 목록 순서대로 훑다가 읽을 수 없는 디렉터리에서 멈추고
+        // 남은 항목을 보지 않는다. 그 링크가 장치 링크보다 먼저 나오는 이름을
+        // 고른다(목록 순서는 파일 시스템마다 다르다).
+        final lib = Directory(p.join(root, 'lib'));
+        String? lockedFirst;
+        for (final name in const ['aaa', 'mmm', 'b0', 'q', 'zzz', 'a_']) {
+          final link = Link(p.join(lib.path, name));
+          await link.create(locked.path);
+          final order = [
+            for (final entity in lib.listSync(followLinks: false))
+              p.basename(entity.path),
+          ];
+          if (order.indexOf(name) < order.indexOf('zz.dart')) {
+            lockedFirst = name;
+            break;
+          }
+          await link.delete();
+        }
+        if (lockedFirst == null) {
+          markTestSkipped('no link name is listed before zz.dart here');
+          return;
+        }
+
+        await expectLater(
+          AnalyzerGraphIndex(cache: _ColdCache()).index(root),
+          throwsA(isA<NonRegularFileException>()),
+        );
+        // 증분 경로는 해석 전에 입력을 다시 열거하다 읽을 수 없는 디렉터리에서
+        // 실패한다(기존 동작). 어느 쪽이든 장치를 읽은 결과를 내지 않는다.
+        await expectLater(
+          AnalyzerGraphIndex(
+            cache: _ColdCache(),
+            incremental: IncrementalCache('$root.facts'),
+          ).index(root),
+          throwsA(
+            anyOf(isA<NonRegularFileException>(), isA<FileSystemException>()),
+          ),
+        );
+        await expectLater(
+          resolveProjectUnits(root),
+          throwsA(isA<NonRegularFileException>()),
+        );
+        await expectLater(
+          resolveProjectUnitsAt(root, {p.join(root, 'lib', 'zz.dart')}),
+          throwsA(isA<NonRegularFileException>()),
+        );
+      },
+    );
+
+    test(
+      'analysis inputs above the read limit fail before they are read',
+      () async {
+        // 상한 검사는 읽기 전에 길이로 한다. 상한 없이 읽으면 이 공백 소스는
+        // 몇 초 안에 빈 라이브러리로 해석돼, 거부가 없다는 실패로 드러난다.
+        final root = await package({'lib/a.dart': 'class A {}\n'});
+        await writeOversizedSource(
+          p.join(root, 'lib', 'big.dart'),
+          analysisReadLimit,
+        );
+
+        await expectAnalysisFails(
+          root,
+          'lib/big.dart',
+          matcher: isA<InputTooLargeException>().having(
+            (rejection) => rejection.message,
+            'message',
+            'analysis input exceeds the 64 MiB read limit',
+          ),
+        );
+      },
+    );
+  }, skip: Platform.isWindows);
 
   test('an unreadable directory in a path dependency does not stop link-escape '
       'recording', () async {

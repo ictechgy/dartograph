@@ -79,9 +79,9 @@ Future<int> _emitRoutes(
       ),
     );
     return ExitStatus.success.code;
-  } on NonRegularFileException catch (exception) {
-    // 장치·FIFO 입력 거부도 FormatException이다. 아래 제어문자 진단으로 흘리면
-    // 원인을 반대로 가리킨다.
+  } on InputRejectedException catch (exception) {
+    // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
+    // 진단으로 흘리면 원인을 반대로 가리킨다.
     return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(

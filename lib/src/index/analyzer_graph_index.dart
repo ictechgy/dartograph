@@ -21,6 +21,7 @@ import '../core/path_glob.dart';
 import '../core/retention_reason.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
+import 'bounded_resource_provider.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
@@ -234,10 +235,7 @@ final class AnalyzerGraphIndex {
         return cached;
       }
     }
-    final collection = AnalysisContextCollection(
-      includedPaths: [root],
-      sdkPath: _dartSdkPath(),
-    );
+    final collection = await _openCollection(root);
     try {
       final result = await _analyze(
         root,
@@ -608,10 +606,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
   required Set<String> entryLibraryPaths,
   required List<String> memberRelPaths,
 }) async {
-  final resolved = await _contextIncluding(
-    collection,
-    path,
-  ).currentSession.getResolvedUnit(path);
+  final resolved = await _resolvedUnit(collection, path);
   if (resolved is! ResolvedUnitResult) return null;
   final source = _relativeSourcePath(path, root);
   if (source == null) return null;
@@ -1734,8 +1729,11 @@ _incrementalInputs(
   for (final source in unitSources) {
     if (unitHashes.containsKey(source)) continue;
     // 방어: 분석 입력 열거에 없는 분석 대상(경계 밖 링크 등)도 키를 갖는다.
+    // 열거가 건너뛰는 디렉터리(`build` 등) 안 단위는 여기서 처음 읽힌다. 그래서
+    // 장치·FIFO 링크는 해시하기 전에 거부한다 — 해석보다 먼저라 analyzer 읽기
+    // 경계가 막기 전에 이 해시가 FIFO에서 영구 대기한다.
     final file = File(p.join(root, source));
-    if (!file.existsSync()) continue;
+    if (!regularFileExistsSync(file)) continue;
     unitHashes[source] = fileContentHash(file);
   }
   final fingerprint = sha256
@@ -1822,10 +1820,7 @@ Future<void> resolveProjectUnitsEach(
     for (final member in workspace?.members ?? const <_WorkspaceMember>[])
       member.absPath,
   ];
-  final collection = AnalysisContextCollection(
-    includedPaths: [root],
-    sdkPath: _dartSdkPath(),
-  );
+  final collection = await _openCollection(root);
   try {
     for (final path in _dartFilesUnder(
       root,
@@ -1834,10 +1829,7 @@ Future<void> resolveProjectUnitsEach(
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
     )) {
-      final result = await _contextIncluding(
-        collection,
-        path,
-      ).currentSession.getResolvedUnit(path);
+      final result = await _resolvedUnit(collection, path);
       if (result is ResolvedUnitResult) onUnit(result);
     }
   } finally {
@@ -1860,10 +1852,7 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   final wanted = {for (final path in paths) p.normalize(path)};
   await _scanAnalysisInputs(root, null);
-  final collection = AnalysisContextCollection(
-    includedPaths: [root],
-    sdkPath: _dartSdkPath(),
-  );
+  final collection = await _openCollection(root);
   try {
     final units = <String, ResolvedUnitResult>{};
     final files = _dartFilesUnder(
@@ -1874,10 +1863,7 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
       const [],
     ).where((path) => wanted.contains(p.normalize(path)));
     for (final path in files) {
-      final result = await _contextIncluding(
-        collection,
-        path,
-      ).currentSession.getResolvedUnit(path);
+      final result = await _resolvedUnit(collection, path);
       if (result is ResolvedUnitResult) units[p.normalize(path)] = result;
     }
     return units;
@@ -1913,23 +1899,26 @@ const _cacheSchemaVersion = 7;
 // 패턴으로만 읽는 필드를 dead로 남기므로 identity를 올려 폐기한다.
 // build.yaml 입력 누락(v17)을 고친다. 파일이 이미 삭제된 경우에도 옛 키로
 // 저장한 builder 보존·파싱 한계가 재사용되지 않도록 이전 캐시를 폐기한다.
+// analyzer 읽기 경계(v18)는 import로 끌어온 장치·FIFO·상한 초과 입력을 분석
+// 실패로 바꾼다. 그런 대상(숨김 디렉터리·build 디렉터리 안 파일, 절대 경로)은
+// 키 열거 밖이라, 같은 도구 버전의 이전 캐시가 남긴 성공 결과가 거부를 가린다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v17-build-config';
+    'dartograph-analysis-$toolVersion-cache-v18-read-boundary';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
 /// 두 역할이 있다. [linkEscapes]가 있으면 루트 밖 링크를 기록한다. 그리고
-/// 장치·FIFO·소켓 입력을 [FormatException]으로 거부한다(fail-closed) —
-/// AnalysisContextCollection은 만들 때 pubspec·analysis_options·package_config를,
-/// 해석할 때 .dart를 크기 상한 없이 읽어 그런 입력에서 메모리를 소진하거나
-/// 영구 대기한다. 전체 결과 캐시 경로는 키 열거([_tryAnalysisCacheKey])가 같은
-/// 거부를 먼저 한다.
+/// 열거한 장치·FIFO·소켓 입력을 [NonRegularFileException]으로 일찍 거부한다.
+/// 이 거부는 보장이 아니라 빠른 실패다. 열거는 숨김 디렉터리를 건너뛰고,
+/// import가 가리키는 절대 경로를 모르며, 아래처럼 중간에 멈출 수 있다. analyzer가
+/// 실제로 여는 모든 파일은 읽기 경계([BoundedResourceProvider])가 확인한다.
+/// 전체 결과 캐시 경로는 키 열거([_tryAnalysisCacheKey])가 같은 거부를 먼저 한다.
 ///
 /// 링크 기록은 보고용 부수 효과다. 열거가 [FileSystemException]으로 멈추면(읽을
 /// 수 없는 디렉터리, 순회 중 사라진 대상) 분석을 멈추지 않고 그 지점까지의
 /// 기록을 남긴다. 전체 결과 캐시 경로가 같은 열거 실패를 흡수하므로, 이렇게
 /// 해야 캐시 유무에 따라 종료 코드가 갈라지지 않는다. analyzer도 읽지 못하는
-/// 디렉터리는 조용히 건너뛴다.
+/// 디렉터리는 조용히 건너뛴다. 남은 링크는 읽기 경계가 막는다.
 Future<void> _scanAnalysisInputs(String root, Set<String>? linkEscapes) async {
   try {
     await _analysisInputFiles(root, linkEscapes: linkEscapes);
@@ -1951,8 +1940,9 @@ Future<String?> _tryAnalysisCacheKey(
       aggregateWorkspace: aggregateWorkspace,
     );
   } on FormatException {
-    // 장치·FIFO·소켓 입력과 상한을 넘는 package_config는 캐시 실패가 아니라
-    // 분석 실패다(fail-closed). 흡수하면 analyzer가 같은 입력을 상한 없이 읽는다.
+    // 장치·FIFO·소켓 입력과 상한을 넘는 입력·package_config는 캐시 실패가 아니라
+    // 분석 실패다(fail-closed). 흡수하면 같은 입력이 캐시 유무에 따라 종료 2와
+    // 다른 결과로 갈린다.
     rethrow;
   } on Object {
     return null;
@@ -1981,12 +1971,18 @@ Future<String> _analysisCacheKey(
       p.relative(file.path, from: root).split(p.separator),
     );
     final stat = await file.stat();
+    // analyzer 읽기 경계와 같은 상한이다. 길이를 0으로 보고하는 가상 파일은
+    // 스트림이 끝나지 않으므로 읽은 양으로도 센다.
+    if (stat.size > analysisReadLimit) throw analysisInputTooLarge();
     bytes
       ..add(utf8.encode(relative))
       ..add(const [0])
       ..add(utf8.encode(stat.modified.microsecondsSinceEpoch.toString()))
       ..add(const [0]);
+    var read = 0;
     await for (final chunk in file.openRead()) {
+      read += chunk.length;
+      if (read > analysisReadLimit) throw analysisInputTooLarge();
       bytes.add(chunk);
     }
     bytes.add(const [0]);
@@ -3878,6 +3874,69 @@ const _sourceDirectories = {
   'lib',
   'test',
 };
+
+/// [_openCollection]이 만든 컨텍스트 모음마다 그 모음의 읽기 경계다.
+///
+/// [_resolvedUnit]은 해석 뒤 이 경계의 거부를 확인한다. 경계를 analyzer가 돌려주는
+/// 컨텍스트(`contextRoot.resourceProvider`)에서 찾지 않는 것은, analyzer가 받은
+/// provider를 다른 provider로 감싸 넘기는 순간 확인이 조용히 빠지기(fail-open)
+/// 때문이다. 모음이 사라지면 항목도 함께 사라진다.
+final _readBoundaries = Expando<BoundedResourceProvider>('readBoundary');
+
+/// [root]를 분석하는 컨텍스트 모음을 analyzer 읽기 경계 위에 만든다.
+///
+/// analyzer는 모음을 만들며 pubspec·analysis_options·package_config를 읽는다.
+/// 경계가 그중 하나를 거부했으면 모음을 닫고 그 거부를 던진다. analyzer가
+/// 거부를 수습하지 않고 예외로 내보낸 경우(루트 pubspec 등)도 원인은 같은
+/// 거부다.
+Future<AnalysisContextCollection> _openCollection(String root) async {
+  final boundary = BoundedResourceProvider();
+  final AnalysisContextCollection collection;
+  try {
+    collection = AnalysisContextCollection(
+      includedPaths: [root],
+      resourceProvider: boundary,
+      sdkPath: _dartSdkPath(),
+    );
+  } on Object {
+    boundary.throwIfRejected();
+    rethrow;
+  }
+  try {
+    boundary.throwIfRejected();
+  } on InputRejectedException {
+    await collection.dispose();
+    rethrow;
+  }
+  _readBoundaries[collection] = boundary;
+  return collection;
+}
+
+/// [path]의 resolved unit이다. 해석 중 읽기 경계가 막은 입력이 있으면 실패한다.
+///
+/// 해석은 import·part 폐쇄 전체와 그 패키지 설정을 읽는다. analyzer는 막힌
+/// 파일을 대개 '없음'으로 다루고 계속하므로, 여기서 확인하지 않으면 결과가
+/// 조용히 달라지고 증분·결과 캐시에 그 결과가 남는다. [collection]은
+/// [_openCollection]이 만든 모음이어야 한다. 경계가 없는 모음이면 확인 없이
+/// 해석하지 않고 [StateError]로 실패한다(분석 실패, 종료 코드 2).
+Future<SomeResolvedUnitResult> _resolvedUnit(
+  AnalysisContextCollection collection,
+  String path,
+) async {
+  final boundary =
+      _readBoundaries[collection] ??
+      (throw StateError('The analysis collection has no read boundary.'));
+  final context = _contextIncluding(collection, path);
+  final SomeResolvedUnitResult result;
+  try {
+    result = await context.currentSession.getResolvedUnit(path);
+  } on Object {
+    boundary.throwIfRejected();
+    rethrow;
+  }
+  boundary.throwIfRejected();
+  return result;
+}
 
 AnalysisContext _contextIncluding(
   AnalysisContextCollection collection,
