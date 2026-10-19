@@ -431,8 +431,8 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 두 값 모두 1 미만·비정수·값 빠짐·중복 플래그는 usage(64)다. `--depth`·`--limit`은
 `--batch`·`--baseline`과 함께 쓸 수 있다.
 
-`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하이며
-요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
+`query --batch`는 JSON 문자열 배열을 읽는다. 요청은 1–1000개, 파일은 1 MiB 이하의
+정규 파일이며(장치·FIFO·소켓은 usage 64) 요청 순서와 중복을 유지한다. 예: `["ApiClient", "ApiClient.fetch", "Missing"]`.
 그래프·도달성·이웃 색인은 한 번만 만들고 baseline도 한 번 적용한다. 출력은
 `format: symbol-query-batch`, `version: 1`, `results: [...]`이며 각 결과는 단일 query
 문서다. 하나라도 `notFound`이면 전체 종료 코드는 64지만 나머지 결과도 모두 반환한다.
@@ -471,7 +471,7 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 
 씨앗은 정확히 하나를 준다: `--since <git-ref>`(Git 변경 파일, `affected`와 같은
 전체 이력·심볼릭 링크 양방향 매칭), `--changed <changes.json>`(프로젝트 상대 경로의
-JSON 문자열 배열, 1–1000개·1 MiB 이하, `query --batch`와 같은 상한), 또는
+JSON 문자열 배열, 1–1000개·1 MiB 이하 정규 파일, `query --batch`와 같은 상한), 또는
 `--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
 
 `--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과

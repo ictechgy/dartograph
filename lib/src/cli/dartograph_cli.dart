@@ -875,6 +875,9 @@ Future<int> _runImpact(
     } else if (changedFile != null) {
       try {
         changedSources.addAll(await _readChangedEntries(changedFile));
+      } on NonRegularFileException {
+        // 사용자가 준 입력 경로 문제(64)다. 아래 분석 입력 거부(2)로 흘리지 않는다.
+        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
       } on FileSystemException {
         // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
         // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
@@ -957,10 +960,9 @@ int _riskRank(String level) => switch (level) {
 /// `--changed`의 JSON 문자열 배열을 `project:` 소스 URI 집합으로 읽는다.
 ///
 /// query --batch와 같은 상한(1 MiB, 1–1000개, 비어 있지 않은 문자열)을 쓴다.
+/// 장치·FIFO·소켓이면 [NonRegularFileException]이다([_readRequestFile]).
 Future<Set<String>> _readChangedEntries(String path) async {
-  final file = File(path);
-  if (await file.length() > 1024 * 1024) throw const FormatException();
-  final value = jsonDecode(await file.readAsString());
+  final value = jsonDecode(await _readRequestFile(path));
   if (value is! List ||
       value.isEmpty ||
       value.length > 1000 ||
@@ -970,6 +972,38 @@ Future<Set<String>> _readChangedEntries(String path) async {
   return {
     for (final entry in value.cast<String>()) _relativeToProjectSource(entry),
   };
+}
+
+/// CLI 인자로 받는 요청 파일(`query --batch`·`impact --changed`·
+/// `routes --wrappers`)의 읽기 상한이다. 세 문서 모두 정상 입력은 이보다 훨씬
+/// 작다(요청·경로 1000개 이하).
+const _requestFileSizeLimit = 1024 * 1024;
+
+/// CLI 인자로 받은 요청 파일 [path]를 [_requestFileSizeLimit]까지만 읽는다.
+///
+/// 길이를 먼저 보고 전체를 읽으면 장치·FIFO 링크에서 상한이 듣지 않는다. 장치는
+/// 길이를 0으로 보고한 뒤 EOF 없이 읽히고(`/dev/zero`), 쓰는 쪽이 없는 FIFO는
+/// 여는 순간 영구 대기한다. 그런 경로는 CI에서 저장소 파일을 가리키기 쉽다.
+/// 그래서 정규 파일인지 열기 전에 확인하고 상한까지만 읽는다.
+/// - 장치·FIFO·소켓: [NonRegularFileException]. 호출자가 원인대로 알린다.
+/// - 상한 초과: 일반 [FormatException]. 호출자의 기존 내용 오류 진단을 탄다.
+/// - 부재·권한·UTF-8 디코드 실패: [FileSystemException](기존 읽기 실패와 같다).
+Future<String> _readRequestFile(String path) => readBoundedFile(
+  File(path),
+  _requestFileSizeLimit,
+  tooLargeMessage: 'request file exceeds 1 MiB',
+);
+
+/// CLI 인자로 받은 [kind] 파일이 정규 파일이 아니라고 알리고 64를 돌려준다.
+///
+/// 내용 오류 문구('Invalid …')로 알리면 사용자가 JSON을 고치려 든다. 경로는
+/// 사용자가 준 값이라 반향하되 제어문자는 이스케이프한다.
+int _reportNonRegularRequestFile(StringSink error, String kind, String path) {
+  error.writeln(
+    '$kind must be a regular file (not a device, FIFO, or socket): '
+    '${ReportEscapes.escapeText(path)}',
+  );
+  return ExitStatus.usage.code;
 }
 
 /// 프로젝트 상대 경로를 `project:` 소스 URI로 정규화한다.
@@ -1559,9 +1593,7 @@ Future<int> _runQuery(
     }
     if (positional.length == 5) baselinePath = positional[3];
     try {
-      final file = File(batchPath);
-      if (await file.length() > 1024 * 1024) throw const FormatException();
-      final value = jsonDecode(await file.readAsString());
+      final value = jsonDecode(await _readRequestFile(batchPath));
       if (value is! List ||
           value.isEmpty ||
           value.length > 1000 ||
@@ -1569,6 +1601,8 @@ Future<int> _runQuery(
         throw const FormatException();
       }
       requests = value.cast<String>();
+    } on NonRegularFileException {
+      return _reportNonRegularRequestFile(error, 'Batch file', batchPath);
     } on FileSystemException {
       // 파일 부재·권한·디코드 실패는 내용 오류가 아니다. --changed처럼 어느
       // 파일을 읽지 못했는지 가리키고 분류(64)는 그대로 둔다.

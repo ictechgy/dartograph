@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/markdown_fixture_support.dart';
+import '../support/read_boundary_support.dart';
 
 void main() {
   late Directory directory;
@@ -278,6 +279,38 @@ void main() {
     expect(error.toString(), contains('Changed list could not be read'));
     expect(error.toString(), contains(missing));
   });
+
+  test(
+    'impact rejects a --changed device or FIFO by its cause as usage',
+    () async {
+      // 길이를 본 뒤 전체를 읽던 수정 전 코드는 /dev/zero 링크면 상한 없이 읽고
+      // 쓰는 쪽이 없는 FIFO면 영구 대기했다. 여기서는 /dev/null과 쓰는 쪽이 붙은
+      // FIFO라 수정 전 코드도 빈 내용을 읽고 'Invalid changed list'로 끝난다.
+      final device = p.join(directory.path, 'device.json');
+      await Link(device).create('/dev/null');
+      final fifo = await fifoWithRepeatingWriter(
+        p.join(directory.path, 'pipe.json'),
+      );
+      for (final path in [device, fifo]) {
+        final error = StringBuffer();
+        final status = await run([
+          'impact',
+          '--changed',
+          path,
+          directory.path,
+        ], error: error);
+
+        expect(status, 64, reason: path);
+        // 사용자가 준 경로 문제다. 분석 입력 거부(종료 2)로 진단하지 않는다.
+        expect(
+          error.toString(),
+          'Changed list must be a regular file (not a device, FIFO, or '
+          'socket): $path\n',
+        );
+      }
+    },
+    skip: Platform.isWindows,
+  );
 
   test('impact renders text, markdown, and sarif losslessly', () async {
     final changes = changedFile(['lib/a.dart']).path;
