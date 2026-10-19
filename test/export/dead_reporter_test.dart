@@ -4,6 +4,8 @@ import 'package:dartograph/src/analysis/reachability_analyzer.dart';
 import 'package:dartograph/src/export/dead_reporter.dart';
 import 'package:test/test.dart';
 
+import '../support/markdown_fixture_support.dart';
+
 void main() {
   final finding = DeadFinding(
     id: 'package:app/a.dart::dead',
@@ -266,6 +268,32 @@ void main() {
 
     final markdown = DeadReporter.render(ReportFormat.markdown, [hostile]);
     expect(markdown, contains('``package:app/a.dart::Foo`x``'));
+  });
+
+  test('markdown limitations cannot open links, html, spans, or mentions', () {
+    // limitation은 저장소가 정한 문자열(dartograph.yaml 미지 키 등)을 원문으로
+    // 싣는다. 리포트가 PR 코멘트로 게시돼도 링크·이미지·HTML·code span·멘션으로
+    // 렌더링되지 않아야 한다 — 전역 limitation과 finding별 limitation 모두.
+    final hostile = DeadFinding(
+      id: 'package:app/a.dart::x',
+      kind: 'declaration',
+      source: 'project:lib/a.dart',
+      reason: 'unreachable from all retention roots',
+      retentionRootsChecked: const [],
+      limitations: const [hostileMarkdownText],
+    );
+
+    final markdown = DeadReporter.render(
+      ReportFormat.markdown,
+      [hostile],
+      limitations: const [hostileMarkdownText],
+    );
+    expect(
+      markdown,
+      contains('\n- `package:app/a.dart::x`: $escapedMarkdownText\n'),
+    );
+    expect(markdown, contains('\n- $escapedMarkdownText\n'));
+    expect(markdown, isNot(contains('\x1b')));
   });
 
   test('sarif uri keeps backslashes and literal percent sequences', () {

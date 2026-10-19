@@ -87,16 +87,16 @@ abstract final class DependencyReporter {
           ? '${ReportEscapes.mdCode(finding.manifest ?? 'pubspec.yaml')} | '
           : '';
       output.writeln(
-        '| warning | ${ReportEscapes.mdCell(finding.kind)} | '
+        '| warning | ${ReportEscapes.mdText(finding.kind)} | '
         '${ReportEscapes.mdCode(finding.name)} | $manifestCell'
-        '${ReportEscapes.mdCell(finding.reason)} | $evidence |',
+        '${ReportEscapes.mdText(finding.reason)} | $evidence |',
       );
     }
     output.writeln();
     output.writeln('## Limitations');
     output.writeln();
     for (final limitation in limits) {
-      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdText(limitation)}');
     }
     return output.toString();
   }

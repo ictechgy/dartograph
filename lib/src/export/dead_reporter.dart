@@ -134,8 +134,10 @@ abstract final class DeadReporter {
   /// 사람과 AI가 함께 읽는 Markdown 리포트다.
   ///
   /// 표 셀에는 text와 같은 제어문자 정책을 적용하고 파이프를 이스케이프해 표
-  /// 구조를 지킨다. 전역 limitation과 finding별 limitation을 구분해 적는다
-  /// (finding별 것은 어느 finding의 것인지 ID로 귀속한다).
+  /// 구조를 지킨다. ID·경로는 code span([ReportEscapes.mdCode])에, 그 밖의
+  /// 문구는 [ReportEscapes.mdText]로 넣어 저장소 유래 limitation이 링크·HTML·
+  /// 멘션으로 렌더링되지 않게 한다. 전역 limitation과 finding별 limitation을
+  /// 구분해 적는다(finding별 것은 어느 finding의 것인지 ID로 귀속한다).
   static String _markdown(
     List<DeadFinding> findings,
     List<String> limits,
@@ -160,8 +162,8 @@ abstract final class DeadReporter {
           ? ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))
           : '${ReportEscapes.mdCode(ReportEscapes.sourcePath(finding.source))}:${finding.line}:${finding.column ?? 1}';
       output.writeln(
-        '| ${report.severity} | ${ReportEscapes.mdCell(finding.kind)} | '
-        '${ReportEscapes.mdCode(finding.id)} | $location | ${ReportEscapes.mdCell(finding.reason)} | '
+        '| ${report.severity} | ${ReportEscapes.mdText(finding.kind)} | '
+        '${ReportEscapes.mdCode(finding.id)} | $location | ${ReportEscapes.mdText(finding.reason)} | '
         '${ReportEscapes.mdCode('retentionRootsChecked=${_roots(finding)}')} |',
       );
     }
@@ -171,12 +173,12 @@ abstract final class DeadReporter {
     for (final finding in findings) {
       for (final limitation in finding.limitations) {
         output.writeln(
-          '- ${ReportEscapes.mdCode(finding.id)}: ${ReportEscapes.mdCell(limitation)}',
+          '- ${ReportEscapes.mdCode(finding.id)}: ${ReportEscapes.mdText(limitation)}',
         );
       }
     }
     for (final limitation in limits) {
-      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdText(limitation)}');
     }
     return output.toString();
   }

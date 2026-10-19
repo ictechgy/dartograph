@@ -74,7 +74,7 @@ abstract final class DuplicationReporter {
     output.writeln('## Limitations');
     output.writeln();
     for (final limitation in limits) {
-      output.writeln('- ${ReportEscapes.mdCell(limitation)}');
+      output.writeln('- ${ReportEscapes.mdText(limitation)}');
     }
     return output.toString();
   }

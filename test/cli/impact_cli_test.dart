@@ -7,6 +7,8 @@ import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/markdown_fixture_support.dart';
+
 void main() {
   late Directory directory;
   late String canonicalRoot;
@@ -473,4 +475,97 @@ void main() {
 
     expect(await render(), await render());
   });
+
+  test(
+    'impact markdown keeps hostile paths inside intact code spans',
+    () async {
+      // 백틱이 든 파일명은 단일 백틱 span을 일찍 닫아 뒤의 링크·멘션을 Markdown으로
+      // 살린다. 구분자를 내용의 가장 긴 백틱 run보다 길게 잡아야 원문이 span에 남고,
+      // 저장소 유래 limitation은 링크·HTML·멘션을 열지 못하는 문구가 된다.
+      const evil = 'project:lib/b`[x](https://evil.example) @victim.dart';
+      const evilTest = 'project:test/c`@victim_test.dart';
+      final graph = CodeGraph()
+        ..addNode(GraphNode(id: 'project:lib/a.dart', isLibrary: true))
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/a.dart::Foo',
+            sourceUri: 'project:lib/a.dart',
+          ),
+        )
+        ..addNode(GraphNode(id: evil, isLibrary: true))
+        ..addNode(
+          GraphNode(id: '$evil::Bar', sourceUri: evil, line: 3, column: 5),
+        )
+        ..addNode(GraphNode(id: evilTest, isLibrary: true))
+        ..addNode(GraphNode(id: '$evilTest::main', sourceUri: evilTest))
+        ..addEdge(
+          const GraphEdge(
+            sourceId: '$evil::Bar',
+            targetId: 'project:lib/a.dart::Foo',
+            kind: EdgeKind.call,
+          ),
+        )
+        ..addEdge(
+          const GraphEdge(
+            sourceId: '$evilTest::main',
+            targetId: '$evil::Bar',
+            kind: EdgeKind.call,
+          ),
+        );
+      final hostileIndex = AnalyzerGraphResult(
+        graph: graph,
+        limitations: const [],
+        limitationDetails: const [hostileMarkdownText],
+      );
+      Future<(int, String)> render(String symbol) async {
+        final output = StringBuffer();
+        final status = await runDartograph(
+          [
+            'impact',
+            '--symbol',
+            symbol,
+            '--format',
+            'markdown',
+            directory.path,
+          ],
+          output: output,
+          error: StringBuffer(),
+          indexPackage: (_) async => hostileIndex,
+        );
+        return (status, output.toString());
+      }
+
+      final (status, markdown) = await render('project:lib/a.dart::Foo');
+      expect(status, 0);
+      const bar = 'project:lib/b`[x](https://evil.example) @victim.dart::Bar';
+      expect(markdown, contains('| ``$bar`` | declaration |'));
+      expect(
+        markdown,
+        contains('| ``lib/b`[x](https://evil.example) @victim.dart:3`` |'),
+      );
+      expect(
+        markdown,
+        contains('|  |  |  | ``$bar → project:lib/a.dart::Foo`` |'),
+      );
+      expect(markdown, contains('\n- ``test/c`@victim_test.dart`` (depth 2)'));
+      expect(
+        markdown,
+        contains(
+          '\n- ``$bar`` → `project:lib/a.dart::Foo` (call) at '
+          '``lib/b`[x](https://evil.example) @victim.dart:3:5``\n',
+        ),
+      );
+      expect(markdown, contains('\n- $escapedMarkdownText\n'));
+
+      final (missingStatus, missing) = await render('project:lib/a.dart::G`x');
+      expect(missingStatus, 64);
+      expect(
+        missing,
+        contains(
+          'Requested symbols absent from the graph: '
+          '``project:lib/a.dart::G`x``\n',
+        ),
+      );
+    },
+  );
 }
