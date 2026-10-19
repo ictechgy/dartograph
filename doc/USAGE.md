@@ -359,6 +359,9 @@ schemagraph `facts`가 내고 isthmus `check`가 두 문서를 관계·컬럼 �
 - 어느 게이트로도 읽지 않은 문자열 리터럴은 동사와 관계 키워드가 대문자인 SQL만
   읽는다. SQL 동사가 있지만 대문자가 아닌 리터럴은 `skipped-sql-literals`로 센다.
 
+SQL 텍스트의 같은 문장 CTE 이름, `EXTRACT(YEAR FROM d)` 같은 함수 인자 안의 `FROM`,
+`IS [NOT] DISTINCT FROM`의 피연산자는 관계가 아니므로 사실로 내지 않는다(persistence
+생산자 공통 규칙 — [GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md#persistence-문서-schema)).
 수신자 타입은 해석하지 않는다(구문 스캔). import 게이트 안에서 sqflite와 같은 모양의
 다른 API 호출(예: `Map.update('users', fn)`)은 관계로 읽힐 수 있다. 비리터럴 SQL·테이블
 인자·미해석 SQL 피연산자는 원문 요약을 channel로 한 `dynamic: true` 사실로 남기고

@@ -3,7 +3,9 @@
 /// kartograph `SqlRelations.kt`·cartograph `SqlRelations.swift`의 포트다 —
 /// 알고리즘·게이트·미해석 계수 규칙을 같이 유지한다. 생산자마다 같은 SQL을
 /// 다르게 읽으면 isthmus persistence 조인 결과가 생산자 언어에 따라 달라지기
-/// 때문이다. 오프셋은 Dart 문자열의 UTF-16 code unit 위치다.
+/// 때문이다. 관계가 아닌 세 경우(R1 함수 인자 안의 FROM, R2 같은 문장의 CTE
+/// 이름, R3 `IS [NOT] DISTINCT FROM`)도 persistence 생산자 계열의 공통 규칙과
+/// 공통 사례를 따른다. 오프셋은 Dart 문자열의 UTF-16 code unit 위치다.
 library;
 
 /// SQL 어휘 하나다 — 인용된 식별자는 키워드가 아니다.
@@ -121,7 +123,9 @@ bool looksLikeSql(String text, {bool strict = false}) {
 /// 한정 이름(`schema.table`)은 그대로 두고, 이름 자체에 점이 있는 인용
 /// 식별자(`"a.b"`)는 한 세그먼트로 escape한다. `unresolved`는 관계 자리의
 /// 피연산자를 읽지 못한 횟수다 — `FROM {}` 같은 플레이스홀더를 사실 없이
-/// 조용히 넘기지 않기 위해서다.
+/// 조용히 넘기지 않기 위해서다. 같은 문장의 CTE 이름, `EXTRACT(YEAR FROM d)`
+/// 같은 함수 인자 안의 FROM, `IS [NOT] DISTINCT FROM`의 피연산자는 관계 자리가
+/// 아니므로 관계로도 미해석으로도 세지 않는다.
 ({List<SqlRelation> relations, int unresolved}) sqlRelations(
   String text, {
   bool strict = false,
@@ -137,13 +141,17 @@ bool looksLikeSql(String text, {bool strict = false}) {
 /// [sqlRelations]의 한 번 스캔 상태다 — 원본의 지역 변수·중첩 함수를 필드와
 /// 메서드로 옮겼다. 규칙 자체는 포트 원본과 한 줄씩 대응한다. 다만 같은 문장의
 /// 앞쪽 단어 판정과 괄호 짝은 원본처럼 키워드마다 다시 훑지 않고 한 번씩 미리
-/// 계산한다 — 결과는 같고, 큰 SQL에서 시간이 2차로 늘지 않는다.
+/// 계산한다 — 결과는 같고, 큰 SQL에서 시간이 2차로 늘지 않는다. 계열 공통
+/// 규칙 R1~R3의 판정도 같은 이유로 생성자에서 한 번에 미리 계산한다.
 final class _RelationScan {
   _RelationScan(this.tokens, {required this.strict})
     : consumed = List.filled(tokens.length, false),
       stmtHead = List.filled(tokens.length, false),
-      stmtVerb = List.filled(tokens.length, null) {
+      stmtVerb = List.filled(tokens.length, null),
+      _statement = List.filled(tokens.length, 0),
+      _nonRelationFrom = List.filled(tokens.length, false) {
     _markStatements();
+    _markRelationContexts();
   }
 
   final List<SqlToken> tokens;
@@ -155,6 +163,17 @@ final class _RelationScan {
 
   /// 각 토큰이 속한 문장의 (대문자 게이트를 통과한) 동사다.
   final List<String?> stmtVerb;
+
+  /// 각 토큰이 속한 문장(비인용 `;`로 나뉜 구간)의 번호다 — R2 CTE 이름의 범위다.
+  final List<int> _statement;
+
+  /// 관계 자리를 열지 않는 FROM 위치다 — 함수 인자 괄호 안(R1)이거나
+  /// `IS [NOT] DISTINCT FROM` 비교 연산자의 일부(R3)다.
+  final List<bool> _nonRelationFrom;
+
+  /// 문장 번호마다 그 문장에서 정의한 CTE 이름의 비교 키다(R2, [_cteKey]).
+  /// CTE가 없는 문장은 항목이 없다.
+  final _cteNames = <int, Set<String>>{};
   final out = <SqlRelation>[];
 
   /// 같은 키워드의 피연산자 목록 안에서만 중복을 막는 키다(`FROM a, a`).
@@ -196,6 +215,115 @@ final class _RelationScan {
       stmtVerb[i] = verb;
       i++;
     }
+  }
+
+  /// 계열 공통 규칙 R1~R3의 판정을 한 번에 미리 계산한다 — 토큰마다 문장 번호,
+  /// 문장마다 CTE 이름(R2), 관계 자리를 열지 않는 FROM(R1·R3)이다.
+  ///
+  /// 토큰을 앞에서부터 한 번만 지나고 재귀하지 않는다. CTE 정의는 이름 앞의
+  /// WITH·쉼표에서 몇 토큰만 앞으로 보고(열 목록 괄호는 미리 맞춘 짝으로
+  /// 건너뛴다) 판정하므로 본문 `(`에 닿기 전에 그 괄호가 CTE 본문임을 안다.
+  /// 함수 인자 괄호(R1)는 같은 문장 안에서만 쌓는다 — 닫히지 않은 함수 괄호가
+  /// 다음 문장의 FROM까지 덮지 않게 하려는 것이다.
+  void _markRelationContexts() {
+    // CTE 본문을 여는 `(` 위치다 — 함수 인자 괄호로 읽지 않는다.
+    final cteBodies = <int>{};
+    // 열린 비인용 `(`마다 함수 인자 괄호인지를 쌓는다. 끝이 가장 안쪽 괄호다.
+    final functionArguments = <bool>[];
+    var statement = 0;
+    for (var k = 0; k < tokens.length; k++) {
+      _statement[k] = statement;
+      final token = tokens[k];
+      if (token.quoted) continue;
+      switch (token.text) {
+        case ';':
+          statement++;
+          functionArguments.clear();
+        case '(':
+          functionArguments.add(
+            !cteBodies.contains(k) && _opensFunctionArguments(k),
+          );
+        case ')':
+          if (functionArguments.isNotEmpty) functionArguments.removeLast();
+        case ',':
+          _recordCte(k + 1, statement, cteBodies);
+        default:
+          final lower = token.text.toLowerCase();
+          if (lower == 'from') {
+            final inArguments =
+                functionArguments.isNotEmpty && functionArguments.last;
+            _nonRelationFrom[k] = inArguments || _isDistinctFrom(k);
+          } else if (lower == 'with') {
+            final name = _isWordAt(k + 1, 'recursive') ? k + 2 : k + 1;
+            _recordCte(name, statement, cteBodies);
+          }
+      }
+    }
+  }
+
+  /// [name]에서 `name [(cols)] AS [NOT] [MATERIALIZED] (`가 시작하면 그 이름을
+  /// [statement]의 CTE 이름으로, 본문 `(` 위치를 [cteBodies]에 기록한다(R2).
+  ///
+  /// 본문 괄호는 앞 단어(`MATERIALIZED`)가 이름이어도 함수 인자가 아니다 —
+  /// 그렇게 읽으면 `WITH d AS MATERIALIZED (DELETE FROM t …)`의 t를 잃는다.
+  void _recordCte(int name, int statement, Set<int> cteBodies) {
+    if (name >= tokens.length) return;
+    final token = tokens[name];
+    if (!_isNameToken(token) && !(token.quoted && token.text.isNotEmpty)) {
+      return;
+    }
+    var k = name + 1;
+    if (_isSymbol(k, '(')) {
+      final columnsEnd = _skipParens(k);
+      if (columnsEnd == null) return;
+      k = columnsEnd;
+    }
+    if (!_isWordAt(k, 'as')) return;
+    k++;
+    if (_isWordAt(k, 'not')) k++;
+    if (_isWordAt(k, 'materialized')) k++;
+    if (!_isSymbol(k, '(')) return;
+    _cteNames.putIfAbsent(statement, () => <String>{}).add(_cteKey(token));
+    cteBodies.add(k);
+  }
+
+  /// [open] 위치의 `(`가 함수 인자 괄호인지 본다(R1).
+  ///
+  /// 바로 앞이 절 단어가 아닌 비인용 이름(함수 이름)이고, 그룹의 첫 토큰이
+  /// 하위 질의를 여는 SELECT·WITH·VALUES가 아니어야 한다. `IN (`·`AS (`·
+  /// `FROM (`처럼 절 단어 뒤의 괄호는 함수 호출이 아니다.
+  bool _opensFunctionArguments(int open) {
+    if (open == 0) return false;
+    final callee = tokens[open - 1];
+    if (!_isNameToken(callee) || _isClauseWord(callee.text)) return false;
+    final head = open + 1;
+    return head >= tokens.length ||
+        tokens[head].quoted ||
+        !_subqueryHeads.contains(tokens[head].text.toLowerCase());
+  }
+
+  /// [from] 위치의 FROM이 `IS [NOT] DISTINCT FROM` 비교 연산자의 일부인지 본다(R3).
+  bool _isDistinctFrom(int from) =>
+      _isWordAt(from - 1, 'distinct') &&
+      (_isWordAt(from - 2, 'is') ||
+          (_isWordAt(from - 2, 'not') && _isWordAt(from - 3, 'is')));
+
+  /// [index]의 토큰이 대소문자와 상관없이 비인용 단어 [word]인지 본다.
+  ///
+  /// strict 모드의 대문자 게이트는 관계 키워드의 발화만 막는다 — R1~R3의 판정
+  /// 단어는 두 모드 모두 대소문자를 보지 않는다.
+  bool _isWordAt(int index, String word) =>
+      index >= 0 &&
+      index < tokens.length &&
+      !tokens[index].quoted &&
+      tokens[index].text.toLowerCase() == word;
+
+  /// [start]부터 [next] 앞까지 읽은 피연산자가 같은 문장의 CTE 이름인지 본다(R2).
+  /// 한정 이름(`s.recent`)은 CTE가 아니다.
+  bool _isCteName(int start, int next) {
+    if (next != start + 1) return false;
+    final names = _cteNames[_statement[start]];
+    return names != null && names.contains(_cteKey(tokens[start]));
   }
 
   /// 위치마다 같은 문장 앞쪽에 [test]를 통과한 단어가 있었는지를 담는다.
@@ -266,8 +394,10 @@ final class _RelationScan {
         final grantOn = grantStmt && _grantPrivilegeBefore[i];
         final createOn = stmtVerb[i] == 'create' && _createOnKindBefore[i];
         return grantOn || createOn;
-      // grant·revoke의 FROM은 권한 주체 자리다.
+      // grant·revoke의 FROM은 권한 주체 자리다. 함수 인자 안의 FROM(R1,
+      // `EXTRACT(YEAR FROM d)`)과 `IS [NOT] DISTINCT FROM`(R3)도 관계 자리가 아니다.
       case 'from':
+        return !grantStmt && !_nonRelationFrom[i];
       case 'join':
         return !grantStmt;
       default:
@@ -412,10 +542,14 @@ final class _RelationScan {
           if (end == null) break;
           operandEnd = end;
         } else {
-          if (bufferedGrant) {
-            buffer.add(read.name);
-          } else {
-            _emit(read.name, keyword);
+          // R2: 같은 문장의 CTE 이름은 관계가 아니라 내지 않는다. 소비·별칭·쉼표
+          // 목록 진행은 그대로 두어 뒤의 스캔이 바뀌지 않게 한다.
+          if (!_isCteName(j, read.next)) {
+            if (bufferedGrant) {
+              buffer.add(read.name);
+            } else {
+              _emit(read.name, keyword);
+            }
           }
           operandEnd = read.next;
         }
@@ -590,6 +724,18 @@ List<int?> _matchParens(List<SqlToken> tokens) {
   }
   return ends;
 }
+
+/// 괄호 그룹의 첫 토큰이면 그 그룹을 하위 질의로 만드는 단어다(R1) — 그 안의
+/// FROM은 함수 인자가 아니라 관계 자리다.
+const _subqueryHeads = {'select', 'with', 'values'};
+
+/// CTE 이름과 한정자 없는 피연산자의 비교 키다(R2).
+///
+/// 비인용 이름은 소문자로 접고 인용 이름은 그대로 둔다 — SQL의 비인용 식별자
+/// 접기이고, 계열 생산자·isthmus 참조 구현과 같은 비교다(계약은 대소문자가 다른
+/// 경우를 정하지 않는다).
+String _cteKey(SqlToken token) =>
+    token.quoted ? token.text : token.text.toLowerCase();
 
 /// 관계 이름 위치에 올 수 없는 SQL 절 키워드다. `table`은 `UPDATE table SET`
 /// 때문에 제외하고, 산문 관사 `the`·`an`은 포함한다(`a`는 흔한 별칭이라 제외).
