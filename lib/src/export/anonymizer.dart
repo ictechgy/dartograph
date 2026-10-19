@@ -25,12 +25,31 @@ const _whitelist = {
 /// 스킴으로 통과시키지 않고 식별 문자열로 치환한다.
 final _schemePattern = RegExp(r'^(package:|project:|dart:|file:)');
 
+/// 세그먼트 끝에서 원문으로 남기는 확장자다(가장 긴 것이 이긴다).
+///
+/// `.dart`와 생성 파일 접미다. 생성 접미는 index의 `_generatedDartSuffixes`와 같은
+/// 목록이다. 그 상수는 index 전용이고 export는 index에 의존하지 않으므로 여기에
+/// 고정해 둔다. 목록 밖의 점 구분 부분(`a.spec.dart`의 `spec`, `com.acme.internal`,
+/// `.yaml` 같은 다른 확장자)은 식별 문자열일 수 있어 부분마다 치환한다. 목록의
+/// 조각(`g`·`pb` 등)은 토큰(`sN`)·관용 어휘와 겹치지 않아 치환이 단사로 남는다.
+const _preservedExtensions = [
+  '.dart',
+  '.g.dart',
+  '.freezed.dart',
+  '.pb.dart',
+  '.pbenum.dart',
+  '.pbgrpc.dart',
+  '.pbjson.dart',
+  '.pbserver.dart',
+];
+
 /// 그래프 정체성을 결정적으로 익명화한다(dependency-cruiser `anon` 리포터 패리티).
 ///
-/// 목적은 버그 리포트 공유다 — 구조(스킴·디렉터리 계층·`::`·멤버 점 구분·확장자)는
-/// 보존하고 식별 문자열만 치환한다. 원본 단어 대신 무작위 단어 목록을 쓰는
-/// dependency-cruiser와 달리, 정렬된 정점 순서대로 세는 결정적 토큰(`s0`, `s1`, …)을
-/// 쓴다 — 같은 그래프는 항상 같은 출력이어야 이 형식의 회귀·비교가 가능하다.
+/// 목적은 버그 리포트 공유다 — 구조(스킴·디렉터리 계층·`::`·멤버 점 구분·
+/// `.dart`와 생성 파일 확장자)는 보존하고 식별 문자열만 치환한다. 원본 단어 대신
+/// 무작위 단어 목록을 쓰는 dependency-cruiser와 달리, 정렬된 정점 순서대로 세는
+/// 결정적 토큰(`s0`, `s1`, …)을 쓴다 — 같은 그래프는 항상 같은 출력이어야 이 형식의
+/// 회귀·비교가 가능하다.
 /// 치환은 단사고 서로 다른 세그먼트는 결코 같은 토큰을 공유하지 않는다.
 final class GraphAnonymizer {
   /// 그래프의 정점 ID·소스 URI에서 치환표를 미리 만든다.
@@ -122,11 +141,36 @@ final class GraphAnonymizer {
           })
           .join('.');
 
-  String _segment(String segment) => _segments.putIfAbsent(segment, () {
+  /// 경로 세그먼트나 선언 이름 부분 하나를 치환한다(세그먼트별 메모).
+  String _segment(String segment) =>
+      _segments[segment] ??= _replaceSegment(segment);
+
+  /// [_segment]의 본문이다. 토큰 번호는 처음 본 순서로 매기는 표의 크기다.
+  ///
+  /// 알려진 확장자만 원문으로 남긴다. 줄기(stem)에 점이 없으면 세그먼트 전체를
+  /// 토큰 하나로 바꾼다(`repo.dart` → `s3.dart`, `cart.g.dart` → `s2.g.dart`).
+  /// 줄기에 점이 남으면(`a.spec.dart`, `com.acme.internal`) 점으로 나눈 부분마다
+  /// 같은 표로 치환한다. 첫 마침표 뒤를 원문으로 두면 `acme.billing_gateway.dart`
+  /// 처럼 이름 대부분이 남기 때문이다. 빈 부분은 그대로 둬 점 구조를 지킨다.
+  /// 부분과 토큰은 점을 담지 않으므로 서로 다른 세그먼트는 같은 결과가 되지 않는다.
+  String _replaceSegment(String segment) {
     if (_whitelist.contains(segment)) return segment;
-    // 확장자는 보존한다: 첫 마침표 뒤는 그대로 둔다(`a.spec.dart` → `s3.spec.dart`).
-    final dot = segment.indexOf('.');
-    final suffix = dot < 0 ? '' : segment.substring(dot);
-    return 's${_segments.length}$suffix';
-  });
+    final extension = _extensionOf(segment);
+    final stem = segment.substring(0, segment.length - extension.length);
+    if (!stem.contains('.')) return 's${_segments.length}$extension';
+    final parts = [
+      for (final part in stem.split('.')) part.isEmpty ? part : _segment(part),
+    ];
+    return '${parts.join('.')}$extension';
+  }
+
+  static String _extensionOf(String segment) {
+    var extension = '';
+    for (final candidate in _preservedExtensions) {
+      if (candidate.length > extension.length && segment.endsWith(candidate)) {
+        extension = candidate;
+      }
+    }
+    return extension;
+  }
 }
