@@ -52,7 +52,7 @@ bool isPathWithinRoot(String path, String root, {p.Context? context}) {
 /// 끌어왔다"는 사실을 보고서에 남기기 위한 것이다.
 ///
 /// 대상이 파일도 디렉터리도 아닌데 존재하는 링크(장치·FIFO·소켓)는
-/// [nonRegularFileMessage]의 [FormatException]으로 순회를 멈춘다(fail-closed).
+/// [NonRegularFileException]으로 순회를 멈춘다(fail-closed).
 /// analyzer와 구문 스캐너는 그런 대상을 EOF 없이 읽거나(메모리 소진) FIFO에서
 /// 영구 대기한다. 끊어진 링크는 지금처럼 조용히 건너뛴다.
 Iterable<File> indexProjectFiles(
@@ -123,7 +123,7 @@ Iterable<File> _projectFilesIn(
       } else if (type != FileSystemEntityType.directory &&
           File(entity.path).existsSync()) {
         // 장치는 notFound 종류로 보고되지만 존재한다. FIFO·소켓도 여기다.
-        throw const FormatException(nonRegularFileMessage);
+        throw const NonRegularFileException();
       }
     }
   }

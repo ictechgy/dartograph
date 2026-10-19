@@ -53,8 +53,8 @@ Future<int> _runLanguageTraversal(
       indexPackage,
       now,
     );
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   } on ArgumentError {

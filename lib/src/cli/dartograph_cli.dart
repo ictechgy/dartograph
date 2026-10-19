@@ -735,8 +735,8 @@ Future<int> _runAffected(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -926,6 +926,10 @@ Future<int> _runImpact(
       'Changed files could not be computed. In CI, fetch full Git history.',
     );
     return ExitStatus.failure.code;
+  } on NonRegularFileException catch (exception) {
+    // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
+    // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(
       'Invalid changed list: provide a JSON array of 1–1000 non-empty '
@@ -938,8 +942,8 @@ Future<int> _runImpact(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1086,8 +1090,8 @@ Future<int> _runCompare(
       ),
     );
     return ExitStatus.success.code;
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   }
@@ -1183,8 +1187,8 @@ Future<int> _runCycles(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1297,8 +1301,8 @@ Future<int> _runRules(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1390,8 +1394,8 @@ Future<int> _runMetrics(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -1645,8 +1649,8 @@ Future<int> _runQuery(
     return _reportInvalidBaseline(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -2381,6 +2385,10 @@ Future<int> _runBridges(
       ),
     );
     return ExitStatus.success.code;
+  } on NonRegularFileException catch (exception) {
+    // 장치·FIFO 입력 거부도 FormatException이다. 아래 제어문자 진단으로 흘리면
+    // 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
@@ -2393,8 +2401,8 @@ Future<int> _runBridges(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -2847,8 +2855,8 @@ Future<int> _runDead(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3051,8 +3059,8 @@ Future<int> _runDeps(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3245,8 +3253,8 @@ Future<int> _runDup(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3297,8 +3305,8 @@ Future<int> _runBaseline(
     return ExitStatus.success.code;
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3455,8 +3463,8 @@ Future<int> _runGraph(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3711,8 +3719,8 @@ Future<int> _runRuntime(
     return _reportAnalysisFailure(error);
   } on StateError {
     return _reportAnalysisFailure(error);
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   }
 }
 
@@ -3745,10 +3753,28 @@ Future<int> _runMcp(
   );
 }
 
-int _reportAnalysisFailure(StringSink error) {
-  error.writeln('Analysis failed: unable to index the package.');
+/// 색인·추출 실패를 정적 문구로 보고하고 종료 코드 2를 돌려준다.
+///
+/// [cause]가 비정규 입력 거부([NonRegularFileException])면 원인과 해결 방향을
+/// 짚는다. 그 거부도 FormatException이라, 일반 문구나 명령별 형식 오류
+/// 문구(제어문자·변경 목록)로 보고하면 사용자가 엉뚱한 곳을 고친다. 그 밖의
+/// 원인은 경로·내부 상세를 반향하지 않는 일반 문구다.
+int _reportAnalysisFailure(StringSink error, [Object? cause]) {
+  error.writeln(
+    cause is NonRegularFileException
+        ? _nonRegularInputDiagnostic
+        : 'Analysis failed: unable to index the package.',
+  );
   return ExitStatus.failure.code;
 }
+
+/// 분석 입력이 장치·FIFO·소켓이라 열기 전에 거부됐다는 진단이다.
+///
+/// 저장소 경로를 반향하지 않는다(다른 색인 실패 진단과 같은 경계). 대개 그런
+/// 대상을 가리키는 심볼릭 링크가 원인이라 해결 방향으로 링크를 짚는다.
+const _nonRegularInputDiagnostic =
+    'Analysis failed: an input is not a regular file (device, FIFO, or '
+    'socket). Point the symbolic link at a regular file or remove it.';
 
 int _reportBaselineWriteFailure(StringSink error) {
   error.writeln('Baseline write failed: unable to write the baseline file.');

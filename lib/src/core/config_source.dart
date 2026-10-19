@@ -14,6 +14,17 @@ const configurationSizeLimit = 1024 * 1024;
 const nonRegularFileMessage =
     'input is not a regular file (device, FIFO, or socket)';
 
+/// 정규 파일이 아닌 입력(장치·FIFO·소켓)을 열기 전에 거부했다는 실패다.
+///
+/// [FormatException]을 상속해 호출자의 기존 수습(정적 메시지, 종료 코드 2)을
+/// 그대로 탄다. 다만 그 수습들은 원인을 형식 오류(설정 내용·제어문자)로 짚는다.
+/// 그래서 원인과 해결 방향을 알려야 하는 CLI 진단은 이 타입을 먼저 잡는다.
+/// 메시지는 경로를 담지 않는 [nonRegularFileMessage]다.
+final class NonRegularFileException extends FormatException {
+  /// [nonRegularFileMessage]의 거부를 만든다.
+  const NonRegularFileException() : super(nonRegularFileMessage);
+}
+
 /// 경계 읽기가 한 번에 요청하는 바이트 수다. 상한까지 이 단위로 나눠 읽어 작은
 /// 파일에 상한 크기의 버퍼를 잡지 않는다.
 const _readChunkSize = 64 * 1024;
@@ -45,9 +56,9 @@ const _configurationTooLarge =
 /// 링크를 따라간 [file]이 정규 파일이면 true, 없거나 디렉터리면 false다.
 ///
 /// 존재하지만 정규 파일이 아니면(문자·블록 장치, FIFO, 소켓) 열기 전에
-/// [nonRegularFileMessage]의 [FormatException]으로 실패한다. dart:io는 문자
-/// 장치를 notFound 종류로 보면서 `existsSync`는 true로 답하고 길이를 0으로
-/// 보고한다. 그래서 길이 상한을 통과한 뒤 EOF 없이 읽혀 메모리를 채우거나
+/// [NonRegularFileException]으로 실패한다. dart:io는 문자 장치를 notFound
+/// 종류로 보면서 `existsSync`는 true로 답하고 길이를 0으로 보고한다. 그래서
+/// 길이 상한을 통과한 뒤 EOF 없이 읽혀 메모리를 채우거나
 /// (`/dev/zero`), 쓰는 쪽이 없는 FIFO에서 영구 대기한다. 저장소는 이런 대상을
 /// 가리키는 심볼릭 링크를 커밋할 수 있다.
 bool regularFileExistsSync(File file) {
@@ -55,7 +66,7 @@ bool regularFileExistsSync(File file) {
   if (type == FileSystemEntityType.file) return true;
   // existsSync는 디렉터리·끊어진 링크·부재가 아닌 모든 항목에 true다.
   if (type != FileSystemEntityType.directory && file.existsSync()) {
-    throw const FormatException(nonRegularFileMessage);
+    throw const NonRegularFileException();
   }
   return false;
 }
@@ -65,7 +76,7 @@ Future<bool> regularFileExists(File file) async {
   final type = await FileSystemEntity.type(file.path);
   if (type == FileSystemEntityType.file) return true;
   if (type != FileSystemEntityType.directory && await file.exists()) {
-    throw const FormatException(nonRegularFileMessage);
+    throw const NonRegularFileException();
   }
   return false;
 }

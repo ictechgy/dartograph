@@ -79,13 +79,17 @@ Future<int> _emitRoutes(
       ),
     );
     return ExitStatus.success.code;
+  } on NonRegularFileException catch (exception) {
+    // 장치·FIFO 입력 거부도 FormatException이다. 아래 제어문자 진단으로 흘리면
+    // 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(
       'Routes extraction failed: a source path contains control characters.',
     );
     return ExitStatus.failure.code;
-  } on Exception {
-    return _reportAnalysisFailure(error);
+  } on Exception catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on StateError {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
