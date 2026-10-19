@@ -4,6 +4,8 @@
 
 const vscode = require('vscode');
 const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const mapper = require('./mapper');
 
@@ -211,13 +213,16 @@ async function runImpactCheck() {
     return;
   }
   running = true;
+  let changes = null;
   try {
+    changes = await writeChangedList(relative.split(path.sep).join('/'));
+    if (!changes) return;
     const report = await runJson(
       'impact',
       [
         'impact',
         '--changed',
-        JSON.stringify([relative.split(path.sep).join('/')]),
+        changes.file,
         '--format',
         'json',
         ...config().args,
@@ -239,6 +244,44 @@ async function runImpactCheck() {
     );
   } finally {
     running = false;
+    if (changes) await removeChangedList(changes.directory);
+  }
+}
+
+/// `impact --changed`가 읽을 변경 목록 파일을 OS 임시 디렉터리에 쓴다.
+/// CLI는 이 값을 JSON 문자열이 아니라 목록 파일의 경로로 읽는다(생성 훅과 같은
+/// 방식). 작업 공간에는 파일을 남기지 않고, 디렉터리는 호출자가 지운다.
+/// 쓰지 못하면 원인을 출력 채널에 남기고 null을 돌려준다.
+async function writeChangedList(entry) {
+  let directory = null;
+  try {
+    directory = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'dartograph-'),
+    );
+    const file = path.join(directory, 'changes.json');
+    await fs.promises.writeFile(file, JSON.stringify([entry]));
+    return { directory, file };
+  } catch (error) {
+    output.appendLine(
+      `[impact] failed: could not write the changed list under ` +
+        `${os.tmpdir()} — check that it is writable (${error.message})`,
+    );
+    vscode.window.showErrorMessage('dartograph impact failed — see output');
+    if (directory) await removeChangedList(directory);
+    return null;
+  }
+}
+
+/// 임시 변경 목록 디렉터리를 지운다. 지우지 못해도 점검 결과는 그대로 유효하므로
+/// 원인만 출력 채널에 남긴다.
+async function removeChangedList(directory) {
+  try {
+    await fs.promises.rm(directory, { recursive: true, force: true });
+  } catch (error) {
+    output.appendLine(
+      `[impact] could not remove the temporary changed list ${directory}: ` +
+        error.message,
+    );
   }
 }
 

@@ -120,17 +120,102 @@ const externalDup = mapReport({
 assert.strictEqual(externalDup.length, 1);
 assert.ok(externalDup[0].message.includes('package:dep/x.dart'));
 
-// impact: source 없는 항목은 건너뛰고 risk high는 warning이다.
+// impact: CLI가 실제로 낸 `impact --format json` 문서의 항목을 그대로 옮겼다.
+// 호출 사슬 lib/step0.dart ← step1 ← … ← step6과 test/step1_test.dart에서
+// lib/step0.dart를 바꾼 출력이다. 항목 위험도 키는 `risk`이고 `source`는 프로젝트
+// 상대 경로다. 파일 항목은 source가 없어 건너뛴다. 최상위 `risk`는 변경 집합
+// 전체의 위험 객체라 항목 등급과 다르다(factors는 생략했다).
 const impactItems = mapImpact({
   impacted: [
-    { source: 'lib/x.dart', line: 2, column: 1, riskLevel: 'high', depth: 1 },
-    { source: null, riskLevel: 'low', depth: 2 },
+    {
+      depth: 1,
+      id: 'package:app/step1.dart',
+      kind: 'file',
+      path: ['package:app/step1.dart', 'package:app/step0.dart'],
+      risk: 'high',
+      riskScore: 90,
+    },
+    {
+      column: 1,
+      depth: 1,
+      id: 'package:app/step1.dart::step1',
+      kind: 'declaration',
+      line: 3,
+      path: ['package:app/step1.dart::step1', 'package:app/step0.dart::step0'],
+      risk: 'high',
+      riskScore: 100,
+      source: 'lib/step1.dart',
+    },
+    {
+      column: 1,
+      depth: 4,
+      id: 'package:app/step4.dart::step4',
+      kind: 'declaration',
+      line: 3,
+      path: [
+        'package:app/step4.dart::step4',
+        'package:app/step3.dart::step3',
+        'package:app/step2.dart::step2',
+        'package:app/step1.dart::step1',
+        'package:app/step0.dart::step0',
+      ],
+      risk: 'medium',
+      riskScore: 55,
+      source: 'lib/step4.dart',
+    },
+    {
+      column: 1,
+      depth: 6,
+      id: 'package:app/step6.dart::step6',
+      kind: 'declaration',
+      line: 3,
+      path: [
+        'package:app/step6.dart::step6',
+        'package:app/step5.dart::step5',
+        'package:app/step4.dart::step4',
+        'package:app/step3.dart::step3',
+        'package:app/step2.dart::step2',
+        'package:app/step1.dart::step1',
+        'package:app/step0.dart::step0',
+      ],
+      risk: 'low',
+      riskScore: 25,
+      source: 'lib/step6.dart',
+    },
   ],
-  tests: [{ source: 'test/x_test.dart', line: 1, column: 1, depth: 1 }],
+  risk: { level: 'low', score: 29 },
+  tests: [
+    {
+      depth: 2,
+      id: 'project:test/step1_test.dart::main',
+      path: [
+        'project:test/step1_test.dart::main',
+        'package:app/step1.dart::step1',
+        'package:app/step0.dart::step0',
+      ],
+      source: 'test/step1_test.dart',
+    },
+  ],
 });
-assert.strictEqual(impactItems.length, 2);
-assert.strictEqual(impactItems[0].severity, 'warning');
-assert.strictEqual(impactItems[1].severity, 'hint');
+// risk가 high인 대상만 경고이고, 메시지에도 항목 등급이 실린다.
+assert.deepStrictEqual(
+  impactItems.map((item) => [item.file, item.severity, item.message]),
+  [
+    ['lib/step1.dart', 'warning', 'impacted by change (risk: high, depth: 1)'],
+    [
+      'lib/step4.dart',
+      'information',
+      'impacted by change (risk: medium, depth: 4)',
+    ],
+    [
+      'lib/step6.dart',
+      'information',
+      'impacted by change (risk: low, depth: 6)',
+    ],
+    ['test/step1_test.dart', 'hint', 'related test (depth: 2)'],
+  ],
+);
+assert.deepStrictEqual(impactItems[0].range, pointRange(3, 1));
 
 // 알 수 없는 보고서 타입과 빈 findings는 빈 목록이다.
 assert.deepStrictEqual(mapReport({ report: 'unknown', findings: [{}] }), []);
