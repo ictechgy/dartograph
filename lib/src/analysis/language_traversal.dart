@@ -8,6 +8,9 @@
 /// - roots·evidence: 등급별 간선 부분 그래프를 강연결요소로 접고 위상 순서로
 ///   root 비트 집합을 전파한다. 정점의 evidence는 그 정점에 닿는 모든 root가
 ///   direct 부분 그래프에서도 닿는지로 정한다(root마다 가장 강한 등급의 최솟값).
+///   비트 집합을 단어 단위로 비교하고, 목록에 실을 앞 64개 인덱스와 개수만
+///   꺼낸다. 정점마다 root 집합을 풀어 쓰면 비용이 root 수 × 도달 정점 수가
+///   되는데, 교환 형식은 정점당 64개까지만 싣는다.
 ///
 /// 간선 등급: 그래프의 사용 간선(call·reference·inheritance·implements·mixin·
 /// override·import·export)은 analyzer가 해석한 관계라 `direct`다. 재정의
@@ -62,6 +65,7 @@ final class TraversalReached {
     required this.via,
     required this.depth,
     required this.roots,
+    required this.rootCount,
     required this.relationships,
     required this.evidence,
   });
@@ -75,8 +79,13 @@ final class TraversalReached {
   /// 이 정점에 닿는 가장 가까운(자기 제외) root까지의 간선 수다.
   final int depth;
 
-  /// 이 정점에 닿는 모든(자기 제외) root 인덱스의 오름차순 전체 목록이다.
+  /// 이 정점에 닿는(자기 제외) root 인덱스 중 오름차순 앞
+  /// [LanguageTraversal.maxRootsPerReached]개다. 교환 형식이 그만큼만 싣는다.
   final List<int> roots;
+
+  /// 이 정점에 닿는(자기 제외) root의 전체 개수다. [roots]보다 크면 목록이
+  /// 잘렸다.
+  final int rootCount;
 
   /// via → 이 정점 사이의 간선 관계 이름이다(정렬).
   final List<String> relationships;
@@ -126,6 +135,9 @@ abstract final class LanguageTraversal {
   /// 교환 형식의 root 상한이다.
   static const maxRoots = 10000;
 
+  /// 교환 형식이 도달 정점 하나에 싣는 root 인덱스 상한이다.
+  static const maxRootsPerReached = 64;
+
   /// 디스패치 후보 간선의 관계 이름이다.
   static const dispatchRelationship = 'dispatch';
 
@@ -144,14 +156,13 @@ abstract final class LanguageTraversal {
     final roots = _resolveRoots(space, requested);
     final vertices = [for (final root in roots) space.indexOf(root.node)];
     final computation = _Computation(space, vertices, depthLimit)..run();
-    final rows = [
-      for (final row in computation.rows) row.toReached(space, roots),
-    ];
-    final capped = _cap(rows, roots, reachedLimit);
+    final rows = computation.rows;
+    // root 목록·관계 이름은 상한을 적용한 뒤 남은 행에만 채운다.
+    final capped = _cap(space, rows, roots, reachedLimit);
     return LanguageTraversalResult(
       direction: direction,
       roots: roots,
-      reached: capped,
+      reached: [for (final row in capped) computation.toReached(row, roots)],
       depthTruncated: computation.depthTruncated,
       reachedTruncated: capped.length < rows.length,
     );
@@ -170,8 +181,9 @@ abstract final class LanguageTraversal {
 
   /// 도달 정점 상한을 (depth, id) 순서로 적용한다. via가 잘린 정점을 가리키는
   /// 항목(순환 root 항목뿐)은 함께 뺀다.
-  static List<TraversalReached> _cap(
-    List<TraversalReached> rows,
+  static List<_Row> _cap(
+    _TraversalSpace space,
+    List<_Row> rows,
     List<TraversalRoot> roots,
     int limit,
   ) {
@@ -179,10 +191,15 @@ abstract final class LanguageTraversal {
     final rootIds = {for (final root in roots) root.id};
     var kept = rows.take(limit).toList();
     while (true) {
-      final ids = {for (final row in kept) row.node.id};
+      final ids = {for (final row in kept) space.nodes[row.vertex].id};
+      bool listed(_Row row) {
+        final via = row.via(space, roots);
+        return rootIds.contains(via) || ids.contains(via);
+      }
+
       final valid = [
         for (final row in kept)
-          if (rootIds.contains(row.via) || ids.contains(row.via)) row,
+          if (listed(row)) row,
       ];
       if (valid.length == kept.length) return kept;
       kept = valid;
@@ -268,14 +285,14 @@ final class _TraversalSpace {
   }
 }
 
-/// 목록에 실을 도달 정점 한 줄의 인덱스 표현이다.
+/// 목록에 실을 도달 정점 한 줄의 인덱스 표현이다. 정렬과 상한에 쓰는 값만
+/// 담는다 — root 목록·관계 이름은 남은 행에서 [_Computation.toReached]가 채운다.
 final class _Row {
   const _Row(
     this.vertex,
     this.viaRoot,
     this.viaVertex,
     this.depth,
-    this.roots,
     this.evidence,
   );
 
@@ -287,20 +304,11 @@ final class _Row {
   /// via 정점 인덱스다.
   final int viaVertex;
   final int depth;
-  final List<int> roots;
   final TraversalEvidence evidence;
 
-  TraversalReached toReached(
-    _TraversalSpace space,
-    List<TraversalRoot> roots,
-  ) => TraversalReached(
-    node: space.nodes[vertex],
-    via: viaRoot >= 0 ? roots[viaRoot].id : space.nodes[viaVertex].id,
-    depth: depth,
-    roots: this.roots,
-    relationships: space.relationshipsOf(viaVertex, vertex),
-    evidence: evidence,
-  );
+  /// 문서에 싣는 via다. root면 요청 id, 아니면 정점 id다.
+  String via(_TraversalSpace space, List<TraversalRoot> roots) =>
+      viaRoot >= 0 ? roots[viaRoot].id : space.nodes[viaVertex].id;
 }
 
 /// 다중 출발 BFS와 등급별 도달 비트 집합으로 도달 정점을 한 번에 계산한다.
@@ -328,18 +336,23 @@ final class _Computation {
   late final Int32List _secondRoot;
   late final Int32List _secondDistance;
 
+  /// 모든 간선의 도달 비트 집합이다. 상한 뒤 [toReached]가 root 목록을 꺼낸다.
+  late final _ReachSets _full;
+
   final rows = <_Row>[];
   var depthTruncated = false;
 
   void run() {
     _nearestRoots();
+    // direct 비트는 evidence 판정에만 쓰므로 이 함수 안에서 버린다.
     final direct = _ReachSets.compute(space.direct, rootVertices, _size);
-    final full = _ReachSets.compute(space.full, rootVertices, _size);
+    _full = _ReachSets.compute(space.full, rootVertices, _size);
     for (var vertex = 0; vertex < _size; vertex++) {
-      final roots = full.rootsOf(vertex);
-      if (_rootOf[vertex] >= 0) roots.remove(_rootOf[vertex]);
-      if (roots.isEmpty) continue;
-      final row = _row(vertex, roots, direct.rootsOf(vertex));
+      final reaching = _full.bitsOf(vertex);
+      if (reaching == null || !reaching.hasAnyExcept(_rootOf[vertex])) {
+        continue;
+      }
+      final row = _row(vertex, reaching, direct.bitsOf(vertex));
       if (row == null) {
         depthTruncated = true;
       } else {
@@ -351,6 +364,21 @@ final class _Computation {
       if (byDepth != 0) return byDepth;
       return space.nodes[a.vertex].id.compareTo(space.nodes[b.vertex].id);
     });
+  }
+
+  /// 상한 뒤에 남은 [row]에 root 목록(앞 64개)·개수·관계 이름을 채운다.
+  TraversalReached toReached(_Row row, List<TraversalRoot> roots) {
+    final own = _rootOf[row.vertex];
+    final reaching = _full.bitsOf(row.vertex)!;
+    return TraversalReached(
+      node: space.nodes[row.vertex],
+      via: row.via(space, roots),
+      depth: row.depth,
+      roots: reaching.firstIndices(LanguageTraversal.maxRootsPerReached, own),
+      rootCount: reaching.count(own),
+      relationships: space.relationshipsOf(row.viaVertex, row.vertex),
+      evidence: row.evidence,
+    );
   }
 
   /// 가장 가까운 서로 다른 root 두 개를 BFS 순서로 기록한다.
@@ -403,7 +431,10 @@ final class _Computation {
     return best;
   }
 
-  _Row? _row(int vertex, SplayTreeSet<int> roots, SplayTreeSet<int> direct) {
+  /// [reaching]·[direct]는 [vertex]에 모든 간선·direct 간선으로 닿는 root 비트
+  /// 집합(자기 root 포함, direct로 닿지 않으면 null)이다. 자기 root를 뺀 root가
+  /// 모두 direct로도 닿을 때만 direct다.
+  _Row? _row(int vertex, _Bits reaching, _Bits? direct) {
     final own = _rootOf[vertex];
     final depth = _distance(vertex, own);
     if (depth < 1 || depth > depthLimit) return null;
@@ -418,17 +449,10 @@ final class _Computation {
         via = predecessor;
       }
     }
-    final evidence = direct.containsAll(roots)
+    final evidence = direct != null && reaching.isSubsetOf(direct, own)
         ? TraversalEvidence.direct
         : TraversalEvidence.candidate;
-    return _Row(
-      vertex,
-      depth == 1 ? _rootOf[via!] : -1,
-      via!,
-      depth,
-      roots.toList(),
-      evidence,
-    );
+    return _Row(vertex, depth == 1 ? _rootOf[via!] : -1, via!, depth, evidence);
   }
 }
 
@@ -440,10 +464,11 @@ final class _ReachSets {
   final Int32List _component;
   final List<_Bits> _bits;
 
-  /// 정점에 닿는 root 인덱스의 사본이다. 닿지 않으면 빈 집합이다.
-  SplayTreeSet<int> rootsOf(int vertex) {
+  /// 정점에 닿는 root 비트 집합이다. 닿지 않으면 null이다. 같은 강연결요소의
+  /// 정점이 공유하므로 읽기만 한다.
+  _Bits? bitsOf(int vertex) {
     final component = _component[vertex];
-    return component < 0 ? SplayTreeSet() : _bits[component].toSet();
+    return component < 0 ? null : _bits[component];
   }
 
   static _ReachSets compute(
@@ -478,6 +503,9 @@ final class _ReachSets {
 }
 
 /// 고정 길이 비트 집합이다.
+///
+/// 질의는 모두 [except] 인덱스(정점 자신의 root, 없으면 음수) 하나를 마스크로
+/// 빼고 단어 단위로 답한다. 집합을 원소 목록으로 풀지 않는다.
 final class _Bits {
   _Bits(int length) : _words = Uint32List((length + 31) >> 5);
 
@@ -491,17 +519,58 @@ final class _Bits {
     }
   }
 
-  SplayTreeSet<int> toSet() {
-    final result = SplayTreeSet<int>();
+  /// [except]를 뺀 원소가 하나라도 있는지다.
+  bool hasAnyExcept(int except) {
     for (var word = 0; word < _words.length; word++) {
-      var value = _words[word];
-      while (value != 0) {
+      if (_wordExcept(word, except) != 0) return true;
+    }
+    return false;
+  }
+
+  /// [except]를 뺀 원소 수다.
+  int count(int except) {
+    var total = 0;
+    for (var word = 0; word < _words.length; word++) {
+      total += _bitCount(_wordExcept(word, except));
+    }
+    return total;
+  }
+
+  /// [except]를 뺀 원소 중 오름차순 앞 [limit]개다.
+  List<int> firstIndices(int limit, int except) {
+    final result = <int>[];
+    for (var word = 0; word < _words.length && result.length < limit; word++) {
+      var value = _wordExcept(word, except);
+      while (value != 0 && result.length < limit) {
         final bit = value & -value;
         result.add((word << 5) + bit.bitLength - 1);
         value ^= bit;
       }
     }
     return result;
+  }
+
+  /// [except]를 뺀 원소가 모두 [other]에도 있는지다.
+  bool isSubsetOf(_Bits other, int except) {
+    for (var word = 0; word < _words.length; word++) {
+      if ((_wordExcept(word, except) & ~other._words[word]) != 0) return false;
+    }
+    return true;
+  }
+
+  /// [word]번째 단어에서 [except] 비트를 지운 값이다.
+  int _wordExcept(int word, int except) {
+    final value = _words[word];
+    if (except < 0 || (except >> 5) != word) return value;
+    return value & ~(1 << (except & 31));
+  }
+
+  /// 32비트 값의 1 비트 수다(SWAR).
+  static int _bitCount(int value) {
+    var bits = value - ((value >> 1) & 0x55555555);
+    bits = (bits & 0x33333333) + ((bits >> 2) & 0x33333333);
+    bits = (bits + (bits >> 4)) & 0x0F0F0F0F;
+    return ((bits * 0x01010101) & 0xFFFFFFFF) >> 24;
   }
 }
 

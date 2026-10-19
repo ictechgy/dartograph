@@ -10,7 +10,7 @@ import '../core/graph_snapshot.dart';
 import '../core/tool_info.dart';
 
 /// 정점 하나가 싣는 root 인덱스 상한이다(LANGUAGE-TRAVERSAL v1).
-const maxRootsPerReached = 64;
+const maxRootsPerReached = LanguageTraversal.maxRootsPerReached;
 
 const _maxRelationships = 32;
 
@@ -80,7 +80,7 @@ String exportLanguageTraversal(
   List<String> limitations = const [],
 }) {
   final rootsTruncated = result.reached.any(
-    (row) => row.roots.length > maxRootsPerReached,
+    (row) => row.rootCount > maxRootsPerReached,
   );
   final reasons = [
     if (result.depthTruncated) 'depth',
