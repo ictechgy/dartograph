@@ -3188,10 +3188,10 @@ int _addConfiguredRetentionRoots(
   if (scope.retainedNameGlobs.isEmpty && scope.retainedFileGlobs.isEmpty) {
     return 0;
   }
-  final nameMatchers = <RegExp>[
+  final nameMatchers = <PathGlobMatcher>[
     for (final pattern in scope.retainedNameGlobs) PathGlob.compile(pattern)!,
   ];
-  final fileMatchers = <RegExp>[
+  final fileMatchers = <PathGlobMatcher>[
     for (final pattern in scope.retainedFileGlobs) PathGlob.compile(pattern)!,
   ];
   var added = 0;

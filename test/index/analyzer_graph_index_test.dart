@@ -1186,6 +1186,40 @@ retained_files:
     },
   );
 
+  test('repeated wildcards in retained globs keep long names', () async {
+    final package = await _entryPointPackage();
+    addTearDown(() => package.delete(recursive: true));
+    // 두 glob은 이름의 앞쪽 a 10개와 b로만 맞는다. 백트래킹 정규식은 뒤쪽 a
+    // 배치를 모두 시도하느라 정점마다 수십 초를 쓴 뒤 불일치로 답해 보존
+    // 루트를 빠뜨렸다.
+    final name = '${'a' * 10}b${'a' * 30}';
+    await File(
+      '${package.path}/lib/$name.dart',
+    ).writeAsString('class Kept {}\n');
+    await File(
+      '${package.path}/lib/names.dart',
+    ).writeAsString('void $name() {}\n');
+    await File('${package.path}/dartograph.yaml').writeAsString('''
+retained_files:
+  - '${'*a' * 10}*b*'
+retained_names:
+  - '${'*a' * 10}*b*'
+''');
+
+    final result = await AnalyzerGraphIndex().index(package.path);
+
+    RetentionReason reasonOf(String suffix) => result.retentionRoots.entries
+        .singleWhere((entry) => entry.key.endsWith(suffix))
+        .value;
+    expect(reasonOf('$name.dart::Kept'), RetentionReason.configuredRetention);
+    expect(reasonOf('names.dart::$name'), RetentionReason.configuredRetention);
+    // 앞쪽 배치가 없는 다른 정점은 보존하지 않는다.
+    expect(
+      result.retentionRoots.keys,
+      isNot(anyElement(endsWith('no_main.dart::Helper'))),
+    );
+  });
+
   test('include/exclude and thresholds surface on the index result', () async {
     final package = await _entryPointPackage();
     addTearDown(() => package.delete(recursive: true));

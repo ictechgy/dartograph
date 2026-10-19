@@ -66,7 +66,7 @@ final class CodeOwnersRule {
   final List<String> owners;
 
   /// 컴파일된 패턴이다. 항상 non-null이다([maybe]가 null 매처를 거른다).
-  final RegExp? matcher;
+  final PathGlobMatcher? matcher;
 
   /// [pattern]을 컴파일한다. 빈 패턴·루트 전용 `/`·몸이 비는 부정 패턴은
   /// 규칙이 될 수 없어 null이다. 부정(`!`) 규칙은 소유자를 갖지 않는다.
@@ -84,7 +84,7 @@ final class CodeOwnersRule {
   /// [path]가 이 규칙에 매치하는지 본다.
   bool matches(String path) => matcher!.hasMatch(path);
 
-  static RegExp? _compile(String pattern) {
+  static PathGlobMatcher? _compile(String pattern) {
     final trimmed = pattern.trim();
     if (trimmed.isEmpty) return null;
     var body = trimmed;

@@ -93,4 +93,16 @@ lib/file\\?.dart @literal-q
     final owners = CodeOwners.parse('lib/\\!bang.dart @bang');
     expect(owners.ownersOf('lib/!bang.dart'), ['@bang']);
   });
+
+  test('a rule of repeated wildcards keeps its owner on a long path', () {
+    // 마지막 규칙은 파일 이름의 앞쪽 a 10개와 b로만 맞는다. 백트래킹 정규식은
+    // 뒤쪽 a 배치를 모두 시도하느라 수십 초를 쓴 뒤 불일치로 답해 앞 규칙의
+    // 소유자를 냈다.
+    final owners = CodeOwners.parse('''
+* @everyone
+${'*a' * 10}*b* @front
+''');
+    expect(owners.ownersOf('lib/${'a' * 10}b${'a' * 30}.dart'), ['@front']);
+    expect(owners.ownersOf('lib/${'a' * 250}.dart'), ['@everyone']);
+  });
 }

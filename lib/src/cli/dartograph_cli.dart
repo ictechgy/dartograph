@@ -3020,10 +3020,16 @@ Future<int> _runDeps(
   }
 }
 
+/// `dartograph.yaml`의 include/exclude glob을 컴파일한 매처다.
+typedef _ScopeMatchers = ({
+  List<PathGlobMatcher> include,
+  List<PathGlobMatcher> exclude,
+});
+
 /// `dartograph.yaml`의 include/exclude glob을 한 번 컴파일해 둔다.
 ///
 /// 반환값이 null이면 설정이 없다는 뜻이다 — 매칭 비용도 한계 문구도 없다.
-({List<RegExp> include, List<RegExp> exclude})? _scopeMatchers(
+_ScopeMatchers? _scopeMatchers(
   List<String> includeGlobs,
   List<String> excludeGlobs,
 ) {
@@ -3035,10 +3041,7 @@ Future<int> _runDeps(
 }
 
 /// [source]가 include/exclude 범위 안인지 본다. 매칭은 소스 ID의 스킴을 뗀다.
-bool _inScope(
-  ({List<RegExp> include, List<RegExp> exclude}) scope,
-  String source,
-) {
+bool _inScope(_ScopeMatchers scope, String source) {
   final separator = source.indexOf(':');
   final path = separator < 0 ? source : source.substring(separator + 1);
   if (scope.include.isNotEmpty &&
