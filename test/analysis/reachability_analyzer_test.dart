@@ -1,4 +1,6 @@
+import 'dart:collection';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:dartograph/src/analysis/reachability_analyzer.dart';
 import 'package:dartograph/src/core/code_graph.dart';
@@ -1038,4 +1040,237 @@ void main() {
       'project:lib/a.dart::Plain',
     ]);
   });
+
+  test('source limitations attach by suffix even when a source has ": "', () {
+    const gaps =
+        'analysis gaps may affect reachability outside the source files where '
+        'they were observed';
+    const conditional =
+        'conditional-imports: 1 directive(s) use only the analyzer-selected '
+        'configuration';
+    final graph = CodeGraph();
+    for (final (id, source) in [
+      ('app::a', 'project:lib/a.dart'),
+      ('app::b', 'project:lib/x: b.dart'),
+      ('app::c', 'b.dart'),
+      ('app::d', 'project:lib/d.dart'),
+      ('app::e', 'lib/x: b.dart'),
+    ]) {
+      graph.addNode(GraphNode(id: id, sourceUri: source));
+    }
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {},
+      limitations: const [
+        'source-analysis-errors: project:lib/a.dart',
+        conditional,
+        'source-unresolved-invocations: project:lib/x: b.dart',
+        'source-analysis-errors: project:lib/a.dart',
+        'source-without-separator',
+        gaps,
+        'source-conditional-configuration: project:lib/other.dart',
+      ],
+    );
+
+    final limitationsById = {
+      for (final finding in result.deadDeclarations)
+        finding.id: finding.limitations,
+    };
+    expect(limitationsById, {
+      'app::a': [
+        gaps,
+        conditional,
+        'source-analysis-errors: project:lib/a.dart',
+      ],
+      'app::b': [
+        gaps,
+        conditional,
+        'source-unresolved-invocations: project:lib/x: b.dart',
+      ],
+      // `': b.dart'`로 끝나는 한계는 그 접미사 source에도 붙는다(endsWith 의미).
+      'app::c': [
+        gaps,
+        conditional,
+        'source-unresolved-invocations: project:lib/x: b.dart',
+      ],
+      'app::d': [gaps, conditional],
+      // `project:` 뒤 부분은 `': '` 바로 뒤가 아니라 접미사 매칭이 아니다.
+      'app::e': [gaps, conditional],
+    });
+  });
+
+  test('limitations are read once per analysis, not once per source', () {
+    // source마다 limitation 전체를 다시 훑으면 읽기 수가 source 수 × 한계 수가
+    // 된다. 시간 대신 목록 읽기 수로 결정적으로 확인한다.
+    const files = 400;
+    final items = [
+      'analysis gaps may affect reachability outside the source files where '
+          'they were observed',
+      for (var i = 0; i < files; i += 2)
+        'source-analysis-errors: project:lib/f$i.dart',
+      for (var i = 0; i < files; i += 5)
+        'source-unresolved-invocations: project:lib/f$i.dart',
+    ];
+    final dead = CodeGraph();
+    final internal = CodeGraph();
+    final testOnly = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'project:test/a_test.dart::main',
+          sourceUri: 'project:test/a_test.dart',
+        ),
+      );
+    for (var i = 0; i < files; i++) {
+      final source = 'project:lib/f$i.dart';
+      dead.addNode(GraphNode(id: '$source::dead', sourceUri: source));
+      internal
+        ..addNode(GraphNode(id: '$source::root', sourceUri: source))
+        ..addNode(GraphNode(id: '$source::helper', sourceUri: source))
+        ..addEdge(
+          GraphEdge(
+            sourceId: '$source::root',
+            targetId: '$source::helper',
+            kind: EdgeKind.call,
+          ),
+        );
+      testOnly
+        ..addNode(GraphNode(id: '$source::tested', sourceUri: source))
+        ..addEdge(
+          GraphEdge(
+            sourceId: 'project:test/a_test.dart::main',
+            targetId: '$source::tested',
+            kind: EdgeKind.call,
+          ),
+        );
+    }
+    final analyzer = ReachabilityAnalyzer();
+    final runs = <String, List<DeadFinding> Function(List<String>)>{
+      'analyze': (limitations) => analyzer
+          .analyze(dead.snapshot(), roots: const {}, limitations: limitations)
+          .deadDeclarations,
+      'redundantPublicDeclarations': (limitations) =>
+          analyzer.redundantPublicDeclarations(
+            internal.snapshot(),
+            roots: {
+              for (var i = 0; i < files; i++)
+                'project:lib/f$i.dart::root': RetentionReason.mainEntryPoint,
+            },
+            limitations: limitations,
+          ),
+      'testOnlyDeclarations': (limitations) => analyzer.testOnlyDeclarations(
+        testOnly.snapshot(),
+        roots: const {
+          'project:test/a_test.dart::main': RetentionReason.visibleForTesting,
+        },
+        limitations: limitations,
+      ),
+    };
+    for (final MapEntry(key: name, value: run) in runs.entries) {
+      final counting = _CountingList(items);
+      final findings = run(counting);
+      expect(findings, hasLength(files), reason: name);
+      for (final finding in findings) {
+        expect(
+          finding.limitations,
+          _legacyLimitationsForSource(items, finding.source),
+          reason: '$name ${finding.id}',
+        );
+      }
+      expect(counting.reads, lessThanOrEqualTo(8 * items.length), reason: name);
+    }
+  });
+
+  test('source limitations match the per-source filter on random inputs', () {
+    final random = Random(20261018);
+    const pieces = [
+      'project:',
+      'lib/',
+      'a',
+      'b.dart',
+      ': ',
+      ':',
+      ' ',
+      'x',
+      'project:lib/a.dart',
+    ];
+    String randomSource() => [
+      for (var k = random.nextInt(5); k >= 0; k--)
+        pieces[random.nextInt(pieces.length)],
+    ].join();
+    for (var round = 0; round < 300; round++) {
+      final sources = [for (var i = 0; i < 6; i++) randomSource()];
+      String anySource() => random.nextBool()
+          ? sources[random.nextInt(sources.length)]
+          : randomSource();
+      final limitations = [
+        for (var i = random.nextInt(12); i > 0; i--)
+          switch (random.nextInt(6)) {
+            0 => 'global-${random.nextInt(3)}: ${anySource()}',
+            1 => 'source-without-separator-${random.nextInt(3)}',
+            2 => 'source-a${anySource()}',
+            _ => 'source-kind-${random.nextInt(3)}: ${anySource()}',
+          },
+      ];
+      final graph = CodeGraph();
+      for (final (index, source) in sources.indexed) {
+        graph.addNode(GraphNode(id: 'app::d$index', sourceUri: source));
+      }
+
+      final result = ReachabilityAnalyzer().analyze(
+        graph.snapshot(),
+        roots: const {},
+        limitations: limitations,
+      );
+
+      for (final finding in result.deadDeclarations) {
+        expect(
+          finding.limitations,
+          _legacyLimitationsForSource(limitations, finding.source),
+          reason:
+              'round $round ${finding.id} source "${finding.source}" '
+              'limitations $limitations',
+        );
+      }
+    }
+  });
+}
+
+/// 성능 수정 전의 source별 한계 필터다 — 결과 동등성의 오라클로 옮겨 둔다.
+List<String> _legacyLimitationsForSource(
+  List<String> limitations,
+  String source,
+) =>
+    limitations
+        .where(
+          (item) => !item.startsWith('source-') || item.endsWith(': $source'),
+        )
+        .toSet()
+        .toList()
+      ..sort();
+
+/// 원소를 읽은 횟수를 세는 읽기 전용 목록이다.
+final class _CountingList extends ListBase<String> {
+  _CountingList(this._items);
+
+  final List<String> _items;
+
+  /// `[]`로 원소를 읽은 횟수다(반복자도 이 연산자로 읽는다).
+  var reads = 0;
+
+  @override
+  int get length => _items.length;
+
+  @override
+  set length(int value) => throw UnsupportedError('read-only list');
+
+  @override
+  String operator [](int index) {
+    reads++;
+    return _items[index];
+  }
+
+  @override
+  void operator []=(int index, String value) =>
+      throw UnsupportedError('read-only list');
 }
