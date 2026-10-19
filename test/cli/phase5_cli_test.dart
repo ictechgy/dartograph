@@ -185,6 +185,52 @@ rules:
   );
 
   test(
+    'rules config diagnostics escape control characters from keys and paths',
+    () async {
+      // 저장소 YAML 키와 --config 값이 진단에 반향된다. 개행으로 시작하는 `::`
+      // 워크플로 명령 줄이나 ANSI 시퀀스가 로그에 그대로 나가면 안 된다.
+      await rules.writeAsString(r'''
+layers:
+  - name: first
+    match: [a]
+    "x\n::error file=lib/a.dart,line=1::forged\e[31m": 1
+rules: []
+''');
+      final invalid = StringBuffer();
+      expect(
+        await runDartograph(
+          ['rules', '--config', rules.path, temporary.path],
+          error: invalid,
+          indexPackage: (_) async => indexed,
+        ),
+        ExitStatus.failure.code,
+      );
+      expect(
+        invalid.toString(),
+        r'Analysis failed: invalid rules configuration: unknown layer key: '
+        r'x\n::error file=lib/a.dart,line=1::forged\x1b[31m'
+        '\n',
+      );
+
+      final unreadable = StringBuffer();
+      final forgedPath = '${temporary.path}/dir\n::error::x/absent.yaml';
+      expect(
+        await runDartograph(
+          ['rules', '--config', forgedPath, temporary.path],
+          error: unreadable,
+          indexPackage: (_) async => indexed,
+        ),
+        ExitStatus.failure.code,
+      );
+      expect(
+        unreadable.toString(),
+        'Analysis failed: unable to read the rules configuration: '
+        '${temporary.path}/dir\\n::error::x/absent.yaml.\n',
+      );
+    },
+  );
+
+  test(
     'rules reports analysis failure for an oversized configuration',
     () async {
       // 파서 비용 상한: 1 MiB를 넘는 설정은 읽기 전에 fail-closed로 거절한다.

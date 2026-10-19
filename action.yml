@@ -147,7 +147,21 @@ runs:
         echo "output-file=$report" >> "$GITHUB_OUTPUT"
         if [[ "$status" -eq 2 || "$status" -eq 64 ]]; then
           # Surface configuration/analysis failures in the job log; the report
-          # alone can hide them behind an artifact.
-          cat "$report" >&2
+          # alone can hide them behind an artifact. The report can echo
+          # repository text (configuration keys, paths), so workflow command
+          # processing stays paused around it under an unguessable token: a
+          # `::error` or `::add-mask` line in it remains plain log text.
+          token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" || token=''
+          if [[ -n "$token" ]]; then
+            echo "::stop-commands::$token" >&2
+            cat "$report" >&2
+            # Resume at the start of a line even if the report lacks a final
+            # newline.
+            [[ -z "$(tail -c 1 "$report")" ]] || echo >&2
+            echo "::$token::" >&2
+          else
+            # Echoing without a token is unsafe; still propagate the exit code.
+            echo "dartograph action: the report was not echoed to the job log; read the output-file report." >&2
+          fi
         fi
         exit "$status"

@@ -34,6 +34,7 @@ import '../export/graph_exporter.dart';
 import '../export/impact_reporter.dart';
 import '../export/language_traversal_exporter.dart';
 import '../export/ledger_reporter.dart';
+import '../export/report_escapes.dart';
 import '../export/runtime_reporter.dart';
 import '../index/analyzer_graph_index.dart';
 import '../index/bridge_index.dart';
@@ -3722,15 +3723,23 @@ int _reportBaselineWriteFailure(StringSink error) {
   return ExitStatus.failure.code;
 }
 
+// rules 설정 진단은 --config 값과 파서 상세(저장소 YAML 키·레이어 이름)를
+// 반향한다. 따옴표 YAML 키는 개행·ESC를 담을 수 있어, 그대로 쓰면 둘째 진단줄이나
+// `::` 워크플로 명령 줄을 위조하고 ANSI 시퀀스를 주입한다. text 리포터와 같은
+// escapeText로 제어문자만 가시 이스케이프한다(정상 입력은 바이트 불변).
 int _reportRulesConfigUnreadable(StringSink error, String config) {
   error.writeln(
-    'Analysis failed: unable to read the rules configuration: $config.',
+    'Analysis failed: unable to read the rules configuration: '
+    '${ReportEscapes.escapeText(config)}.',
   );
   return ExitStatus.failure.code;
 }
 
 int _reportRulesConfigInvalid(StringSink error, String detail) {
-  error.writeln('Analysis failed: invalid rules configuration: $detail');
+  error.writeln(
+    'Analysis failed: invalid rules configuration: '
+    '${ReportEscapes.escapeText(detail)}',
+  );
   return ExitStatus.failure.code;
 }
 
