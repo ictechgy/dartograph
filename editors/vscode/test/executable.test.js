@@ -1,5 +1,5 @@
-// executable의 실행 파일 설정 검사와 Windows PATH 탐색을 검증한다. vscode 없이
-// `node`로 실행한다. 플랫폼과 파일 확인을 주입하므로 Windows 규칙도 어느 OS에서나
+// executable의 실행 파일 설정 검사, PATH 탐색, CLI에 넘길 환경을 검증한다. vscode
+// 없이 `node`로 실행한다. 플랫폼과 파일 확인을 주입하므로 Windows 규칙도 어느 OS에서나
 // 확인된다.
 'use strict';
 
@@ -7,7 +7,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { resolveExecutable } = require('../executable');
+const { childEnvironment, resolveExecutable } = require('../executable');
 
 const posix = { platform: 'linux' };
 
@@ -124,6 +124,57 @@ if (process.platform !== 'win32') {
     );
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+// CLI에 넘길 환경: CLI와 그 자손(pub 실행 스크립트의 `#!/usr/bin/env sh`와 본문의
+// `dart`, CLI가 부르는 git)도 프로그램을 이름으로 찾고 cwd(패키지 루트)를 물려받는다.
+// 그래서 POSIX에서는 자식의 PATH에도 절대 경로 디렉터리만 PATH 순서대로 남긴다.
+// `~/bin`도 execvp에는 cwd 기준 상대 경로다. 다른 변수는 그대로 넘긴다.
+const parentEnvironment = {
+  PATH: ':/opt/pub/bin:.:node_modules/.bin:~/bin:/usr/bin::/bin:',
+  PUB_CACHE: '/opt/pub',
+};
+assert.deepStrictEqual(
+  childEnvironment({ platform: 'linux', environment: parentEnvironment }),
+  { PATH: '/opt/pub/bin:/usr/bin:/bin', PUB_CACHE: '/opt/pub' },
+);
+// 받은 환경은 바꾸지 않는다.
+assert.strictEqual(
+  parentEnvironment.PATH,
+  ':/opt/pub/bin:.:node_modules/.bin:~/bin:/usr/bin::/bin:',
+);
+// 남는 디렉터리가 없으면 탐색과 같은 기본 경로를 넘긴다. 빈 PATH를 넘기면 execvp가
+// 현재 디렉터리(패키지 루트)를 찾는다.
+for (const searchPath of [undefined, '', ':', '.:node_modules/.bin']) {
+  const environment = { HOME: '/home/user' };
+  if (searchPath !== undefined) environment.PATH = searchPath;
+  assert.deepStrictEqual(
+    childEnvironment({ platform: 'darwin', environment }),
+    { HOME: '/home/user', PATH: '/usr/bin:/bin' },
+    String(searchPath),
+  );
+}
+// Windows는 받은 환경을 그대로 넘긴다. 이름 탐색이 PATH보다 현재 디렉터리를 먼저 보므로
+// PATH를 고쳐서는 막지 못한다(기존 동작 유지).
+const windowsEnvironment = { Path: 'C:\\Tools;.;', PATHEXT: '.COM;.EXE' };
+assert.strictEqual(
+  childEnvironment({ platform: 'win32', environment: windowsEnvironment }),
+  windowsEnvironment,
+);
+// 기본값은 이 프로세스의 플랫폼과 환경이다.
+if (process.platform !== 'win32') {
+  const originalPath = process.env.PATH;
+  process.env.PATH = ':/opt/pub/bin:.';
+  try {
+    assert.strictEqual(childEnvironment().PATH, '/opt/pub/bin');
+  } finally {
+    // process.env에 undefined를 넣으면 문자열 'undefined'가 되므로 지운다.
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
   }
 }
 

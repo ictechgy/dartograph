@@ -51,13 +51,26 @@ empty or relative `PATH` entry (a leading, trailing, or doubled `:`, or `.`)
 would resolve inside the package folder. On those systems only an executable
 regular file counts, and an empty `PATH` means `/usr/bin:/bin`.
 
+The CLI runs in the package folder and looks up the programs it needs by name
+too: the script that `dart pub global activate` installs starts with
+`#!/usr/bin/env sh` and runs `dart`, and the CLI runs `git` for `--since` and
+`--record`. So on Linux and macOS the extension also passes the CLI a `PATH`
+that keeps only its absolute directories, in order (`/usr/bin:/bin` if none is
+left). Keep the directories these programs need on `PATH` as absolute paths.
+On Windows the extension passes its environment unchanged: Windows can look in
+the package folder before `PATH` when the CLI starts a program by name, so there
+only the CLI itself is guaranteed not to come from the package folder.
+
 ## Workspace Trust
 
 The extension supports Restricted Mode with limits. In an untrusted workspace
 it still runs, but it takes `dartograph.executable`, `dartograph.args`, and
 `dartograph.runOnSave` only from your user settings. Trusting the workspace
 applies the workspace's own `dartograph.args` and `dartograph.runOnSave`. The
-CLI analyzes the workspace's sources without running the project's code.
+CLI analyzes the workspace's sources without running the project's code. On
+Linux and macOS neither the CLI nor the programs it starts by name are looked
+up in the package folder (see above); on Windows this holds only for the CLI
+itself.
 
 ## Reading the findings
 

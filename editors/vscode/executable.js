@@ -1,5 +1,5 @@
-// dartograph.executable 설정값을 execFile에 넘길 명령으로 바꾼다.
-// vscode API에 의존하지 않아 `node test/`로 단위 검증할 수 있다.
+// dartograph.executable 설정값을 execFile에 넘길 명령으로 바꾸고, 그 실행에 넘길
+// 환경을 만든다. vscode API에 의존하지 않아 `node test/`로 단위 검증할 수 있다.
 'use strict';
 
 const fs = require('fs');
@@ -10,7 +10,8 @@ const path = require('path');
 const REMEDY =
   'set it to an absolute path or a command name on PATH in user settings';
 
-/// POSIX에서 PATH가 없거나 비었을 때 찾는 디렉터리다. execvp의 기본 경로와 같은
+/// POSIX에서 PATH가 없거나 비었을 때 찾는 디렉터리이고, CLI에 넘길 PATH에 절대
+/// 경로 디렉터리가 하나도 남지 않을 때 대신 넘기는 값이다. execvp의 기본 경로와 같은
 /// 취지이고, 모두 절대 경로라 패키지 루트를 보지 않는다.
 const DEFAULT_POSIX_PATH = '/usr/bin:/bin';
 
@@ -92,12 +93,47 @@ function findOnWindowsPath(name, options) {
 function findOnPosixPath(name, options) {
   const searchPath = options.searchPath ?? process.env.PATH;
   const isExecutable = options.isExecutable || isExecutableFile;
-  for (const directory of (searchPath || DEFAULT_POSIX_PATH).split(':')) {
-    if (!path.posix.isAbsolute(directory)) continue;
+  for (const directory of absolutePosixDirectories(searchPath)) {
     const file = path.posix.join(directory, name);
     if (isExecutable(file)) return { command: file };
   }
   return notFoundOnPath(name);
+}
+
+/// POSIX PATH 값 [searchPath]의 절대 경로 디렉터리를 PATH 순서대로 돌려준다.
+/// 빈 항목(앞뒤·연속 `:`)과 상대 항목(`.`·`node_modules/.bin`)은 execvp와 셸이
+/// cwd 기준으로 풀므로 뺀다. PATH가 없거나 비었으면 [DEFAULT_POSIX_PATH]를 본다.
+/// 확장의 첫 탐색과 CLI에 넘기는 PATH가 같은 규칙을 쓰게 하는 한 곳이다.
+function absolutePosixDirectories(searchPath) {
+  return (searchPath || DEFAULT_POSIX_PATH)
+    .split(':')
+    .filter((directory) => path.posix.isAbsolute(directory));
+}
+
+/// CLI를 실행할 때 넘길 환경 변수를 만든다.
+///
+/// POSIX에서는 PATH를 절대 경로 디렉터리만 남긴 값으로 바꾸고, 다른 변수는 그대로
+/// 둔다. 확장이 찾은 CLI와 그 자손도 프로그램을 이름으로 찾기 때문이다. pub이
+/// 설치하는 실행 스크립트는 `#!/usr/bin/env sh`로 시작해 `dart`를 부르고, CLI는
+/// `--since`·`--record`에서 git을 부른다. 이들은 cwd(패키지 루트)를 물려받아 PATH의
+/// 빈·상대 항목을 그 기준으로 풀므로, 첫 탐색만 막으면 저장소가 `sh`·`dart`·`git`
+/// 이름으로 커밋한 파일이 실행된다. 남는 디렉터리가 없으면 [DEFAULT_POSIX_PATH]를
+/// 넘긴다. 빈 PATH는 execvp가 현재 디렉터리로 읽기 때문이다.
+///
+/// Windows에서는 받은 환경을 그대로 돌려준다. Windows의 이름 탐색(CreateProcess·
+/// cmd.exe)은 PATH보다 현재 디렉터리를 먼저 보므로 PATH를 고쳐서는 막지 못하고,
+/// 기존 동작을 바꾸지 않는다.
+///
+/// [options]는 시험용 주입점이다: `platform`(기본 `process.platform`), `environment`
+/// (기본 `process.env`). 받은 환경 객체는 바꾸지 않는다.
+function childEnvironment(options = {}) {
+  const platform = options.platform || process.platform;
+  const environment = options.environment || process.env;
+  if (platform === 'win32') return environment;
+  const directories = absolutePosixDirectories(environment.PATH);
+  const searchPath =
+    directories.length > 0 ? directories.join(':') : DEFAULT_POSIX_PATH;
+  return { ...environment, PATH: searchPath };
 }
 
 /// PATH의 절대 경로 디렉터리에서 [name]을 찾지 못했다는 결과다.
@@ -146,4 +182,4 @@ function isExecutableFile(file) {
   }
 }
 
-module.exports = { resolveExecutable };
+module.exports = { childEnvironment, resolveExecutable };

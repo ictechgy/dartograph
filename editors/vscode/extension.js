@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { resolveExecutable } = require('./executable');
+const { childEnvironment, resolveExecutable } = require('./executable');
 const mapper = require('./mapper');
 
 const SAVE_DELAY_MS = 1500;
@@ -294,7 +294,9 @@ async function removeChangedList(directory) {
 
 /// 명령을 실행해 stdout의 JSON 문서를 돌려준다. 종료 1(발견)도 정상 결과다.
 /// 모든 CLI 실행이 지나는 곳이라 실행 파일 설정을 여기서 검사한다 — 받을 수 없는
-/// 값이면 실행하지 않고 원인을 남긴 뒤 null을 돌려준다.
+/// 값이면 실행하지 않고 원인을 남긴 뒤 null을 돌려준다. CLI에는 childEnvironment의
+/// 환경을 넘긴다. CLI와 그 자손은 cwd(패키지 루트)를 물려받아 프로그램을 이름으로
+/// 찾으므로, POSIX에서 그 PATH에도 절대 경로 디렉터리만 남긴다.
 function runJson(name, args, cwd) {
   const { executable } = config();
   const resolved = resolveExecutable(executable);
@@ -308,7 +310,7 @@ function runJson(name, args, cwd) {
     execFile(
       resolved.command,
       args,
-      { cwd, maxBuffer: 32 * 1024 * 1024 },
+      { cwd, env: childEnvironment(), maxBuffer: 32 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error && error.code === 'ENOENT') {
           notifyMissingExecutable(executable);

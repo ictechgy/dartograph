@@ -134,6 +134,7 @@ const executableStub = {
     resolveOverride
       ? resolveOverride(value)
       : executableModule.resolveExecutable(value, options),
+  childEnvironment: (options) => executableModule.childEnvironment(options),
 };
 
 const originalLoad = Module._load;
@@ -144,8 +145,8 @@ Module._load = function load(request, parent, isMain) {
 };
 const extension = require('../extension');
 
-/// 받은 인자와 `--changed` 목록을 [recordPath]에 남기고 [exitCode]로 끝나는
-/// 가짜 CLI 소스다. 종료 0이면 [report]를 stdout에 쓴다.
+/// 받은 인자, `--changed` 목록, 받은 PATH를 [recordPath]에 남기고 [exitCode]로
+/// 끝나는 가짜 CLI 소스다. 종료 0이면 [report]를 stdout에 쓴다.
 function fakeCliSource(recordPath, exitCode) {
   return `#!/usr/bin/env node
 'use strict';
@@ -161,7 +162,7 @@ try {
 }
 fs.writeFileSync(
   ${JSON.stringify(recordPath)},
-  JSON.stringify({ args, changed, entries }),
+  JSON.stringify({ args, changed, entries, path: process.env.PATH }),
 );
 if (${exitCode} === 0) {
   process.stdout.write(${JSON.stringify(JSON.stringify(report))});
@@ -180,6 +181,13 @@ require('fs').appendFileSync(
   JSON.stringify(process.argv.slice(2)) + '\\n',
 );
 `;
+}
+
+/// 실행되면 받은 인자를 [markerPath]에 덧붙이는 sh 스크립트 소스다. 저장소가 커밋해
+/// 둔 `node` 역할이라 node에 기대지 않는다(`#!/usr/bin/env node`면 자기 자신을 찾는다).
+function markerShellSource(markerPath) {
+  const quoted = `'${markerPath.replace(/'/g, `'\\''`)}'`;
+  return `#!/bin/sh\necho "$*" >> ${quoted}\n`;
 }
 
 /// [source]를 [file]에 실행 가능한 스크립트로 쓴다.
@@ -422,6 +430,46 @@ async function checkExecutableBoundary(scratch, root) {
       outputLines[0],
     );
   }
+
+  // 찾은 CLI가 이름으로 부르는 프로그램도 패키지 폴더에서 찾지 않는다. 가짜 CLI는
+  // `#!/usr/bin/env node`라 env가 node를 PATH에서 찾는데, CLI는 cwd(패키지 루트)를
+  // 물려받아 PATH의 빈·상대 항목을 그 기준으로 푼다. pub이 설치하는 실행 스크립트의
+  // `#!/usr/bin/env sh`와 본문의 `dart`, CLI가 부르는 git도 같은 PATH로 찾는다. 그래서
+  // 확장은 CLI에 PATH의 절대 경로 디렉터리만 넘기고, 심은 node는 돌지 않는다.
+  const plantedNodes = [
+    path.join(root, 'node'),
+    path.join(root, 'node_modules', '.bin', 'node'),
+  ];
+  for (const file of plantedNodes) writeScript(file, markerShellSource(marker));
+  for (const [executable, searchPath, childPath] of [
+    ['dartograph', `:${bin}:${nodeOnly}`, `${bin}:${nodeOnly}`],
+    ['dartograph', `.:${bin}:${nodeOnly}`, `${bin}:${nodeOnly}`],
+    ['dartograph', `${bin}::${nodeOnly}:`, `${bin}:${nodeOnly}`],
+    // 절대 경로로 정한 CLI도 같다. 첫 탐색이 없어도 자손은 PATH로 찾는다.
+    [
+      path.join(bin, 'dartograph'),
+      `node_modules/.bin:${nodeOnly}`,
+      nodeOnly,
+    ],
+  ]) {
+    fs.rmSync(record, { force: true });
+    await withEnvironment('PATH', searchPath, () =>
+      runWithExecutable('dartograph.checkImpact', executable),
+    );
+    assert.strictEqual(
+      fs.existsSync(marker),
+      false,
+      `planted node ran for ${searchPath}`,
+    );
+    assert.strictEqual(fs.existsSync(record), true, outputLines.join('\n'));
+    assert.deepStrictEqual(notices.filter(([kind]) => kind === 'error'), []);
+    assert.strictEqual(
+      JSON.parse(fs.readFileSync(record, 'utf8')).path,
+      childPath,
+      searchPath,
+    );
+  }
+  for (const file of plantedNodes) fs.rmSync(file);
 
   // 확장은 설정값이 아니라 해석기가 고른 명령을 실행한다 — PATH에서 찾은 절대
   // 경로가 그 명령이다. 설정값 그대로라면 이 이름은 PATH에 없다.

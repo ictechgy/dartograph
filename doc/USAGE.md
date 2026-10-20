@@ -702,6 +702,13 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   폴더를 PATH보다 먼저 찾고, 다른 OS에서는 PATH의 빈 항목(앞뒤·연속 `:`)이나 `.` 같은
   상대 항목이 패키지 폴더 기준으로 풀린다. POSIX에서는 실행 권한이 있는 정규 파일만 고르고,
   PATH가 비었으면 `/usr/bin:/bin`을 찾는다.
+- CLI도 패키지 폴더에서 실행되며 필요한 프로그램을 이름으로 찾는다.
+  `dart pub global activate`가 설치하는 실행 스크립트는 `#!/usr/bin/env sh`로 시작해
+  `dart`를 부르고, CLI는 `--since`·`--record`에서 `git`을 부른다. 그래서 Linux·macOS에서는
+  CLI에 넘기는 PATH에도 절대 경로 디렉터리만 순서대로 남긴다(남는 것이 없으면
+  `/usr/bin:/bin`). 이 프로그램들이 있는 디렉터리는 PATH에 절대 경로로 둔다. Windows에서는
+  환경을 그대로 넘긴다. CLI가 이름으로 프로그램을 띄울 때 Windows는 PATH보다 패키지 폴더를
+  먼저 볼 수 있으므로, Windows에서 이 보장은 CLI 자체를 찾는 데까지다.
 - 확장은 제한 모드(신뢰하지 않는 작업 공간)에서도 켜진다. 이때 `dartograph.executable`·
   `dartograph.args`·`dartograph.runOnSave`는 사용자 설정 값만 쓴다. 작업 공간을 신뢰하면
   작업 공간의 `dartograph.args`·`dartograph.runOnSave`가 적용된다.
