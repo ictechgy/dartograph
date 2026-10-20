@@ -15,7 +15,9 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 멈춘 실행을 끊는 안전장치다. 커버리지를 켠 전체 검사가 느린 러너에서
+    # 20분 안에 끝나지 않는 일이 생겨, 정상 실행이 잘리지 않게 여유를 둔다.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
