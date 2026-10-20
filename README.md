@@ -200,7 +200,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   time (environment/dart-define reads, dynamic loads, config paths, assets,
   external URLs) and judges them against the current environment; `--execute`
   runs an entrypoint and records exit code and stderr as execution evidence.
-- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns,
+- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns
+  (`--incremental-user-cache` keeps them in the per-user cache outside the
+  project instead; use it for repositories you do not trust),
   `--workspace` opts into pub workspace aggregation (members listed in the
   root pubspec's `workspace:` are analyzed together; `deps` audits each
   package against its own pubspec), and `--record <dir>`/`history` keep an
@@ -317,7 +319,15 @@ Guarantees:
   `dartograph/<project-root-hash>`. It is invalidated automatically when project
   or dependency contents, mtimes, package resolution, the Dart SDK, or the
   analysis revision change. A missing or corrupted cache never changes results;
-  it only costs analysis time.
+  it only costs analysis time. `--incremental-user-cache` keeps the per-file
+  fact cache in the same directory (`incremental/`, or
+  `incremental-workspace/` with `--workspace`). An explicit
+  `--incremental <dir>` inside the analyzed project is meant for trusted
+  repositories only: that cache reuses facts whose key matches, and a
+  repository could commit forged facts there. dartograph never opens a fact
+  cache file that is a symbolic link, a FIFO, or a socket, or that exceeds
+  1 GiB; it resolves the facts again and reports
+  `incremental-cache-not-read:`.
 - For findings with more than 20 retention roots, dartograph records the total
   count, the first 20 as a sample, and `retentionRootsTruncated: true` to keep
   output bounded. The fact that evidence was truncated is never hidden.

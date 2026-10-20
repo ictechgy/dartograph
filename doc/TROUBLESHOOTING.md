@@ -112,6 +112,14 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   뜻이다. 결과는 전체 해석과 같다. 그 실행의 캐시 쓰기가 그 자리를 정규 파일로 바꾸므로
   보통 다음 실행에서 사라진다. 계속 나오면 누가 그 자리에 링크를 다시 두는지 확인한다
   (예: 저장소가 캐시 디렉터리 안에 링크를 커밋했다).
+- 분석 대상 안 디렉터리를 `--incremental <dir>`로 주는 것은 신뢰하는 저장소에만 한다.
+  저장소가 그 자리에 커밋한 사실도 키가 맞으면 그대로 쓰인다. 신뢰하지 않는 저장소에는
+  `--incremental-user-cache`를 쓴다. 사실 캐시가 사용자 캐시의
+  `dartograph/<project-root-hash>/incremental`(`--workspace`면 `incremental-workspace`)에
+  생긴다. 결과에 `incremental-cache-write-failed: no per-user cache directory is
+  available …`가 있으면 `HOME`(Linux는 `XDG_CACHE_HOME`, Windows는 `LOCALAPPDATA`)이
+  없거나 절대 경로가 아니라는 뜻이다. 그 변수를 설정하거나, 분석 대상 밖 디렉터리를
+  `--incremental <dir>`로 명시한다.
 
 ## 9. 샌드박스·CI에서 `dart pub publish`가 실패한다
 

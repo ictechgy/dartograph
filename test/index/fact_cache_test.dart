@@ -5,6 +5,7 @@ import 'package:dartograph/src/core/fact_cache.dart';
 import 'package:dartograph/src/core/retention_reason.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -48,6 +49,59 @@ void main() {
     expect(directory, isNotNull);
     expect(p.isWithin(root.path, directory!.path), isFalse);
     expect(p.basename(directory.path), matches(RegExp(r'^[a-f0-9]{64}$')));
+  });
+
+  test('user cache fact directories sit under the project cache', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'dartograph-untrusted-project.',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final cacheBase = p.join(root.parent.path, 'trusted-user-cache');
+    final environment = {
+      'HOME': cacheBase,
+      'LOCALAPPDATA': cacheBase,
+      'XDG_CACHE_HOME': cacheBase,
+    };
+    final canonical = await root.resolveSymbolicLinks();
+
+    final single = defaultIncrementalCacheDirectory(
+      canonical,
+      aggregateWorkspace: false,
+      environment: environment,
+    )!;
+    final aggregated = defaultIncrementalCacheDirectory(
+      canonical,
+      aggregateWorkspace: true,
+      environment: environment,
+    )!;
+
+    // 두 모드는 설정 지문이 달라 한 파일을 공유하지 않는다.
+    expect(p.basename(single.path), 'incremental');
+    expect(p.basename(aggregated.path), 'incremental-workspace');
+    for (final directory in [single, aggregated]) {
+      expect(p.isWithin(root.path, directory.path), isFalse);
+      expect(p.isWithin(cacheBase, directory.path), isTrue);
+      expect(
+        p.basename(p.dirname(directory.path)),
+        matches(RegExp(r'^[a-f0-9]{64}$')),
+      );
+    }
+    // 기준 변수가 없으면 위치를 정하지 않는다(호출자가 limitation을 단다).
+    expect(
+      defaultIncrementalCacheDirectory(
+        canonical,
+        aggregateWorkspace: false,
+        environment: const {},
+      ),
+      isNull,
+    );
+    expect(
+      () => AnalyzerGraphIndex(
+        incremental: IncrementalCache(p.join(cacheBase, 'facts')),
+        incrementalInUserCache: true,
+      ),
+      throwsArgumentError,
+    );
   });
 
   test(

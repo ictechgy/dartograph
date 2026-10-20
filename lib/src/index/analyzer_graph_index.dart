@@ -192,6 +192,16 @@ final class AnalyzerGraphIndex {
   /// 전체 결과 캐시를 읽지도 쓰지도 않는다 — 입력 해시를 두 번 계산하지 않고,
   /// 사실 캐시가 같은 역할을 더 좁은 단위로 한다.
   ///
+  /// [incrementalInUserCache]가 true이면 같은 증분 경로를 타되, 사실 캐시
+  /// 디렉터리를 색인하는 canonical root마다 분석 대상 밖 사용자 캐시에서 고른다
+  /// ([defaultIncrementalCacheDirectory]). 위치를 정하지 못하면 캐시 없이 전체
+  /// 해석하고 그 사실을 limitation으로 남긴다. [incremental]과 함께 주면
+  /// [ArgumentError]다 — 두 값은 서로 다른 캐시 위치를 고른다.
+  ///
+  /// [userCacheEnvironment]는 사용자 캐시 위치(전체 결과 캐시와 위의 사실 캐시)를
+  /// 고를 때 읽는 환경 변수다. null이면 프로세스 환경이다. 테스트가 실제 사용자
+  /// 캐시를 건드리지 않게 주입한다.
+  ///
   /// [aggregateWorkspace]가 true이면 스캔 루트의 pubspec `workspace:` 멤버를
   /// 하나의 그래프로 함께 색인한다. 멤버의 표준 소스 디렉터리가 분석 대상에
   /// 포함되고, 각 멤버의 `lib/<name>.dart`가 대표 라이브러리로 공개 API 보존
@@ -200,22 +210,40 @@ final class AnalyzerGraphIndex {
   AnalyzerGraphIndex({
     FactCache? cache,
     IncrementalCache? incremental,
+    bool incrementalInUserCache = false,
+    Map<String, String>? userCacheEnvironment,
     bool aggregateWorkspace = false,
   }) : _cache = cache,
        _incremental = incremental,
-       _aggregateWorkspace = aggregateWorkspace;
+       _incrementalInUserCache = incrementalInUserCache,
+       _userCacheEnvironment = userCacheEnvironment,
+       _aggregateWorkspace = aggregateWorkspace {
+    if (incremental != null && incrementalInUserCache) {
+      throw ArgumentError(
+        'incremental and incrementalInUserCache choose different fact cache '
+        'locations; pass only one',
+      );
+    }
+  }
 
   final FactCache? _cache;
   final IncrementalCache? _incremental;
+  final bool _incrementalInUserCache;
+  final Map<String, String>? _userCacheEnvironment;
   final bool _aggregateWorkspace;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     final sourcePackages = _readSourcePackages(root);
-    final cache = _incremental != null
+    // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
+    // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
+    final incremental =
+        _incremental ??
+        (_incrementalInUserCache ? _userIncrementalCache(root) : null);
+    final cache = _incremental != null || _incrementalInUserCache
         ? null
-        : _cache ?? _defaultFactCache(root);
+        : _cache ?? _defaultFactCache(root, _userCacheEnvironment);
     // 루트 밖을 가리키는 링크도 분석 입력으로 따라간다 — 그 사실을 결과
     // limitation에 남겨 저장소가 경계 밖 파일을 읽게 한 것이 출력에 드러난다.
     final linkEscapes = <String>{};
@@ -241,6 +269,7 @@ final class AnalyzerGraphIndex {
         root,
         collection,
         sourcePackages,
+        incremental: incremental,
         linkEscapes: linkEscapes,
       );
       if (cache != null &&
@@ -255,15 +284,27 @@ final class AnalyzerGraphIndex {
     }
   }
 
+  /// [root]의 사용자 캐시 사실 캐시다. 위치를 정하지 못하면 null이다.
+  IncrementalCache? _userIncrementalCache(String root) {
+    final directory = defaultIncrementalCacheDirectory(
+      root,
+      aggregateWorkspace: _aggregateWorkspace,
+      environment: _userCacheEnvironment,
+    );
+    return directory == null ? null : IncrementalCache(directory.path);
+  }
+
   /// 분석 대상 파일의 사실을 모아 그래프를 조립한다.
   ///
-  /// 증분 캐시가 없으면 모든 대상을 해석한다(기존 경로). 있으면 파일 키를 비교해
-  /// 바뀐 파일과 역방향 import 폐쇄만 다시 해석하고 나머지는 캐시된 사실을 쓴다.
-  /// 두 경로가 같은 조립 함수를 지나므로 같은 사실에서 같은 산출물이 나온다.
+  /// 증분 캐시([incremental])가 없으면 모든 대상을 해석한다(기존 경로). 있으면
+  /// 파일 키를 비교해 바뀐 파일과 역방향 import 폐쇄만 다시 해석하고 나머지는
+  /// 캐시된 사실을 쓴다. 두 경로가 같은 조립 함수를 지나므로 같은 사실에서 같은
+  /// 산출물이 나온다.
   Future<AnalyzerGraphResult> _analyze(
     String root,
     AnalysisContextCollection collection,
     List<Directory> sourcePackages, {
+    required IncrementalCache? incremental,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -297,7 +338,6 @@ final class AnalyzerGraphIndex {
       pubspecContent,
       workspace?.members ?? const [],
     );
-    final incremental = _incremental;
     if (incremental == null) {
       final facts = <String, _UnitFacts>{};
       final sources = <String>[];
@@ -314,7 +354,7 @@ final class AnalyzerGraphIndex {
         facts[extracted.source] = extracted;
         sources.add(extracted.source);
       }
-      return _assembleResult(
+      final result = _assembleResult(
         root: root,
         sources: sources,
         facts: facts,
@@ -324,6 +364,11 @@ final class AnalyzerGraphIndex {
         linkEscapes: linkEscapes,
         workspace: workspace,
       );
+      // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
+      // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
+      return _incrementalInUserCache
+          ? result.withAddedLimitationDetail(_userCacheUnavailableDetail)
+          : result;
     }
     return _analyzeIncrementally(
       root: root,
@@ -545,6 +590,16 @@ const incrementalCacheWriteFailurePrefix = 'incremental-cache-write-failed:';
 const _cacheWriteFailureDetail =
     '$incrementalCacheWriteFailurePrefix analysis is complete but the fact '
     'cache was not updated';
+
+/// 사용자 캐시 증분이 사실 캐시 위치를 정하지 못했다는 limitation이다.
+///
+/// 사실 캐시를 갱신하지 못한 같은 상황이라 쓰기 실패와 접두사를 공유한다 —
+/// 접두사로 쓰기 실패를 감지하는 소비자가 함께 다룬다. 원인과 해결 방향을 싣는다.
+const _userCacheUnavailableDetail =
+    '$incrementalCacheWriteFailurePrefix no per-user cache directory is '
+    'available (HOME, or XDG_CACHE_HOME on Linux and LOCALAPPDATA on Windows, '
+    'is unset or not absolute); analysis is complete but the fact cache was '
+    'not updated';
 
 /// 사실 캐시 파일을 열지 않고 버렸다는 limitation이다.
 ///
@@ -2230,9 +2285,39 @@ bool isContentLockedDependency(
   return p.equals(path, resolvedCache) || p.isWithin(resolvedCache, path);
 }
 
-FactCache? _defaultFactCache(String root) {
-  final directory = defaultAnalyzerCacheDirectory(root);
+FactCache? _defaultFactCache(String root, Map<String, String>? environment) {
+  final directory = defaultAnalyzerCacheDirectory(
+    root,
+    environment: environment,
+  );
   return directory == null ? null : FileFactCache(directory);
+}
+
+/// `--incremental-user-cache`가 [canonicalProjectRoot]의 파일별 사실 캐시를
+/// 두는 디렉터리다. 사용자 캐시 위치를 정하지 못하면 null이다.
+///
+/// [defaultAnalyzerCacheDirectory] 아래 `incremental`이고, [aggregateWorkspace]
+/// 실행은 `incremental-workspace`다. 전체 결과 캐시와 같은 루트별 디렉터리라
+/// 프로젝트 하나의 캐시가 분석 대상 밖 한곳에 모인다. 결과 캐시는 `<64hex>.json`
+/// 파일만 쓰므로 하위 디렉터리와 겹치지 않는다. 집계 여부로 나누는 이유는 MCP
+/// 세션 캐시와 같다 — 두 모드는 설정 지문이 달라, 한 파일을 공유하면 번갈아
+/// 실행할 때마다 서로의 사실을 덮어쓴다.
+Directory? defaultIncrementalCacheDirectory(
+  String canonicalProjectRoot, {
+  required bool aggregateWorkspace,
+  Map<String, String>? environment,
+}) {
+  final base = defaultAnalyzerCacheDirectory(
+    canonicalProjectRoot,
+    environment: environment,
+  );
+  if (base == null) return null;
+  return Directory(
+    p.join(
+      base.path,
+      aggregateWorkspace ? 'incremental-workspace' : 'incremental',
+    ),
+  );
 }
 
 /// 신뢰하지 않는 프로젝트 밖의 사용자 캐시 위치를 선택한다.

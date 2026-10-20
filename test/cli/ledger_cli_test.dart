@@ -212,6 +212,34 @@ void main() {
         {'incremental': cache, 'with-source': 'true'},
       ],
     );
+
+    // 사용자 캐시 스위치도 값을 받지 않는다. 패키지 루트 바로 앞에 둬서, 스위치
+    // 목록에서 빠지면 루트가 그 값으로 기록되는 것을 잡는다.
+    final userCache = p.join(workspace.path, 'user-cache');
+    final switched = await _run(
+      [
+        'graph',
+        '--record',
+        ledgerDirectory,
+        '--format',
+        'json',
+        '--incremental-user-cache',
+        root.path,
+      ],
+      userCacheEnvironment: {
+        'HOME': userCache,
+        'XDG_CACHE_HOME': userCache,
+        'LOCALAPPDATA': userCache,
+      },
+    );
+    expect(switched.status, 0, reason: switched.error);
+    final last = File(
+      p.join(ledgerDirectory, 'ledger.jsonl'),
+    ).readAsLinesSync().last;
+    expect((jsonDecode(last) as Map)['inputs'], {
+      'format': 'json',
+      'incremental-user-cache': 'true',
+    });
   });
 
   test('a damaged line is reported, not fatal', () async {
@@ -300,10 +328,16 @@ void main() {
 }
 
 Future<({int status, String output, String error})> _run(
-  List<String> arguments,
-) async {
+  List<String> arguments, {
+  Map<String, String>? userCacheEnvironment,
+}) async {
   final output = StringBuffer();
   final error = StringBuffer();
-  final status = await runDartograph(arguments, output: output, error: error);
+  final status = await runDartograph(
+    arguments,
+    output: output,
+    error: error,
+    userCacheEnvironment: userCacheEnvironment,
+  );
   return (status: status, output: output.toString(), error: error.toString());
 }

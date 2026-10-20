@@ -71,7 +71,14 @@ typedef IndexPackageFactory =
     IndexPackage Function({required bool aggregateWorkspace});
 
 /// 색인 명령이 쓸 색인 함수의 주입 상태다. 둘 다 null이면 기본 색인기를 쓴다.
-typedef _IndexSource = ({IndexPackage? fixed, IndexPackageFactory? factory});
+///
+/// [userCacheEnvironment]는 기본 색인기가 사용자 캐시 위치를 고를 때 읽는
+/// 환경 변수다(null이면 프로세스 환경).
+typedef _IndexSource = ({
+  IndexPackage? fixed,
+  IndexPackageFactory? factory,
+  Map<String, String>? userCacheEnvironment,
+});
 
 /// `--since`의 Git 접근을 대체할 수 있는 테스트 경계다.
 typedef ChangedFilesSince =
@@ -101,6 +108,10 @@ enum ExitStatus {
 ///
 /// [indexFactory]가 있으면 색인 명령은 [indexPackage] 대신 팩터리가
 /// `--workspace` 값에 맞춰 고른 색인 함수를 쓴다.
+///
+/// [userCacheEnvironment]는 기본 색인기가 사용자 캐시 위치(전체 결과 캐시와
+/// `--incremental-user-cache`의 사실 캐시)를 고를 때 읽는 환경 변수다. null이면
+/// 프로세스 환경이다. 테스트가 실제 사용자 캐시를 건드리지 않게 주입한다.
 Future<int> runDartograph(
   List<String> arguments, {
   StringSink? output,
@@ -109,6 +120,7 @@ Future<int> runDartograph(
   IndexPackageFactory? indexFactory,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
+  Map<String, String>? userCacheEnvironment,
 }) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
@@ -117,7 +129,11 @@ Future<int> runDartograph(
       arguments,
       stdoutSink,
       stderrSink,
-      (fixed: indexPackage, factory: indexFactory),
+      (
+        fixed: indexPackage,
+        factory: indexFactory,
+        userCacheEnvironment: userCacheEnvironment,
+      ),
       changedFilesSince,
       now,
     );
@@ -371,7 +387,8 @@ Future<int> _dispatchCommand(
   }
 }
 
-/// 색인을 소비하는 명령의 `--incremental <dir>`를 인자에서 떼어낸 결과다.
+/// 색인을 소비하는 명령의 `--incremental <dir>`·`--incremental-user-cache`를
+/// 인자에서 떼어낸 결과다.
 final class _IndexedArguments {
   const _IndexedArguments(this.arguments, this.index);
 
@@ -383,17 +400,21 @@ final class _IndexedArguments {
   final IndexPackage index;
 }
 
-/// 색인 명령 인자에서 `--incremental <dir>`와 `--workspace`를 떼어내고 색인
-/// 함수를 고른다.
+/// 색인 명령 인자에서 `--incremental <dir>`·`--incremental-user-cache`·
+/// `--workspace`를 떼어내고 색인 함수를 고른다.
 ///
 /// 디렉터리는 호출자가 정한다(없으면 만든다). 옵션 모양의 값·중복·값 누락은
-/// usage(64)다 — 다른 옵션과 같은 규칙이다. `--workspace`는 값을 받지 않는
-/// 스위치다 — pub workspace 멤버를 같은 그래프로 집계한다(중복 지정은
-/// usage다). 옵션이 없으면 기존 경로 그대로 기본 색인을 쓴다.
+/// usage(64)다 — 다른 옵션과 같은 규칙이다. `--incremental-user-cache`는 값을
+/// 받지 않는 스위치다 — 사실 캐시를 색인하는 루트마다 분석 대상 밖 사용자
+/// 캐시에 둔다. 두 증분 옵션은 서로 다른 위치를 고르므로 함께 주면 usage다.
+/// `--workspace`도 값을 받지 않는 스위치다 — pub workspace 멤버를 같은 그래프로
+/// 집계한다. 스위치 중복은 usage다. 옵션이 없으면 기존 경로 그대로 기본 색인을
+/// 쓴다.
 ///
 /// 주입된 팩터리에는 `--workspace` 값을 넘긴다. 고정 주입 함수는 그 값을
 /// 반영할 수 없으므로 `--workspace`를 usage로 거부한다 — 떼어 낸 플래그를
-/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다.
+/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다. 증분
+/// 옵션은 주입된 색인 함수가 캐시를 스스로 정하므로 떼어 내기만 한다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
@@ -401,6 +422,7 @@ _IndexedArguments? _indexArguments(
 ) {
   final remaining = arguments.skip(1).toList();
   String? directory;
+  var userCache = false;
   var workspace = false;
   for (var index = 0; index < remaining.length; index++) {
     if (remaining[index] == '--workspace') {
@@ -409,6 +431,16 @@ _IndexedArguments? _indexArguments(
         return null;
       }
       workspace = true;
+      remaining.removeAt(index);
+      index--;
+      continue;
+    }
+    if (remaining[index] == '--incremental-user-cache') {
+      if (userCache) {
+        error.write(_help);
+        return null;
+      }
+      userCache = true;
       remaining.removeAt(index);
       index--;
       continue;
@@ -423,6 +455,13 @@ _IndexedArguments? _indexArguments(
     directory = remaining[index + 1];
     remaining.removeRange(index, index + 2);
     index--;
+  }
+  if (userCache && directory != null) {
+    error.writeln(
+      '--incremental-user-cache does not combine with --incremental <dir>: '
+      'each chooses where the fact cache lives. Pass only one.',
+    );
+    return null;
   }
   final factory = source.factory;
   if (factory != null) {
@@ -445,6 +484,8 @@ _IndexedArguments? _indexArguments(
     remaining,
     AnalyzerGraphIndex(
       incremental: target == null ? null : IncrementalCache(target),
+      incrementalInUserCache: userCache,
+      userCacheEnvironment: source.userCacheEnvironment,
       aggregateWorkspace: workspace,
     ).index,
   );
@@ -507,6 +548,7 @@ _LedgerRequest? _extractLedgerDirectory(
 /// 추가하면 여기에도 더한다.
 const _ledgerSwitches = {
   'closed-app',
+  'incremental-user-cache',
   'no-verify',
   'report-redundant-public',
   'report-test-only',
@@ -3935,20 +3977,20 @@ dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
-       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
-       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <git-ref> <package-root>
-       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph compare [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <git-ref> <package-root>
+       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--workspace] [--record <dir>] <package-root>
@@ -3959,12 +4001,12 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
        dartograph schema --format json [--project <shared-root>] <package-root>
        dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
-       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
-       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
+       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
@@ -4140,7 +4182,14 @@ baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터
 때만 그 사실을 limitation으로 남긴다). 캐시 파일 <dir>/facts.json이 심볼릭
 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
 모든 파일을 다시 해석하며 incremental-cache-not-read: limitation을 남긴다.
-캐시 디렉터리는 프로젝트마다 따로 쓴다.
+캐시 디렉터리는 프로젝트마다 따로 쓴다. 분석 대상 안 디렉터리는 신뢰하는
+저장소에만 쓴다 — 저장소가 그 자리에 위조한 사실을 커밋해 두면 키가 맞는 사실을
+다시 해석하지 않고 쓴다. 같은 명령은 값 없는 --incremental-user-cache도 받는다.
+사실 캐시를 분석 대상 밖 OS 사용자 캐시(~/Library/Caches, \$XDG_CACHE_HOME 또는
+~/.cache, %LOCALAPPDATA%)의 dartograph/<project-root-hash>/incremental에 두고
+(--workspace면 incremental-workspace), compare처럼 루트가 둘이면 루트마다 따로
+둔다. 위치를 정하지 못하면 캐시 없이 분석하고 incremental-cache-write-failed:
+limitation을 남긴다. 두 증분 옵션은 함께 줄 수 없다(64).
 
 The same commands accept --workspace (runtime too), which opts into pub
 workspace aggregation: members listed in the root pubspec's workspace: list

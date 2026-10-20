@@ -164,6 +164,12 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "deps duplicate workspace" deps --workspace --workspace fixtures/closed_app
   expect_status 0 "runtime workspace" runtime --workspace fixtures/workspace_audit
   expect_status 64 "runtime duplicate workspace" runtime --workspace --workspace fixtures/workspace_audit
+  expect_status 0 "graph incremental user cache" graph --format json --incremental-user-cache fixtures/phase5_contract
+  expect_status 0 "graph incremental user cache reuse" graph --format json --incremental-user-cache fixtures/phase5_contract
+  expect_status 1 "dead incremental user cache findings" dead --format json --incremental-user-cache fixtures/test_only_corpus
+  expect_status 64 "incremental user cache with incremental dir" graph --format json --incremental-user-cache --incremental "$TEMPORARY_DIRECTORY/facts" fixtures/phase5_contract
+  expect_status 64 "duplicate incremental user cache" graph --format json --incremental-user-cache --incremental-user-cache fixtures/phase5_contract
+  expect_status 64 "incremental user cache on runtime" runtime --incremental-user-cache fixtures/runtime_corpus
   expect_status 0 "setup prints" setup
   expect_status 64 "setup install missing directory" setup --install "$TEMPORARY_DIRECTORY/no-such-dir"
   mkdir -p "$TEMPORARY_DIRECTORY/setup-target"

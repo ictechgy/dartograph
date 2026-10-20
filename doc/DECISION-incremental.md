@@ -100,3 +100,41 @@
 - **최적화(`941e595`)**: 파일 해싱 동기화, 캐시 사실 파싱을 폐쇄 계산 뒤로 지연,
   캐시가 현재 입력과 같으면 store 생략.
 - **미착수**: 검증 원장(`--record` + `history`) — 같은 P0의 나머지 절반이다.
+
+## 10. 사용자 캐시 모드와 캐시 파일 읽기 경계 (2026-10-20)
+
+7절의 "`--incremental`은 호출자가 지정한 디렉터리에만 쓴다"는 그대로 유지한다. 이
+기록은 그 위에 조건 두 가지를 더한다.
+
+- **문제**: 훅(`setup --install`)·VS Code 확장·분석 서버 플러그인의 기본 인자와 예시
+  워크플로가 분석 대상 안 디렉터리(`.dartograph/cache`, `.dartograph-facts`)를 썼다.
+  캐시는 키가 맞는 사실을 다시 해석하지 않고 쓰는데 키는 공개 입력의 해시뿐이다. 그래서
+  저장소가 위조한 `facts.json`을 커밋하면 결과가 바뀔 수 있었다. 또 `facts.json`을
+  FIFO 링크로 두면 열기에서 영구 대기했다(실측: 훅과 같은 명령이 alarm 20초에서 rc 142).
+  SECURITY.md의 "사실 캐시는 대상 밖 OS 사용자 캐시" 경계와 어긋났다.
+- **결정 1 — 사용자 캐시 모드**: 값 없는 `--incremental-user-cache`를 더한다. 사실
+  캐시를 `defaultAnalyzerCacheDirectory(canonical root)` 아래 `incremental/`에 둔다
+  (`--workspace`는 `incremental-workspace/`). 통합 기본값은 이 모드로 옮긴다. 트리
+  안 디렉터리는 명시한 `--incremental <dir>`로만 쓰고, 문서에 "신뢰하는 저장소 전용"으로
+  적는다. 이 조건에서는 7절의 "기존 OS 캐시 경로는 그대로 둔다"가 바뀐다 — 증분은
+  여전히 전체 결과 캐시 파일을 읽지도 쓰지도 않지만, 같은 루트별 디렉터리의 하위
+  디렉터리를 쓴다.
+  - 설계 결정 문서의 식은 `${XDG_CACHE_HOME:-$HOME/.cache}/dartograph/<sha 앞 16자>/`였다.
+    이미 README 보장 절·SECURITY·index AGENTS에 문서화된 위치 계약(전체 sha256,
+    macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`)을 따랐다. Linux 기준은 같고
+    키 길이와 하위 디렉터리만 다르다. 프로젝트 하나의 캐시가 한곳에 모인다.
+  - 디렉터리는 색인하는 canonical root마다 고른다. `compare`는 한 색인 함수로 두 루트를
+    색인하므로 고정 디렉터리 하나를 쓰면 두 체크아웃이 서로 덮어쓴다.
+  - 집계 여부로 나누는 이유는 MCP 세션 캐시와 같다(설정 지문이 달라 번갈아 덮어쓴다).
+  - 사용자 캐시 위치를 정하지 못하면(HOME 등 부재) 캐시 없이 분석하고, 원인을 담은
+    `incremental-cache-write-failed:` limitation을 남긴다. 결과는 완전하다.
+  - 원장에는 스위치로 기록한다(`_ledgerSwitches`). 빠뜨리면 뒤따르는 패키지 루트를
+    값으로 삼킨다.
+- **결정 2 — 캐시 파일 읽기 경계**: `load`는 링크를 따라가지 않고 판정해 정규 파일만,
+  1 GiB까지만 읽는다. 심볼릭 링크·FIFO·소켓이면 열지 않고 사실을 모두 다시 해석하며
+  `incremental-cache-not-read:` limitation을 남긴다. 부재·디렉터리는 지금처럼 조용한
+  미스다. 1 GiB는 리뷰 실측 최대 캐시(analyzer 코퍼스 1,568파일, 183.7 MB)의 다섯 배를
+  넘는 폭주 방지선이다.
+- **남은 것**: 캐시 항목의 무결성 표지(사용자 캐시에 둔 머신별 비밀로 HMAC)는 하지
+  않았다. CI의 `actions/cache` 재사용을 깨므로 별도 결정이 필요하다. 트리 안 디렉터리의
+  위조는 문서의 "신뢰하는 저장소 전용"으로만 막는다.

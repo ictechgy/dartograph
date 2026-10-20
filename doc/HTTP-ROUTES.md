@@ -178,7 +178,8 @@ retrofit_generator 10.2.11, chopper 8.7.0 + chopper_generator 8.7.0): **35개 �
 ```sh
 dartograph impact --format language-traversal [--direction dependents|dependencies] \
   [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] \
-  [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
+  [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] \
+  [--workspace] <package-root> [<root-usr>...]
 ```
 
 - 한 번의 순회로 모든 root(위치 인자와 `--roots-from`의 JSON 문자열 배열 또는

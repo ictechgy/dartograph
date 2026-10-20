@@ -435,9 +435,10 @@ printf '%s\n' \
   staleness 배너가 필요 없다). 회귀는 `test/cli/mcp_server_test.dart`의
   “session cache reuses facts, refreshes edits and cleans up”가 고정한다. 캐시
   삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수 있다(stderr 진단으로 알린다).
-  CLI의 파일별 증분 캐시(`--incremental <dir>`)는
+  CLI의 파일별 증분 캐시(`--incremental <dir>`, `--incremental-user-cache`)는
   MCP 도구가 노출하지 않는다 — 세션 간에 사실을 재사용해야 하면 CLI를 직접
-  쓴다([USAGE.md](USAGE.md)의 `--incremental`).
+  쓴다([USAGE.md](USAGE.md)의 `--incremental`). 신뢰하지 않는 저장소라면 사실을
+  분석 대상 밖 사용자 캐시에 두는 `--incremental-user-cache`를 쓴다.
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.
   동적 디스패치·문자열 route·생성 코드는 근거를 제한할 수 있고, 그 사실은 각 문서의
   `limitations`에 실린다.
