@@ -96,6 +96,8 @@ final class ReachabilityExplanation {
   final String? reason;
 
   /// 미도달 판정에서 확인한 루트다.
+  ///
+  /// 같은 분석 결과의 미도달 설명끼리 하나의 불변 목록을 공유한다.
   final List<String> rootsChecked;
 
   /// 루트부터 대상까지의 결정적 최단 경로다.
@@ -194,6 +196,13 @@ final class ReachabilityResult {
 
   Set<String>? _reachableIdSet;
   Map<String, String>? _memberWitnesses;
+
+  /// 미도달 설명이 공유하는 보존 루트 ID의 불변 목록이다.
+  ///
+  /// 그래프에 없는 루트까지 이름순으로 담는다. 처음 쓸 때 한 번 만든다.
+  /// query batch는 미도달 질의마다 [explain]을 부르므로, 매번 복사하면 질의
+  /// 수 × 루트 수가 된다. 설명끼리 공유하므로 불변이다.
+  List<String>? _rootsChecked;
 
   /// [id]의 직접 도달 여부다(O(1)).
   ///
@@ -338,7 +347,7 @@ final class ReachabilityResult {
         id: id,
         reachable: false,
         reason: 'unreachable from all retention roots',
-        rootsChecked: _roots.keys.toList(),
+        rootsChecked: _rootsChecked ??= List.unmodifiable(_roots.keys),
         path: const [],
         evidence: const [],
         retentionReason: null,

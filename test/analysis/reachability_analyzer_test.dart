@@ -342,6 +342,45 @@ void main() {
     });
   });
 
+  test('unreachable explanations share one list of every root', () {
+    // 미도달 explain마다 루트 전체를 복사하면 query batch 1000건이 질의마다
+    // 루트 수만큼 복사한다. 분석 결과가 한 번 만든 불변 목록을 함께 쓴다.
+    // 목록은 지금처럼 그래프에 없는 루트까지 이름순으로 담고, JSON 근거는
+    // 앞 20개에서 자른다.
+    String rootId(int index) => 'app::root${'$index'.padLeft(2, '0')}';
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'app::deadA'))
+      ..addNode(GraphNode(id: 'app::deadB'));
+    for (var index = 0; index < 21; index++) {
+      graph.addNode(GraphNode(id: rootId(index)));
+    }
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: {
+        for (var index = 20; index >= 0; index--)
+          rootId(index): RetentionReason.mainEntryPoint,
+        'app::absent': RetentionReason.publicApi,
+      },
+    );
+
+    final first = result.explain('app::deadA');
+    final second = result.explain('app::deadB');
+    final everyRoot = [
+      'app::absent',
+      for (var index = 0; index < 21; index++) rootId(index),
+    ];
+    expect(first.reachable, isFalse);
+    expect(first.rootsChecked, everyRoot);
+    expect(second.rootsChecked, same(first.rootsChecked));
+    // 설명끼리 공유하므로 한 설명에서 바꾸면 다른 설명도 바뀐다. 불변이어야 한다.
+    expect(() => first.rootsChecked.add('app::other'), throwsUnsupportedError);
+    expect(first.toJson()['evidence'], {
+      'retentionRootCount': 22,
+      'retentionRootsChecked': everyRoot.take(20).toList(),
+      'retentionRootsTruncated': true,
+    });
+  });
+
   test('file explanations follow imports from a reachable library', () {
     final graph = CodeGraph()
       ..addNode(GraphNode(id: 'package:app/main.dart'))

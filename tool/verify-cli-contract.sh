@@ -164,6 +164,12 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "deps duplicate workspace" deps --workspace --workspace fixtures/closed_app
   expect_status 0 "runtime workspace" runtime --workspace fixtures/workspace_audit
   expect_status 64 "runtime duplicate workspace" runtime --workspace --workspace fixtures/workspace_audit
+  expect_status 0 "graph incremental user cache" graph --format json --incremental-user-cache fixtures/phase5_contract
+  expect_status 0 "graph incremental user cache reuse" graph --format json --incremental-user-cache fixtures/phase5_contract
+  expect_status 1 "dead incremental user cache findings" dead --format json --incremental-user-cache fixtures/test_only_corpus
+  expect_status 64 "incremental user cache with incremental dir" graph --format json --incremental-user-cache --incremental "$TEMPORARY_DIRECTORY/facts" fixtures/phase5_contract
+  expect_status 64 "duplicate incremental user cache" graph --format json --incremental-user-cache --incremental-user-cache fixtures/phase5_contract
+  expect_status 64 "incremental user cache on runtime" runtime --incremental-user-cache fixtures/runtime_corpus
   expect_status 0 "setup prints" setup
   expect_status 64 "setup install missing directory" setup --install "$TEMPORARY_DIRECTORY/no-such-dir"
   mkdir -p "$TEMPORARY_DIRECTORY/setup-target"
@@ -202,6 +208,8 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 0 "impact changed sarif" impact --changed "$CHANGES_FILE" --format sarif fixtures/phase5_contract
   expect_status 0 "impact changed github-actions" impact --changed "$CHANGES_FILE" --format github-actions fixtures/phase5_contract
   expect_status 0 "impact changed test-list" impact --changed "$CHANGES_FILE" --format test-list fixtures/phase5_contract
+  # --limit은 impacted와 coverage 목록을 자르고 limitation을 더할 뿐 종료 코드를 바꾸지 않는다.
+  expect_status 0 "impact changed limit" impact --changed "$CHANGES_FILE" --limit 1 --format json fixtures/phase5_contract
   expect_status 0 "impact symbol" impact --symbol project:lib/a.dart::a --format json fixtures/phase5_contract
   expect_status 0 "impact since" impact --since HEAD --format json fixtures/phase5_contract
   expect_status 64 "impact no seed" impact fixtures/phase5_contract
@@ -211,6 +219,7 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "impact duplicate since" impact --since A --since B fixtures/phase5_contract
   expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
+  expect_status 64 "impact zero limit" impact --since HEAD --limit 0 fixtures/phase5_contract
   expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
   expect_status 0 "runtime report" runtime fixtures/runtime_corpus
   expect_status 0 "runtime text" runtime --format text fixtures/runtime_corpus

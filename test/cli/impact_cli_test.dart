@@ -137,6 +137,132 @@ void main() {
     expect((document['risk'] as Map)['level'], 'low');
   });
 
+  test('impact --limit cuts the coverage list to the reported symbols and '
+      'records the cut', () async {
+    final changes = changedFile(['lib/a.dart']).path;
+    Future<Map<String, Object?>> render(String limit) async {
+      final output = StringBuffer();
+      final status = await run([
+        'impact',
+        '--changed',
+        changes,
+        '--limit',
+        limit,
+        '--format',
+        'json',
+        directory.path,
+      ], output: output);
+      expect(status, 0, reason: 'limit $limit');
+      return jsonDecode(output.toString()) as Map<String, Object?>;
+    }
+
+    // 영향 4개 중 1개만 보고하면 coverage 목록도 그 1개다. 개수는 전체로 남고
+    // 잘린 수는 truncated와 limitation이 알린다.
+    final limited = await render('1');
+    final coverage = limited['coverage'] as Map<String, Object?>;
+    expect(coverage['missedWithoutPrecheck'], ['project:lib/b.dart']);
+    expect(coverage['transitivelyImpacted'], 4);
+    expect((limited['impacted'] as List).map((item) => (item as Map)['id']), [
+      'project:lib/b.dart',
+    ]);
+    expect(limited['truncated'], 3);
+    expect(limited['limitations'], [
+      'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
+          'symbol(s) from coverage.missedWithoutPrecheck',
+    ]);
+
+    // limit이 영향 수와 같으면 자르지 않고 limitation도 없다.
+    final whole = await render('4');
+    expect((whole['coverage'] as Map)['missedWithoutPrecheck'], [
+      'project:lib/b.dart',
+      'project:lib/b.dart::Bar',
+      'project:test/a_test.dart',
+      'project:test/a_test.dart::main',
+    ]);
+    expect(whole['truncated'], 0);
+    expect(whole['limitations'], isEmpty);
+  });
+
+  test(
+    'impact --limit keeps the whole coverage count in text and markdown',
+    () async {
+      final changes = changedFile(['lib/a.dart']).path;
+      Future<String> render(String format) async {
+        final output = StringBuffer();
+        final status = await run([
+          'impact',
+          '--changed',
+          changes,
+          '--limit',
+          '1',
+          '--format',
+          format,
+          directory.path,
+        ], output: output);
+        expect(status, 0, reason: format);
+        return output.toString();
+      }
+
+      const cut =
+          'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
+          'symbol(s) from coverage.missedWithoutPrecheck';
+      final text = await render('text');
+      expect(
+        text,
+        contains(
+          '\ncoverage: 4 impacted symbol(s) would be missed by inspecting '
+          'changed files only\n',
+        ),
+      );
+      expect(text, contains('\nlimitation: $cut\n'));
+      final markdown = await render('markdown');
+      expect(
+        markdown,
+        contains(
+          '\n4 impacted symbol(s) would be missed by inspecting changed '
+          'files only.\n',
+        ),
+      );
+      expect(markdown, contains('\n- $cut\n'));
+      final annotations = await render('github-actions');
+      expect(
+        annotations,
+        contains('\n::notice title=dartograph limitation::$cut\n'),
+      );
+    },
+  );
+
+  test(
+    'impact --limit sarif carries the cut coverage list and its limitation',
+    () async {
+      final output = StringBuffer();
+      final status = await run([
+        'impact',
+        '--changed',
+        changedFile(['lib/a.dart']).path,
+        '--limit',
+        '1',
+        '--format',
+        'sarif',
+        directory.path,
+      ], output: output);
+
+      expect(status, 0);
+      final document = jsonDecode(output.toString()) as Map<String, Object?>;
+      final runDocument = (document['runs']! as List).single as Map;
+      final invocation = (runDocument['invocations'] as List).single as Map;
+      final properties = invocation['properties'] as Map;
+      expect((properties['coverage'] as Map)['missedWithoutPrecheck'], [
+        'project:lib/b.dart',
+      ]);
+      expect((properties['coverage'] as Map)['transitivelyImpacted'], 4);
+      expect(properties['limitations'], [
+        'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
+            'symbol(s) from coverage.missedWithoutPrecheck',
+      ]);
+    },
+  );
+
   test('impact --symbol resolves a known id and reports known:true', () async {
     final output = StringBuffer();
     final status = await run([

@@ -184,8 +184,9 @@ abstract final class ImpactReporter {
         'missing: ${report.missingSymbols.map(ReportEscapes.escapeText).join(', ')}',
       );
     }
+    // --limit이 자르는 목록 길이가 아니라 전체 영향 수를 센다.
     output.writeln(
-      'coverage: ${report.coverage.missedWithoutPrecheck.length} impacted '
+      'coverage: ${report.coverage.transitivelyImpacted} impacted '
       'symbol(s) would be missed by inspecting changed files only',
     );
     for (final limitation in limits) {
@@ -282,8 +283,9 @@ abstract final class ImpactReporter {
     output.writeln();
     output.writeln('## Precheck coverage');
     output.writeln();
+    // --limit이 자르는 목록 길이가 아니라 전체 영향 수를 센다.
     output.writeln(
-      '${report.coverage.missedWithoutPrecheck.length} impacted symbol(s) would '
+      '${report.coverage.transitivelyImpacted} impacted symbol(s) would '
       'be missed by inspecting changed files only.',
     );
     if (report.missingSymbols.isNotEmpty) {

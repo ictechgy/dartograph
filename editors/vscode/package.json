@@ -18,6 +18,17 @@
     "workspaceContains:pubspec.yaml"
   ],
   "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode, dartograph uses only your user settings for dartograph.executable, dartograph.args, and dartograph.runOnSave. Trust the workspace to apply its own dartograph.args and dartograph.runOnSave.",
+      "restrictedConfigurations": [
+        "dartograph.executable",
+        "dartograph.args",
+        "dartograph.runOnSave"
+      ]
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -39,7 +50,8 @@
         "dartograph.executable": {
           "type": "string",
           "default": "dartograph",
-          "description": "Path to the dartograph executable (dart pub global activate dartograph)."
+          "scope": "machine",
+          "description": "The dartograph executable (dart pub global activate dartograph): an absolute path or a command name on PATH. Relative paths are rejected. It can be set only in user or remote settings, so a workspace cannot change it."
         },
         "dartograph.runOnSave": {
           "type": "boolean",
@@ -58,10 +70,9 @@
             "type": "string"
           },
           "default": [
-            "--incremental",
-            ".dartograph/cache"
+            "--incremental-user-cache"
           ],
-          "description": "Extra arguments appended to every dartograph invocation. The default keeps an incremental cache under .dartograph/cache so re-runs stay fast."
+          "description": "Extra arguments appended to every dartograph invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace, so re-runs stay fast without trusting cache files a repository could commit. It needs a dartograph CLI newer than 0.16.2."
         }
       }
     }

@@ -111,8 +111,16 @@ dartograph mcp
 - `impact --format language-traversal`은 isthmus `trace`용 `language-traversal` v1 문서를 낸다: 여러 root(예: `--roots-from`으로 모든 `route-call` usr)를 한 번에 순회해 각 선언에 닿는 모든 root, 최단 경로 목격, root별 하한 근거 등급(`direct`, 재정의 디스패치를 거치면 `candidate`)을 싣는다. `unresolvedCalls`는 싣지 않는다. 모르는 root는 `root-not-found`로 남기고 64로 끝난다.
 - `bridges --messages`와 `bridges --events`는 BasicMessageChannel의 `send` 호출과 EventChannel의 `receiveBroadcastStream` 호출을 위한 개발 소스 전용 opt-in producer다. `transport: "basic-message-channel"`/`"event-channel"`의 bridge-facts v2를 내며, 채널 생성만 send로 바꾸거나 MethodChannel 메서드를 지어내지 않는다. 동적 이름은 원래 소스 표현식을 유지한다. `channelPrefix`는 AST가 문자열 interpolation의 decoded 비어 있지 않은 선행 literal을 증명할 때만 내며, 완전한 runtime 주소나 instance identity의 증명이 아닌 후보 prefix다. `--messages`와 `--events`는 함께 쓸 수 없다.
 - `impact`는 편집이 반영되기 전에 어떤 선언·테스트가 영향을 받는지 보고한다 — `--changed <file>`/`--symbol <id>`/`--since <ref>`로 시드를 주고 의존 경로를 근거로 싣는다. `runtime`은 실행 시점에만 드러나는 입력(환경변수·dart-define 읽기, 동적 로드, 설정 경로, 에셋, 외부 URL)을 찾아 현재 환경에 대해 판정하며, `--execute`는 진입점을 실행해 종료 코드와 stderr를 실행 증거로 남긴다.
-- `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고, `--workspace`는 pub workspace 집계를 옵트인한다(루트 pubspec의 `workspace:` 멤버를 함께 분석하고 `deps`는 패키지별 pubspec으로 감사한다). `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
-- 재사용 합성 액션([`action.yml`](action.yml))이 GitHub Actions용 CLI 래퍼다 — 게시 릴리스 또는 체크아웃한 소스 경로를 설치해 패키지를 분석하고 리포트 파일 하나를 쓴다(예시 워크플로 [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)).
+- `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고(`--incremental-user-cache`는 그 사실을 프로젝트 밖 사용자 캐시에 둔다 — 신뢰하지 않는 저장소에는 이쪽을 쓴다), `--workspace`는 pub workspace 집계를 옵트인한다(루트 pubspec의 `workspace:` 멤버를 함께 분석하고 `deps`는 패키지별 pubspec으로 감사한다). `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
+- 재사용 합성 액션([`action.yml`](action.yml))이 GitHub Actions용 CLI 래퍼다 — 게시 릴리스 또는 체크아웃한 소스 경로를 설치해 패키지를 분석하고 리포트 파일 하나를 쓴다(예시 워크플로 [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)). 액션과 CLI 릴리스를 함께 고정한다. (릴리스 태그의) 커밋 SHA는 액션 자체를, `version`은 액션이 설치할 dartograph 릴리스를 고정한다. `version`이 비면 실행할 때마다 pub.dev의 최신 릴리스를 설치하고 notice를 남긴다.
+  ```yaml
+  - uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+    with:
+      version: 0.16.2
+      command: dead
+      args: --format sarif
+      output-file: dead.sarif
+  ```
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 그래프 질문을 dartograph 명령으로 안내하는 관리 `CLAUDE.md`/`AGENTS.md` 블록도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
 - `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
@@ -139,13 +147,18 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
+- 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.
 - `bridges --events`는 정적으로 식별한 EventChannel의 `receiveBroadcastStream()` 호출을 반환 스트림의 소비 여부와 무관하게 `stream-listen` 사실로 기록한다. 호출 실행·리스너 부착·활성 구독·이벤트 수신을 증명하지 않는다.
+- git 조회는 저장소가 설정한 명령을 실행하지 않으므로(보장 참고) git은 작업 트리 원본 내용을 읽고 stat 캐시를 새로 고치지 않는다. 그래서 `--since`와 `affected`는 시각만 바뀐 파일도 변경으로 세고, git-lfs처럼 filter가 정규화하던 파일도 git의 stat 캐시가 낡았으면 변경으로 센다. 신뢰하는 checkout이면 먼저 `git status`를 실행해 stat 캐시를 새로 고친다.
+- 부분 클론(promisor 원격이 있는 저장소)에서 git 조회는 없는 객체를 가져오지 않는다. 비교할 이력이 로컬에 없으면 `--since`와 `affected`는 2로 끝나므로 그 이력을 먼저 받는다.
+- `impact --format language-traversal`은 저장소 명령을 실행하지 않고 깨끗한 HEAD를 확인할 수 있을 때만 `revision`을 싣는다. stat이 낡은 filter 대상 파일은 수정으로 읽히므로 `revision`을 생략한다. git 서브모듈이 있는 패키지 루트도 서브모듈 안에서 git을 실행하지 않으므로 `revision`을 자동으로 싣지 않고 `revision-unverified:` 한계를 남긴다. 분석한 revision을 기록하려면 `--revision`을 준다.
 
 보장:
 
-- 분석 캐시는 분석 대상 밖의 OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) 아래 `dartograph/<project-root-hash>`에 둔다. 프로젝트·의존 내용, mtime, 패키지 해석, Dart SDK, 분석 revision이 바뀌면 자동으로 무효화된다. 캐시가 없거나 손상돼도 결과는 절대 바뀌지 않고 분석 시간만 더 든다.
+- 분석 캐시는 분석 대상 밖의 OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) 아래 `dartograph/<project-root-hash>`에 둔다. 프로젝트·의존 내용, mtime, 패키지 해석, Dart SDK, 분석 revision이 바뀌면 자동으로 무효화된다. 캐시가 없거나 손상돼도 결과는 절대 바뀌지 않고 분석 시간만 더 든다. `--incremental-user-cache`는 파일별 사실 캐시를 같은 디렉터리(`incremental/`, `--workspace`면 `incremental-workspace/`)에 둔다. 분석 대상 안을 가리키는 `--incremental <dir>`는 신뢰하는 저장소에만 쓴다 — 그 캐시는 키가 맞는 사실을 재사용하고, 저장소가 그 자리에 위조한 사실을 커밋해 둘 수 있다. dartograph는 심볼릭 링크·FIFO·소켓이거나 1 GiB를 넘는 사실 캐시 파일을 열지 않고 사실을 다시 해석하며 `incremental-cache-not-read:`를 보고한다.
 - 보존 루트가 20개를 넘는 finding은 전체 개수, 앞 20개 샘플, `retentionRootsTruncated: true`를 기록해 출력을 제한한다. 근거가 잘렸다는 사실은 절대 숨기지 않는다.
+- git 조회(`--since`, `affected`와 MCP `since`, `impact --format language-traversal`의 깨끗한 HEAD `revision`, `--record` 원장의 commit)는 분석 대상 저장소나 사용자 git 설정이 정한 명령을 실행하지 않는다. 호출마다 설정된 filter 드라이버(`clean`·`smudge`·`process`)와 `core.fsmonitor`를 끄고, git이 index를 다시 쓰지 않게 하며(쓰면 `post-index-change` 훅이 돈다), 외부 diff와 textconv를 끄고, 서브모듈 안에서 git을 띄우지 않으며, 부분 클론에서는 없는 객체를 promisor 원격에서 가져오지 않게 한다(그 fetch는 `core.sshCommand`나 `remote.<이름>.uploadpack` 같은 원격 전송 설정의 명령을 실행한다). git이 건너뛰게 할 수 없는 두 설정, 곧 이름에 `=`가 들었거나 UTF-8이 아닌 filter 드라이버와 git 2.45 미만에서의 promisor 원격이 있으면 조회를 멈춘다: `--since`와 `affected`는 원인을 알리고 2로 끝나며, 순회 문서는 `revision`을 생략하고 `revision-unverified:` 한계를 달고, 원장 항목에는 commit이 없다.
 
 ## 문서
 

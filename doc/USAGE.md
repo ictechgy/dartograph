@@ -32,21 +32,21 @@ Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
 
 ```text
 dartograph init [--force] [<package-root>]
-dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph dead --explain <symbol-id> --format json [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
-dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <git-ref> <package-root>
-dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --explain <symbol-id> --format json [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph compare [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
+dartograph affected [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <git-ref> <package-root>
+dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <none|low|medium|high>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph skill [--install <skills-directory> [--force]]
 dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
 dartograph runtime [--verify|--no-verify] [--format <text|json|markdown|github-actions|sarif>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--workspace] [--record <dir>] <package-root>
@@ -57,21 +57,49 @@ dartograph bridges --messages --format json [--project <shared-root>] <package-r
 dartograph bridges --events --format json [--project <shared-root>] <package-root>
 dartograph schema --format json [--project <shared-root>] <package-root>
 dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
-dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
-dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
+dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 ```
 
-`--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
+`--incremental <dir>`는 분석·색인 명령(graph·dead·deps·dup·query·compare·affected·
 impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실 캐시를 두고 다음
 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시 해석한다. 산출물은
 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가 다르거나 쓸 수 없으면
-전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
-남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면
-폐쇄가 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
+전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을
+`incremental-cache-write-failed:` limitation으로 남긴다). 캐시 파일 `<dir>/facts.json`이
+심볼릭 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
+모든 파일을 다시 해석하며, 그 사실을 `incremental-cache-not-read:` limitation으로
+남긴다. 그 실행의 캐시 쓰기가 링크 자리를 정규 파일로 바꾸고, 링크 대상은 건드리지
+않는다. `dup`만 쓰는 토큰 사실은 같은 디렉터리의 `<dir>/tokens.json`에 따로 둔다. 다른
+명령은 이 파일을 읽지 않고, 모든 파일을 다시 해석한 실행에서만 새로 쓴다. `dup`은 토큰
+항목이 없거나 내용이 바뀐 파일만 다시 해석한다. `tokens.json`도 같은 읽기 경계를 지나며,
+버리면 `dup`이 모든 파일을 다시 해석하고 `incremental-cache-not-read: the dup token cache
+file …` limitation을 남긴다. 전체 결과 캐시도 토큰을 결과와 다른 항목에 두어 `dup`만
+읽는다. 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면 폐쇄가
+사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
+
+분석 대상 안 디렉터리(예: `--incremental .dartograph/cache`)는 **신뢰하는 저장소에만**
+쓴다. 캐시는 키가 맞는 사실을 다시 해석하지 않고 쓰는데, 키는 공개된 입력(파일 내용·
+설정·SDK·도구 버전)의 해시뿐이다. 그래서 저장소가 그 자리에 위조한 `facts.json`을 커밋해
+두면 결과가 바뀔 수 있다(예: 간선을 지워 dead 발견을 숨긴다). 신뢰하지 않는 저장소에는
+값 없는 `--incremental-user-cache`를 쓴다. 같은 명령이 받으며, 사실 캐시를 분석 대상 밖의
+OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME` 또는 `~/.cache`, `%LOCALAPPDATA%`)
+아래 `dartograph/<project-root-hash>/incremental`에 둔다. 전체 결과 캐시와 같은 루트별
+디렉터리다. `--workspace` 집계는 `incremental-workspace`를 따로 쓴다(두 모드는 설정
+지문이 달라 한 파일을 공유하면 번갈아 덮어쓴다). 디렉터리는 색인하는 canonical root마다
+고르므로 `compare`의 두 체크아웃도 서로 덮어쓰지 않는다. 사용자 캐시 위치를 정하지
+못하면(`HOME`, Linux의 `XDG_CACHE_HOME`, Windows의 `LOCALAPPDATA`가 없거나 절대 경로가
+아님) 캐시 없이 분석하고, 원인을 담은 `incremental-cache-write-failed:` limitation을
+남긴다. `--incremental <dir>`와 함께 주거나 두 번 주면 usage(64)다. 원장(`--record`)에는
+`"incremental-user-cache": "true"`로 남는다. CI에서는 체크아웃 밖 디렉터리를
+`--incremental <dir>`로 주고 `actions/cache`로 복원한다. 예시 워크플로
+[`impact-precheck.yml`](../.github/workflows/impact-precheck.yml)은
+`$RUNNER_TEMP/dartograph-facts`를 모든 이벤트에서 복원하고, 리포트·SARIF·게이트 단계가
+함께 쓴다(원장은 `$RUNNER_TEMP/dartograph-ledger`).
 
 같은 명령에 `runtime`을 더해 `--workspace`를 받는다 — pub workspace 집계를
 옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께
@@ -138,8 +166,10 @@ affected·baseline)은 빈 목록이다.
   블록을 병합한다 — 어떤 질문에 어떤 dartograph 명령을 쓸지 라우팅을 매
   세션 컨텍스트에 올리기 위해서다. 표지가 짝 없이 있거나 중복이면 사람이
   고친 흔적으로 보고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
-  `dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
-  에이전트에게 보고한다. `<package-root>`가 필요하다.
+  `dartograph impact --changed --fail-on high --incremental-user-cache`를 실행해
+  발견이 있으면 종료 2로 에이전트에게 보고한다. 증분 사실 캐시는 프로젝트 밖 사용자
+  캐시에 둔다(이전 훅은 프로젝트 안 `.dartograph/cache`를 썼다 — 설치된 훅은
+  `setup --install --force`로 새 훅으로 바꾼다). `<package-root>`가 필요하다.
 - `cursor`: `<package-root>/.cursor/mcp.json`의 `mcpServers`에 병합한다.
 - `opencode`: `<package-root>/opencode.json`의 `mcp`에 `type: local` 항목을
   병합한다.
@@ -210,6 +240,15 @@ Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
+Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 안의 git, 부분 클론의 promisor
+원격에서 없는 객체를 가져오는 fetch)을 실행하지 않고 stat 캐시를 새로 고치지 않는다. 그래서 시각만
+바뀐 파일과 stat이 낡은 filter 대상 파일(git-lfs 등)도 바뀐 파일로 센다. 신뢰하는 checkout이면 먼저
+`git status`를 실행한다. git이 건너뛰게 할 수 없는 이름(`=`가 들었거나 UTF-8이 아닌 이름)의 filter
+드라이버가 설정돼 있으면 git을 실행하지 않고 2로 끝난다(`affected`도 같다). 부분 클론에서 비교할
+이력이 로컬에 없으면 가져오지 않고 2로 끝나고, `--no-lazy-fetch`를 모르는 git(2.45 미만)이면 부분
+클론에서 git을 실행하지 않고 2로 끝난다. 이름 변경은 감지하지 않는다 — 감지하려면 옛 내용(blob)을
+읽어야 하는데 blob 없는 클론에는 없기 때문이다. 바뀐 파일 목록은 같다(이름을 바꾼 파일은 새 경로로
+나온다).
 심볼릭 링크 소스는 양방향으로 매치된다 — 링크 파일 자체가 바뀐 경우(링크 경로)와
 링크 대상이 바뀐 경우(해석된 실 경로) 모두 변경 집합에 속한다.
 `--explain`은 단일 대상의 전체 근거를 묻는 명령이라 `--baseline`·`--since`와 함께 쓰지 않는다.
@@ -354,6 +393,9 @@ schemagraph `facts`가 내고 isthmus `check`가 두 문서를 관계·컬럼 �
 - 어느 게이트로도 읽지 않은 문자열 리터럴은 동사와 관계 키워드가 대문자인 SQL만
   읽는다. SQL 동사가 있지만 대문자가 아닌 리터럴은 `skipped-sql-literals`로 센다.
 
+SQL 텍스트의 같은 문장 CTE 이름, `EXTRACT(YEAR FROM d)` 같은 함수 인자 안의 `FROM`,
+`IS [NOT] DISTINCT FROM`의 피연산자는 관계가 아니므로 사실로 내지 않는다(persistence
+생산자 공통 규칙 — [GRAPH-EXCHANGE.md](GRAPH-EXCHANGE.md#persistence-문서-schema)).
 수신자 타입은 해석하지 않는다(구문 스캔). import 게이트 안에서 sqflite와 같은 모양의
 다른 API 호출(예: `Map.update('users', fn)`)은 관계로 읽힐 수 있다. 비리터럴 SQL·테이블
 인자·미해석 SQL 피연산자는 원문 요약을 channel로 한 `dynamic: true` 사실로 남기고
@@ -393,9 +435,13 @@ pub workspace 감지는 `bridges`와 같다. 사용 오류(role 누락·`server`
 문서의 `symbol.usr`)를 root로 한 번에 순회하고, 도달 정점마다 닿는 root 목록·최단 경로
 목격(`via`·`depth`)·근거 등급(`direct`, 재정의 디스패치는 `candidate`)을 싣는다.
 `unresolvedCalls`·`dispatch`는 싣지 않는다. `revision`은 `--revision`이나 깨끗한 작업
-트리의 git HEAD, `graphRevision`은 그래프 내용 해시다. 정확한 그래프 ID가 아닌 root는
-`root-not-found`로 문서에 남기고 64로 끝난다. 제어 문자가 든 root·revision과 이 형식이
-받지 않는 `impact` 옵션(`--since` 등)은 64다.
+트리의 git HEAD, `graphRevision`은 그래프 내용 해시다. 깨끗함은 저장소 설정의 명령을 실행하지
+않고 판정한다. 그래서 stat이 낡은 filter 대상 파일(git-lfs 등)은 수정으로 읽혀 `revision`을
+생략한다. 패키지 루트에 git 서브모듈이 있거나, git이 건너뛰게 할 수 없는 이름의 filter 드라이버가
+있거나, 부분 클론인데 git이 `--no-lazy-fetch`를 모르면(2.45 미만) `revision`을 생략하고
+`revision-unverified:` limitation을 단다. 부분 클론에서 HEAD tree가 로컬에 없으면 가져오지 않고
+`revision`만 생략한다. 정확한 그래프 ID가 아닌 root는 `root-not-found`로 문서에 남기고 64로
+끝난다. 제어 문자가 든 root·revision과 이 형식이 받지 않는 `impact` 옵션(`--since` 등)은 64다.
 
 ```sh
 dartograph routes --role client --wrappers http-wrappers.json . > dart.http.json
@@ -474,11 +520,14 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 JSON 문자열 배열, 1–1000개·1 MiB 이하 정규 파일, `query --batch`와 같은 상한), 또는
 `--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
 
-`--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과
-개수·위험도는 제한하지 않고 잘린 수만 `truncated`로 알린다). `--fail-on <level>`은
-전체 위험도가 그 수준 이상이면 종료 코드 1로 만든다(기본 `none`은 항상 0). 출력에는
-`coverage` 블록이 있어 **변경 파일만 확인했을 때 누락됐을** 영향 심볼 수와 목록을
-제시한다 — 사전 점검의 가치를 수치로 남긴다.
+`--depth`는 전이 한계(기본 무제한), `--limit <n>`은 **보고** 항목 수 제한이다.
+`impacted`와 `coverage.missedWithoutPrecheck`를 같은 앞 n개(깊이, ID 순)로 자른다.
+탐색과 개수(`coverage.transitivelyImpacted`)·위험도는 제한하지 않고, 잘린 수는
+`truncated`와 `impact-coverage-truncated:` limitation으로 알린다. `callSites`와
+`tests`는 자르지 않는다. `--fail-on <level>`은 전체 위험도가 그 수준 이상이면 종료
+코드 1로 만든다(기본 `none`은 항상 0). 출력에는 `coverage` 블록이 있어 **변경 파일만
+확인했을 때 누락됐을** 영향 심볼 수와 목록을 제시한다 — 사전 점검의 가치를 수치로
+남긴다. text·markdown의 coverage 문장은 `--limit`과 상관없이 전체 수를 센다.
 
 `--format test-list`는 영향받는 테스트 라이브러리의 프로젝트 상대 경로만 한 줄에
 하나씩 낸다 — `dart test`의 인자로 곧바로 쓰는 소비 형식이다. 테스트 선택은
@@ -641,8 +690,21 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   `impact --changed`의 입력으로 쓰고 영향받는 선언·관련 테스트를 Problems에
   표시한다. risk가 high인 대상만 경고다.
 - `dartograph.runOnSave`를 켜면 Dart 파일 저장 직후 디바운스된 재분석이 돈다.
-  기본 `dartograph.args`는 `--incremental .dartograph/cache`로 재실행을 빠르게
-  유지한다. `dartograph.minTokens`·`dartograph.executable`도 설정으로 조정된다.
+  기본 `dartograph.args`는 `--incremental-user-cache`로, 증분 사실 캐시를 작업
+  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.16.2 이하 CLI는 이 스위치를
+  몰라 usage(64)로 끝나므로 CLI를 올리거나 그동안 `dartograph.args`를 `[]`로 둔다.
+  `dartograph.minTokens`도 설정으로 조정된다.
+- `dartograph.executable`은 machine 범위 설정이라 사용자(원격) 설정에서만 정한다. 작업
+  공간 `.vscode/settings.json`의 값은 신뢰한 작업 공간에서도 무시된다. 값은 절대 경로나
+  PATH의 명령 이름이어야 한다. `./tools/dartograph` 같은 상대 경로는 패키지 폴더 기준으로
+  풀리므로 실행하지 않고 출력 채널에 이유를 남긴다. 명령 이름은 PATH의 절대 경로
+  디렉터리에서만 찾아 찾은 경로를 실행한다. 그러지 않으면 Windows에서는 Node가 패키지
+  폴더를 PATH보다 먼저 찾고, 다른 OS에서는 PATH의 빈 항목(앞뒤·연속 `:`)이나 `.` 같은
+  상대 항목이 패키지 폴더 기준으로 풀린다. POSIX에서는 실행 권한이 있는 정규 파일만 고르고,
+  PATH가 비었으면 `/usr/bin:/bin`을 찾는다.
+- 확장은 제한 모드(신뢰하지 않는 작업 공간)에서도 켜진다. 이때 `dartograph.executable`·
+  `dartograph.args`·`dartograph.runOnSave`는 사용자 설정 값만 쓴다. 작업 공간을 신뢰하면
+  작업 공간의 `dartograph.args`·`dartograph.runOnSave`가 적용된다.
 - 각 보고서의 `limitations`는 dartograph 출력 채널에 기록한다 — 발견이 없다는
   사실이 안전의 증명이 되지 않는다.
 
@@ -666,9 +728,23 @@ plugins:
 - `dartograph_duplicate_block`(info) — `dup` 발견을 블록 범위로 표시한다.
 
 플러그인은 PATH의 `dartograph` 실행 파일을 호출한다(`DARTOGRAPH_EXECUTABLE`로
-교체 가능). 첫 분석 패스가 보고서를 동기로 적재하고 이후는 TTL 만료 시
-백그라운드로 갱신한다 — 증분 캐시(`.dartograph/cache`)가 반복 비용을 줄인다.
-진단은 근거 관측이며 삭제 판정이 아니다.
+교체 가능). 패키지의 첫 분석 패스는 `dead`와 `dup`을 차례로 동기 실행해 보고서를
+적재한다. 이후에는 패키지 디스크가 바뀌었을 때만 백그라운드로 갱신한다.
+
+- 갱신 간격이 지난 뒤의 분석 패스가 변경을 확인한다. 간격은 30초이고, 직전 실행
+  시간의 10배가 더 길면 그 값이다(최대 30분).
+- 변경은 패키지 아래 `*.dart`·`pubspec.yaml`·`analysis_options.yaml`·`dartograph.yaml`·
+  `build.yaml`과 `dart pub get`이 쓰는 `.dart_tool/package_config.json`(pub 워크스페이스
+  멤버는 가장 가까운 조상의 것)의 크기·수정 시각·목록 차이다. 그 밖의 숨김 디렉터리·
+  `.dart_tool`·`build`는 보지 않고 심볼릭 링크는 따라가지 않는다. 그래서 링크로만 닿는
+  파일이나 패키지 밖 path 의존의 편집은 패키지 안의 다음 변경 때 함께 반영된다.
+- 갱신은 `dead`와 `dup`을 함께 실행한다. 동시에 갱신하는 패키지는 둘까지라
+  백그라운드 CLI 프로세스는 많아야 넷이고, 나머지는 차례를 기다린다.
+- 명령이 실패한 보고는 변경이 없어도 간격 뒤 다시 시도한다.
+
+`--incremental-user-cache`로 프로젝트 밖 사용자 캐시에 둔 증분 사실 캐시가 반복
+비용을 줄인다. 이 스위치를 아는 CLI(0.16.2 다음 릴리스)가 필요하다.
+진단은 디스크에 저장된 파일 기준의 근거 관측이며 삭제 판정이 아니다.
 
 ## 종료 코드
 
@@ -742,6 +818,30 @@ steps:
   `limitations`·`suppressedCount`(dead), `coverage`·`risk`(impact)를 code scanning
   결과 목록에서 찾지 말고 원본 파일에서 확인한다.
 - 위 예시의 액션 핀은 작성 시점 기준이며, 액션 버전은 저장소 정책에 맞춰 갱신한다.
+
+## 합성 GitHub Action 고정
+
+저장소 루트의 `action.yml`은 `version` 입력이 비면 실행할 때마다 pub.dev의 최신 릴리스를
+설치한다. 액션을 커밋 SHA로 고정해도 그 단계가 실행하는 CLI는 그때의 최신 릴리스이므로
+`version`도 함께 고정한다.
+
+```yaml
+- uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+  with:
+    version: 0.16.2
+    command: dead
+    args: --format sarif
+    output-file: dead.sarif
+```
+
+- `<commit-sha>`에는 고정할 릴리스 태그가 가리키는 커밋을 쓴다. 커밋 SHA는 액션 자체(설치
+  단계·인자 파서·리포트 처리)를, `version`은 pub이 설치할 dartograph 릴리스를 고정한다.
+  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석되고, Dart SDK는
+  `dart-lang/setup-dart`의 `stable`을 따른다.
+- `version`과 `source-path`가 모두 비어 최신 릴리스를 설치하면, 설치 단계가 `::notice`
+  워크플로 명령으로 알림(annotation) 하나를 남긴다. pub이 보고한 설치 버전이 일반 릴리스 버전
+  꼴이면 그 값을 함께 싣는다. 설치 동작은 그대로다 — 빈 `version`은 계속 최신 릴리스를 설치한다.
+- `version`을 주거나 `source-path`로 체크아웃한 소스를 설치하면 알림을 남기지 않는다.
 
 ## 합성 GitHub Action의 인자
 

@@ -496,6 +496,31 @@ allNotes: SELECT * FROM notes n JOIN tags t ON t.note_id = n.id;
     );
   });
 
+  test('CTE 이름·함수 인자 FROM·DISTINCT FROM 피연산자는 관계 사실이 아니다', () async {
+    await write('lib/queries.drift', '''
+recentTable: SELECT * FROM recent;
+recentOrders: WITH recent AS (SELECT * FROM orders) SELECT * FROM recent;
+''');
+    await write('lib/pg.dart', r'''
+import 'package:postgres/postgres.dart';
+
+Future<void> run(Connection conn) async {
+  await conn.execute(Sql.named('SELECT EXTRACT(YEAR FROM created_at) FROM events WHERE kind IS DISTINCT FROM @kind'));
+}
+''');
+
+    final result = await indexSchema(root.path);
+
+    // CTE 이름은 그것을 정의한 문장 안에서만 관계가 아니다 — 앞 문장의 recent는
+    // 관계다.
+    expect(summarize(result), ['events@4', 'recent@1', 'orders@2']);
+    // 비교 연산자의 `@kind`는 읽지 못한 관계 피연산자가 아니다.
+    expect(
+      result.limitations,
+      isNot(contains(startsWith('dynamic-relation-names:'))),
+    );
+  });
+
   test('usr는 같은 루트 impact 그래프의 정점 ID이고 그래프 밖 파일은 센다', () async {
     await write('pubspec.yaml', 'name: schema_usr\n');
     await write('lib/repo.dart', r'''

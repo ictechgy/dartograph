@@ -6,6 +6,8 @@ import 'package:dartograph/src/core/tool_info.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/hostile_git_support.dart';
+
 /// 검증 원장의 CLI 배선 계약이다 — `--record`가 실행을 남기고 `history`가 읽는다.
 void main() {
   late Directory workspace;
@@ -72,6 +74,46 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    '--record reads the commit without running repository git settings',
+    () async {
+      // 속성이 겨루는 점 든 이름만 빼고 모든 설정을 한 저장소에 심는다.
+      final repository = await createRepositoryWithHostileSettings(
+        Directory(p.join(workspace.path, 'hostile'))..createSync(),
+        {...HostileGitSetting.values}
+          ..remove(HostileGitSetting.dottedDriverName),
+      );
+      final previous = Directory.current;
+      final ({int status, String output, String error}) run;
+      try {
+        // 원장 commit은 cwd의 HEAD다. cwd는 프로세스 전역이라 다른 테스트 파일과
+        // 경합하므로 인덱싱 없이 usage(64)로 끝나는 실행 한 번만 감싼다.
+        Directory.current = repository.root;
+        run = await _run([
+          'runtime',
+          '--record',
+          ledgerDirectory,
+          '--format=json',
+          root.path,
+        ]);
+      } finally {
+        Directory.current = previous;
+      }
+
+      expect(run.status, 64, reason: run.error);
+      final entry =
+          jsonDecode(
+                File(
+                  p.join(ledgerDirectory, 'ledger.jsonl'),
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>;
+      expect(entry['commit'], repository.head);
+      expect(repository.commandRan, isFalse);
+    },
+    skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+  );
 
   test('history text lists the recorded command', () async {
     await _run(['cycles', '--record', ledgerDirectory, root.path]);
@@ -170,6 +212,34 @@ void main() {
         {'incremental': cache, 'with-source': 'true'},
       ],
     );
+
+    // 사용자 캐시 스위치도 값을 받지 않는다. 패키지 루트 바로 앞에 둬서, 스위치
+    // 목록에서 빠지면 루트가 그 값으로 기록되는 것을 잡는다.
+    final userCache = p.join(workspace.path, 'user-cache');
+    final switched = await _run(
+      [
+        'graph',
+        '--record',
+        ledgerDirectory,
+        '--format',
+        'json',
+        '--incremental-user-cache',
+        root.path,
+      ],
+      userCacheEnvironment: {
+        'HOME': userCache,
+        'XDG_CACHE_HOME': userCache,
+        'LOCALAPPDATA': userCache,
+      },
+    );
+    expect(switched.status, 0, reason: switched.error);
+    final last = File(
+      p.join(ledgerDirectory, 'ledger.jsonl'),
+    ).readAsLinesSync().last;
+    expect((jsonDecode(last) as Map)['inputs'], {
+      'format': 'json',
+      'incremental-user-cache': 'true',
+    });
   });
 
   test('a damaged line is reported, not fatal', () async {
@@ -258,10 +328,16 @@ void main() {
 }
 
 Future<({int status, String output, String error})> _run(
-  List<String> arguments,
-) async {
+  List<String> arguments, {
+  Map<String, String>? userCacheEnvironment,
+}) async {
   final output = StringBuffer();
   final error = StringBuffer();
-  final status = await runDartograph(arguments, output: output, error: error);
+  final status = await runDartograph(
+    arguments,
+    output: output,
+    error: error,
+    userCacheEnvironment: userCacheEnvironment,
+  );
   return (status: status, output: output.toString(), error: error.toString());
 }

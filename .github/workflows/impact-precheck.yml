@@ -5,9 +5,11 @@ name: impact-precheck
 #
 # - `--since origin/<base>`로 PR의 변경 파일을 씨앗으로 삼는다. merge-base 계산에
 #   전체 Git 이력이 필요하므로 checkout은 fetch-depth: 0이다.
-# - `--incremental <dir>`로 분석 캐시를 유지하고(actions/cache), `--record <dir>`로
-#   검증 원장을 남긴다. 캐시는 저장소 밖 임시 경로나 워크스페이스 안 숨김
-#   디렉터리를 쓴다 — 이 예시는 워크스페이스 안 `.dartograph-*`를 쓰고 아티팩트로 올린다.
+# - `--incremental <dir>`로 분석 사실 캐시를 유지하고(actions/cache), `--record <dir>`로
+#   검증 원장을 남긴다. 둘 다 저장소 밖 `runner.temp` 아래에 둔다. 워크스페이스는 PR이
+#   고른 내용이다 — 그 안에 미리 커밋해 둔 캐시(위조한 사실은 리포트와 게이트를
+#   바꾼다)나 원장 파일을 믿지 않기 위해서다. 리포트·SARIF·게이트 단계가 같은 사실
+#   캐시를 써서 단계마다 전체 분석을 다시 하지 않는다.
 # - 게이트(`--fail-on high`)는 기본 브랜치에만 건다. PR마다 붉어지면 정책에 맞게
 #   `--fail-on`을 완화하거나 게이트 단계를 조정한다.
 #
@@ -47,21 +49,20 @@ jobs:
             pub-${{ runner.os }}-
       - run: dart pub get
       - name: Cache incremental facts
-        if: github.event_name == 'pull_request'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: .dartograph-facts
-          key: dartograph-facts-${{ runner.os }}-${{ github.base_ref }}-${{ hashFiles('pubspec.lock') }}
+          path: ${{ runner.temp }}/dartograph-facts
+          key: dartograph-facts-${{ runner.os }}-${{ github.base_ref || github.ref_name }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: |
-            dartograph-facts-${{ runner.os }}-${{ github.base_ref }}-
+            dartograph-facts-${{ runner.os }}-${{ github.base_ref || github.ref_name }}-
       - name: Impact report for the PR comment
         if: github.event_name == 'pull_request'
         run: |
           dart run dartograph impact \
             --since "origin/${{ github.base_ref }}" \
             --format markdown --limit 200 \
-            --incremental .dartograph-facts \
-            --record .dartograph-ledger \
+            --incremental "$RUNNER_TEMP/dartograph-facts" \
+            --record "$RUNNER_TEMP/dartograph-ledger" \
             . > impact.md || true
           if [[ ! -s impact.md ]]; then
             printf 'dartograph impact produced no report; see the job log.\n' > impact.md
@@ -79,7 +80,8 @@ jobs:
         run: |
           dart run dartograph impact \
             --since "origin/${{ github.base_ref || 'main' }}" \
-            --format sarif --limit 200 . > impact.sarif
+            --format sarif --limit 200 \
+            --incremental "$RUNNER_TEMP/dartograph-facts" . > impact.sarif
         continue-on-error: true
       - name: Upload SARIF
         if: always()
@@ -93,8 +95,9 @@ jobs:
         run: |
           dart run dartograph impact \
             --since "origin/${{ github.base_ref || 'main' }}" \
-            --format github-actions --fail-on high .
-      - name: Upload report and ledger
+            --format github-actions --fail-on high \
+            --incremental "$RUNNER_TEMP/dartograph-facts" .
+      - name: Upload report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -102,5 +105,13 @@ jobs:
           path: |
             impact.md
             impact.sarif
-            .dartograph-ledger/ledger.jsonl
+          if-no-files-found: warn
+      # 원장은 워크스페이스 밖이라 따로 올린다 — 한 아티팩트에 섞으면 경로들의 공통
+      # 조상이 아티팩트 루트가 되어 리포트 파일의 경로 모양이 바뀐다.
+      - name: Upload ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: impact-ledger
+          path: ${{ runner.temp }}/dartograph-ledger/ledger.jsonl
           if-no-files-found: warn

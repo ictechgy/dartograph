@@ -1,4 +1,6 @@
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/analysis/symbol_query.dart'
+    show encodeSymbolQueryDocument;
 import 'package:test/test.dart';
 
 void main() {
@@ -212,6 +214,88 @@ void main() {
       expect(list(result, 'usedBy').map((n) => n['qualifiedName']).toList(), [
         'lib::Caller',
       ]);
+    });
+  });
+
+  group('query limitations', () {
+    // 세션은 limitation을 한 번만 정렬하고 모든 문서가 그 불변 목록을 함께
+    // 싣는다. 문서마다 복사·정렬하면 1000건 batch가 수천 개의 source 한계를
+    // 질의마다 다시 정렬한다. 문서의 목록은 입력 순서와 상관없이 정렬되고
+    // 중복은 남는다. 수정 전 문서마다 `[...limitations]..sort()`로 만들던
+    // 목록과 같다.
+    const limitations = [
+      'source-unresolved-invocations: project:lib/b.dart',
+      'conditional imports may hide platform-specific dependencies',
+      'source-analysis-errors: project:lib/a.dart',
+      'source-analysis-errors: project:lib/a.dart',
+    ];
+
+    SymbolQuerySession limitedSession() => SymbolQuerySession(
+      graph: GraphSnapshot(
+        nodes: [
+          GraphNode(id: 'lib::A'),
+          GraphNode(id: 'lib::B.run'),
+          GraphNode(id: 'lib::C.run'),
+          GraphNode(id: 'lib::Dead'),
+        ],
+        edges: const [
+          GraphEdge(
+            sourceId: 'lib::A',
+            targetId: 'lib::B.run',
+            kind: EdgeKind.call,
+          ),
+        ],
+      ),
+      roots: const {'lib::A': RetentionReason.mainEntryPoint},
+      limitations: limitations,
+    );
+
+    test('every status shares one sorted unmodifiable list', () {
+      final session = limitedSession();
+      final documents = [
+        for (final requested in ['A', 'B.run', 'Dead', 'run', 'Missing'])
+          session.query(requested),
+      ];
+      expect(documents.map((document) => document['status']), [
+        'found',
+        'found',
+        'found',
+        'ambiguous',
+        'notFound',
+      ]);
+      final shared = documents.first['limitations'] as List<Object?>;
+      expect(shared, [
+        'conditional imports may hide platform-specific dependencies',
+        'source-analysis-errors: project:lib/a.dart',
+        'source-analysis-errors: project:lib/a.dart',
+        'source-unresolved-invocations: project:lib/b.dart',
+      ]);
+      for (final document in documents) {
+        expect(document['limitations'], same(shared));
+      }
+      // 문서끼리 공유하므로 한 문서에서 바꾸면 다른 문서도 바뀐다. 불변이어야 한다.
+      expect(() => shared.add('other'), throwsUnsupportedError);
+      // 공개 필드는 지금처럼 입력 순서를 그대로 둔다.
+      expect(session.limitations, limitations);
+    });
+
+    test('a document keeps its encoded bytes', () {
+      expect(
+        encodeSymbolQueryDocument(limitedSession().query('Missing')),
+        '{\n'
+        '  "candidates": null,\n'
+        '  "level": "symbol",\n'
+        '  "limitations": [\n'
+        '    "conditional imports may hide platform-specific dependencies",\n'
+        '    "source-analysis-errors: project:lib/a.dart",\n'
+        '    "source-analysis-errors: project:lib/a.dart",\n'
+        '    "source-unresolved-invocations: project:lib/b.dart"\n'
+        '  ],\n'
+        '  "requested": "Missing",\n'
+        '  "result": null,\n'
+        '  "status": "notFound"\n'
+        '}\n',
+      );
     });
   });
 

@@ -5,6 +5,7 @@ import 'package:dartograph/src/core/fact_cache.dart';
 import 'package:dartograph/src/core/retention_reason.dart';
 import 'package:dartograph/src/export/graph_exporter.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -50,6 +51,59 @@ void main() {
     expect(p.basename(directory.path), matches(RegExp(r'^[a-f0-9]{64}$')));
   });
 
+  test('user cache fact directories sit under the project cache', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'dartograph-untrusted-project.',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final cacheBase = p.join(root.parent.path, 'trusted-user-cache');
+    final environment = {
+      'HOME': cacheBase,
+      'LOCALAPPDATA': cacheBase,
+      'XDG_CACHE_HOME': cacheBase,
+    };
+    final canonical = await root.resolveSymbolicLinks();
+
+    final single = defaultIncrementalCacheDirectory(
+      canonical,
+      aggregateWorkspace: false,
+      environment: environment,
+    )!;
+    final aggregated = defaultIncrementalCacheDirectory(
+      canonical,
+      aggregateWorkspace: true,
+      environment: environment,
+    )!;
+
+    // 두 모드는 설정 지문이 달라 한 파일을 공유하지 않는다.
+    expect(p.basename(single.path), 'incremental');
+    expect(p.basename(aggregated.path), 'incremental-workspace');
+    for (final directory in [single, aggregated]) {
+      expect(p.isWithin(root.path, directory.path), isFalse);
+      expect(p.isWithin(cacheBase, directory.path), isTrue);
+      expect(
+        p.basename(p.dirname(directory.path)),
+        matches(RegExp(r'^[a-f0-9]{64}$')),
+      );
+    }
+    // 기준 변수가 없으면 위치를 정하지 않는다(호출자가 limitation을 단다).
+    expect(
+      defaultIncrementalCacheDirectory(
+        canonical,
+        aggregateWorkspace: false,
+        environment: const {},
+      ),
+      isNull,
+    );
+    expect(
+      () => AnalyzerGraphIndex(
+        incremental: IncrementalCache(p.join(cacheBase, 'facts')),
+        incrementalInUserCache: true,
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test(
     'analyzer cache reuses, invalidates, and repairs facts safely',
     () async {
@@ -70,8 +124,10 @@ environment:
 
       final first = await index.index(root.path);
       final second = await index.index(root.path);
+      // dup이 아닌 실행은 결과 항목만 읽는다. 분석 한 번은 결과 항목과 dup 토큰
+      // 항목을 함께 쓴다([_MemoryFactCache]).
       expect(cache.readCount, 2);
-      expect(cache.writeCount, 1);
+      expect(cache.writeCount, 2);
       expect(
         GraphExporter.json(second.graph.snapshot()),
         GraphExporter.json(first.graph.snapshot()),
@@ -87,25 +143,28 @@ environment:
 
       await source.writeAsString('class First {}\nclass Second {}\n');
       final changed = await index.index(root.path);
-      expect(cache.writeCount, 2);
+      expect(cache.writeCount, 4);
       expect(
         changed.graph.nodes.keys,
         contains('project:lib/cache_fixture.dart::Second'),
       );
 
-      final changedKey = cache.values.keys.last;
+      // 바뀐 입력의 결과 항목(정점이 든 항목)을 망가뜨린다. 토큰 항목은 dup만 읽는다.
+      final changedKey = cache.values.keys.lastWhere(
+        (key) => cache.values[key]!.contains('"nodes"'),
+      );
       final typeCorrupt = jsonDecode(cache.values[changedKey]!) as Map;
       typeCorrupt['limitationDetails'] = [1];
       cache.values[changedKey] = jsonEncode(typeCorrupt);
       final eagerlyRepaired = await index.index(root.path);
-      expect(cache.writeCount, 3);
+      expect(cache.writeCount, 6);
       expect(eagerlyRepaired.limitationDetails, everyElement(isA<String>()));
 
       for (final key in cache.values.keys.toList()) {
         cache.values[key] = '{';
       }
       final repaired = await index.index(root.path);
-      expect(cache.writeCount, 4);
+      expect(cache.writeCount, 8);
       expect(
         repaired.graph.nodes.keys,
         contains('project:lib/cache_fixture.dart::Second'),
@@ -175,7 +234,7 @@ class Framework {
     final second = await index.index(application.path);
 
     expect(second.retentionRoots[callbackId], isNull);
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
   test('linked source contents invalidate analyzer facts', () async {
     final root = await Directory.systemTemp.createTemp(
@@ -214,7 +273,7 @@ void main() {
     final second = await index.index(root.path);
 
     expect(second.graph.nodes.keys, contains('project:lib/shared.dart::Beta'));
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
 
   test('links escaping the package root are recorded as limitations', () async {
@@ -326,8 +385,58 @@ environment:
       second.graph.nodes.keys,
       contains('project:lib/linked/thing.dart::Beta'),
     );
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
+
+  test(
+    'a second link to a linked directory invalidates the cached result',
+    () async {
+      // 두 번째 링크는 이미 연 디렉터리를 가리켜 열리지 않는다. 그래서 키가 훑는 파일
+      // 목록은 그대로다. 그 경로가 키에 없으면 건너뛴 수가 0인 결과를 다시 쓴다.
+      final created = await Directory.systemTemp.createTemp(
+        'dartograph-duplicate-link-cache.',
+      );
+      addTearDown(() => created.delete(recursive: true));
+      final root = Directory(created.resolveSymbolicLinksSync());
+      await File('${root.path}/pubspec.yaml').writeAsString('''
+name: duplicate_link_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory('${root.path}/lib').create();
+      await Directory('${root.path}/shared').create();
+      await File(
+        '${root.path}/shared/thing.dart',
+      ).writeAsString('class A {}\n');
+      await File(
+        '${root.path}/lib/main.dart',
+      ).writeAsString('void main() {}\n');
+      await Link('${root.path}/lib/first').create('../shared');
+      final cache = _MemoryFactCache();
+      final index = AnalyzerGraphIndex(cache: cache);
+      bool skipsOneLink(AnalyzerGraphResult result) =>
+          result.limitationDetails.any(
+            (detail) => detail.startsWith('symlink-duplicate-directories: 1 '),
+          );
+
+      final first = await index.index(root.path);
+      expect(
+        first.graph.nodes.keys,
+        contains('project:lib/first/thing.dart::A'),
+      );
+      expect(skipsOneLink(first), isFalse);
+
+      await Link('${root.path}/lib/second').create('../shared');
+      final second = await index.index(root.path);
+
+      expect(skipsOneLink(second), isTrue);
+      expect(
+        second.graph.nodes.keys,
+        isNot(contains('project:lib/second/thing.dart::A')),
+      );
+      expect(cache.writeCount, 4);
+    },
+  );
 
   test('nested example dependencies invalidate analyzer facts', () async {
     final workspace = await Directory.systemTemp.createTemp(
@@ -398,7 +507,7 @@ class Framework {
     final second = await index.index(application.path);
 
     expect(second.retentionRoots[callbackId], isNull);
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
 
   test(
@@ -443,7 +552,7 @@ environment:
       final second = await index.index(root.path);
 
       // 키가 helper.dart를 커버하면 재분석(writeCount 증가)되고 한계가 나타난다.
-      expect(cache.writeCount, writesAfterFirst + 1);
+      expect(cache.writeCount, writesAfterFirst + 2);
       expect(
         second.limitationDetails,
         anyElement(
@@ -463,6 +572,10 @@ final class _FailingFactCache implements FactCache {
       throw FileSystemException('unwritable');
 }
 
+/// 읽기·쓰기 수를 세는 메모리 캐시다.
+///
+/// 분석 한 번은 결과 항목과 dup 토큰 항목 두 개를 쓴다 — [writeCount]는 분석
+/// 수의 두 배다. dup이 아닌 색인은 결과 항목 하나만 읽는다.
 final class _MemoryFactCache implements FactCache {
   final values = <String, String>{};
   var readCount = 0;

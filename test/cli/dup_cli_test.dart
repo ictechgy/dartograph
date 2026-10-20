@@ -169,6 +169,109 @@ void main() {
     expect(error.toString(), contains('Unknown --kinds'));
   });
 
+  test(
+    'dup output is byte-identical whichever cache supplies the tokens',
+    () async {
+      final fixture = await copyFixture('duplication');
+      final scratch = await tempDirectory.createTemp('caches.');
+      // 실제 사용자 캐시를 건드리지 않게 세 플랫폼의 기준 변수를 모두 돌린다.
+      final userCache = {
+        'HOME': '${scratch.path}/user-cache',
+        'XDG_CACHE_HOME': '${scratch.path}/user-cache',
+        'LOCALAPPDATA': '${scratch.path}/user-cache',
+      };
+      final facts = '${scratch.path}/facts';
+      Future<(int, String)> run(
+        List<String> arguments, {
+        Map<String, String>? environment,
+      }) async {
+        final output = StringBuffer();
+        final status = await runDartograph(
+          arguments,
+          output: output,
+          error: StringBuffer(),
+          userCacheEnvironment: environment ?? userCache,
+        );
+        return (status, output.toString());
+      }
+
+      Future<void> expectSameDup(String reason) async {
+        for (final format in const [
+          'json',
+          'text',
+          'markdown',
+          'sarif',
+          'github-actions',
+        ]) {
+          final dup = ['dup', '--format', format, '--min-tokens', '20'];
+          // 사용자 캐시 위치가 없으면 결과 캐시 없이 전체 해석한다(기준).
+          final expected = await run([
+            ...dup,
+            fixture.path,
+          ], environment: const {});
+          expect(expected.$1, ExitStatus.findings.code, reason: format);
+          expect(
+            await run([...dup, fixture.path]),
+            expected,
+            reason: '$reason, $format, result cache',
+          );
+          expect(
+            await run([...dup, '--incremental', facts, fixture.path]),
+            expected,
+            reason: '$reason, $format, incremental',
+          );
+        }
+      }
+
+      // dup이 아닌 명령이 두 캐시를 먼저 채운다. dup은 그 캐시의 토큰을 읽는다.
+      for (final arguments in [
+        ['dead', '--format', 'json', fixture.path],
+        ['dead', '--format', 'json', '--incremental', facts, fixture.path],
+      ]) {
+        expect((await run(arguments)).$1, ExitStatus.findings.code);
+      }
+      final factsFile = File('$facts/facts.json');
+      final tokensFile = File('$facts/tokens.json');
+      final factEntries =
+          (jsonDecode(factsFile.readAsStringSync()) as Map)['entries']! as Map;
+      final tokenEntries =
+          (jsonDecode(tokensFile.readAsStringSync()) as Map)['entries']! as Map;
+      expect(factEntries.keys, unorderedEquals(tokenEntries.keys));
+      for (final MapEntry(:key, :value) in factEntries.entries) {
+        expect(
+          ((value! as Map)['facts']! as Map).containsKey('tokens'),
+          isFalse,
+          reason: '$key: token facts stay out of facts.json',
+        );
+        final tokens =
+            ((tokenEntries[key]! as Map)['facts']! as Map)['tokens']! as List;
+        expect(tokens, isNotEmpty, reason: '$key has declarations');
+      }
+      await expectSameDup('after dead');
+
+      // 한 파일만 바꾸면 dead는 일부만 다시 해석해 토큰 파일을 그대로 둔다. dup은
+      // 낡은 토큰 항목만 다시 해석하고, 결과 캐시는 새 입력으로 다시 분석한다.
+      final alpha = File('${fixture.path}/lib/alpha.dart');
+      await alpha.writeAsString(
+        alpha.readAsStringSync().replaceAll('limit', 'ceiling'),
+      );
+      final staleTokens = tokensFile.readAsStringSync();
+      expect(
+        (await run([
+          'dead',
+          '--format',
+          'json',
+          '--incremental',
+          facts,
+          fixture.path,
+        ])).$1,
+        ExitStatus.findings.code,
+      );
+      expect(tokensFile.readAsStringSync(), staleTokens);
+      await expectSameDup('after an edit');
+    },
+  );
+
   test('dup --kinds keeps matching findings', () async {
     final fixture = await copyFixture('duplication');
     final output = StringBuffer();

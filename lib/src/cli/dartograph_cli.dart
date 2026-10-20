@@ -50,6 +50,7 @@ import '../runtime/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
 import 'agent_setup.dart';
 import 'agent_skill.dart';
+import 'analysis_git.dart';
 import 'changed_files.dart';
 import 'configuration_template.dart';
 import 'mcp_server.dart';
@@ -66,11 +67,25 @@ typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
 /// 고정된 [IndexPackage] 주입은 옵션을 받을 수 없어 `--workspace`를 usage(64)로
 /// 거부한다. 이 경계는 `aggregateWorkspace`를 받아 그 값에 맞는 색인 함수를
 /// 돌려주므로 집계 요청이 조용히 단일 패키지 색인으로 바뀌지 않는다.
+///
+/// `includeTokenSegments`는 `dup`만 true다. 고른 색인 함수는 그때만 결과에 토큰
+/// 세그먼트를 채운다(`AnalyzerGraphIndex`의 같은 이름 옵션). 다른 명령은 dup 전용
+/// 토큰 사실을 캐시에서 읽지 않는다.
 typedef IndexPackageFactory =
-    IndexPackage Function({required bool aggregateWorkspace});
+    IndexPackage Function({
+      required bool aggregateWorkspace,
+      required bool includeTokenSegments,
+    });
 
 /// 색인 명령이 쓸 색인 함수의 주입 상태다. 둘 다 null이면 기본 색인기를 쓴다.
-typedef _IndexSource = ({IndexPackage? fixed, IndexPackageFactory? factory});
+///
+/// [userCacheEnvironment]는 기본 색인기가 사용자 캐시 위치를 고를 때 읽는
+/// 환경 변수다(null이면 프로세스 환경).
+typedef _IndexSource = ({
+  IndexPackage? fixed,
+  IndexPackageFactory? factory,
+  Map<String, String>? userCacheEnvironment,
+});
 
 /// `--since`의 Git 접근을 대체할 수 있는 테스트 경계다.
 typedef ChangedFilesSince =
@@ -100,6 +115,10 @@ enum ExitStatus {
 ///
 /// [indexFactory]가 있으면 색인 명령은 [indexPackage] 대신 팩터리가
 /// `--workspace` 값에 맞춰 고른 색인 함수를 쓴다.
+///
+/// [userCacheEnvironment]는 기본 색인기가 사용자 캐시 위치(전체 결과 캐시와
+/// `--incremental-user-cache`의 사실 캐시)를 고를 때 읽는 환경 변수다. null이면
+/// 프로세스 환경이다. 테스트가 실제 사용자 캐시를 건드리지 않게 주입한다.
 Future<int> runDartograph(
   List<String> arguments, {
   StringSink? output,
@@ -108,6 +127,7 @@ Future<int> runDartograph(
   IndexPackageFactory? indexFactory,
   ChangedFilesSince? changedFilesSince,
   DateTime Function()? now,
+  Map<String, String>? userCacheEnvironment,
 }) async {
   final stdoutSink = output ?? stdout;
   final stderrSink = error ?? stderr;
@@ -116,7 +136,11 @@ Future<int> runDartograph(
       arguments,
       stdoutSink,
       stderrSink,
-      (fixed: indexPackage, factory: indexFactory),
+      (
+        fixed: indexPackage,
+        factory: indexFactory,
+        userCacheEnvironment: userCacheEnvironment,
+      ),
       changedFilesSince,
       now,
     );
@@ -265,7 +289,12 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'dup':
-      final indexed = _indexArguments(arguments, stderrSink, indexSource);
+      final indexed = _indexArguments(
+        arguments,
+        stderrSink,
+        indexSource,
+        includeTokenSegments: true,
+      );
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDup(
         indexed.arguments,
@@ -370,7 +399,8 @@ Future<int> _dispatchCommand(
   }
 }
 
-/// 색인을 소비하는 명령의 `--incremental <dir>`를 인자에서 떼어낸 결과다.
+/// 색인을 소비하는 명령의 `--incremental <dir>`·`--incremental-user-cache`를
+/// 인자에서 떼어낸 결과다.
 final class _IndexedArguments {
   const _IndexedArguments(this.arguments, this.index);
 
@@ -382,24 +412,33 @@ final class _IndexedArguments {
   final IndexPackage index;
 }
 
-/// 색인 명령 인자에서 `--incremental <dir>`와 `--workspace`를 떼어내고 색인
-/// 함수를 고른다.
+/// 색인 명령 인자에서 `--incremental <dir>`·`--incremental-user-cache`·
+/// `--workspace`를 떼어내고 색인 함수를 고른다.
 ///
 /// 디렉터리는 호출자가 정한다(없으면 만든다). 옵션 모양의 값·중복·값 누락은
-/// usage(64)다 — 다른 옵션과 같은 규칙이다. `--workspace`는 값을 받지 않는
-/// 스위치다 — pub workspace 멤버를 같은 그래프로 집계한다(중복 지정은
-/// usage다). 옵션이 없으면 기존 경로 그대로 기본 색인을 쓴다.
+/// usage(64)다 — 다른 옵션과 같은 규칙이다. `--incremental-user-cache`는 값을
+/// 받지 않는 스위치다 — 사실 캐시를 색인하는 루트마다 분석 대상 밖 사용자
+/// 캐시에 둔다. 두 증분 옵션은 서로 다른 위치를 고르므로 함께 주면 usage다.
+/// `--workspace`도 값을 받지 않는 스위치다 — pub workspace 멤버를 같은 그래프로
+/// 집계한다. 스위치 중복은 usage다. 옵션이 없으면 기존 경로 그대로 기본 색인을
+/// 쓴다.
 ///
 /// 주입된 팩터리에는 `--workspace` 값을 넘긴다. 고정 주입 함수는 그 값을
 /// 반영할 수 없으므로 `--workspace`를 usage로 거부한다 — 떼어 낸 플래그를
-/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다.
+/// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다. 증분
+/// 옵션은 주입된 색인 함수가 캐시를 스스로 정하므로 떼어 내기만 한다.
+///
+/// [includeTokenSegments]는 결과에 dup 전용 토큰 세그먼트를 채울지다(`dup`만
+/// true). 기본 색인기와 팩터리에 넘기고, 고정 주입 함수는 스스로 정한다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
-  _IndexSource source,
-) {
+  _IndexSource source, {
+  bool includeTokenSegments = false,
+}) {
   final remaining = arguments.skip(1).toList();
   String? directory;
+  var userCache = false;
   var workspace = false;
   for (var index = 0; index < remaining.length; index++) {
     if (remaining[index] == '--workspace') {
@@ -408,6 +447,16 @@ _IndexedArguments? _indexArguments(
         return null;
       }
       workspace = true;
+      remaining.removeAt(index);
+      index--;
+      continue;
+    }
+    if (remaining[index] == '--incremental-user-cache') {
+      if (userCache) {
+        error.write(_help);
+        return null;
+      }
+      userCache = true;
       remaining.removeAt(index);
       index--;
       continue;
@@ -423,9 +472,19 @@ _IndexedArguments? _indexArguments(
     remaining.removeRange(index, index + 2);
     index--;
   }
+  if (userCache && directory != null) {
+    error.writeln(
+      '--incremental-user-cache does not combine with --incremental <dir>: '
+      'each chooses where the fact cache lives. Pass only one.',
+    );
+    return null;
+  }
   final factory = source.factory;
   if (factory != null) {
-    final chosen = factory(aggregateWorkspace: workspace);
+    final chosen = factory(
+      aggregateWorkspace: workspace,
+      includeTokenSegments: includeTokenSegments,
+    );
     return _IndexedArguments(remaining, chosen);
   }
   final injected = source.fixed;
@@ -444,7 +503,10 @@ _IndexedArguments? _indexArguments(
     remaining,
     AnalyzerGraphIndex(
       incremental: target == null ? null : IncrementalCache(target),
+      incrementalInUserCache: userCache,
+      userCacheEnvironment: source.userCacheEnvironment,
       aggregateWorkspace: workspace,
+      includeTokenSegments: includeTokenSegments,
     ).index,
   );
 }
@@ -506,6 +568,7 @@ _LedgerRequest? _extractLedgerDirectory(
 /// 추가하면 여기에도 더한다.
 const _ledgerSwitches = {
   'closed-app',
+  'incremental-user-cache',
   'no-verify',
   'report-redundant-public',
   'report-test-only',
@@ -552,15 +615,18 @@ Map<String, String> _ledgerInputs(List<String> arguments) {
 }
 
 /// 관측한 Git HEAD SHA다. 계산하지 못하면 null이다(추정값을 넣지 않는다).
+///
+/// [AnalysisGit]을 지나 cwd 저장소 설정의 명령을 실행하지 않는다. 설정을 읽지
+/// 못하거나, 끌 수 없는 filter 드라이버 이름이 있거나, promisor 원격의 fetch를
+/// 끌 수 없는 git이어도 null이다.
 Future<String?> _observeCommit() async {
   try {
-    final result = await Process.run(
-      'git',
-      const ['rev-parse', 'HEAD'],
-      workingDirectory: Directory.current.path,
-    ).timeout(const Duration(seconds: 5));
+    final result = await AnalysisGit.run(Directory.current.path, const [
+      'rev-parse',
+      'HEAD',
+    ]).timeout(const Duration(seconds: 5));
     if (result.exitCode != 0) return null;
-    final value = (result.stdout as String).trim();
+    final value = latin1.decode(result.stdout).trim();
     return RegExp(r'^[0-9a-f]{7,64}$').hasMatch(value) ? value : null;
   } on Object {
     return null;
@@ -724,11 +790,8 @@ Future<int> _runAffected(
       ),
     );
     return ExitStatus.success.code;
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on FileSystemException {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -895,6 +958,16 @@ Future<int> _runImpact(
       limit: limitOption,
     );
     failedItems.addAll([for (final item in report.impacted) item.id]);
+    if (limitOption != null && report.truncated) {
+      // --limit은 coverage 목록도 보고 항목과 같은 수로 자른다. 개수·위험도는
+      // 전체 기준이라 빠진 수를 limitation으로 드러낸다.
+      limitations.add(
+        'impact-coverage-truncated: --limit $limitOption omitted '
+        '${report.truncatedImpacted} of '
+        '${report.coverage.transitivelyImpacted} impacted symbol(s) from '
+        'coverage.missedWithoutPrecheck',
+      );
+    }
     if (unmappedDartFiles > 0) {
       limitations.add(
         'changed-dart-files-without-library: $unmappedDartFiles changed Dart '
@@ -924,11 +997,8 @@ Future<int> _runImpact(
       return ExitStatus.findings.code;
     }
     return ExitStatus.success.code;
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on InputRejectedException catch (exception) {
     // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
     // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
@@ -2878,11 +2948,8 @@ Future<int> _runDead(
         : ExitStatus.findings.code;
   } on _InvalidBaseline {
     return _reportInvalidBaseline(error);
-  } on ChangedFilesException {
-    error.writeln(
-      'Changed files could not be computed. In CI, fetch full Git history.',
-    );
-    return ExitStatus.failure.code;
+  } on ChangedFilesException catch (failure) {
+    return _reportChangedFilesFailure(error, failure);
   } on FileSystemException {
     return _reportAnalysisFailure(error);
   } on ArgumentError {
@@ -3703,12 +3770,15 @@ Future<int> _runRuntime(
         return ExitStatus.usage.code;
       }
     }
-    // 루트 밖 링크의 내용이 사실로 흘러드는 것을 limitation으로 드러낸다.
+    // 루트 밖 링크의 내용이 사실로 흘러드는 것과 같은 디렉터리로 가는 링크
+    // 경로를 건너뛴 것을 limitation으로 드러낸다.
     final linkEscapes = <String>{};
+    final linkedDirectories = LinkedDirectoryVisits();
     final facts = await RuntimeScanner().scan(
       rootPath,
       linkEscapes: linkEscapes,
       aggregateWorkspace: workspace,
+      linkedDirectories: linkedDirectories,
     );
     RuntimeExecution? execution;
     if (entrypoint != null) {
@@ -3732,6 +3802,8 @@ Future<int> _runRuntime(
         for (final escape in linkEscapes.toList()..sort())
           'symlink-escape: $escape resolves outside its package root; its '
               'contents are scanned as project sources',
+        if (linkedDirectories.skipped.isNotEmpty)
+          skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
       ],
     );
     output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));
@@ -3785,6 +3857,41 @@ Future<int> _runMcp(
     output: output,
     error: error,
   );
+}
+
+/// `--since`·`affected`가 Git 변경 파일을 계산하지 못한 원인을 알린다.
+///
+/// 끌 수 없는 filter 드라이버 이름 때문에 git을 실행하지 않았으면 이력 fetch가
+/// 아니라 그 설정을 고치라고 안내한다. 이름 원문은 신뢰하지 않는 설정 값이라
+/// 싣지 않는다. promisor 원격(부분 클론)의 fetch를 끌 수 없는 git이면 git을
+/// 올리라고 하고, 부분 클론에서 git이 실패했으면 dartograph가 없는 객체를 가져오지
+/// 않는다는 사실을 알린다 — 사용자의 git은 그 객체를 스스로 가져와 같은 명령이
+/// 성공하므로, 그 사실 없이는 원인을 찾을 수 없다.
+int _reportChangedFilesFailure(
+  StringSink error,
+  ChangedFilesException failure,
+) {
+  error.writeln(switch (failure) {
+    ChangedFilesException(
+      refusal: AnalysisGitRefusal.unneutralizableFilterDriver,
+    ) =>
+      'Changed files could not be computed: the git configuration defines '
+          "a filter driver whose name contains '=' or is not valid UTF-8, "
+          'which git cannot be told to skip. Rename or remove that filter '
+          'driver.',
+    ChangedFilesException(refusal: AnalysisGitRefusal.unavoidableLazyFetch) =>
+      'Changed files could not be computed: the git configuration names a '
+          'promisor remote (a partial clone), and git older than 2.45 cannot '
+          'be told not to fetch missing objects from it, which runs commands '
+          "from the remote's settings. Use git 2.45 or newer.",
+    ChangedFilesException(partialClone: true) =>
+      'Changed files could not be computed. In a partial clone, dartograph '
+          'does not let git fetch missing objects from the promisor remote; '
+          'fetch the history you compare against first (in CI, fetch full '
+          'Git history).',
+    _ => 'Changed files could not be computed. In CI, fetch full Git history.',
+  });
+  return ExitStatus.failure.code;
 }
 
 /// 색인·추출 실패를 정적 문구로 보고하고 종료 코드 2를 돌려준다.
@@ -3921,20 +4028,20 @@ dartograph — dependency graphs for Dart and Flutter codebases
 
 Usage: dartograph [--help] [--version]
        dartograph init [--force] [<package-root>]
-       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph baseline --write <file> [--closed-app] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph compare [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
-       dartograph affected [--format <text|json|sarif>] [--incremental <dir>] [--workspace] [--record <dir>] <git-ref> <package-root>
-       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph graph --format <dot|json|mermaid|html|anon> [--level <file|type|symbol>] [--collapse <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph query <symbol-id-or-name> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph compare [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
+       dartograph affected [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <git-ref> <package-root>
+       dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph skill [--install <skills-directory> [--force]]
        dartograph setup [--target <claude|cursor|codex|opencode>] [--install [<package-root>] [--force]] [--uninstall [<package-root>]]
        dartograph runtime [--verify|--no-verify] [--format <fmt>] [--dart-define KEY=VALUE]... [--env KEY=VALUE]... [--limit <n>] [--kinds <csv>] [--statuses <csv>] [--fail-on <none|low|medium|high>] [--execute <dart-entrypoint>] [--workspace] [--record <dir>] <package-root>
@@ -3945,12 +4052,12 @@ Usage: dartograph [--help] [--version]
        dartograph bridges --events --format json [--project <shared-root>] <package-root>
        dartograph schema --format json [--project <shared-root>] <package-root>
        dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
-       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
-       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph cycles --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
-       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
+       dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
+       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.
@@ -3977,9 +4084,10 @@ instead of being overwritten. --force replaces an existing dartograph entry.
 hook script and the managed guide block (a guide file holding exactly the
 generated block is removed; a block whose interior was edited is stripped
 but its file kept). The hook runs `dartograph impact --changed` after Dart
-file edits
-and requires dartograph on PATH; no paid service, login, or telemetry is
-involved.
+file edits, keeping its fact cache outside the project with
+--incremental-user-cache (run --install --force to replace an older hook that
+used .dartograph/cache), and requires dartograph on PATH; no paid service,
+login, or telemetry is involved.
 
 
 dead --format codeowners groups findings by the owners of their source paths
@@ -4096,7 +4204,9 @@ reached declaration carries every root that reaches it (at most 64 listed),
 a shortest via/depth witness and evidence: direct for analyzer-resolved
 edges, candidate when some root needs an overriding-member dispatch edge.
 unresolvedCalls and dispatch are not reported. revision is --revision, else
-the git HEAD when <package-root> has no uncommitted or untracked changes;
+the git HEAD when <package-root> has no uncommitted or untracked changes and
+no git submodules; git runs no command the repository configures, so a file a
+filter normalizes reads as changed when its stat information is stale.
 graphRevision hashes the graph content. A root that is not an exact graph
 id stays listed without a symbol, adds root-not-found and exits 64; roots
 or --revision with control characters are usage errors (64).
@@ -4121,7 +4231,17 @@ baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터
 캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
 다르거나 쓸 수 없으면 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을
-때만 그 사실을 limitation으로 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다.
+때만 그 사실을 limitation으로 남긴다). 캐시 파일 <dir>/facts.json이 심볼릭
+링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
+모든 파일을 다시 해석하며 incremental-cache-not-read: limitation을 남긴다.
+캐시 디렉터리는 프로젝트마다 따로 쓴다. 분석 대상 안 디렉터리는 신뢰하는
+저장소에만 쓴다 — 저장소가 그 자리에 위조한 사실을 커밋해 두면 키가 맞는 사실을
+다시 해석하지 않고 쓴다. 같은 명령은 값 없는 --incremental-user-cache도 받는다.
+사실 캐시를 분석 대상 밖 OS 사용자 캐시(~/Library/Caches, \$XDG_CACHE_HOME 또는
+~/.cache, %LOCALAPPDATA%)의 dartograph/<project-root-hash>/incremental에 두고
+(--workspace면 incremental-workspace), compare처럼 루트가 둘이면 루트마다 따로
+둔다. 위치를 정하지 못하면 캐시 없이 분석하고 incremental-cache-write-failed:
+limitation을 남긴다. 두 증분 옵션은 함께 줄 수 없다(64).
 
 The same commands accept --workspace (runtime too), which opts into pub
 workspace aggregation: members listed in the root pubspec's workspace: list
@@ -4156,6 +4276,10 @@ symbol that transitively uses it with a shortest usage path, the call sites
 into changed declarations, the test libraries that depend on the changed set,
 and a risk score with its factors. The coverage block counts the impacted
 symbols that inspecting only the changed files would have missed.
+--limit <n> reports the first n impacted symbols, in impacted and in
+coverage.missedWithoutPrecheck alike; counts and risk still cover every
+impacted symbol, and truncated plus an impact-coverage-truncated limitation
+report the cut. Call sites and related tests are not limited.
 --format test-list prints only the affected test library paths, one per line,
 ready to feed `dart test` (it is never truncated by --limit; an empty list
 means no affected tests — do not run bare `dart test` on empty output).

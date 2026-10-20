@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
+import 'package:analyzer/dart/analysis/context_root.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
@@ -25,7 +26,11 @@ import 'bounded_resource_provider.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
-export 'project_files.dart' show isPathWithinRoot;
+export 'project_files.dart'
+    show
+        LinkedDirectoryVisits,
+        isPathWithinRoot,
+        skippedLinkedDirectoriesLimitation;
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -105,7 +110,8 @@ final class AnalyzerGraphResult {
   /// `dup` 중복 탐지의 입력이 되는 정규화 토큰 세그먼트다.
   ///
   /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
-  /// 기계 산출물의 반복은 검토 신호가 아니다.
+  /// 기계 산출물의 반복은 검토 신호가 아니다. 색인기가
+  /// `includeTokenSegments: true`로 만들어졌을 때만 채워지고, 아니면 비어 있다.
   final List<TokenSegment> tokenSegments;
 
   /// `dartograph.yaml`의 `include` glob이다. 비어 있으면 모든 소스가 범위다.
@@ -135,26 +141,38 @@ final class AnalyzerGraphResult {
   /// 결과를 호출부에서 손으로 복사하면 필드가 추가될 때 한 곳이 빠져 결과가
   /// 조용히 바뀐다 — 증분 캐시 쓰기 실패 분기가 [workspacePackages]를 잃어
   /// `deps --workspace`가 거짓 발견을 낸 사례다. 복사를 필드 선언 옆에 두어
-  /// 필드 목록과 함께 고치게 한다.
+  /// 필드 목록과 함께 고치게 한다([_copy]).
   AnalyzerGraphResult withAddedLimitationDetail(String detail) =>
-      AnalyzerGraphResult(
-        graph: graph,
-        limitations: limitations,
-        limitationDetails: [...limitationDetails, detail],
-        retentionRoots: retentionRoots,
-        packageName: packageName,
-        declaredDependencies: declaredDependencies,
-        declaredDevDependencies: declaredDevDependencies,
-        declaredDependencyOverrides: declaredDependencyOverrides,
-        packageImports: packageImports,
-        complexity: complexity,
-        tokenSegments: tokenSegments,
-        includeGlobs: includeGlobs,
-        excludeGlobs: excludeGlobs,
-        metricsDistanceThreshold: metricsDistanceThreshold,
-        metricsComplexityThreshold: metricsComplexityThreshold,
-        workspacePackages: workspacePackages,
-      );
+      _copy(limitationDetails: [...limitationDetails, detail]);
+
+  /// [tokenSegments]만 비운 복사본이다.
+  ///
+  /// 토큰을 요청하지 않은 색인이 돌려준다. 해석하며 뽑은 토큰은 캐시에만 두고
+  /// 결과에는 싣지 않아, 캐시를 읽은 실행과 해석한 실행의 결과가 같다.
+  AnalyzerGraphResult _withoutTokenSegments() => _copy(tokenSegments: const []);
+
+  /// 준 필드만 바꾼 복사본이다. 필드를 더하면 여기도 함께 고친다.
+  AnalyzerGraphResult _copy({
+    List<String>? limitationDetails,
+    List<TokenSegment>? tokenSegments,
+  }) => AnalyzerGraphResult(
+    graph: graph,
+    limitations: limitations,
+    limitationDetails: limitationDetails ?? this.limitationDetails,
+    retentionRoots: retentionRoots,
+    packageName: packageName,
+    declaredDependencies: declaredDependencies,
+    declaredDevDependencies: declaredDevDependencies,
+    declaredDependencyOverrides: declaredDependencyOverrides,
+    packageImports: packageImports,
+    complexity: complexity,
+    tokenSegments: tokenSegments ?? this.tokenSegments,
+    includeGlobs: includeGlobs,
+    excludeGlobs: excludeGlobs,
+    metricsDistanceThreshold: metricsDistanceThreshold,
+    metricsComplexityThreshold: metricsComplexityThreshold,
+    workspacePackages: workspacePackages,
+  );
 }
 
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
@@ -192,30 +210,67 @@ final class AnalyzerGraphIndex {
   /// 전체 결과 캐시를 읽지도 쓰지도 않는다 — 입력 해시를 두 번 계산하지 않고,
   /// 사실 캐시가 같은 역할을 더 좁은 단위로 한다.
   ///
+  /// [incrementalInUserCache]가 true이면 같은 증분 경로를 타되, 사실 캐시
+  /// 디렉터리를 색인하는 canonical root마다 분석 대상 밖 사용자 캐시에서 고른다
+  /// ([defaultIncrementalCacheDirectory]). 위치를 정하지 못하면 캐시 없이 전체
+  /// 해석하고 그 사실을 limitation으로 남긴다. [incremental]과 함께 주면
+  /// [ArgumentError]다 — 두 값은 서로 다른 캐시 위치를 고른다.
+  ///
+  /// [userCacheEnvironment]는 사용자 캐시 위치(전체 결과 캐시와 위의 사실 캐시)를
+  /// 고를 때 읽는 환경 변수다. null이면 프로세스 환경이다. 테스트가 실제 사용자
+  /// 캐시를 건드리지 않게 주입한다.
+  ///
   /// [aggregateWorkspace]가 true이면 스캔 루트의 pubspec `workspace:` 멤버를
   /// 하나의 그래프로 함께 색인한다. 멤버의 표준 소스 디렉터리가 분석 대상에
   /// 포함되고, 각 멤버의 `lib/<name>.dart`가 대표 라이브러리로 공개 API 보존
   /// 근거를 제공한다. 루트가 pub workspace를 선언하지 않으면
   /// [FormatException]이다.
+  ///
+  /// [includeTokenSegments]가 true일 때만 결과의
+  /// [AnalyzerGraphResult.tokenSegments]를 채운다. 그 토큰은 `dup`만 쓰고 사실
+  /// 캐시 크기의 약 30%라, 두 캐시 모두 토큰을 따로 저장하고 이 값이 true인
+  /// 색인만 읽는다. false여도 해석한 파일의 토큰은 뽑아 캐시에 둔다 — 다음 `dup`이
+  /// 그 파일을 다시 해석하지 않게 한다.
   AnalyzerGraphIndex({
     FactCache? cache,
     IncrementalCache? incremental,
+    bool incrementalInUserCache = false,
+    Map<String, String>? userCacheEnvironment,
     bool aggregateWorkspace = false,
+    bool includeTokenSegments = false,
   }) : _cache = cache,
        _incremental = incremental,
-       _aggregateWorkspace = aggregateWorkspace;
+       _incrementalInUserCache = incrementalInUserCache,
+       _userCacheEnvironment = userCacheEnvironment,
+       _aggregateWorkspace = aggregateWorkspace,
+       _includeTokenSegments = includeTokenSegments {
+    if (incremental != null && incrementalInUserCache) {
+      throw ArgumentError(
+        'incremental and incrementalInUserCache choose different fact cache '
+        'locations; pass only one',
+      );
+    }
+  }
 
   final FactCache? _cache;
   final IncrementalCache? _incremental;
+  final bool _incrementalInUserCache;
+  final Map<String, String>? _userCacheEnvironment;
   final bool _aggregateWorkspace;
+  final bool _includeTokenSegments;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     final sourcePackages = _readSourcePackages(root);
-    final cache = _incremental != null
+    // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
+    // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
+    final incremental =
+        _incremental ??
+        (_incrementalInUserCache ? _userIncrementalCache(root) : null);
+    final cache = _incremental != null || _incrementalInUserCache
         ? null
-        : _cache ?? _defaultFactCache(root);
+        : _cache ?? _defaultFactCache(root, _userCacheEnvironment);
     // 루트 밖을 가리키는 링크도 분석 입력으로 따라간다 — 그 사실을 결과
     // limitation에 남겨 저장소가 경계 밖 파일을 읽게 한 것이 출력에 드러난다.
     final linkEscapes = <String>{};
@@ -228,7 +283,11 @@ final class AnalyzerGraphIndex {
       await _scanAnalysisInputs(root, linkEscapes);
     }
     if (cache != null && initialCacheKey != null) {
-      final cached = await _readCachedAnalysis(cache, initialCacheKey);
+      final cached = await _readCachedAnalysis(
+        cache,
+        initialCacheKey,
+        includeTokenSegments: _includeTokenSegments,
+      );
       if (cached != null &&
           await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
               initialCacheKey) {
@@ -241,6 +300,7 @@ final class AnalyzerGraphIndex {
         root,
         collection,
         sourcePackages,
+        incremental: incremental,
         linkEscapes: linkEscapes,
       );
       if (cache != null &&
@@ -249,21 +309,33 @@ final class AnalyzerGraphIndex {
               initialCacheKey) {
         await _writeCachedAnalysis(cache, initialCacheKey, result);
       }
-      return result;
+      return _includeTokenSegments ? result : result._withoutTokenSegments();
     } finally {
       await collection.dispose();
     }
   }
 
+  /// [root]의 사용자 캐시 사실 캐시다. 위치를 정하지 못하면 null이다.
+  IncrementalCache? _userIncrementalCache(String root) {
+    final directory = defaultIncrementalCacheDirectory(
+      root,
+      aggregateWorkspace: _aggregateWorkspace,
+      environment: _userCacheEnvironment,
+    );
+    return directory == null ? null : IncrementalCache(directory.path);
+  }
+
   /// 분석 대상 파일의 사실을 모아 그래프를 조립한다.
   ///
-  /// 증분 캐시가 없으면 모든 대상을 해석한다(기존 경로). 있으면 파일 키를 비교해
-  /// 바뀐 파일과 역방향 import 폐쇄만 다시 해석하고 나머지는 캐시된 사실을 쓴다.
-  /// 두 경로가 같은 조립 함수를 지나므로 같은 사실에서 같은 산출물이 나온다.
+  /// 증분 캐시([incremental])가 없으면 모든 대상을 해석한다(기존 경로). 있으면
+  /// 파일 키를 비교해 바뀐 파일과 역방향 import 폐쇄만 다시 해석하고 나머지는
+  /// 캐시된 사실을 쓴다. 두 경로가 같은 조립 함수를 지나므로 같은 사실에서 같은
+  /// 산출물이 나온다.
   Future<AnalyzerGraphResult> _analyze(
     String root,
     AnalysisContextCollection collection,
     List<Directory> sourcePackages, {
+    required IncrementalCache? incremental,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -281,13 +353,16 @@ final class AnalyzerGraphIndex {
       for (final member in workspace?.members ?? const <_WorkspaceMember>[])
         member.relPath,
     ]..sort((a, b) => b.length - a.length);
+    final linkedDirectories = LinkedDirectoryVisits();
     final unitPaths = _dartFilesUnder(
       root,
       collection,
       sourcePackages,
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
+      linkedDirectories,
     );
+    final skippedLinkedDirectories = linkedDirectories.skipped.length;
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
@@ -297,7 +372,6 @@ final class AnalyzerGraphIndex {
       pubspecContent,
       workspace?.members ?? const [],
     );
-    final incremental = _incremental;
     if (incremental == null) {
       final facts = <String, _UnitFacts>{};
       final sources = <String>[];
@@ -314,7 +388,7 @@ final class AnalyzerGraphIndex {
         facts[extracted.source] = extracted;
         sources.add(extracted.source);
       }
-      return _assembleResult(
+      final result = _assembleResult(
         root: root,
         sources: sources,
         facts: facts,
@@ -322,8 +396,14 @@ final class AnalyzerGraphIndex {
         pubspecContent: pubspecContent,
         scope: scope,
         linkEscapes: linkEscapes,
+        skippedLinkedDirectories: skippedLinkedDirectories,
         workspace: workspace,
       );
+      // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
+      // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
+      return _incrementalInUserCache
+          ? result.withAddedLimitationDetail(_userCacheUnavailableDetail)
+          : result;
     }
     return _analyzeIncrementally(
       root: root,
@@ -336,6 +416,7 @@ final class AnalyzerGraphIndex {
       incremental: incremental,
       scope: scope,
       linkEscapes: linkEscapes,
+      skippedLinkedDirectories: skippedLinkedDirectories,
       workspace: workspace,
     );
   }
@@ -355,6 +436,7 @@ final class AnalyzerGraphIndex {
     required IncrementalCache incremental,
     required _ScopeConfig scope,
     required _WorkspaceSpec? workspace,
+    required int skippedLinkedDirectories,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -379,6 +461,11 @@ final class AnalyzerGraphIndex {
         ),
     };
     final cached = await incremental.load();
+    // dup 전용 토큰 사실은 그것을 쓰는 색인만 읽는다. 다른 명령은 토큰 파일을
+    // 열지도 디코드하지도 않는다.
+    final cachedTokens = _includeTokenSegments
+        ? await incremental.loadTokens()
+        : const <String, CachedFacts>{};
     // 이전 실행의 의존 표로 역방향 폐쇄를 만든다. 캐시에만 있는 파일(삭제)도
     // 그 파일에 의존하던 라이브러리를 무효화해야 하므로 캐시 전체를 본다.
     // 사실 본문 파싱은 폐쇄가 정해진 뒤 재사용할 파일에만 한다 — 폐쇄에 걸려
@@ -460,7 +547,19 @@ final class AnalyzerGraphIndex {
         resolved.add(source);
         continue;
       }
-      final parsed = _UnitFacts.fromJson(cached[source]!.facts);
+      // 토큰을 쓰는 색인은 토큰도 재사용할 수 있어야 사실을 재사용한다. 토큰
+      // 항목이 없거나 낡았거나 망가졌으면 아래에서 그 파일만 다시 해석한다 —
+      // 토큰은 그 파일 내용만의 함수라 폐쇄까지 넓히지 않는다.
+      final tokens = _includeTokenSegments
+          ? _reusableUnitTokens(
+              cachedTokens[source],
+              currentKeys[source]!,
+              source,
+            )
+          : const <TokenSegment>[];
+      final parsed = tokens == null
+          ? null
+          : _UnitFacts.fromJson(cached[source]!.facts, tokenSegments: tokens);
       if (parsed != null) {
         facts[source] = parsed;
         continue;
@@ -489,19 +588,36 @@ final class AnalyzerGraphIndex {
       pubspecContent: pubspecContent,
       scope: scope,
       linkEscapes: linkEscapes,
+      skippedLinkedDirectories: skippedLinkedDirectories,
       workspace: workspace,
     );
+    // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
+    // 갱신 여부와 무관하게 출력에 드러나야 한다.
+    if (incremental.stats.cacheNotRead) {
+      result = result.withAddedLimitationDetail(
+        _cacheNotReadDetail('fact cache file', incremental.readLimit),
+      );
+    }
+    if (incremental.stats.tokenCacheNotRead) {
+      result = result.withAddedLimitationDetail(
+        _cacheNotReadDetail('dup token cache file', incremental.readLimit),
+      );
+    }
     incremental.stats
       ..resolvedFiles = resolved.length
       ..reusedFiles = sources.length - resolved.length;
     // 캐시가 이미 현재 입력과 정확히 일치하면(전부 재사용, 추가·삭제 없음)
     // 다시 쓰지 않는다. 디스크의 캐시가 곧 이번 실행이 쓸 내용이다. 다시 쓰면
     // 3.5MB 인코딩·원자적 교체를 매 실행 지불한다(600파일 기준 41ms).
-    final cacheIsCurrent =
-        resolved.isEmpty &&
-        cached.length == currentSources.length &&
-        currentSources.every(cached.containsKey);
-    if (cacheIsCurrent) return result;
+    final writeFacts = !_entriesAreCurrent(cached, resolved, currentSources);
+    // 토큰 파일은 토큰을 읽은 색인이면 같은 기준으로 쓴다. 다른 색인은 이번 실행이
+    // 모든 파일을 해석해 토큰을 다 가졌을 때만 쓴다 — 재사용한 파일의 토큰은 읽지
+    // 않았으므로 일부만 쓰면 그 파일들의 토큰 항목을 잃는다. 남겨 둔 낡은 항목은
+    // 다음 dup이 파일 키로 가려 그 파일만 다시 해석한다.
+    final writeTokens = _includeTokenSegments
+        ? !_entriesAreCurrent(cachedTokens, resolved, currentSources)
+        : resolved.isNotEmpty && sources.every(resolved.contains);
+    if (!writeFacts && !writeTokens) return result;
     final inputsUnchanged = await _incrementalInputsUnchanged(
       root,
       resolved,
@@ -513,13 +629,25 @@ final class AnalyzerGraphIndex {
       incremental.stats.cacheNotUpdated = true;
       return result;
     }
-    final written = await incremental.store({
-      for (final source in sources)
-        source: CachedFacts(
-          key: currentKeys[source]!,
-          facts: facts[source]!.toJson(),
-        ),
-    });
+    final factsWritten =
+        !writeFacts ||
+        await incremental.store({
+          for (final source in sources)
+            source: CachedFacts(
+              key: currentKeys[source]!,
+              facts: facts[source]!.toJson(),
+            ),
+        });
+    final tokensWritten =
+        !writeTokens ||
+        await incremental.storeTokens({
+          for (final source in sources)
+            source: CachedFacts(
+              key: currentKeys[source]!,
+              facts: _unitTokensJson(facts[source]!.tokenSegments),
+            ),
+        });
+    final written = factsWritten && tokensWritten;
     if (!written) {
       incremental.stats.cacheNotUpdated = true;
       result = result.withAddedLimitationDetail(_cacheWriteFailureDetail);
@@ -538,6 +666,108 @@ const incrementalCacheWriteFailurePrefix = 'incremental-cache-write-failed:';
 const _cacheWriteFailureDetail =
     '$incrementalCacheWriteFailurePrefix analysis is complete but the fact '
     'cache was not updated';
+
+/// 사용자 캐시 증분이 사실 캐시 위치를 정하지 못했다는 limitation이다.
+///
+/// 사실 캐시를 갱신하지 못한 같은 상황이라 쓰기 실패와 접두사를 공유한다 —
+/// 접두사로 쓰기 실패를 감지하는 소비자가 함께 다룬다. 원인과 해결 방향을 싣는다.
+const _userCacheUnavailableDetail =
+    '$incrementalCacheWriteFailurePrefix no per-user cache directory is '
+    'available (HOME, or XDG_CACHE_HOME on Linux and LOCALAPPDATA on Windows, '
+    'is unset or not absolute); analysis is complete but the fact cache was '
+    'not updated';
+
+/// 사실 캐시 파일을 열지 않고 버렸다는 limitation이다.
+///
+/// 쓰기 실패와 같이 경로를 넣지 않는다. 분석 결과는 전체 해석과 같다 — 버린
+/// 캐시 대신 모든 파일을 다시 해석했다. 접두사는 MCP 세션 캐시의 쓰기 실패
+/// 감지([incrementalCacheWriteFailurePrefix])와 겹치지 않는다. 상한 표기는
+/// 분석 입력 상한 진단과 같은 형식이다. [cacheFile]은 버린 파일의 이름이다
+/// (`fact cache file`, 또는 dup만 읽는 `dup token cache file`).
+String _cacheNotReadDetail(String cacheFile, int readLimit) {
+  const mebibyte = 1024 * 1024;
+  final limit = readLimit % mebibyte == 0
+      ? '${readLimit ~/ mebibyte} MiB'
+      : '$readLimit-byte';
+  return 'incremental-cache-not-read: the $cacheFile is a symbolic link, '
+      'is not a regular file, or exceeds the $limit read limit; it was ignored '
+      'and every file was resolved again';
+}
+
+/// 캐시 파일 하나가 이번 실행이 쓸 내용과 이미 같은지다.
+///
+/// 아무 파일도 다시 해석하지 않았고 항목 집합이 현재 분석 대상과 같으면 디스크의
+/// 내용이 곧 쓸 내용이다(재사용한 항목은 모두 현재 파일 키와 맞았다).
+bool _entriesAreCurrent(
+  Map<String, CachedFacts> entries,
+  Set<String> resolved,
+  Set<String> currentSources,
+) =>
+    resolved.isEmpty &&
+    entries.length == currentSources.length &&
+    currentSources.every(entries.containsKey);
+
+/// 유닛 하나의 토큰 사실 저장 형식이다(증분 캐시 토큰 파일의 항목).
+Map<String, Object?> _unitTokensJson(List<TokenSegment> segments) => {
+  'tokens': [
+    for (final segment in segments) {'c': segment.codes, 'l': segment.lines},
+  ],
+};
+
+/// 토큰 파일 항목 [entry]에서 재사용할 수 있는 [source] 파일의 토큰이다.
+///
+/// 항목이 없거나 파일 키가 [key]와 다르거나(내용·해석 입력이 바뀜) 형식이
+/// 어긋나면 null이고, 호출자는 그 파일을 다시 해석한다. 항목은 source를 따로
+/// 담지 않는다 — 토큰 파일의 키가 곧 루트 기준 경로다.
+List<TokenSegment>? _reusableUnitTokens(
+  CachedFacts? entry,
+  String key,
+  String source,
+) {
+  if (entry == null || entry.key != key) return null;
+  return _tokenSegmentsFromJson(
+    entry.facts['tokens'],
+    (_) => 'project:$source',
+  );
+}
+
+/// 토큰 세그먼트 목록을 복원한다. 형식이 어긋나면 null이다.
+///
+/// 코드와 행은 정수 목록이고 길이가 같아야 한다 — `dup`은 토큰 위치로 행을
+/// 찾으므로 어긋난 항목을 그대로 쓰면 범위 밖 접근으로 실패한다. [sourceOf]는
+/// 세그먼트 항목에서 `project:` source ID를 정하고, 정하지 못하면 null이다.
+List<TokenSegment>? _tokenSegmentsFromJson(
+  Object? value,
+  String? Function(Map<Object?, Object?> segment) sourceOf,
+) {
+  if (value is! List) return null;
+  final segments = <TokenSegment>[];
+  for (final segment in value) {
+    if (segment is! Map) return null;
+    final source = sourceOf(segment);
+    final codes = _intList(segment['c']);
+    final lines = _intList(segment['l']);
+    if (source == null ||
+        codes == null ||
+        lines == null ||
+        codes.length != lines.length) {
+      return null;
+    }
+    segments.add(TokenSegment(source: source, codes: codes, lines: lines));
+  }
+  return segments;
+}
+
+/// 정수만 담은 JSON 목록의 사본이다. 목록이 아니거나 정수 아닌 값이 있으면 null이다.
+List<int>? _intList(Object? value) {
+  if (value is! List) return null;
+  final integers = <int>[];
+  for (final item in value) {
+    if (item is! int) return null;
+    integers.add(item);
+  }
+  return integers;
+}
 
 /// [path]를 루트 기준 posix 상대 경로로 바꾼다. 루트 밖이면 null이다.
 String? _relativeSourcePath(String path, String root) {
@@ -934,12 +1164,16 @@ final class _UnitFacts {
   final Map<String, int> complexity;
 
   /// 이 유닛의 최상위 선언별 정규화 토큰 세그먼트다(생성 파일은 빈 목록).
+  ///
+  /// 사실 파일에는 저장하지 않는다([toJson]). 토큰 파일에서 따로 읽어 넘기거나
+  /// 해석에서 뽑으며, 토큰을 읽지 않은 실행의 재사용 유닛은 빈 목록이다.
   final List<TokenSegment> tokenSegments;
 
   /// `project:` source ID다.
   String get sourceId => 'project:$source';
 
-  /// 캐시 저장 형식이다.
+  /// 사실 파일의 저장 형식이다. `dup` 전용 [tokenSegments]는 토큰 파일에 따로
+  /// 둔다([_unitTokensJson]).
   Map<String, Object?> toJson() => {
     'complexity': complexity,
     'conditional': conditionalDirectives,
@@ -956,16 +1190,16 @@ final class _UnitFacts {
     'routes': routeTables,
     'routeUses': routeUses,
     'source': source,
-    'tokens': [
-      for (final segment in tokenSegments)
-        {'c': segment.codes, 'l': segment.lines},
-    ],
     'unresolved': hasUnresolvedInvocations,
   };
 
   /// 캐시 항목을 복원한다. 형식이 어긋나면 null이고 호출자는 그 파일만 다시
-  /// 해석한다 — 캐시 손상이 분석 실패가 되지 않는다.
-  static _UnitFacts? fromJson(Object? value) {
+  /// 해석한다 — 캐시 손상이 분석 실패가 되지 않는다. [tokenSegments]는 토큰
+  /// 파일에서 따로 읽은 이 유닛의 토큰이다.
+  static _UnitFacts? fromJson(
+    Object? value, {
+    List<TokenSegment> tokenSegments = const [],
+  }) {
     try {
       if (value is! Map) return null;
       final source = value['source'];
@@ -1022,21 +1256,7 @@ final class _UnitFacts {
           for (final entry in (value['complexity'] as Map? ?? const {}).entries)
             entry.key as String: entry.value as int,
         },
-        tokenSegments: [
-          for (final segment in value['tokens'] as List? ?? const [])
-            if (segment is Map)
-              TokenSegment(
-                source: 'project:$source',
-                codes: [
-                  for (final code in segment['c'] as List? ?? const [])
-                    code as int,
-                ],
-                lines: [
-                  for (final line in segment['l'] as List? ?? const [])
-                    line as int,
-                ],
-              ),
-        ],
+        tokenSegments: tokenSegments,
         libraryFacts: libraryFacts,
       );
     } on Object {
@@ -1140,6 +1360,7 @@ AnalyzerGraphResult _assembleResult({
   required _ScopeConfig scope,
   _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
+  int skippedLinkedDirectories = 0,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1304,6 +1525,13 @@ AnalyzerGraphResult _assembleResult({
         'contents are analyzed as project sources',
       );
     }
+  }
+  if (skippedLinkedDirectories > 0) {
+    // 같은 디렉터리로 가는 링크 경로 중 첫 경로만 분석했다 — 나머지 경로의 선언은
+    // 그래프에 없으므로 그 경로를 묻는 질의가 '미발견'인 이유를 출력에 남긴다.
+    limitationDetails.add(
+      skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
+    );
   }
   if (workspace == null) {
     final workspaceMembers = _workspaceMemberPaths(pubspecContent);
@@ -1779,10 +2007,15 @@ Future<bool> _incrementalInputsUnchanged(
 /// 모든 유닛을 리스트로 붙잡으므로 유닛 사이를 오가는 2단계 방문(route 호출의
 /// 값 선언 색인)이 쓴다. 유닛마다 독립인 방문은 [resolveProjectUnitsEach]를 써서
 /// 프로젝트 전체의 resolved AST를 동시에 붙잡지 않는다.
+///
+/// [linkedDirectories]를 주면 열거가 같은 디렉터리로 가는 링크 경로를 건너뛴 기록을
+/// 거기에 남긴다(그래프의 `symlink-duplicate-directories:`와 같은 규칙). 호출자가
+/// 자기 출력의 limitation으로 싣는다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(
   String rootPath, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final units = <ResolvedUnitResult>[];
   await resolveProjectUnitsEach(
@@ -1790,6 +2023,7 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     units.add,
     linkEscapes: linkEscapes,
     aggregateWorkspace: aggregateWorkspace,
+    linkedDirectories: linkedDirectories,
   );
   return units;
 }
@@ -1797,16 +2031,17 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
 /// [resolveProjectUnits]와 같은 유닛을 같은 순서로 해석하는 즉시 [onUnit]에
 /// 넘긴다.
 ///
-/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]의
-/// 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석 컨텍스트를 닫기 전에
-/// 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다 독립인
-/// 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
+/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]·
+/// [linkedDirectories]의 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석
+/// 컨텍스트를 닫기 전에 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다
+/// 독립인 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
 /// 않는다. [onUnit]이 던진 예외는 컨텍스트를 닫은 뒤 그대로 전파된다.
 Future<void> resolveProjectUnitsEach(
   String rootPath,
   void Function(ResolvedUnitResult unit) onUnit, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록과 비정규 입력
@@ -1828,6 +2063,7 @@ Future<void> resolveProjectUnitsEach(
       sourcePackages,
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
+      linkedDirectories ?? LinkedDirectoryVisits(),
     )) {
       final result = await _resolvedUnit(collection, path);
       if (result is ResolvedUnitResult) onUnit(result);
@@ -1855,12 +2091,15 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
   final collection = await _openCollection(root);
   try {
     final units = <String, ResolvedUnitResult>{};
+    // 건너뛴 링크 경로는 schema가 자기 열거([indexProjectFiles], 같은 규칙)에서
+    // 센다. 여기서는 사실이 난 파일의 유닛만 고른다.
     final files = _dartFilesUnder(
       root,
       collection,
       _readSourcePackages(root),
       const [],
       const [],
+      LinkedDirectoryVisits(),
     ).where((path) => wanted.contains(p.normalize(path)));
     for (final path in files) {
       final result = await _resolvedUnit(collection, path);
@@ -1879,7 +2118,9 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
 // 선언별 순환 복잡도 필드 추가로 v5다 — 역시 형식만 바뀐다.
 // include/exclude·thresholds 필드 추가로 v6다 — 역시 형식만 바뀐다.
 // workspacePackages 필드 추가로 v7다 — 역시 형식만 바뀐다.
-const _cacheSchemaVersion = 7;
+// dup 전용 토큰 세그먼트를 결과 항목에서 빼 별도 항목([_tokenSegmentsCacheKey])에
+// 두어 v8이다 — 추출 의미는 그대로라 identity는 올리지 않는다.
+const _cacheSchemaVersion = 8;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
@@ -1902,8 +2143,11 @@ const _cacheSchemaVersion = 7;
 // analyzer 읽기 경계(v18)는 import로 끌어온 장치·FIFO·상한 초과 입력을 분석
 // 실패로 바꾼다. 그런 대상(숨김 디렉터리·build 디렉터리 안 파일, 절대 경로)은
 // 키 열거 밖이라, 같은 도구 버전의 이전 캐시가 남긴 성공 결과가 거부를 가린다.
+// 링크 경로 중복 제거(v19)로 같은 입력의 분석 단위가 바뀐다 — 같은 디렉터리로 가는
+// 링크 경로는 하나만 분석하고 나머지는 symlink-duplicate-directories로 센다. 이전
+// 캐시는 경로마다 펼친 단위를 이 limitation 없이 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v18-read-boundary';
+    'dartograph-analysis-$toolVersion-cache-v19-linked-directories';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -1954,7 +2198,12 @@ Future<String> _analysisCacheKey(
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
-  final files = await _analysisInputFiles(root, linkEscapes: linkEscapes);
+  final linkedDirectories = LinkedDirectoryVisits();
+  final files = await _analysisInputFiles(
+    root,
+    linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
+  );
   late Digest digest;
   final digestSink = ChunkedConversionSink<Digest>.withCallback(
     (digests) => digest = digests.single,
@@ -1987,13 +2236,30 @@ Future<String> _analysisCacheKey(
     }
     bytes.add(const [0]);
   }
+  // 같은 디렉터리로 가는 링크 경로를 더하거나 지우면 파일 목록은 그대로인데 분석
+  // 단위의 경로와 symlink-duplicate-directories 수가 바뀐다. 건너뛴 경로와 그
+  // 정규 경로를 키에 넣어 낡은 결과를 재사용하지 않게 한다.
+  for (final skipped in linkedDirectories.skipped) {
+    bytes
+      ..add(utf8.encode('linked-directory-skipped'))
+      ..add(const [0])
+      ..add(utf8.encode(p.relative(skipped.path, from: root)))
+      ..add(const [0])
+      ..add(utf8.encode(skipped.canonical))
+      ..add(const [0]);
+  }
   bytes.close();
   return digest.toString();
 }
 
+/// [root]의 캐시 키·증분 해시가 읽는 분석 입력 파일이다(경로순).
+///
+/// [linkedDirectories]를 주면 루트 순회가 그 기록을 쓴다. 의존 패키지의 `lib/`
+/// 순회는 분석 단위가 아니어서 따로 기록한다.
 Future<List<File>> _analysisInputFiles(
   String root, {
   Set<String>? linkEscapes,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final files = <String, File>{};
 
@@ -2098,6 +2364,7 @@ Future<List<File>> _analysisInputFiles(
     skipHiddenDirectories: true,
     boundary: root,
     linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
   )) {
     final base = p.basename(file.path);
     if (file.path.endsWith('.dart') || base == 'analysis_options.yaml') {
@@ -2207,9 +2474,39 @@ bool isContentLockedDependency(
   return p.equals(path, resolvedCache) || p.isWithin(resolvedCache, path);
 }
 
-FactCache? _defaultFactCache(String root) {
-  final directory = defaultAnalyzerCacheDirectory(root);
+FactCache? _defaultFactCache(String root, Map<String, String>? environment) {
+  final directory = defaultAnalyzerCacheDirectory(
+    root,
+    environment: environment,
+  );
   return directory == null ? null : FileFactCache(directory);
+}
+
+/// `--incremental-user-cache`가 [canonicalProjectRoot]의 파일별 사실 캐시를
+/// 두는 디렉터리다. 사용자 캐시 위치를 정하지 못하면 null이다.
+///
+/// [defaultAnalyzerCacheDirectory] 아래 `incremental`이고, [aggregateWorkspace]
+/// 실행은 `incremental-workspace`다. 전체 결과 캐시와 같은 루트별 디렉터리라
+/// 프로젝트 하나의 캐시가 분석 대상 밖 한곳에 모인다. 결과 캐시는 `<64hex>.json`
+/// 파일만 쓰므로 하위 디렉터리와 겹치지 않는다. 집계 여부로 나누는 이유는 MCP
+/// 세션 캐시와 같다 — 두 모드는 설정 지문이 달라, 한 파일을 공유하면 번갈아
+/// 실행할 때마다 서로의 사실을 덮어쓴다.
+Directory? defaultIncrementalCacheDirectory(
+  String canonicalProjectRoot, {
+  required bool aggregateWorkspace,
+  Map<String, String>? environment,
+}) {
+  final base = defaultAnalyzerCacheDirectory(
+    canonicalProjectRoot,
+    environment: environment,
+  );
+  if (base == null) return null;
+  return Directory(
+    p.join(
+      base.path,
+      aggregateWorkspace ? 'incremental-workspace' : 'incremental',
+    ),
+  );
 }
 
 /// 신뢰하지 않는 프로젝트 밖의 사용자 캐시 위치를 선택한다.
@@ -2242,28 +2539,88 @@ Directory? defaultAnalyzerCacheDirectory(
   return Directory(p.join(base, 'dartograph', projectKey));
 }
 
+/// 전체 결과 캐시의 [key] 항목이다. 없거나 망가졌으면 null이다(재분석).
+///
+/// [includeTokenSegments]면 dup 전용 토큰 항목([_tokenSegmentsCacheKey])도 읽는다.
+/// 토큰 항목이 없거나 망가졌으면 결과 항목이 멀쩡해도 미스다 — 다시 분석해 두
+/// 항목을 함께 복구한다. dup이 아닌 색인은 토큰 항목을 읽지 않는다.
 Future<AnalyzerGraphResult?> _readCachedAnalysis(
   FactCache cache,
-  String key,
-) async {
+  String key, {
+  required bool includeTokenSegments,
+}) async {
   try {
     final payload = await cache.read(key);
-    return payload == null ? null : _decodeCachedAnalysis(payload);
+    if (payload == null) return null;
+    var tokenSegments = const <TokenSegment>[];
+    if (includeTokenSegments) {
+      final tokenPayload = await cache.read(_tokenSegmentsCacheKey(key));
+      final decoded = tokenPayload == null
+          ? null
+          : _decodeCachedTokenSegments(tokenPayload);
+      if (decoded == null) return null;
+      tokenSegments = decoded;
+    }
+    return _decodeCachedAnalysis(payload, tokenSegments: tokenSegments);
   } on Object {
     return null;
   }
 }
 
+/// 분석 결과를 결과 항목과 dup 전용 토큰 항목으로 나눠 쓴다.
+///
+/// 토큰 항목을 먼저 쓴다. 결과 항목만 남는 중단은 다음 dup 실행 하나가 재분석으로
+/// 복구한다. 두 항목은 따로 읽히므로 한쪽 쓰기 실패가 다른 쪽 저장을 막지 않는다.
 Future<void> _writeCachedAnalysis(
   FactCache cache,
   String key,
   AnalyzerGraphResult result,
 ) async {
-  try {
-    await cache.write(key, _encodeCachedAnalysis(result));
-  } on Object {
-    // 캐시는 성능 계층이다. 쓸 수 없어도 같은 분석 결과를 반환한다.
+  for (final (entryKey, encode) in [
+    (
+      _tokenSegmentsCacheKey(key),
+      () => _encodeCachedTokenSegments(result.tokenSegments),
+    ),
+    (key, () => _encodeCachedAnalysis(result)),
+  ]) {
+    try {
+      await cache.write(entryKey, encode());
+    } on Object {
+      // 캐시는 성능 계층이다. 쓸 수 없어도 같은 분석 결과를 반환한다.
+    }
   }
+}
+
+/// [key] 결과 항목의 dup 전용 토큰 항목 키다(SHA-256 hex).
+///
+/// 결과 키에서 만들므로 두 항목은 같은 입력·identity·SDK·집계 여부에 묶인다.
+String _tokenSegmentsCacheKey(String key) =>
+    sha256.convert(utf8.encode('$key\u0000token-segments')).toString();
+
+String _encodeCachedTokenSegments(List<TokenSegment> segments) => jsonEncode({
+  'schemaVersion': _cacheSchemaVersion,
+  'tokenSegments': [
+    for (final segment in segments)
+      {'c': segment.codes, 'l': segment.lines, 's': segment.source},
+  ],
+});
+
+/// 토큰 항목을 복원한다. 형식·스키마 버전이 어긋나면 null이다.
+List<TokenSegment>? _decodeCachedTokenSegments(String payload) {
+  final Object? document;
+  try {
+    document = jsonDecode(payload);
+  } on FormatException {
+    // 잘린 JSON 같은 손상은 캐시 미스다. 호출자가 다시 분석해 복구한다.
+    return null;
+  }
+  if (document is! Map || document['schemaVersion'] != _cacheSchemaVersion) {
+    return null;
+  }
+  return _tokenSegmentsFromJson(document['tokenSegments'], (segment) {
+    final source = segment['s'];
+    return source is String ? source : null;
+  });
 }
 
 String _encodeCachedAnalysis(AnalyzerGraphResult result) {
@@ -2282,10 +2639,6 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'includeGlobs': result.includeGlobs,
     'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
     'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
-    'tokenSegments': [
-      for (final segment in result.tokenSegments)
-        {'c': segment.codes, 'l': segment.lines, 's': segment.source},
-    ],
     'packageImports': result.packageImports,
     'packageName': ?result.packageName,
     'retentionRoots': {
@@ -2305,7 +2658,11 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
   });
 }
 
-AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
+/// 결과 항목을 복원한다. [tokenSegments]는 토큰 항목에서 따로 읽은 값이다.
+AnalyzerGraphResult? _decodeCachedAnalysis(
+  String payload, {
+  required List<TokenSegment> tokenSegments,
+}) {
   try {
     final document = (jsonDecode(payload) as Map).cast<String, Object?>();
     if (document['schemaVersion'] != _cacheSchemaVersion) return null;
@@ -2372,19 +2729,7 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
           document['metricsComplexityThreshold'] as int?,
       metricsDistanceThreshold: (document['metricsDistanceThreshold'] as num?)
           ?.toDouble(),
-      tokenSegments: [
-        for (final value in document['tokenSegments']! as List<Object?>)
-          TokenSegment(
-            source: (value! as Map)['s']! as String,
-            codes: [
-              for (final code in (value as Map)['c']! as List<Object?>)
-                code! as int,
-            ],
-            lines: [
-              for (final line in value['l']! as List<Object?>) line! as int,
-            ],
-          ),
-      ],
+      tokenSegments: tokenSegments,
       workspacePackages: [
         for (final value in document['workspacePackages']! as List<Object?>)
           _workspacePackageFromJson((value! as Map).cast<String, Object?>()),
@@ -2525,12 +2870,14 @@ Iterable<File> _projectFiles(
   String? boundary,
   String displayBase = '',
   Set<String>? linkEscapes,
+  LinkedDirectoryVisits? linkedDirectories,
 }) => indexProjectFiles(
   directory,
   skipHiddenDirectories: skipHiddenDirectories,
   boundary: boundary,
   displayBase: displayBase,
   linkEscapes: linkEscapes,
+  linkedDirectories: linkedDirectories,
 );
 const _namedNavigationMethods = {
   'popAndPushNamed',
@@ -3783,12 +4130,19 @@ String projectIdForPath(String path, String root, {p.Context? context}) {
   return 'project:${p.url.joinAll(paths.split(relativePath))}';
 }
 
+/// [root] 그래프가 분석하는 Dart 파일 경로다(정렬됨).
+///
+/// 후보는 [_analyzedFilesOf]로 열거하고 디렉터리는 [linkedDirectories]의 규칙으로
+/// 한 번만 연다. 건너뛴 경로는 [linkedDirectories]에 남아 호출자가 limitation으로
+/// 싣는다. 분석 단위가 들 수 없는 디렉터리(아래 범위 경계와 무관한 경로)에는
+/// 내려가지 않는다.
 List<String> _dartFilesUnder(
   String root,
   AnalysisContextCollection collection,
   List<Directory> sourcePackages,
   List<String> memberAbsPaths,
   List<String> skippedMemberAbsPaths,
+  LinkedDirectoryVisits linkedDirectories,
 ) {
   final paths = <String>{};
   bool inAnalysisScope(String path) {
@@ -3825,9 +4179,33 @@ List<String> _dartFilesUnder(
     }
   }
 
-  for (final context in collection.contexts) {
+  // inAnalysisScope가 받는 경로는 모두 이 경계 중 하나 아래에 있다. 경계의 조상이나
+  // 경계 안이 아닌 디렉터리 아래 파일은 결과에서 빠지므로 내려가지 않는다. 그러면
+  // 범위 밖 링크(`tool/x -> ../shared`)가 범위 안 링크(`lib/x -> ../shared`)보다
+  // 먼저 그 디렉터리를 차지하지 않는다.
+  final scopeRoots = [
+    for (final name in _sourceDirectories) p.join(root, name),
+    for (final member in memberAbsPaths)
+      for (final name in _sourceDirectories) p.join(member, name),
+    for (final package in sourcePackages) p.join(package.path, 'lib'),
+  ];
+  bool mayHoldUnits(String directory) => scopeRoots.any(
+    (scopeRoot) =>
+        isPathWithinRoot(directory, scopeRoot) ||
+        isPathWithinRoot(scopeRoot, directory),
+  );
+
+  // 컨텍스트 순서를 고정해야 같은 디렉터리로 가는 경로 중 남는 경로가 정해진다.
+  final contexts = [
+    ...collection.contexts,
+  ]..sort((a, b) => a.contextRoot.root.path.compareTo(b.contextRoot.root.path));
+  for (final context in contexts) {
     paths.addAll(
-      context.contextRoot.analyzedFiles().where(
+      _analyzedFilesOf(
+        context.contextRoot,
+        linkedDirectories,
+        mayHoldUnits,
+      ).where(
         (path) =>
             path.endsWith('.dart') &&
             isPathWithinRoot(path, root) &&
@@ -3843,6 +4221,120 @@ List<String> _dartFilesUnder(
     _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
+}
+
+/// [contextRoot]가 분석하는 파일 경로를 analyzer의 `ContextRoot.analyzedFiles()`와
+/// 같은 규칙으로 돌려준다.
+///
+/// analyzer의 열거는 링크 순환만 스택 범위 집합으로 막는다. 그래서 단계마다 다음
+/// 단계를 두 번 가리키는 링크 트리를 경로마다 다시 펼쳐, 실제 파일 십여 개로 수천
+/// 개의 분석 단위를 만든다. 여기서는 세 가지가 다르다.
+///
+/// - 디렉터리는 [visits]의 규칙으로 연다. 순환은 지금처럼 조용히 건너뛰고, 다른
+///   링크 경로로 이미 연 디렉터리는 열지 않고 [visits]에 남긴다.
+/// - 항목을 이름순으로 훑는다. 남는 경로가 파일 시스템의 목록 순서에 따라
+///   갈리지 않는다.
+/// - [mayHoldUnits]가 거짓인 디렉터리에는 내려가지 않는다.
+///
+/// 나머지는 analyzer와 같다. 제외 규칙(숨김 경로·중첩 컨텍스트·analysis_options의
+/// exclude)은 [ContextRoot.isAnalyzed]가 판정한다. 목록은 링크를 따라가 받는다.
+/// 끊어진 링크는 건너뛰고, 장치·FIFO와 그 링크는 파일로 돌려준다. 해석할 때 읽기
+/// 경계([BoundedResourceProvider])가 거부한다. 읽을 수 없거나 정규 경로를 풀 수
+/// 없는 디렉터리는 analyzer처럼 조용히 건너뛴다.
+Iterable<String> _analyzedFilesOf(
+  ContextRoot contextRoot,
+  LinkedDirectoryVisits visits,
+  bool Function(String directory) mayHoldUnits,
+) sync* {
+  for (final included in contextRoot.includedPaths.toList()..sort()) {
+    switch (FileSystemEntity.typeSync(included)) {
+      case FileSystemEntityType.file:
+        yield included;
+      case FileSystemEntityType.directory:
+        final String canonical;
+        try {
+          canonical = Directory(included).resolveSymbolicLinksSync();
+        } on FileSystemException {
+          // 확인한 뒤 사라졌다. analyzer도 읽지 못한 폴더는 건너뛴다.
+          continue;
+        }
+        yield* _analyzedFilesIn(
+          contextRoot,
+          included,
+          canonical,
+          visits,
+          mayHoldUnits,
+          ancestors: <String>{},
+          throughLink: false,
+        );
+      default:
+        // analyzer도 없는 포함 경로에서는 아무것도 열거하지 않는다.
+        continue;
+    }
+  }
+}
+
+/// [_analyzedFilesOf]의 재귀다. [canonical]은 [directory]의 정규 경로다.
+/// [ancestors]는 지금 경로에서 연 조상 디렉터리들의 정규 경로다(포함 경로 자신은
+/// 넣지 않는다 — analyzer와 같다). [throughLink]는
+/// [LinkedDirectoryVisits.admits]의 같은 이름이다.
+Iterable<String> _analyzedFilesIn(
+  ContextRoot contextRoot,
+  String directory,
+  String canonical,
+  LinkedDirectoryVisits visits,
+  bool Function(String directory) mayHoldUnits, {
+  required Set<String> ancestors,
+  required bool throughLink,
+}) sync* {
+  final List<FileSystemEntity> children;
+  try {
+    children = Directory(directory).listSync()
+      ..sort((a, b) => a.path.compareTo(b.path));
+  } on FileSystemException {
+    // analyzer도 읽을 수 없는 디렉터리는 조용히 건너뛴다.
+    return;
+  }
+  for (final child in children) {
+    final path = child.path;
+    if (!contextRoot.isAnalyzed(path)) continue;
+    if (child is File) {
+      yield path;
+      continue;
+    }
+    if (child is! Directory || !mayHoldUnits(path)) continue;
+    final String childCanonical;
+    try {
+      childCanonical = child.resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛴다.
+      continue;
+    }
+    // 목록은 링크를 따라가 받으므로 링크인지는 정규 경로로 안다. 링크가 아닌 하위
+    // 디렉터리의 정규 경로는 부모의 정규 경로 아래 같은 이름이다.
+    final childThroughLink =
+        throughLink ||
+        !p.equals(childCanonical, p.join(canonical, p.basename(path)));
+    if (!visits.admits(
+      path,
+      childCanonical,
+      ancestors,
+      throughLink: childThroughLink,
+    )) {
+      continue;
+    }
+    ancestors.add(childCanonical);
+    yield* _analyzedFilesIn(
+      contextRoot,
+      path,
+      childCanonical,
+      visits,
+      mayHoldUnits,
+      ancestors: ancestors,
+      throughLink: childThroughLink,
+    );
+    ancestors.remove(childCanonical);
+  }
 }
 
 /// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.

@@ -131,7 +131,7 @@ exitCode: 0
 | `changed` | string[] | | 프로젝트 상대 변경 경로 1–1000개 |
 | `symbol` | string | | 종속자를 볼 심볼 ID |
 | `depth` | integer ≥1 | | 전이 한계(기본 무제한) |
-| `limit` | integer ≥1 | | 보고 항목 수 제한 |
+| `limit` | integer ≥1 | | 보고 항목 수 제한(`impacted`와 `coverage.missedWithoutPrecheck`. 개수·위험도는 전체 기준) |
 | `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`) |
 
 `since`·`changed`·`symbol` 중 **정확히 하나**를 준다.
@@ -147,6 +147,9 @@ exitCode: 0
 응답 텍스트 첫 줄은 `exitCode: 0`이고, 그 다음 줄부터 영향 문서(JSON)가 온다.
 문서에는 `changed`·`impacted`·`callSites`·`tests`·`risk`·`coverage`·`limitations`가
 있고, `coverage.missedWithoutPrecheck`가 "변경 파일만 봤을 때 누락됐을" 심볼을 담는다.
+`limit`을 주면 이 목록도 `impacted`와 같은 앞 n개로 자르고, 전체 수는
+`coverage.transitivelyImpacted`, 잘린 수는 `truncated`와 `impact-coverage-truncated:`
+limitation이 알린다. `callSites`와 `tests`는 자르지 않는다.
 
 실제 호출 성공 사례(이 저장소, `changed: ["lib/src/core/graph_edge.dart"]`):
 
@@ -435,9 +438,10 @@ printf '%s\n' \
   staleness 배너가 필요 없다). 회귀는 `test/cli/mcp_server_test.dart`의
   “session cache reuses facts, refreshes edits and cleans up”가 고정한다. 캐시
   삭제 실패 시 OS 임시 저장소에 디렉터리가 남을 수 있다(stderr 진단으로 알린다).
-  CLI의 파일별 증분 캐시(`--incremental <dir>`)는
+  CLI의 파일별 증분 캐시(`--incremental <dir>`, `--incremental-user-cache`)는
   MCP 도구가 노출하지 않는다 — 세션 간에 사실을 재사용해야 하면 CLI를 직접
-  쓴다([USAGE.md](USAGE.md)의 `--incremental`).
+  쓴다([USAGE.md](USAGE.md)의 `--incremental`). 신뢰하지 않는 저장소라면 사실을
+  분석 대상 밖 사용자 캐시에 두는 `--incremental-user-cache`를 쓴다.
 - `impact_query`·`dependency_query`의 관측은 의존 도달성이지 삭제 판정이 아니다.
   동적 디스패치·문자열 route·생성 코드는 근거를 제한할 수 있고, 그 사실은 각 문서의
   `limitations`에 실린다.

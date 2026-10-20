@@ -62,7 +62,11 @@ Future<RouteCallIndexResult> indexRouteCalls(
       'must contain the package root',
     );
   }
-  final units = await resolveProjectUnits(root);
+  final linkedDirectories = LinkedDirectoryVisits();
+  final units = await resolveProjectUnits(
+    root,
+    linkedDirectories: linkedDirectories,
+  );
   final scan = _RouteScan(
     root: root,
     pathBase: pathBase,
@@ -76,7 +80,13 @@ Future<RouteCallIndexResult> indexRouteCalls(
   for (final unit in units) {
     scan.scanUnit(unit);
   }
-  return scan.result();
+  final result = scan.result();
+  if (linkedDirectories.skipped.isEmpty) return result;
+  // 건너뛴 링크 경로의 호출은 사실이 아니다(같은 소스가 남은 경로에서 사실이 된다).
+  return RouteCallIndexResult(result.facts, [
+    ...result.limitations,
+    skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
+  ]);
 }
 
 /// 생성 파일로 보는 접미사다. 그래프의 생성 파일 목록에 chopper 생성기의

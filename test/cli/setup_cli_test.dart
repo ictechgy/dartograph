@@ -264,6 +264,48 @@ void main() {
     expect(insideStderr, contains('could not run'));
   });
 
+  test('hook keeps the incremental cache outside the project', () async {
+    if (Platform.isWindows) return; // 훅은 POSIX 셸 스크립트다.
+    final temporary = await Directory.systemTemp.createTemp('dartograph-hook-');
+    addTearDown(() => temporary.delete(recursive: true));
+    final script = File('${temporary.path}/hook.sh')
+      ..writeAsStringSync(agentHookScript);
+    final project = Directory('${temporary.path}/proj')..createSync();
+    // 받은 인자를 한 줄씩 남기고 성공하는 가짜 CLI다.
+    final record = File('${temporary.path}/argv');
+    final fake = File('${temporary.path}/bin/dartograph')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '#!/bin/sh\n'
+        'for argument in "\$@"; do printf \'%s\\n\' "\$argument"; done '
+        '> "${record.path}"\n',
+      );
+    final chmod = await Process.run('chmod', ['+x', fake.path]);
+    expect(chmod.exitCode, 0, reason: chmod.stderr as String);
+
+    final process = await Process.start(
+      '/bin/sh',
+      [script.path],
+      environment: {
+        'CLAUDE_PROJECT_DIR': project.path,
+        'PATH': '${fake.parent.path}:/usr/bin:/bin',
+      },
+    );
+    process.stdin.writeln(
+      '{"tool_input": {"file_path": "${project.path}/lib/x.dart"}}',
+    );
+    await process.stdin.close();
+    final stderr = await process.stderr.transform(utf8.decoder).join();
+
+    expect(await process.exitCode, 0, reason: stderr);
+    final arguments = record.readAsLinesSync();
+    expect(arguments.first, 'impact');
+    // 프로젝트 안 `.dartograph/cache`를 넘기면 저장소가 심어 둔 캐시를 믿는다.
+    expect(arguments, contains('--incremental-user-cache'));
+    expect(arguments, isNot(contains('--incremental')));
+    expect(arguments.last, project.path);
+  });
+
   test('hook fails closed when the tool input cannot be parsed', () async {
     if (Platform.isWindows) return; // 훅은 POSIX 셸 스크립트다.
     final temporary = await Directory.systemTemp.createTemp('dartograph-hook-');

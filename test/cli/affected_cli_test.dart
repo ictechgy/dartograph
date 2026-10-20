@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/analysis_git.dart';
 import 'package:dartograph/src/cli/changed_files.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../support/hostile_git_support.dart';
 
 void main() {
   late Directory directory;
@@ -210,6 +213,145 @@ void main() {
     expect(
       errors.toString(),
       'Changed files could not be computed. In CI, fetch full Git history.\n',
+    );
+  });
+
+  test(
+    'affected runs no repository git setting while computing changed files',
+    () async {
+      final workspace = await Directory.systemTemp.createTemp(
+        'affected-hostile.',
+      );
+      addTearDown(() => workspace.delete(recursive: true));
+      final repository = await createHostileRepository(
+        workspace,
+        HostileGitSetting.committedAttributes,
+      );
+      File(
+        repository.path('lib/edited.dart'),
+      ).writeAsStringSync('class Edited {\n  int value = 0;\n}\n');
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/edited.dart',
+            sourceUri: 'project:lib/edited.dart',
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:lib/fx.dart',
+            sourceUri: 'project:lib/fx.dart',
+          ),
+        );
+      final output = StringBuffer();
+
+      final status = await runDartograph(
+        ['affected', 'HEAD', repository.root],
+        output: output,
+        error: StringBuffer(),
+        indexPackage: (_) async =>
+            AnalyzerGraphResult(graph: graph, limitations: const []),
+      );
+
+      expect(status, ExitStatus.success.code);
+      expect(repository.commandRan, isFalse);
+      // stat만 낡은 fx.dart도 씨앗이다. git이 내용을 다시 읽지 않는다.
+      expect(
+        output.toString(),
+        '{"affected":[],"changed":["project:lib/edited.dart",'
+        '"project:lib/fx.dart"],"limitations":[]}\n',
+      );
+    },
+    skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+  );
+
+  test(
+    'a filter driver git cannot be told to skip is diagnosed, not run',
+    () async {
+      final workspace = await Directory.systemTemp.createTemp(
+        'affected-unsafe-driver.',
+      );
+      addTearDown(() => workspace.delete(recursive: true));
+      final repository = await createRepositoryWithFilterName(
+        workspace,
+        'a=b'.codeUnits,
+      );
+      final errors = StringBuffer();
+
+      final status = await runDartograph(
+        ['affected', 'HEAD', repository.root],
+        output: StringBuffer(),
+        error: errors,
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(status, ExitStatus.failure.code);
+      expect(repository.commandRan, isFalse);
+      expect(
+        errors.toString(),
+        'Changed files could not be computed: the git configuration defines a '
+        "filter driver whose name contains '=' or is not valid UTF-8, which "
+        'git cannot be told to skip. Rename or remove that filter driver.\n',
+      );
+    },
+    skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+  );
+
+  test(
+    'a partial clone without the base history is diagnosed, not fetched',
+    () async {
+      final workspace = await Directory.systemTemp.createTemp(
+        'affected-partial-clone.',
+      );
+      addTearDown(() => workspace.delete(recursive: true));
+      final repository = await createPartialCloneRepository(
+        workspace,
+        PromisorTransport.sshCommand,
+        MissingObject.baseCommit,
+      );
+      final errors = StringBuffer();
+
+      final status = await runDartograph(
+        ['affected', 'base', repository.root],
+        output: StringBuffer(),
+        error: errors,
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(status, ExitStatus.failure.code);
+      expect(repository.commandRan, isFalse);
+      expect(
+        errors.toString(),
+        'Changed files could not be computed. In a partial clone, dartograph '
+        'does not let git fetch missing objects from the promisor remote; '
+        'fetch the history you compare against first (in CI, fetch full Git '
+        'history).\n',
+      );
+    },
+    skip: partialCloneSkip,
+  );
+
+  test('a git that cannot skip the promisor fetch is diagnosed', () async {
+    // 2.45 미만 git은 시험 환경의 git으로 재현할 수 없어 거부 결과를 주입한다.
+    final errors = StringBuffer();
+
+    final status = await runDartograph(
+      ['affected', 'HEAD', directory.path],
+      output: StringBuffer(),
+      error: errors,
+      indexPackage: (_) async => indexed,
+      changedFilesSince: (_, _) async => throw const ChangedFilesException(
+        refusal: AnalysisGitRefusal.unavoidableLazyFetch,
+      ),
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      errors.toString(),
+      'Changed files could not be computed: the git configuration names a '
+      'promisor remote (a partial clone), and git older than 2.45 cannot be '
+      'told not to fetch missing objects from it, which runs commands from '
+      "the remote's settings. Use git 2.45 or newer.\n",
     );
   });
 

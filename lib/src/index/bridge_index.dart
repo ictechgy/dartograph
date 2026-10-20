@@ -79,7 +79,12 @@ BridgeIndexResult indexBridges(
   // 루트 밖 대상을 가리키는 링크도 스캔한다(모노레포 공유 소스) — 대신 그 사실을
   // limitation에 남겨 경계 밖 파일 내용이 사실로 흘러든 것이 드러나게 한다.
   final linkEscapes = <String>{};
-  for (final entity in _dartFiles(root, linkEscapes: linkEscapes)) {
+  final linkedDirectories = LinkedDirectoryVisits();
+  for (final entity in _dartFiles(
+    root,
+    linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
+  )) {
     final relative = p.posix.joinAll(
       p.relative(entity.path, from: pathBase).split(p.separator),
     );
@@ -167,6 +172,8 @@ BridgeIndexResult indexBridges(
     for (final escape in linkEscapes.toList()..sort())
       'symlink-escape: $escape resolves outside the scanned root; its '
           'contents contribute bridge facts',
+    if (linkedDirectories.skipped.isNotEmpty)
+      skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
     if (facts.any(
       (fact) =>
           (fact['kind'] == 'method-invoke' ||
@@ -263,12 +270,16 @@ int _compareFacts(Map<String, Object?> a, Map<String, Object?> b) {
   );
 }
 
-Iterable<File> _dartFiles(Directory directory, {Set<String>? linkEscapes}) =>
-    indexProjectFiles(
-      directory,
-      boundary: directory.path,
-      linkEscapes: linkEscapes,
-    ).where((file) => file.path.endsWith('.dart'));
+Iterable<File> _dartFiles(
+  Directory directory, {
+  Set<String>? linkEscapes,
+  LinkedDirectoryVisits? linkedDirectories,
+}) => indexProjectFiles(
+  directory,
+  boundary: directory.path,
+  linkEscapes: linkEscapes,
+  linkedDirectories: linkedDirectories,
+).where((file) => file.path.endsWith('.dart'));
 
 final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   _BridgeVisitor(

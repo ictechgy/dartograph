@@ -748,4 +748,26 @@ void main() {
     );
     expect(result.out, isNot(contains('\x1b')));
   });
+
+  test('같은 디렉터리를 가리키는 두 번째 링크 경로는 건너뛰고 한계로 센다', () async {
+    // 그래프와 같은 열거 규칙이다. 수정 전에는 링크 경로마다 같은 소스를 다시 훑었고
+    // 건너뛴 사실이 출력에 없었다.
+    write('lib/main.dart', 'void main() {}\n');
+    write('shared/s.dart', 'class S {}\n');
+    Link(p.join(directory.path, 'lib', 'a')).createSync('../shared');
+    Link(p.join(directory.path, 'lib', 'b')).createSync('../shared');
+
+    final result = await run(['runtime', '--format', 'json', directory.path]);
+
+    expect(result.status, 0, reason: result.err);
+    final limitations = (document(result.out)['limitations']! as List<Object?>)
+        .whereType<String>();
+    expect(
+      limitations.where(
+        (limitation) =>
+            limitation.startsWith('symlink-duplicate-directories: 1 '),
+      ),
+      hasLength(1),
+    );
+  });
 }

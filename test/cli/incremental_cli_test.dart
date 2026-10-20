@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -169,6 +170,93 @@ void main() {
   );
 
   test(
+    'a planted facts.json link is not opened and the run completes',
+    () async {
+      // 훅·편집기의 옛 기본값처럼 분석 대상 안 `.dartograph/cache`를 쓴다.
+      // 저장소는 이 자리에 링크를 커밋할 수 있다. 숨김 디렉터리라 분석 입력은
+      // 아니므로, 결과는 캐시 없는 실행과 같고 버린 사실만 한계로 남아야 한다.
+      final plain = await _run(['dead', '--format', 'json', root.path]);
+      final plainDocument = jsonDecode(plain.output) as Map<String, Object?>;
+      final genuine = p.join(workspace.path, 'genuine');
+      final seeded = await _run([
+        'dead',
+        '--format',
+        'json',
+        '--incremental',
+        genuine,
+        root.path,
+      ]);
+      expect(seeded.status, plain.status, reason: seeded.error);
+      final genuineFacts = File(p.join(genuine, 'facts.json'));
+      final genuineContents = genuineFacts.readAsStringSync();
+      final fifo = p.join(workspace.path, 'pipe');
+      final mkfifo = await Process.run('mkfifo', [fifo]);
+      expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+      const notRead =
+          'incremental-cache-not-read: the fact cache file is a symbolic '
+          'link, is not a regular file, or exceeds the 1024 MiB read limit; it '
+          'was ignored and every file was resolved again';
+      // dead finding은 전역 한계 목록을 함께 싣는다. 버린 캐시의 한계만 빼면
+      // 문서 전체가 캐시 없는 실행과 같아야 한다.
+      Object? withoutNotRead(Object? value) => switch (value) {
+        Map() => {
+          for (final entry in value.entries)
+            entry.key: withoutNotRead(entry.value),
+        },
+        List() => [
+          for (final item in value)
+            if (item != notRead) withoutNotRead(item),
+        ],
+        _ => value,
+      };
+
+      // /dev/null은 수정 전 코드도 멈추지 않는 장치 대역이다(/dev/zero라면
+      // 메모리를 채운다). 쓰는 쪽 없는 FIFO는 수정 전 코드가 열기에서 영구
+      // 대기하던 입력이라 마지막에 둔다.
+      for (final target in [genuineFacts.path, '/dev/null', fifo]) {
+        final cache = Directory(p.join(root.path, '.dartograph', 'cache'));
+        if (cache.existsSync()) cache.deleteSync(recursive: true);
+        cache.createSync(recursive: true);
+        final facts = p.join(cache.path, 'facts.json');
+        Link(facts).createSync(target);
+
+        final run = await _run([
+          'dead',
+          '--format',
+          'json',
+          '--incremental',
+          cache.path,
+          root.path,
+        ]);
+
+        expect(run.status, plain.status, reason: '$target: ${run.error}');
+        final document = jsonDecode(run.output) as Map<String, Object?>;
+        expect(
+          (document['limitations']! as List<Object?>).where(
+            (item) => item == notRead,
+          ),
+          hasLength(1),
+          reason: target,
+        );
+        expect(withoutNotRead(document), plainDocument, reason: target);
+        // 이번 쓰기가 링크 자리를 정규 파일로 바꾼다. 링크 대상은 그대로다.
+        expect(
+          FileSystemEntity.typeSync(facts, followLinks: false),
+          FileSystemEntityType.file,
+          reason: target,
+        );
+      }
+      expect(genuineFacts.readAsStringSync(), genuineContents);
+      expect(
+        FileSystemEntity.typeSync(fifo, followLinks: false),
+        FileSystemEntityType.pipe,
+      );
+    },
+    skip: Platform.isWindows,
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  test(
     'stale or malformed package_config entries do not fail analysis',
     () async {
       final configuration = File(
@@ -234,6 +322,226 @@ void main() {
     },
   );
 
+  group('--incremental-user-cache', () {
+    late String userCacheBase;
+    late Map<String, String> environment;
+
+    setUp(() {
+      // 실제 사용자 캐시를 건드리지 않게 세 플랫폼의 기준 변수를 모두 돌린다.
+      userCacheBase = p.join(workspace.path, 'user-cache');
+      environment = {
+        'HOME': userCacheBase,
+        'XDG_CACHE_HOME': userCacheBase,
+        'LOCALAPPDATA': userCacheBase,
+      };
+    });
+
+    /// [packageRoot]의 사실 파일 위치다. 제품 helper를 쓰지 않고 문서화된
+    /// 규칙(`<OS 사용자 캐시>/dartograph/<canonical root sha256>/<mode>`)으로
+    /// 계산한다.
+    File factsFor(String packageRoot, {String mode = 'incremental'}) {
+      final base = Platform.isMacOS
+          ? p.join(userCacheBase, 'Library', 'Caches')
+          : userCacheBase;
+      final canonical = Directory(packageRoot).resolveSymbolicLinksSync();
+      final key = sha256.convert(utf8.encode(canonical)).toString();
+      return File(p.join(base, 'dartograph', key, mode, 'facts.json'));
+    }
+
+    Future<({int status, String output, String error})> run(
+      List<String> arguments,
+    ) => _run(arguments, userCacheEnvironment: environment);
+
+    test('keeps facts outside the project and reuses them', () async {
+      final plain = await run(['graph', '--format', 'json', root.path]);
+      final first = await run([
+        'graph',
+        '--format',
+        'json',
+        '--incremental-user-cache',
+        root.path,
+      ]);
+
+      expect(first.status, 0, reason: first.error);
+      expect(first.output, plain.output);
+      final facts = factsFor(root.path);
+      expect(facts.existsSync(), isTrue);
+      expect(p.isWithin(workspace.path, facts.path), isTrue);
+      expect(p.isWithin(root.path, facts.path), isFalse);
+      expect(Directory(p.join(root.path, '.dartograph')).existsSync(), isFalse);
+
+      // 캐시가 현재 입력과 같으면 다시 쓰지 않는다. 시각이 그대로면 두 번째
+      // 실행이 같은 위치의 사실을 읽어 재사용했다는 뜻이다.
+      facts.setLastModifiedSync(DateTime(2001));
+      final second = await run([
+        'dead',
+        '--format',
+        'json',
+        '--incremental-user-cache',
+        root.path,
+      ]);
+      expect(second.status, 1, reason: second.error);
+      expect(second.output, contains('project:lib/app.dart'));
+      expect(facts.lastModifiedSync().isBefore(DateTime(2002)), isTrue);
+    });
+
+    test('compare keeps one fact cache per checkout', () async {
+      final other = Directory(p.join(workspace.path, 'other'));
+      for (final entity in root.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        final copy = File(
+          p.join(other.path, p.relative(entity.path, from: root.path)),
+        );
+        copy.parent.createSync(recursive: true);
+        entity.copySync(copy.path);
+      }
+      // 체크아웃마다 사실이 달라야 한 디렉터리를 공유할 때 서로 덮어쓴다.
+      File(
+        p.join(other.path, 'lib', 'service.dart'),
+      ).writeAsStringSync('class Service {}\nclass Extra {}\n');
+      final arguments = ['compare', '--format', 'json', root.path, other.path];
+
+      final plain = await run(arguments);
+      final first = await run([
+        arguments.first,
+        '--incremental-user-cache',
+        ...arguments.skip(1),
+      ]);
+      expect(first.status, plain.status, reason: first.error);
+      expect(first.output, plain.output);
+      final rootFacts = factsFor(root.path);
+      final otherFacts = factsFor(other.path);
+      expect(rootFacts.path, isNot(otherFacts.path));
+      for (final facts in [rootFacts, otherFacts]) {
+        expect(facts.existsSync(), isTrue, reason: facts.path);
+        facts.setLastModifiedSync(DateTime(2001));
+      }
+
+      final second = await run([
+        arguments.first,
+        '--incremental-user-cache',
+        ...arguments.skip(1),
+      ]);
+      expect(second.output, plain.output);
+      for (final facts in [rootFacts, otherFacts]) {
+        expect(
+          facts.lastModifiedSync().isBefore(DateTime(2002)),
+          isTrue,
+          reason: '${facts.path} was rewritten',
+        );
+      }
+    });
+
+    test('workspace aggregation keeps its own fact cache', () async {
+      // 저장소 fixture는 읽기만 한다 — 사실은 주입한 사용자 캐시 아래에 쓴다.
+      const fixture = 'fixtures/workspace_audit';
+      final arguments = ['deps', '--workspace', '--format', 'json', fixture];
+      final plain = await run(arguments);
+      final cached = await run([...arguments, '--incremental-user-cache']);
+
+      expect(cached.status, plain.status, reason: cached.error);
+      expect(cached.output, plain.output);
+      expect(
+        factsFor(fixture, mode: 'incremental-workspace').existsSync(),
+        isTrue,
+      );
+      expect(factsFor(fixture).existsSync(), isFalse);
+    });
+
+    test('without a user cache location it analyzes and says so', () async {
+      const unavailable =
+          'incremental-cache-write-failed: no per-user cache directory is '
+          'available (HOME, or XDG_CACHE_HOME on Linux and LOCALAPPDATA on '
+          'Windows, is unset or not absolute); analysis is complete but the '
+          'fact cache was not updated';
+      Object? withoutUnavailable(Object? value) => switch (value) {
+        Map() => {
+          for (final entry in value.entries)
+            entry.key: withoutUnavailable(entry.value),
+        },
+        List() => [
+          for (final item in value)
+            if (item != unavailable) withoutUnavailable(item),
+        ],
+        _ => value,
+      };
+      final plain = await _run([
+        'dead',
+        '--format',
+        'json',
+        root.path,
+      ], userCacheEnvironment: const {});
+      final run = await _run([
+        'dead',
+        '--format',
+        'json',
+        '--incremental-user-cache',
+        root.path,
+      ], userCacheEnvironment: const {});
+
+      expect(run.status, plain.status, reason: run.error);
+      final document = jsonDecode(run.output) as Map<String, Object?>;
+      expect(
+        (document['limitations']! as List<Object?>).where(
+          (item) => item == unavailable,
+        ),
+        hasLength(1),
+      );
+      expect(withoutUnavailable(document), jsonDecode(plain.output));
+      expect(Directory(p.join(root.path, '.dartograph')).existsSync(), isFalse);
+    });
+
+    test('conflicting or repeated switches are usage errors', () async {
+      for (final invocation in [
+        [
+          'graph',
+          '--format',
+          'json',
+          '--incremental-user-cache',
+          '--incremental',
+          cacheDirectory,
+          root.path,
+        ],
+        [
+          'dead',
+          '--incremental',
+          cacheDirectory,
+          '--incremental-user-cache',
+          root.path,
+        ],
+        [
+          'graph',
+          '--incremental-user-cache',
+          '--format',
+          'json',
+          '--incremental-user-cache',
+          root.path,
+        ],
+        ['graph', '--format', 'json', '--incremental-user-cache'],
+        // 색인이 없는 명령은 이 스위치를 정의하지 않는다.
+        ['runtime', '--incremental-user-cache', root.path],
+        ['init', '--incremental-user-cache', root.path],
+      ]) {
+        final result = await run(invocation);
+        expect(
+          result.status,
+          64,
+          reason: 'usage error expected for $invocation (${result.error})',
+        );
+      }
+      final conflict = await run([
+        'graph',
+        '--incremental-user-cache',
+        '--incremental',
+        cacheDirectory,
+        root.path,
+      ]);
+      expect(conflict.error, contains('--incremental-user-cache'));
+      expect(Directory(userCacheBase).existsSync(), isFalse);
+      expect(Directory(cacheDirectory).existsSync(), isFalse);
+    });
+  });
+
   test('incremental option errors are usage errors', () async {
     for (final invocation in [
       ['graph', '--format', 'json', '--incremental', root.path],
@@ -274,10 +582,16 @@ void main() {
 }
 
 Future<({int status, String output, String error})> _run(
-  List<String> arguments,
-) async {
+  List<String> arguments, {
+  Map<String, String>? userCacheEnvironment,
+}) async {
   final output = StringBuffer();
   final error = StringBuffer();
-  final status = await runDartograph(arguments, output: output, error: error);
+  final status = await runDartograph(
+    arguments,
+    output: output,
+    error: error,
+    userCacheEnvironment: userCacheEnvironment,
+  );
   return (status: status, output: output.toString(), error: error.toString());
 }

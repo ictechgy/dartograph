@@ -103,6 +103,7 @@ Dart SDK `Uri` 동작(3.13.3 실행 확인): `Uri.parse`는 점 세그먼트를 
 | `http-wrapper-unresolved:` | 호출 측 | 호출이 0건인 dart 래퍼 선언(`wrappers[n]`) |
 | `http-wrapper-undeclared:` | 호출 측 | 선언되지 않은 래퍼 싱크 수 |
 | `generated-client-unscanned:` | 호출 측 | 서비스 선언(retrofit.dart·chopper) 없이 HTTP 호출을 담은 생성 파일 수 |
+| `symlink-duplicate-directories:` | 호출 측 | 이미 다른 경로로 읽은 디렉터리로 이어져 해석하지 않은 링크 경로 수(같은 소스의 호출은 남은 경로에서 사실이 된다) |
 | `missing-route-usrs:` | 체인 전용 | usr가 없는 사실 수 |
 
 증명할 수 있는 요청 범위가 있는 호출 측 한계가 없어 `limitationScopes`는 내지 않는다
@@ -178,7 +179,8 @@ retrofit_generator 10.2.11, chopper 8.7.0 + chopper_generator 8.7.0): **35개 �
 ```sh
 dartograph impact --format language-traversal [--direction dependents|dependencies] \
   [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] \
-  [--project <shared-root>] [--incremental <dir>] [--workspace] <package-root> [<root-usr>...]
+  [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] \
+  [--workspace] <package-root> [<root-usr>...]
 ```
 
 - 한 번의 순회로 모든 root(위치 인자와 `--roots-from`의 JSON 문자열 배열 또는

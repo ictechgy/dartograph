@@ -98,6 +98,7 @@ dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래�
 | `unscanned-ffi-interop: N` | dart:ffi·package:jni 계열 import를 가진 소스 N개 — 채널 조인 범위 밖 |
 | `flutter-services-provenance-unverified:` | package_config가 `package:flutter/services.dart` 출처를 검증하지 못했다 |
 | `flutter-services-reexports: N` | re-export로 들어온 services import N건 — 직접 import만 provenance로 쓴다 |
+| `symlink-duplicate-directories: N` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 N개 — 같은 소스의 사실은 남은 경로에서 난다 |
 | `conditional-flutter-services-imports: N` | 조건부 지시문의 services import N건 |
 | `pub-workspace-*` | workspace 감지 폴백 — `project` 기준이 스캔 루트로 내려갔다 |
 
@@ -189,6 +190,26 @@ class CameraBridge {
 - 모든 fact의 `kind`는 `relation-use`다. `channel`은 코드에 쓰인 관계 이름(한정·비한정
   그대로, 인용 부호 제거)이고, `method`가 있으면 그 관계의 컬럼 이름이다. 컬럼 사실은
   관계 사실을 함축하지 않으므로 관계 사실을 따로 낸다.
+- SQL 텍스트에서 아래 세 경우의 이름은 관계가 아니므로 사실로 내지 않는다. persistence
+  생산자 계열의 공통 규칙과 공통 사례를 따르며, isthmus 적합성 벡터 `sql-relations`로
+  고정될 예정이다. 이 자리는 관계 피연산자가 아니라서 `dynamic-relation-names`의 미해석
+  피연산자로도 세지 않는다(`EXTRACT(EPOCH FROM ?)`, `IS DISTINCT FROM @kind`).
+  - **R1 함수 인자 안의 `FROM`**: `(` 바로 앞이 절 키워드가 아닌 비인용 이름(함수
+    이름)이고 그 괄호의 첫 토큰이 `SELECT`·`WITH`·`VALUES`가 아니면, 그 괄호를 가장
+    안쪽으로 둔 `FROM`은 관계를 열지 않는다 — `EXTRACT(YEAR FROM created_at)`,
+    `TRIM(BOTH ' ' FROM name)`, `SUBSTRING(name FROM 2 FOR 3)`. 하위 질의 괄호
+    (`FROM (SELECT …)`, `IN (SELECT …)`, `ANY (SELECT …)`)와 CTE 본문
+    (`AS MATERIALIZED (DELETE FROM t …)`) 안의 `FROM`은 그대로 관계를 연다.
+  - **R2 CTE 이름**: 문장(`;`로 나뉜 구간)마다
+    `WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (`와
+    `, name [(cols)] AS [NOT] [MATERIALIZED] (`의 이름을 모은다. 같은 문장의 한정자 없는
+    피연산자가 그 이름이면 내지 않는다. 비인용 이름끼리는 대소문자를 무시하고 인용 이름은
+    그대로 비교한다. 한정 이름(`s.recent`)과 다른 문장의 이름은 그대로 낸다. 문장
+    단위라 CTE와 같은 이름의 실제 테이블을 그 문장에서 읽어도(CTE 본문 안의 참조나
+    `INSERT INTO`의 대상) 내지 않는다.
+  - **R3 `IS [NOT] DISTINCT FROM`**: 이 비교 연산자의 `FROM`은 관계를 열지 않는다.
+  - 판정 단어는 대소문자를 보지 않는다. 게이트 없는 대문자 리터럴의 대문자 조건은 관계
+    키워드의 발화에만 적용된다.
 - 이름 escape: SQL 텍스트와 API 인자의 `.`는 한정자다. 인용 식별자 안의 `.`와 drift
   `tableName`·floor `tableName`처럼 한 식별자로 주어진 이름의 `.`는 `%2E`, `%`는
   `%25`로 escape한다.
@@ -215,6 +236,7 @@ class CameraBridge {
 | `missing-relation-usrs:` | 그래프 선언 ID(`symbol.usr`)가 없는 사실 수 — 체인 전용, trace가 그 사실에서 이어 가지 못한다 |
 | `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
 | `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
+| `symlink-duplicate-directories:` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 수 — 같은 소스의 사실은 남은 경로에서 난다 |
 
 ## http 문서 (`routes --role client`)
 

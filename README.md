@@ -200,7 +200,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   time (environment/dart-define reads, dynamic loads, config paths, assets,
   external URLs) and judges them against the current environment; `--execute`
   runs an entrypoint and records exit code and stderr as execution evidence.
-- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns,
+- `--incremental <dir>` reuses cached analysis facts for CI-speed reruns
+  (`--incremental-user-cache` keeps them in the per-user cache outside the
+  project instead; use it for repositories you do not trust),
   `--workspace` opts into pub workspace aggregation (members listed in the
   root pubspec's `workspace:` are analyzed together; `deps` audits each
   package against its own pubspec), and `--record <dir>`/`history` keep an
@@ -209,6 +211,18 @@ Full arguments, output formats, exit codes, and CI examples live in
   GitHub Actions: it activates a published release (or a checked-out source
   path), analyzes a package, and writes one report file. See the pinned example
   workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
+  Pin both the action and the CLI release: the commit SHA (of the release tag)
+  fixes the action itself, and `version` fixes the dartograph release it
+  installs. With an empty `version`, every run installs the latest release on
+  pub.dev and the action prints a notice.
+  ```yaml
+  - uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+    with:
+      version: 0.16.2
+      command: dead
+      args: --format sarif
+      output-file: dead.sarif
+  ```
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.
@@ -290,6 +304,14 @@ Limitations:
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
+- Symbolic links inside the project are followed like the analyzer does, but a
+  directory reached through links is read only once. When several link paths
+  resolve to the same directory, only the first in name order is analyzed; a
+  directory's real location and one link to it are both analyzed, and link
+  cycles are not entered. The analysis commands, `runtime`, `routes`,
+  `bridges`, and `schema` count the skipped paths in a
+  `symlink-duplicate-directories:` limitation, and declarations under those
+  paths are not in the graph.
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.
@@ -297,6 +319,21 @@ Limitations:
   `receiveBroadcastStream()` call as a `stream-listen` fact, even if the
   returned stream is never consumed. It does not prove that the call executes,
   a listener is attached, a subscription is active, or an event is received.
+- Git queries run none of the commands a repository configures (see
+  Guarantees), so git reads raw work-tree content and leaves its stat cache
+  alone. `--since` and `affected` therefore count a file as changed when only
+  its timestamps changed, and also a file that a filter normally normalizes
+  (Git LFS and the like) when git's stat cache is stale for it. In a checkout
+  you trust, run `git status` first to refresh the stat cache.
+- In a partial clone (a repository with a promisor remote), git queries do not
+  fetch missing objects. `--since` and `affected` exit 2 when the history they
+  compare is not present locally, so fetch that history first.
+- `impact --format language-traversal` records `revision` only when it can
+  confirm a clean HEAD without running repository commands. A stale filtered
+  file reads as an edit, so `revision` is omitted. A package root with git
+  submodules gets no automatic `revision` either, because git is not run
+  inside them; the document carries a `revision-unverified:` limitation. Pass
+  `--revision` to record the analyzed revision.
 
 Guarantees:
 
@@ -305,10 +342,33 @@ Guarantees:
   `dartograph/<project-root-hash>`. It is invalidated automatically when project
   or dependency contents, mtimes, package resolution, the Dart SDK, or the
   analysis revision change. A missing or corrupted cache never changes results;
-  it only costs analysis time.
+  it only costs analysis time. `--incremental-user-cache` keeps the per-file
+  fact cache in the same directory (`incremental/`, or
+  `incremental-workspace/` with `--workspace`). An explicit
+  `--incremental <dir>` inside the analyzed project is meant for trusted
+  repositories only: that cache reuses facts whose key matches, and a
+  repository could commit forged facts there. dartograph never opens a fact
+  cache file that is a symbolic link, a FIFO, or a socket, or that exceeds
+  1 GiB; it resolves the facts again and reports
+  `incremental-cache-not-read:`.
 - For findings with more than 20 retention roots, dartograph records the total
   count, the first 20 as a sample, and `retentionRootsTruncated: true` to keep
   output bounded. The fact that evidence was truncated is never hidden.
+- Git queries — `--since`, `affected` (and MCP `since`), the clean-HEAD
+  `revision` of `impact --format language-traversal`, and the `--record`
+  ledger commit — never run a command named by the analyzed repository or your
+  git configuration. Every call disables the configured filter drivers
+  (`clean`, `smudge`, `process`) and `core.fsmonitor`, keeps git from
+  rewriting the index (which would run the `post-index-change` hook), turns
+  off external diff and textconv, does not start git inside submodules, and
+  in a partial clone does not let git fetch missing objects from the promisor
+  remote (the fetch would run the remote's transport commands, such as
+  `core.sshCommand` or `remote.<name>.uploadpack`). Two settings that git
+  cannot be told to skip stop the query instead: a filter driver whose name
+  contains `=` or is not valid UTF-8, and a promisor remote when git is older
+  than 2.45. Then `--since` and `affected` exit 2 naming the cause, the
+  traversal document omits `revision` with a `revision-unverified:`
+  limitation, and the ledger entry has no commit.
 
 ## Documents
 

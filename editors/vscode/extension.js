@@ -7,9 +7,15 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { resolveExecutable } = require('./executable');
 const mapper = require('./mapper');
 
 const SAVE_DELAY_MS = 1500;
+
+// 기본 인자는 package.json의 `dartograph.args` 기본값과 같다. 증분 사실 캐시를
+// 작업 공간 밖 사용자 캐시에 둔다 — 작업 공간 안 캐시 디렉터리는 저장소가 위조한
+// 사실이나 FIFO 링크를 커밋해 둘 수 있는 자리다.
+const DEFAULT_ARGS = ['--incremental-user-cache'];
 
 const SEVERITY = {
   warning: () => vscode.DiagnosticSeverity.Warning,
@@ -24,6 +30,7 @@ let saveTimer;
 let running = false;
 let pendingRerun = false;
 let missingExecutable = null;
+let rejectedExecutable = null;
 
 function activate(context) {
   diagnostics = vscode.languages.createDiagnosticCollection('dartograph');
@@ -71,7 +78,7 @@ function config() {
     executable: section.get('executable', 'dartograph'),
     runOnSave: section.get('runOnSave', false),
     minTokens: section.get('minTokens', 40),
-    args: section.get('args', ['--incremental', '.dartograph/cache']),
+    args: section.get('args', DEFAULT_ARGS),
   };
 }
 
@@ -286,22 +293,25 @@ async function removeChangedList(directory) {
 }
 
 /// 명령을 실행해 stdout의 JSON 문서를 돌려준다. 종료 1(발견)도 정상 결과다.
+/// 모든 CLI 실행이 지나는 곳이라 실행 파일 설정을 여기서 검사한다 — 받을 수 없는
+/// 값이면 실행하지 않고 원인을 남긴 뒤 null을 돌려준다.
 function runJson(name, args, cwd) {
   const { executable } = config();
+  const resolved = resolveExecutable(executable);
+  if (!resolved.command) {
+    reportUnusableExecutable(name, executable, resolved);
+    return Promise.resolve(null);
+  }
+  // 받을 수 있는 값으로 고친 뒤 같은 잘못된 값으로 돌아가면 다시 알린다.
+  rejectedExecutable = null;
   return new Promise((resolve) => {
     execFile(
-      executable,
+      resolved.command,
       args,
       { cwd, maxBuffer: 32 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error && error.code === 'ENOENT') {
-          if (missingExecutable !== executable) {
-            missingExecutable = executable;
-            vscode.window.showErrorMessage(
-              `dartograph: '${executable}' not found — ` +
-                'run `dart pub global activate dartograph`',
-            );
-          }
+          notifyMissingExecutable(executable);
           return resolve(null);
         }
         // 숫자 0/1은 정상(1은 발견), 그 밖의 오류(2·64·문자열 코드·signal)를 여기서 잡는다.
@@ -328,6 +338,32 @@ function runJson(name, args, cwd) {
       },
     );
   });
+}
+
+/// 실행하지 않은 이유를 출력 채널에 남긴다. 알림은 같은 설정값에 한 번만 띄워
+/// 저장할 때마다(runOnSave) 다시 뜨지 않게 한다.
+function reportUnusableExecutable(name, executable, resolved) {
+  output.appendLine(`[${name}] not run: ${resolved.reason}`);
+  if (resolved.missing) {
+    notifyMissingExecutable(executable);
+    return;
+  }
+  if (rejectedExecutable === executable) return;
+  rejectedExecutable = executable;
+  vscode.window.showErrorMessage(
+    'dartograph: dartograph.executable must be an absolute path or a ' +
+      'command name on PATH — see output',
+  );
+}
+
+/// 실행 파일을 찾지 못했다는 알림을 같은 설정값에 한 번만 띄운다.
+function notifyMissingExecutable(executable) {
+  if (missingExecutable === executable) return;
+  missingExecutable = executable;
+  vscode.window.showErrorMessage(
+    `dartograph: '${executable}' not found — ` +
+      'run `dart pub global activate dartograph`',
+  );
 }
 
 /// 진단 레코드를 파일별 목록에 추가한다.
