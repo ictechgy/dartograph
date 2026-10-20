@@ -4,6 +4,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { resolveExecutable } = require('../executable');
 
 const posix = { platform: 'linux' };
@@ -18,14 +21,111 @@ function assertRejected(value, options) {
   return result.reason;
 }
 
-// 절대 경로와 경로 구분자 없는 명령 이름은 그대로 실행한다. POSIX의 이름 탐색은
-// execFile(execvp)의 PATH 탐색에 맡긴다.
+// 절대 경로는 탐색 없이 그대로 실행한다.
 assert.deepStrictEqual(resolveExecutable('/opt/dart/bin/dartograph', posix), {
   command: '/opt/dart/bin/dartograph',
 });
-assert.deepStrictEqual(resolveExecutable('dartograph', posix), {
-  command: 'dartograph',
-});
+
+// POSIX: execvp는 PATH의 빈 항목(앞뒤·연속 `:`)과 상대 항목을 cwd(패키지 루트)
+// 기준으로 푼다. 그래서 이름은 PATH의 절대 경로 디렉터리에서만 찾아 그 절대 경로를
+// 넘긴다. 패키지 루트에 심은 같은 이름 파일(`dartograph`, `./dartograph`,
+// `node_modules/.bin/dartograph`)은 후보가 되지 않는다.
+const executables = new Set([
+  'dartograph',
+  './dartograph',
+  'node_modules/.bin/dartograph',
+  '/opt/pub/bin/dartograph',
+  '/usr/bin/dartograph',
+  '/bin/dartograph',
+]);
+const posixProbed = [];
+/// [searchPath]를 PATH로 쓰는 POSIX 탐색 옵션이다. 확인한 경로를 [posixProbed]에 남긴다.
+function posixOn(searchPath) {
+  return {
+    platform: 'linux',
+    searchPath,
+    isExecutable: (file) => {
+      posixProbed.push(file);
+      return executables.has(file);
+    },
+  };
+}
+for (const [searchPath, command] of [
+  [':/usr/bin:/bin', '/usr/bin/dartograph'],
+  ['.:/usr/bin', '/usr/bin/dartograph'],
+  ['node_modules/.bin:/opt/pub/bin', '/opt/pub/bin/dartograph'],
+  ['/empty::/bin:', '/bin/dartograph'],
+  // PATH가 비면 execvp 기본값과 같은 취지의 절대 경로만 본다(cwd를 보지 않는다).
+  ['', '/usr/bin/dartograph'],
+]) {
+  posixProbed.length = 0;
+  assert.deepStrictEqual(
+    resolveExecutable('dartograph', posixOn(searchPath)),
+    { command },
+    searchPath,
+  );
+  // 빈 항목·상대 항목은 확인조차 하지 않는다.
+  assert.ok(
+    posixProbed.every((file) => path.posix.isAbsolute(file)),
+    `${searchPath}: ${posixProbed}`,
+  );
+}
+// 절대 경로 디렉터리에 없으면 실행하지 않는다. 원인은 패키지 폴더를 찾지 않는다는
+// 사실을 알린다.
+for (const searchPath of [':.:node_modules/.bin', '/empty', 'tools:/empty:']) {
+  const result = resolveExecutable('dartograph', posixOn(searchPath));
+  assert.strictEqual(result.command, undefined, searchPath);
+  assert.strictEqual(result.missing, true, searchPath);
+  assert.ok(result.reason.includes('"dartograph"'), result.reason);
+  assert.ok(result.reason.includes('package folder'), result.reason);
+}
+
+// 실제 파일 시스템 확인: 실행 권한 없는 정규 파일과 같은 이름 디렉터리는 건너뛰고
+// 다음 디렉터리의 실행 파일을 고른다. 링크는 대상을 본다.
+if (process.platform !== 'win32') {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dartograph-path-'));
+  try {
+    const directories = ['plain', 'folder', 'run', 'ln'].map((name) =>
+      path.join(scratch, name),
+    );
+    const [plain, folder, runnable, linked] = directories;
+    for (const directory of directories) fs.mkdirSync(directory);
+    fs.writeFileSync(path.join(plain, 'dartograph'), '#!/bin/sh\n', {
+      mode: 0o644,
+    });
+    fs.mkdirSync(path.join(folder, 'dartograph'));
+    fs.writeFileSync(path.join(runnable, 'dartograph'), '#!/bin/sh\n', {
+      mode: 0o755,
+    });
+    fs.symlinkSync(
+      path.join(runnable, 'dartograph'),
+      path.join(linked, 'dartograph'),
+    );
+    assert.deepStrictEqual(
+      resolveExecutable('dartograph', {
+        platform: process.platform,
+        searchPath: [plain, folder, runnable].join(':'),
+      }),
+      { command: path.join(runnable, 'dartograph') },
+    );
+    assert.deepStrictEqual(
+      resolveExecutable('dartograph', {
+        platform: process.platform,
+        searchPath: [plain, linked].join(':'),
+      }),
+      { command: path.join(linked, 'dartograph') },
+    );
+    assert.strictEqual(
+      resolveExecutable('dartograph', {
+        platform: process.platform,
+        searchPath: [plain, folder].join(':'),
+      }).missing,
+      true,
+    );
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
 
 // 상대 경로는 패키지 루트를 기준으로 풀리므로 거부한다. `~`는 셸이 아니라
 // 펼치지 않고, 역슬래시는 Windows 경로를 옮겨 적은 값으로 본다.

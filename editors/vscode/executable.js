@@ -10,18 +10,24 @@ const path = require('path');
 const REMEDY =
   'set it to an absolute path or a command name on PATH in user settings';
 
+/// POSIX에서 PATH가 없거나 비었을 때 찾는 디렉터리다. execvp의 기본 경로와 같은
+/// 취지이고, 모두 절대 경로라 패키지 루트를 보지 않는다.
+const DEFAULT_POSIX_PATH = '/usr/bin:/bin';
+
 /// 실행 파일 설정 [executable]을 execFile에 넘길 명령으로 바꾼다.
 ///
 /// 절대 경로와 경로 구분자 없는 명령 이름만 받는다. 상대 경로(`./x`·`tools/x`·
 /// `~/bin/x`)는 execFile의 cwd인 패키지 루트를 기준으로 풀려 저장소가 커밋한
-/// 파일을 실행하게 되므로 거부한다. Windows에서는 이름도 직접 찾는다 — libuv는
-/// 이름만 받은 실행 파일을 PATH보다 먼저 cwd에서 찾기 때문이다.
+/// 파일을 실행하게 되므로 거부한다. 이름도 PATH의 절대 경로 디렉터리에서 직접
+/// 찾아 그 절대 경로를 넘긴다. Windows의 libuv는 이름만 받은 실행 파일을 PATH보다
+/// 먼저 cwd에서 찾고, POSIX의 execvp는 PATH의 빈 항목(앞뒤·연속 `:`)과 상대
+/// 항목(`.`·`node_modules/.bin`)을 cwd 기준으로 풀기 때문이다.
 ///
 /// [options]는 시험용 주입점이다: `platform`(기본 `process.platform`),
-/// `searchPath`(기본 PATH 환경 변수), `isFile`(기본 파일 시스템 확인).
-/// 반환값은 실행할 수 있으면 `{ command }`, 아니면 `{ reason, missing }`이다.
-/// reason은 출력 채널에 남길 원인과 해결 방향이고, missing은 Windows PATH에서
-/// 찾지 못한 경우에만 true다.
+/// `searchPath`(기본 PATH 환경 변수), `isFile`(Windows 후보 확인, 기본 파일
+/// 시스템), `isExecutable`(POSIX 후보 확인, 기본 파일 시스템). 반환값은 실행할 수
+/// 있으면 `{ command }`, 아니면 `{ reason, missing }`이다. reason은 출력 채널에
+/// 남길 원인과 해결 방향이고, missing은 PATH에서 찾지 못한 경우에만 true다.
 function resolveExecutable(executable, options = {}) {
   const platform = options.platform || process.platform;
   const pathApi = platform === 'win32' ? path.win32 : path.posix;
@@ -38,8 +44,9 @@ function resolveExecutable(executable, options = {}) {
         `path, which would run a file inside the package folder; ${REMEDY}`,
     );
   }
-  if (platform !== 'win32') return { command: executable };
-  return findOnWindowsPath(executable, options);
+  return platform === 'win32'
+    ? findOnWindowsPath(executable, options)
+    : findOnPosixPath(executable, options);
 }
 
 /// 실행할 수 없다는 결과다.
@@ -76,6 +83,25 @@ function findOnWindowsPath(name, options) {
       if (isFile(file)) return { command: file };
     }
   }
+  return notFoundOnPath(name);
+}
+
+/// POSIX PATH의 절대 경로 디렉터리에서 [name]을 찾는다. execvp가 cwd(패키지
+/// 루트) 기준으로 푸는 빈 항목과 상대 항목은 건너뛴다. 남은 디렉터리는 execvp와
+/// 같은 순서로 보고, 실행 권한이 있는 정규 파일만 고른다.
+function findOnPosixPath(name, options) {
+  const searchPath = options.searchPath ?? process.env.PATH;
+  const isExecutable = options.isExecutable || isExecutableFile;
+  for (const directory of (searchPath || DEFAULT_POSIX_PATH).split(':')) {
+    if (!path.posix.isAbsolute(directory)) continue;
+    const file = path.posix.join(directory, name);
+    if (isExecutable(file)) return { command: file };
+  }
+  return notFoundOnPath(name);
+}
+
+/// PATH의 절대 경로 디렉터리에서 [name]을 찾지 못했다는 결과다.
+function notFoundOnPath(name) {
   return {
     reason:
       `${JSON.stringify(name)} was not found in an absolute directory on ` +
@@ -102,6 +128,20 @@ function isRegularFile(file) {
   } catch {
     // ENOTDIR·EACCES처럼 읽을 수 없는 후보는 '여기에 없음'으로 보고 다음 후보를
     // 본다. libuv와 cmd.exe도 읽지 못한 PATH 디렉터리를 건너뛰고 계속 찾는다.
+    return false;
+  }
+}
+
+/// [file]이 지금 사용자가 실행할 수 있는 정규 파일이면 true다(링크는 따라간다).
+function isExecutableFile(file) {
+  try {
+    const stat = fs.statSync(file, { throwIfNoEntry: false });
+    if (stat === undefined || !stat.isFile()) return false;
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    // 실행 권한이 없거나(EACCES) 읽을 수 없는(ENOTDIR 등) 후보는 '여기에 없음'으로
+    // 보고 다음 디렉터리를 본다. execvp도 그런 후보를 건너뛰고 계속 찾는다.
     return false;
   }
 }

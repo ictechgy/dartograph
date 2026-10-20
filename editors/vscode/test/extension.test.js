@@ -391,9 +391,41 @@ async function checkExecutableBoundary(scratch, root) {
   assert.strictEqual(fs.existsSync(record), true, outputLines.join('\n'));
   assert.strictEqual(fs.existsSync(marker), false, 'the planted script ran');
 
-  // 확장은 설정값이 아니라 해석기가 고른 명령을 실행한다 — Windows에서 PATH로
-  // 찾은 절대 경로가 그 명령이다. 설정값 그대로라면 이 이름은 PATH에 없다.
+  // 사용자 PATH에 빈 항목이나 상대 항목이 있어도 패키지 폴더를 찾지 않는다.
+  // execvp는 그런 항목을 cwd(패키지 루트) 기준으로 풀어 심은 스크립트를 실행한다.
+  // 심은 스크립트가 쓰는 node만 절대 경로 디렉터리에 둔다.
   fs.rmSync(record);
+  const nodeOnly = path.join(scratch, 'node-only');
+  fs.mkdirSync(nodeOnly);
+  fs.symlinkSync(process.execPath, path.join(nodeOnly, 'node'));
+  writeScript(
+    path.join(root, 'node_modules', '.bin', 'dartograph'),
+    markerCliSource(marker),
+  );
+  for (const searchPath of [
+    `:${nodeOnly}`,
+    `.:${nodeOnly}`,
+    `${nodeOnly}::`,
+    `node_modules/.bin:${nodeOnly}`,
+  ]) {
+    await withEnvironment('PATH', searchPath, () =>
+      runWithExecutable('dartograph.checkImpact', 'dartograph'),
+    );
+    assert.strictEqual(fs.existsSync(marker), false, `ran for ${searchPath}`);
+    assert.strictEqual(fs.existsSync(record), false, searchPath);
+    assert.strictEqual(outputLines.length, 1, outputLines);
+    assert.ok(
+      outputLines[0].startsWith(
+        '[impact] not run: "dartograph" was not found in an absolute ' +
+          'directory on PATH',
+      ),
+      outputLines[0],
+    );
+  }
+
+  // 확장은 설정값이 아니라 해석기가 고른 명령을 실행한다 — PATH에서 찾은 절대
+  // 경로가 그 명령이다. 설정값 그대로라면 이 이름은 PATH에 없다.
+  fs.rmSync(record, { force: true });
   resolveOverride = () => ({ command: path.join(bin, 'dartograph') });
   try {
     await runWithExecutable('dartograph.checkImpact', 'dartograph-elsewhere');

@@ -697,8 +697,11 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
 - `dartograph.executable`은 machine 범위 설정이라 사용자(원격) 설정에서만 정한다. 작업
   공간 `.vscode/settings.json`의 값은 신뢰한 작업 공간에서도 무시된다. 값은 절대 경로나
   PATH의 명령 이름이어야 한다. `./tools/dartograph` 같은 상대 경로는 패키지 폴더 기준으로
-  풀리므로 실행하지 않고 출력 채널에 이유를 남긴다. Windows에서는 명령 이름을 PATH의 절대
-  경로 디렉터리에서만 찾는다(그러지 않으면 Node가 패키지 폴더를 PATH보다 먼저 찾는다).
+  풀리므로 실행하지 않고 출력 채널에 이유를 남긴다. 명령 이름은 PATH의 절대 경로
+  디렉터리에서만 찾아 찾은 경로를 실행한다. 그러지 않으면 Windows에서는 Node가 패키지
+  폴더를 PATH보다 먼저 찾고, 다른 OS에서는 PATH의 빈 항목(앞뒤·연속 `:`)이나 `.` 같은
+  상대 항목이 패키지 폴더 기준으로 풀린다. POSIX에서는 실행 권한이 있는 정규 파일만 고르고,
+  PATH가 비었으면 `/usr/bin:/bin`을 찾는다.
 - 확장은 제한 모드(신뢰하지 않는 작업 공간)에서도 켜진다. 이때 `dartograph.executable`·
   `dartograph.args`·`dartograph.runOnSave`는 사용자 설정 값만 쓴다. 작업 공간을 신뢰하면
   작업 공간의 `dartograph.args`·`dartograph.runOnSave`가 적용된다.
