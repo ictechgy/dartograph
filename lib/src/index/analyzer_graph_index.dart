@@ -491,6 +491,13 @@ final class AnalyzerGraphIndex {
       linkEscapes: linkEscapes,
       workspace: workspace,
     );
+    // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
+    // 갱신 여부와 무관하게 출력에 드러나야 한다.
+    if (incremental.stats.cacheNotRead) {
+      result = result.withAddedLimitationDetail(
+        _cacheNotReadDetail(incremental.readLimit),
+      );
+    }
     incremental.stats
       ..resolvedFiles = resolved.length
       ..reusedFiles = sources.length - resolved.length;
@@ -538,6 +545,22 @@ const incrementalCacheWriteFailurePrefix = 'incremental-cache-write-failed:';
 const _cacheWriteFailureDetail =
     '$incrementalCacheWriteFailurePrefix analysis is complete but the fact '
     'cache was not updated';
+
+/// 사실 캐시 파일을 열지 않고 버렸다는 limitation이다.
+///
+/// 쓰기 실패와 같이 경로를 넣지 않는다. 분석 결과는 전체 해석과 같다 — 버린
+/// 캐시 대신 모든 파일을 다시 해석했다. 접두사는 MCP 세션 캐시의 쓰기 실패
+/// 감지([incrementalCacheWriteFailurePrefix])와 겹치지 않는다. 상한 표기는
+/// 분석 입력 상한 진단과 같은 형식이다.
+String _cacheNotReadDetail(int readLimit) {
+  const mebibyte = 1024 * 1024;
+  final limit = readLimit % mebibyte == 0
+      ? '${readLimit ~/ mebibyte} MiB'
+      : '$readLimit-byte';
+  return 'incremental-cache-not-read: the fact cache file is a symbolic link, '
+      'is not a regular file, or exceeds the $limit read limit; it was ignored '
+      'and every file was resolved again';
+}
 
 /// [path]를 루트 기준 posix 상대 경로로 바꾼다. 루트 밖이면 null이다.
 String? _relativeSourcePath(String path, String root) {

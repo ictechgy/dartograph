@@ -65,13 +65,17 @@ dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir>
 dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir>] [--workspace] [--record <dir>] <package-root>
 ```
 
-`--incremental <dir>`는 분석·색인 명령(graph·dead·deps·query·compare·affected·
+`--incremental <dir>`는 분석·색인 명령(graph·dead·deps·dup·query·compare·affected·
 impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일별 사실 캐시를 두고 다음
 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시 해석한다. 산출물은
 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가 다르거나 쓸 수 없으면
-전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을 limitation으로
-남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면
-폐쇄가 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
+전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을 때만 그 사실을
+`incremental-cache-write-failed:` limitation으로 남긴다). 캐시 파일 `<dir>/facts.json`이
+심볼릭 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
+모든 파일을 다시 해석하며, 그 사실을 `incremental-cache-not-read:` limitation으로
+남긴다. 그 실행의 캐시 쓰기가 링크 자리를 정규 파일로 바꾸고, 링크 대상은 건드리지
+않는다. 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면 폐쇄가
+사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
 
 같은 명령에 `runtime`을 더해 `--workspace`를 받는다 — pub workspace 집계를
 옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께

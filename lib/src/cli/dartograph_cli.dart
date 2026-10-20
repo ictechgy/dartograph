@@ -4137,7 +4137,10 @@ baseline, cycles, rules, metrics)은 --incremental <dir>를 받는다. 디렉터
 캐시를 두고 다음 실행에서 바뀐 파일과 그 파일을 import·export하는 폐쇄만 다시
 해석한다. 산출물은 전체 해석과 byte 동일하다. 캐시가 없거나 손상됐거나 스키마가
 다르거나 쓸 수 없으면 전체 해석으로 폴백하고 오류로 끝내지 않는다(쓸 수 없을
-때만 그 사실을 limitation으로 남긴다). 캐시 디렉터리는 프로젝트마다 따로 쓴다.
+때만 그 사실을 limitation으로 남긴다). 캐시 파일 <dir>/facts.json이 심볼릭
+링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
+모든 파일을 다시 해석하며 incremental-cache-not-read: limitation을 남긴다.
+캐시 디렉터리는 프로젝트마다 따로 쓴다.
 
 The same commands accept --workspace (runtime too), which opts into pub
 workspace aggregation: members listed in the root pubspec's workspace: list

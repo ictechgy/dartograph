@@ -169,6 +169,93 @@ void main() {
   );
 
   test(
+    'a planted facts.json link is not opened and the run completes',
+    () async {
+      // 훅·편집기의 옛 기본값처럼 분석 대상 안 `.dartograph/cache`를 쓴다.
+      // 저장소는 이 자리에 링크를 커밋할 수 있다. 숨김 디렉터리라 분석 입력은
+      // 아니므로, 결과는 캐시 없는 실행과 같고 버린 사실만 한계로 남아야 한다.
+      final plain = await _run(['dead', '--format', 'json', root.path]);
+      final plainDocument = jsonDecode(plain.output) as Map<String, Object?>;
+      final genuine = p.join(workspace.path, 'genuine');
+      final seeded = await _run([
+        'dead',
+        '--format',
+        'json',
+        '--incremental',
+        genuine,
+        root.path,
+      ]);
+      expect(seeded.status, plain.status, reason: seeded.error);
+      final genuineFacts = File(p.join(genuine, 'facts.json'));
+      final genuineContents = genuineFacts.readAsStringSync();
+      final fifo = p.join(workspace.path, 'pipe');
+      final mkfifo = await Process.run('mkfifo', [fifo]);
+      expect(mkfifo.exitCode, 0, reason: mkfifo.stderr as String);
+      const notRead =
+          'incremental-cache-not-read: the fact cache file is a symbolic '
+          'link, is not a regular file, or exceeds the 1024 MiB read limit; it '
+          'was ignored and every file was resolved again';
+      // dead finding은 전역 한계 목록을 함께 싣는다. 버린 캐시의 한계만 빼면
+      // 문서 전체가 캐시 없는 실행과 같아야 한다.
+      Object? withoutNotRead(Object? value) => switch (value) {
+        Map() => {
+          for (final entry in value.entries)
+            entry.key: withoutNotRead(entry.value),
+        },
+        List() => [
+          for (final item in value)
+            if (item != notRead) withoutNotRead(item),
+        ],
+        _ => value,
+      };
+
+      // /dev/null은 수정 전 코드도 멈추지 않는 장치 대역이다(/dev/zero라면
+      // 메모리를 채운다). 쓰는 쪽 없는 FIFO는 수정 전 코드가 열기에서 영구
+      // 대기하던 입력이라 마지막에 둔다.
+      for (final target in [genuineFacts.path, '/dev/null', fifo]) {
+        final cache = Directory(p.join(root.path, '.dartograph', 'cache'));
+        if (cache.existsSync()) cache.deleteSync(recursive: true);
+        cache.createSync(recursive: true);
+        final facts = p.join(cache.path, 'facts.json');
+        Link(facts).createSync(target);
+
+        final run = await _run([
+          'dead',
+          '--format',
+          'json',
+          '--incremental',
+          cache.path,
+          root.path,
+        ]);
+
+        expect(run.status, plain.status, reason: '$target: ${run.error}');
+        final document = jsonDecode(run.output) as Map<String, Object?>;
+        expect(
+          (document['limitations']! as List<Object?>).where(
+            (item) => item == notRead,
+          ),
+          hasLength(1),
+          reason: target,
+        );
+        expect(withoutNotRead(document), plainDocument, reason: target);
+        // 이번 쓰기가 링크 자리를 정규 파일로 바꾼다. 링크 대상은 그대로다.
+        expect(
+          FileSystemEntity.typeSync(facts, followLinks: false),
+          FileSystemEntityType.file,
+          reason: target,
+        );
+      }
+      expect(genuineFacts.readAsStringSync(), genuineContents);
+      expect(
+        FileSystemEntity.typeSync(fifo, followLinks: false),
+        FileSystemEntityType.pipe,
+      );
+    },
+    skip: Platform.isWindows,
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  test(
     'stale or malformed package_config entries do not fail analysis',
     () async {
       final configuration = File(

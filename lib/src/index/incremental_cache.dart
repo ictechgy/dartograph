@@ -66,6 +66,14 @@ final class IncrementalStats {
   /// limitation으로 출력에 남는다 — 입력이 바뀌어 저장을 건너뛴 경우는 전체
   /// 해석 경로와 같이 조용히 넘어간다.
   bool cacheNotUpdated = false;
+
+  /// 마지막 [IncrementalCache.load]가 캐시 파일을 열지 않고 버렸는지 여부다.
+  ///
+  /// 캐시 파일이 심볼릭 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나
+  /// 읽기 상한([IncrementalCache.readLimit])을 넘은 경우다. 사실은 전부 다시 해석되고,
+  /// 호출자가 그 사실을 limitation으로 남긴다. 형식 오류·스키마 불일치·권한
+  /// 실패는 여기에 들지 않는다 — 지금처럼 조용한 캐시 미스다.
+  bool cacheNotRead = false;
 }
 
 /// 파일 단위 사실 캐시다.
@@ -78,14 +86,30 @@ final class IncrementalStats {
 /// 읽을 수 없으면 빈 캐시로 취급해 전체 분석으로 폴백한다. 오류로 끝내지 않는다.
 final class IncrementalCache {
   /// [directory]를 캐시 디렉터리로 삼는다. 없으면 쓸 때 만든다.
-  IncrementalCache(this.directory, {IncrementalStats? stats})
-    : stats = stats ?? IncrementalStats();
+  ///
+  /// [readLimit]은 테스트가 캐시 파일 읽기 상한을 줄일 때만 지정한다.
+  IncrementalCache(
+    this.directory, {
+    IncrementalStats? stats,
+    this.readLimit = defaultReadLimit,
+  }) : stats = stats ?? IncrementalStats();
 
   /// 호출자가 지정한 캐시 디렉터리다(`--incremental <dir>`).
   final String directory;
 
   /// 이 인스턴스로 실행한 마지막 분석의 관측값이다.
   final IncrementalStats stats;
+
+  /// 캐시 파일에서 읽을 수 있는 최대 바이트 수다.
+  final int readLimit;
+
+  /// [readLimit]의 기본값인 1 GiB다.
+  ///
+  /// 리뷰가 잰 가장 큰 캐시 파일은 analyzer 코퍼스(1,568파일, `dup` 토큰 사실
+  /// 포함)의 183.7 MB였다. 1 GiB는 그 다섯 배를 넘어 정상 캐시를 거부하지
+  /// 않는다. 정상 메모리 예산이 아니라 폭주 방지선이다 — 길이를 0으로 보고하며
+  /// 끝없이 읽히는 파일이나 거대한 파일이 메모리를 다 쓰기 전에 멈춘다.
+  static const defaultReadLimit = 1024 * 1024 * 1024;
 
   /// 캐시 파일이다.
   File get file => File(p.join(directory, _fileName));
@@ -143,10 +167,24 @@ final class IncrementalCache {
   }
 
   /// 캐시를 읽는다. 없거나 손상됐으면 빈 맵을 돌려준다.
+  ///
+  /// 캐시 파일 자리가 정규 파일이 아니거나 [readLimit]을 넘으면 열지 않고 빈
+  /// 맵을 돌려주며 [IncrementalStats.cacheNotRead]로 알린다([_readCacheFile]).
   Future<Map<String, CachedFacts>> load() async {
+    stats.cacheNotRead = false;
+    final String? text;
     try {
-      if (!file.existsSync()) return const {};
-      final decoded = jsonDecode(await file.readAsString());
+      text = await _readCacheFile();
+    } on _CacheFileRejected {
+      stats.cacheNotRead = true;
+      return const {};
+    } on Object {
+      // 권한 실패·디코드 실패는 지금처럼 캐시 미스다. 전체 분석이 복구 경로다.
+      return const {};
+    }
+    if (text == null) return const {};
+    try {
+      final decoded = jsonDecode(text);
       if (decoded is! Map) return const {};
       if (decoded['schemaVersion'] != schemaVersion) return const {};
       final entries = decoded['entries'];
@@ -159,8 +197,45 @@ final class IncrementalCache {
       }
       return result;
     } on Object {
-      // 형식 오류·읽기 실패 모두 캐시 미스와 같다. 전체 분석이 복구 경로다.
+      // 형식 오류는 캐시 미스와 같다. 전체 분석이 복구 경로다.
       return const {};
+    }
+  }
+
+  /// 캐시 파일의 내용이다. 파일이 없거나 그 자리가 디렉터리면 null이다.
+  ///
+  /// 링크를 따라가지 않고 판정해 정규 파일만 연다. 캐시 디렉터리가 분석 대상
+  /// 안에 있으면 저장소가 이 자리에 FIFO를 가리키는 링크(열기에서 영구 대기)나
+  /// `/dev/zero` 링크(메모리 소진), 위조한 캐시를 가리키는 링크를 커밋할 수
+  /// 있다. 그래서 심볼릭 링크·FIFO·소켓은 대상이 무엇이든 열지 않고
+  /// [_CacheFileRejected]다. 디렉터리는 열어도 멈추지 않고, 다음 쓰기의 실패가
+  /// limitation으로 드러나므로 부재와 같이 둔다. dart:io는 그 자리에 직접 만든
+  /// 장치 노드를 notFound로 보므로 그것도 열지 않는다(git은 장치 노드를 담지
+  /// 못해 저장소가 심을 수 없다).
+  ///
+  /// 정규 파일은 길이가 [readLimit]을 넘으면 읽기 전에 거부하고, 아니면 연
+  /// 시점의 길이만큼만 읽는다. 길이를 0으로 보고하는 파일(빈 파일이나 가상
+  /// 파일)은 상한까지 나눠 읽는다. 판정과 열기 사이에 항목을 바꾸는 동시 실행
+  /// 공격자는 범위 밖이다(`AtomicWrite`와 같은 경계).
+  Future<String?> _readCacheFile() async {
+    final type = await FileSystemEntity.type(file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound ||
+        type == FileSystemEntityType.directory) {
+      return null;
+    }
+    if (type != FileSystemEntityType.file) throw const _CacheFileRejected();
+    final length = await file.length();
+    if (length > readLimit) throw const _CacheFileRejected();
+    if (length > 0) return file.readAsString();
+    try {
+      return await readBoundedFile(
+        file,
+        readLimit,
+        tooLargeMessage: 'fact cache file exceeds the read limit',
+      );
+    } on FormatException {
+      // 상한 초과, 또는 판정 뒤 정규 파일이 아니게 된 경우다.
+      throw const _CacheFileRejected();
     }
   }
 
@@ -169,6 +244,10 @@ final class IncrementalCache {
   /// 교체는 임시 파일 + rename이다(append-only가 아니다). 중단돼도 이전 캐시가
   /// 남아 반쯤 갱신된 상태가 되지 않는다. 쓰지 못하면 false를 돌려주고, 호출자가
   /// 분석은 그대로 마치되 그 사실을 limitation으로 남긴다.
+  ///
+  /// 캐시 파일 자리의 링크는 rename이 링크 자체를 교체하므로 링크 대상에 쓰지
+  /// 않는다. 디렉터리 생성은 경로 중간의 링크를 따라간다. 사용자가 명시한
+  /// 디렉터리(신뢰하는 저장소 전용)와 사용자 소유 캐시 위치에만 쓰므로 허용한다.
   Future<bool> store(Map<String, CachedFacts> entries) async {
     try {
       await Directory(directory).create(recursive: true);
@@ -190,4 +269,11 @@ final class IncrementalCache {
 
   static String _digest(List<String> parts) =>
       sha256.convert(utf8.encode('${parts.join('\u0000')}\u0000')).toString();
+}
+
+/// 캐시 파일을 열지 않고 버렸다는 내부 신호다.
+///
+/// [IncrementalCache.load]가 잡아 [IncrementalStats.cacheNotRead]로 바꾼다.
+final class _CacheFileRejected implements Exception {
+  const _CacheFileRejected();
 }
