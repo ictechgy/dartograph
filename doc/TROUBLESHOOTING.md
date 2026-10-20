@@ -43,6 +43,15 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   git 설정(저장소나 전역)의 `[filter "<이름>"]` 이름에 `=`가 있거나 UTF-8이 아니면 git이 그
   드라이버를 건너뛰게 할 수 없다. dartograph는 그 명령을 실행하지 않으려고 git을 부르지 않고 2로
   끝난다. 드라이버 이름을 바꾸거나 그 절을 지운다.
+- **`Changed files could not be computed: the git configuration names a promisor remote ...`**
+  부분 클론(`git clone --filter=…`처럼 promisor 원격이 있는 저장소)인데 git이 2.45 미만이다. 그런
+  git은 없는 객체를 원격에서 가져오는 fetch를 끌 수 없고, 그 fetch는 원격 설정의 명령을 실행한다.
+  dartograph는 git을 부르지 않고 2로 끝난다. git을 2.45 이상으로 올린다. language-traversal은 같은
+  이유로 `revision`을 생략하고 `revision-unverified:`를 단다.
+- **`Changed files could not be computed. In a partial clone, ...`** 부분 클론에 비교할 이력(기준
+  커밋이나 그 tree)이 로컬에 없다. 사용자의 git은 없는 객체를 그때그때 가져와 같은 비교가
+  성공하지만, dartograph는 가져오지 않는다. 비교할 기준을 `git fetch`로 먼저 받는다. CI에서는
+  전체 이력을 fetch한다.
 - **`--since`·`affected`의 변경 파일이 기대보다 많다.** git 조회가 stat 캐시를 새로 고치지 않아,
   내용은 같고 시각만 바뀐 파일과 git-lfs처럼 filter가 정규화하던 파일도 변경으로 센다. 신뢰하는
   checkout이면 먼저 `git status`를 실행한다.

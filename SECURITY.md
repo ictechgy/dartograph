@@ -68,7 +68,13 @@ diff에는 `diff.autoRefreshIndex=false`를 붙여 index를 다시 쓰지 않는
 `post-index-change` 훅이 돈다. diff에는 `--no-ext-diff --no-textconv`를, 작업 트리를 보는 diff와
 status에는 `--ignore-submodules=all`을 붙여 서브모듈 저장소의 설정을 따르는 git을 띄우지 않는다.
 `=`가 들었거나 UTF-8이 아닌 드라이버 이름은 `-c`로 덮을 수 없으므로 git을 실행하지 않는다
-(fail-closed). 그 대가로 git-lfs처럼 filter가 정규화하던 파일은 stat 정보가 낡으면 바뀐 것으로
+(fail-closed). 부분 클론에서 git은 조회에 필요한 객체가 없으면 promisor 원격에서 fetch를 띄우고,
+그 fetch는 원격의 전송 설정이 정한 명령(ssh URL의 `core.sshCommand`, 로컬 경로 URL의
+`remote.<이름>.uploadpack` 등)을 실행한다. 그래서 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 같은
+`git config` 목록에 promisor 원격(`extensions.partialClone`, `remote.<이름>.promisor`,
+`remote.<이름>.partialCloneFilter`)이 있으면 `--no-lazy-fetch`를 붙인다. 이 옵션을 모르는
+git(2.45 미만)이면 부분 클론에서 git을 실행하지 않는다(fail-closed). 이름 변경 감지는 옛 내용을
+읽으므로 diff에는 `--no-renames`를 붙인다. 바뀐 파일 목록은 같다. 그 대가로 git-lfs처럼 filter가 정규화하던 파일은 stat 정보가 낡으면 바뀐 것으로
 보이고, `--since`는 stat만 바뀐 파일도 변경으로 센다(보수적 방향). 깨끗한 HEAD 판정은 그런 파일이나
 서브모듈이 있으면 revision을 싣지 않는다. PATH의 git 실행 파일과 git이 설정 파일을 읽는 동작
 자체(include가 가리키는 파일 포함)는 여전히 신뢰 경계 안이다.

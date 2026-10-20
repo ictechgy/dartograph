@@ -325,6 +325,9 @@ Limitations:
   its timestamps changed, and also a file that a filter normally normalizes
   (Git LFS and the like) when git's stat cache is stale for it. In a checkout
   you trust, run `git status` first to refresh the stat cache.
+- In a partial clone (a repository with a promisor remote), git queries do not
+  fetch missing objects. `--since` and `affected` exit 2 when the history they
+  compare is not present locally, so fetch that history first.
 - `impact --format language-traversal` records `revision` only when it can
   confirm a clean HEAD without running repository commands. A stale filtered
   file reads as an edit, so `revision` is omitted. A package root with git
@@ -357,11 +360,15 @@ Guarantees:
   git configuration. Every call disables the configured filter drivers
   (`clean`, `smudge`, `process`) and `core.fsmonitor`, keeps git from
   rewriting the index (which would run the `post-index-change` hook), turns
-  off external diff and textconv, and does not start git inside submodules. A
-  filter driver whose name git cannot be told to skip (it contains `=` or is
-  not valid UTF-8) stops the query: `--since` and `affected` exit 2 naming the
-  cause, and the traversal document omits `revision` with a
-  `revision-unverified:` limitation.
+  off external diff and textconv, does not start git inside submodules, and
+  in a partial clone does not let git fetch missing objects from the promisor
+  remote (the fetch would run the remote's transport commands, such as
+  `core.sshCommand` or `remote.<name>.uploadpack`). Two settings that git
+  cannot be told to skip stop the query instead: a filter driver whose name
+  contains `=` or is not valid UTF-8, and a promisor remote when git is older
+  than 2.45. Then `--since` and `affected` exit 2 naming the cause, the
+  traversal document omits `revision` with a `revision-unverified:`
+  limitation, and the ledger entry has no commit.
 
 ## Documents
 
