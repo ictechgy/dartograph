@@ -37,7 +37,8 @@ inputs:
   version:
     description: >-
       dartograph version to activate from pub.dev. Leave empty for the latest
-      published release.
+      published release; the install step then prints a notice. Pin it together
+      with the action commit SHA so every run installs the same release.
     required: false
     default: ''
   source-path:
@@ -88,6 +89,16 @@ runs:
           dart pub global activate dartograph "$DARTOGRAPH_VERSION"
         else
           dart pub global activate dartograph
+          # 빈 version은 실행 시점의 pub.dev 최신 릴리스를 설치한다. 액션을 커밋
+          # SHA로 고정해도 실행할 CLI는 고정되지 않으므로 notice로 고정을 권한다.
+          # 문구는 고정이고, pub이 보고한 값은 일반 릴리스 버전 꼴일 때만 싣는다.
+          installed="$(dart pub global list | awk '$1 == "dartograph" && !seen { print $2; seen = 1 }')" || installed=''
+          release='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'
+          if [[ "$installed" =~ $release ]]; then
+            echo "::notice title=dartograph version not pinned::The version input is empty, so this run installed the latest dartograph release on pub.dev ($installed). Set version: $installed and pin the action to a commit SHA so every run installs the same release."
+          else
+            echo "::notice title=dartograph version not pinned::The version input is empty, so this run installed the latest dartograph release on pub.dev. Set version to a published release and pin the action to a commit SHA so every run installs the same release."
+          fi
         fi
         echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
     - name: Resolve package dependencies

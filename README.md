@@ -211,6 +211,18 @@ Full arguments, output formats, exit codes, and CI examples live in
   GitHub Actions: it activates a published release (or a checked-out source
   path), analyzes a package, and writes one report file. See the pinned example
   workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
+  Pin both the action and the CLI release: the commit SHA (of the release tag)
+  fixes the action itself, and `version` fixes the dartograph release it
+  installs. With an empty `version`, every run installs the latest release on
+  pub.dev and the action prints a notice.
+  ```yaml
+  - uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+    with:
+      version: 0.16.2
+      command: dead
+      args: --format sarif
+      output-file: dead.sarif
+  ```
 - `skill` prints a ready-to-paste skill — or installs it into a directory with
   `--install <dir>` — that teaches a coding agent how to drive dartograph for
   evidence-backed answers.

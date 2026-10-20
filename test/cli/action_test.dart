@@ -30,6 +30,149 @@ void main() {
     expect(shellSteps, greaterThan(0));
   });
 
+  // 설치 단계는 version이 비면 실행 시점의 pub.dev 최신 릴리스를 설치한다.
+  // 액션을 커밋 SHA로 고정해도 그 CLI는 고정되지 않으므로, 그때만 고정을 권하는
+  // notice를 남긴다. 버전을 고정했거나 소스 경로를 주면 기존 설치 명령 하나만
+  // 실행한다. Bash 경계 테스트라 Windows에서 건너뛴다.
+  group('action install step', () {
+    late Directory temporary;
+    late File sdkCalls;
+    late File githubPath;
+    late Map<String, String> environment;
+    late String script;
+
+    setUp(() {
+      final document = loadYaml(File('action.yml').readAsStringSync());
+      final steps = (document['runs']['steps'] as YamlList).cast<YamlMap>();
+      final installStep = steps.singleWhere(
+        (step) => step['name'] == 'Install dartograph',
+      );
+      script = installStep['run'] as String;
+      temporary = Directory.systemTemp.createTempSync('dartograph-install-');
+      sdkCalls = File('${temporary.path}/sdk-calls.txt');
+      githubPath = File('${temporary.path}/github-path');
+      // 가짜 SDK는 호출마다 argv를 `[인자]` 묶음 한 줄로 기록한다. `pub global
+      // list`는 PUB_LIST를 그대로 내 pub이 보고하는 설치 목록을 흉내 낸다.
+      final fakeDart = File('${temporary.path}/dart')
+        ..writeAsStringSync(r'''#!/usr/bin/env bash
+for argument in "$@"; do printf '[%s]' "$argument"; done >> "$SDK_CALLS"
+printf '\n' >> "$SDK_CALLS"
+case "$1 $2 $3" in
+  'pub global activate') exit "${PUB_ACTIVATE_STATUS:-0}" ;;
+  'pub global list') printf '%s' "$PUB_LIST"; exit "${PUB_LIST_STATUS:-0}" ;;
+esac
+exit 99
+''');
+      expect(Process.runSync('chmod', ['+x', fakeDart.path]).exitCode, 0);
+      environment = {
+        'PATH': '${temporary.path}:${Platform.environment['PATH']}',
+        'HOME': '${temporary.path}/home',
+        'GITHUB_PATH': githubPath.path,
+        'SDK_CALLS': sdkCalls.path,
+        'DARTOGRAPH_SOURCE_PATH': '',
+        'DARTOGRAPH_VERSION': '',
+        'PUB_LIST': 'webdev 3.7.1\ndartograph 0.16.2\n',
+      };
+    });
+
+    tearDown(() => temporary.deleteSync(recursive: true));
+
+    Future<ProcessResult> install([Map<String, String> overrides = const {}]) {
+      return Process.run(
+        'bash',
+        ['-c', script],
+        workingDirectory: temporary.path,
+        environment: {...environment, ...overrides},
+      );
+    }
+
+    List<String> recordedCalls() => sdkCalls.existsSync()
+        ? const LineSplitter().convert(sdkCalls.readAsStringSync())
+        : const [];
+
+    /// 러너가 워크플로 명령으로 읽는 줄(`::`로 시작)을 stdout·stderr에서 모은다.
+    List<String> workflowCommands(ProcessResult result) => [
+      for (final stream in [result.stdout, result.stderr])
+        for (final line in const LineSplitter().convert(stream as String))
+          if (line.startsWith('::')) line,
+    ];
+
+    String pubBin() => '${temporary.path}/home/.pub-cache/bin\n';
+
+    test('empty version installs the latest release with a notice', () async {
+      final result = await install();
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      final commands = workflowCommands(result);
+      expect(commands, hasLength(1), reason: '${result.stdout}');
+      expect(commands.single, startsWith('::notice '));
+      // 고정할 값을 바로 옮길 수 있게 pub이 보고한 설치 버전을 싣는다.
+      expect(commands.single, contains('0.16.2'));
+      // 설치 명령은 그대로 하나이고, 버전은 읽기 전용 목록 조회로 얻는다.
+      expect(recordedCalls(), [
+        '[pub][global][activate][dartograph]',
+        '[pub][global][list]',
+      ]);
+      expect(githubPath.readAsStringSync(), pubBin());
+    });
+
+    for (final (name, overrides, call) in [
+      (
+        'a pinned version',
+        {'DARTOGRAPH_VERSION': '0.16.2'},
+        '[pub][global][activate][dartograph][0.16.2]',
+      ),
+      (
+        'a source path',
+        {
+          'DARTOGRAPH_SOURCE_PATH': 'source path 한글',
+          'DARTOGRAPH_VERSION': '0.16.2',
+        },
+        '[pub][global][activate][--source][path][source path 한글]',
+      ),
+    ]) {
+      test('$name installs with the same command and no notice', () async {
+        final result = await install(overrides);
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+        expect(recordedCalls(), [call]);
+        expect(workflowCommands(result), isEmpty);
+        expect(githubPath.readAsStringSync(), pubBin());
+      });
+    }
+
+    test('notice quotes only a plain release version from pub', () async {
+      // pub이 dartograph 줄을 내지 않거나 실패하거나 버전 꼴이 아닌 값을 내도
+      // 설치는 성공한 그대로 두고 버전 없는 notice 한 줄만 남긴다.
+      for (final (list, status) in [
+        ('webdev 3.7.1\n', '0'),
+        ('dartograph 0.16.2\n', '1'),
+        ('dartograph ::error::forged\n', '0'),
+        ('dartograph 0.16.2%0A::warning::forged\n', '0'),
+      ]) {
+        if (githubPath.existsSync()) githubPath.deleteSync();
+        final result = await install({
+          'PUB_LIST': list,
+          'PUB_LIST_STATUS': status,
+        });
+        final reason = '$list (status $status): ${result.stdout}';
+        expect(result.exitCode, 0, reason: reason);
+        final commands = workflowCommands(result);
+        expect(commands, hasLength(1), reason: reason);
+        expect(commands.single, startsWith('::notice '), reason: reason);
+        expect(commands.single, isNot(contains('0.16.2')), reason: reason);
+        expect(commands.single, isNot(contains('forged')), reason: reason);
+        expect(githubPath.readAsStringSync(), pubBin(), reason: reason);
+      }
+    });
+
+    test('failed install stops before the notice and PATH entry', () async {
+      final result = await install({'PUB_ACTIVATE_STATUS': '65'});
+      expect(result.exitCode, 65);
+      expect(recordedCalls(), ['[pub][global][activate][dartograph]']);
+      expect(workflowCommands(result), isEmpty);
+      expect(githubPath.existsSync(), isFalse);
+    });
+  }, skip: Platform.isWindows);
+
   // 합성 액션의 Bash 경계 테스트는 Windows에서 건너뛴다.
   group('action argument and report contract', () {
     late Directory temporary;

@@ -794,6 +794,30 @@ steps:
   결과 목록에서 찾지 말고 원본 파일에서 확인한다.
 - 위 예시의 액션 핀은 작성 시점 기준이며, 액션 버전은 저장소 정책에 맞춰 갱신한다.
 
+## 합성 GitHub Action 고정
+
+저장소 루트의 `action.yml`은 `version` 입력이 비면 실행할 때마다 pub.dev의 최신 릴리스를
+설치한다. 액션을 커밋 SHA로 고정해도 그 단계가 실행하는 CLI는 그때의 최신 릴리스이므로
+`version`도 함께 고정한다.
+
+```yaml
+- uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+  with:
+    version: 0.16.2
+    command: dead
+    args: --format sarif
+    output-file: dead.sarif
+```
+
+- `<commit-sha>`에는 고정할 릴리스 태그가 가리키는 커밋을 쓴다. 커밋 SHA는 액션 자체(설치
+  단계·인자 파서·리포트 처리)를, `version`은 pub이 설치할 dartograph 릴리스를 고정한다.
+  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석되고, Dart SDK는
+  `dart-lang/setup-dart`의 `stable`을 따른다.
+- `version`과 `source-path`가 모두 비어 최신 릴리스를 설치하면, 설치 단계가 `::notice`
+  워크플로 명령으로 알림(annotation) 하나를 남긴다. pub이 보고한 설치 버전이 일반 릴리스 버전
+  꼴이면 그 값을 함께 싣는다. 설치 동작은 그대로다 — 빈 `version`은 계속 최신 릴리스를 설치한다.
+- `version`을 주거나 `source-path`로 체크아웃한 소스를 설치하면 알림을 남기지 않는다.
+
 ## 합성 GitHub Action의 인자
 
 저장소 루트의 `action.yml`을 쓰면 `command`와 `package-root`는 각각 하나의
