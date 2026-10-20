@@ -24,8 +24,9 @@ issue로 비공개 연락 경로를 요청하십시오.
 맞는 사실을 다시 해석하지 않고 쓰는데, 키는 공개된 입력의 해시뿐이라 저장소가 위조한
 사실을 커밋해 둘 수 있다. 그래서 트리 안 증분 디렉터리는 신뢰하는 저장소에만 쓴다.
 `setup --install`이 쓰는 Claude Code 훅, VS Code 확장의 기본 `dartograph.args`, 분석 서버
-플러그인은 `--incremental-user-cache`를 쓴다. 같은 사용자 권한으로 실행되는 다른 로컬
-프로세스는 신뢰 경계 안에 있다.
+플러그인은 `--incremental-user-cache`를 쓴다. 예시 워크플로(`.github/workflows/impact-precheck.yml`)는
+사실 캐시와 원장을 체크아웃 밖 `runner.temp` 아래에 둔다. 같은 사용자 권한으로 실행되는 다른
+로컬 프로세스는 신뢰 경계 안에 있다.
 
 심볼릭 링크는 analyzer와 마찬가지로 분석 트리 안에서 의도적으로 따라간다(링크된 소스의
 사실을 놓치면 낡은 그래프·누락된 channel 사실로 이어지므로 캐시 키와 bridge 스캔에

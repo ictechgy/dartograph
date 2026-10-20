@@ -90,7 +90,11 @@ OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME` 또는 `~/.cache`, `%L
 못하면(`HOME`, Linux의 `XDG_CACHE_HOME`, Windows의 `LOCALAPPDATA`가 없거나 절대 경로가
 아님) 캐시 없이 분석하고, 원인을 담은 `incremental-cache-write-failed:` limitation을
 남긴다. `--incremental <dir>`와 함께 주거나 두 번 주면 usage(64)다. 원장(`--record`)에는
-`"incremental-user-cache": "true"`로 남는다.
+`"incremental-user-cache": "true"`로 남는다. CI에서는 체크아웃 밖 디렉터리를
+`--incremental <dir>`로 주고 `actions/cache`로 복원한다. 예시 워크플로
+[`impact-precheck.yml`](../.github/workflows/impact-precheck.yml)은
+`$RUNNER_TEMP/dartograph-facts`를 모든 이벤트에서 복원하고, 리포트·SARIF·게이트 단계가
+함께 쓴다(원장은 `$RUNNER_TEMP/dartograph-ledger`).
 
 같은 명령에 `runtime`을 더해 `--workspace`를 받는다 — pub workspace 집계를
 옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께
