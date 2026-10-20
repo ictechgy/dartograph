@@ -306,27 +306,21 @@ class Screen {
       });
 
       for (final transport in PromisorTransport.values) {
-        test(
-          'a partial clone missing the HEAD tree fetches nothing '
-          '(${transport.name})',
-          () async {
-            final repository = await createPartialCloneRepository(
-              root,
-              transport,
-              MissingObject.headTree,
-            );
+        test('a partial clone missing the HEAD tree fetches nothing '
+            '(${transport.name})', () async {
+          final repository = await createPartialCloneRepository(
+            root,
+            transport,
+            MissingObject.headTree,
+          );
 
-            final document = await traverse(repository.root);
+          final document = await traverse(repository.root);
 
-            expect(repository.commandRan, isFalse);
-            // git이 HEAD tree를 읽지 못하면 깨끗함을 확인할 수 없다.
-            expect(document['revision'], isNull);
-            expect(unverified(document), isEmpty);
-          },
-          skip: Platform.isWindows
-              ? 'the fixture plants POSIX sh scripts'
-              : false,
-        );
+          expect(repository.commandRan, isFalse);
+          // git이 HEAD tree를 읽지 못하면 깨끗함을 확인할 수 없다.
+          expect(document['revision'], isNull);
+          expect(unverified(document), isEmpty);
+        }, skip: partialCloneSkip);
 
         test(
           'a clean partial clone still records HEAD (${transport.name})',
@@ -343,9 +337,7 @@ class Screen {
             expect(document['revision'], repository.head);
             expect(unverified(document), isEmpty);
           },
-          skip: Platform.isWindows
-              ? 'the fixture plants POSIX sh scripts'
-              : false,
+          skip: partialCloneSkip,
         );
       }
 

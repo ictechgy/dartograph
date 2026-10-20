@@ -154,31 +154,25 @@ void main() {
     );
 
     for (final transport in PromisorTransport.values) {
-      test(
-        'does not fetch an object missing from a partial clone '
-        '(${transport.name})',
-        () async {
-          final repository = await createPartialCloneRepository(
-            workspace,
-            transport,
-            MissingObject.baseCommit,
-          );
+      test('does not fetch an object missing from a partial clone '
+          '(${transport.name})', () async {
+        final repository = await createPartialCloneRepository(
+          workspace,
+          transport,
+          MissingObject.baseCommit,
+        );
 
-          final result = await AnalysisGit.run(repository.root, const [
-            'rev-parse',
-            '--verify',
-            '--end-of-options',
-            'base^{commit}',
-          ]);
+        final result = await AnalysisGit.run(repository.root, const [
+          'rev-parse',
+          '--verify',
+          '--end-of-options',
+          'base^{commit}',
+        ]);
 
-          expect(repository.commandRan, isFalse);
-          expect(result.exitCode, isNot(0));
-          expect(result.partialClone, isTrue);
-        },
-        skip: Platform.isWindows
-            ? 'the fixture plants POSIX sh scripts'
-            : false,
-      );
+        expect(repository.commandRan, isFalse);
+        expect(result.exitCode, isNot(0));
+        expect(result.partialClone, isTrue);
+      }, skip: partialCloneSkip);
     }
 
     test(

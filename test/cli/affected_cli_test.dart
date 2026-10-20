@@ -328,7 +328,7 @@ void main() {
         'history).\n',
       );
     },
-    skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+    skip: partialCloneSkip,
   );
 
   test('a git that cannot skip the promisor fetch is diagnosed', () async {

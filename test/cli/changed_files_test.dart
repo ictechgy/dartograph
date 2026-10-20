@@ -231,51 +231,39 @@ void main() {
     tearDown(() => workspace.delete(recursive: true));
 
     for (final transport in PromisorTransport.values) {
-      test(
-        'missing base history fails closed instead of being fetched '
-        '(${transport.name})',
-        () async {
-          final repository = await createPartialCloneRepository(
-            workspace,
-            transport,
-            MissingObject.baseCommit,
-          );
+      test('missing base history fails closed instead of being fetched '
+          '(${transport.name})', () async {
+        final repository = await createPartialCloneRepository(
+          workspace,
+          transport,
+          MissingObject.baseCommit,
+        );
 
-          await expectLater(
-            ChangedFiles.since('base', repository.root),
-            throwsA(
-              isA<ChangedFilesException>()
-                  .having((failure) => failure.partialClone, 'partial', isTrue)
-                  .having((failure) => failure.refusal, 'refusal', isNull),
-            ),
-          );
-          expect(repository.commandRan, isFalse);
-        },
-        skip: Platform.isWindows
-            ? 'the fixture plants POSIX sh scripts'
-            : false,
-      );
+        await expectLater(
+          ChangedFiles.since('base', repository.root),
+          throwsA(
+            isA<ChangedFilesException>()
+                .having((failure) => failure.partialClone, 'partial', isTrue)
+                .having((failure) => failure.refusal, 'refusal', isNull),
+          ),
+        );
+        expect(repository.commandRan, isFalse);
+      }, skip: partialCloneSkip);
 
-      test(
-        'a renamed file whose old blob is absent is listed by its new path '
-        '(${transport.name})',
-        () async {
-          // blob 없는 클론의 흔한 모양이다. 이름 변경 감지만 옛 blob을 읽는다.
-          final repository = await createPartialCloneRepository(
-            workspace,
-            transport,
-            MissingObject.renamedFileBaseBlob,
-          );
+      test('a renamed file whose old blob is absent is listed by its new path '
+          '(${transport.name})', () async {
+        // blob 없는 클론의 흔한 모양이다. 이름 변경 감지만 옛 blob을 읽는다.
+        final repository = await createPartialCloneRepository(
+          workspace,
+          transport,
+          MissingObject.renamedFileBaseBlob,
+        );
 
-          final changed = await ChangedFiles.since('base', repository.root);
+        final changed = await ChangedFiles.since('base', repository.root);
 
-          expect(repository.commandRan, isFalse);
-          expect(changed, {repository.path('lib/moved.dart')});
-        },
-        skip: Platform.isWindows
-            ? 'the fixture plants POSIX sh scripts'
-            : false,
-      );
+        expect(repository.commandRan, isFalse);
+        expect(changed, {repository.path('lib/moved.dart')});
+      }, skip: partialCloneSkip);
 
       test(
         'a staged rename whose HEAD blob is absent is listed by its new path '
@@ -292,9 +280,7 @@ void main() {
           expect(repository.commandRan, isFalse);
           expect(changed, {repository.path('lib/staged.dart')});
         },
-        skip: Platform.isWindows
-            ? 'the fixture plants POSIX sh scripts'
-            : false,
+        skip: partialCloneSkip,
       );
     }
   });

@@ -256,6 +256,18 @@ Future<HostileRepository> createPartialCloneRepository(
   return HostileRepository._(root, marker, head);
 }
 
+/// 최신 git의 부분 클론 동작을 기대하는 시험에 줄 `skip` 값이다.
+///
+/// fixture는 POSIX sh 스크립트를 심으므로 Windows에서는 건너뛴다. 시험 환경의 git이
+/// `--no-lazy-fetch`를 모르면(2.45 미만) dartograph는 부분 클론에서 git을 실행하지
+/// 않으므로 그 시험들도 건너뛴다. 그 거부는 [createGitWithoutNoLazyFetch]로 흉내 낸
+/// git으로 따로 시험한다.
+final Object partialCloneSkip = Platform.isWindows
+    ? 'the fixture plants POSIX sh scripts'
+    : Process.runSync('git', const ['--no-lazy-fetch', 'version']).exitCode == 0
+    ? false
+    : 'the host git is older than 2.45, so dartograph refuses partial clones';
+
 /// `--no-lazy-fetch`를 모르고 `GIT_NO_LAZY_FETCH`를 따르지 않는 git(2.45 미만)을
 /// 흉내 내는 실행 파일을 [workspace]에 만들고 그 경로를 돌려준다.
 ///
