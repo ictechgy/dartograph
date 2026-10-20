@@ -70,11 +70,13 @@ Future<SchemaIndexResult> indexSchema(
   final counts = _SchemaCounts();
   final facts = <Map<String, Object?>>[];
   final linkEscapes = <String>{};
+  final linkedDirectories = LinkedDirectoryVisits();
   final dartScanners = <_SchemaFileScanner>[];
   final files = indexProjectFiles(
     root,
     boundary: root.path,
     linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
   ).where((file) => _isSchemaSource(file.path));
   for (final file in files) {
     final relative = p.posix.joinAll(
@@ -109,7 +111,13 @@ Future<SchemaIndexResult> indexSchema(
   facts.sort(_compareFacts);
   return SchemaIndexResult(
     facts,
-    _limitations(facts, counts, context, linkEscapes),
+    _limitations(
+      facts,
+      counts,
+      context,
+      linkEscapes,
+      linkedDirectories.skipped.length,
+    ),
   );
 }
 
@@ -186,6 +194,7 @@ List<String> _limitations(
   _SchemaCounts counts,
   _ProjectContext context,
   Set<String> linkEscapes,
+  int skippedLinkedDirectories,
 ) {
   final missingSymbols = facts.where((f) => !f.containsKey('symbol')).length;
   final missingUsrs = facts.where((fact) {
@@ -196,6 +205,8 @@ List<String> _limitations(
     for (final escape in linkEscapes.toList()..sort())
       'symlink-escape: $escape resolves outside the scanned root; its '
           'contents contribute relation facts',
+    if (skippedLinkedDirectories > 0)
+      skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
     if (counts.dynamicRelations > 0)
       'dynamic-relation-names: ${counts.dynamicRelations} SQL argument(s) or '
           'relation operand(s) were not statically readable; they are emitted '

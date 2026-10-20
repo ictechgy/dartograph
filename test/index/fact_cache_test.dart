@@ -383,6 +383,56 @@ environment:
     expect(cache.writeCount, 2);
   });
 
+  test(
+    'a second link to a linked directory invalidates the cached result',
+    () async {
+      // 두 번째 링크는 이미 연 디렉터리를 가리켜 열리지 않는다. 그래서 키가 훑는 파일
+      // 목록은 그대로다. 그 경로가 키에 없으면 건너뛴 수가 0인 결과를 다시 쓴다.
+      final created = await Directory.systemTemp.createTemp(
+        'dartograph-duplicate-link-cache.',
+      );
+      addTearDown(() => created.delete(recursive: true));
+      final root = Directory(created.resolveSymbolicLinksSync());
+      await File('${root.path}/pubspec.yaml').writeAsString('''
+name: duplicate_link_fixture
+environment:
+  sdk: ^3.11.0
+''');
+      await Directory('${root.path}/lib').create();
+      await Directory('${root.path}/shared').create();
+      await File(
+        '${root.path}/shared/thing.dart',
+      ).writeAsString('class A {}\n');
+      await File(
+        '${root.path}/lib/main.dart',
+      ).writeAsString('void main() {}\n');
+      await Link('${root.path}/lib/first').create('../shared');
+      final cache = _MemoryFactCache();
+      final index = AnalyzerGraphIndex(cache: cache);
+      bool skipsOneLink(AnalyzerGraphResult result) =>
+          result.limitationDetails.any(
+            (detail) => detail.startsWith('symlink-duplicate-directories: 1 '),
+          );
+
+      final first = await index.index(root.path);
+      expect(
+        first.graph.nodes.keys,
+        contains('project:lib/first/thing.dart::A'),
+      );
+      expect(skipsOneLink(first), isFalse);
+
+      await Link('${root.path}/lib/second').create('../shared');
+      final second = await index.index(root.path);
+
+      expect(skipsOneLink(second), isTrue);
+      expect(
+        second.graph.nodes.keys,
+        isNot(contains('project:lib/second/thing.dart::A')),
+      );
+      expect(cache.writeCount, 2);
+    },
+  );
+
   test('nested example dependencies invalidate analyzer facts', () async {
     final workspace = await Directory.systemTemp.createTemp(
       'dartograph-nested-package-cache.',

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context.dart';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
+import 'package:analyzer/dart/analysis/context_root.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
@@ -25,7 +26,11 @@ import 'bounded_resource_provider.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
-export 'project_files.dart' show isPathWithinRoot;
+export 'project_files.dart'
+    show
+        LinkedDirectoryVisits,
+        isPathWithinRoot,
+        skippedLinkedDirectoriesLimitation;
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -322,13 +327,16 @@ final class AnalyzerGraphIndex {
       for (final member in workspace?.members ?? const <_WorkspaceMember>[])
         member.relPath,
     ]..sort((a, b) => b.length - a.length);
+    final linkedDirectories = LinkedDirectoryVisits();
     final unitPaths = _dartFilesUnder(
       root,
       collection,
       sourcePackages,
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
+      linkedDirectories,
     );
+    final skippedLinkedDirectories = linkedDirectories.skipped.length;
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
@@ -362,6 +370,7 @@ final class AnalyzerGraphIndex {
         pubspecContent: pubspecContent,
         scope: scope,
         linkEscapes: linkEscapes,
+        skippedLinkedDirectories: skippedLinkedDirectories,
         workspace: workspace,
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
@@ -381,6 +390,7 @@ final class AnalyzerGraphIndex {
       incremental: incremental,
       scope: scope,
       linkEscapes: linkEscapes,
+      skippedLinkedDirectories: skippedLinkedDirectories,
       workspace: workspace,
     );
   }
@@ -400,6 +410,7 @@ final class AnalyzerGraphIndex {
     required IncrementalCache incremental,
     required _ScopeConfig scope,
     required _WorkspaceSpec? workspace,
+    required int skippedLinkedDirectories,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -534,6 +545,7 @@ final class AnalyzerGraphIndex {
       pubspecContent: pubspecContent,
       scope: scope,
       linkEscapes: linkEscapes,
+      skippedLinkedDirectories: skippedLinkedDirectories,
       workspace: workspace,
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
@@ -1218,6 +1230,7 @@ AnalyzerGraphResult _assembleResult({
   required _ScopeConfig scope,
   _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
+  int skippedLinkedDirectories = 0,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1382,6 +1395,13 @@ AnalyzerGraphResult _assembleResult({
         'contents are analyzed as project sources',
       );
     }
+  }
+  if (skippedLinkedDirectories > 0) {
+    // 같은 디렉터리로 가는 링크 경로 중 첫 경로만 분석했다 — 나머지 경로의 선언은
+    // 그래프에 없으므로 그 경로를 묻는 질의가 '미발견'인 이유를 출력에 남긴다.
+    limitationDetails.add(
+      skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
+    );
   }
   if (workspace == null) {
     final workspaceMembers = _workspaceMemberPaths(pubspecContent);
@@ -1857,10 +1877,15 @@ Future<bool> _incrementalInputsUnchanged(
 /// 모든 유닛을 리스트로 붙잡으므로 유닛 사이를 오가는 2단계 방문(route 호출의
 /// 값 선언 색인)이 쓴다. 유닛마다 독립인 방문은 [resolveProjectUnitsEach]를 써서
 /// 프로젝트 전체의 resolved AST를 동시에 붙잡지 않는다.
+///
+/// [linkedDirectories]를 주면 열거가 같은 디렉터리로 가는 링크 경로를 건너뛴 기록을
+/// 거기에 남긴다(그래프의 `symlink-duplicate-directories:`와 같은 규칙). 호출자가
+/// 자기 출력의 limitation으로 싣는다.
 Future<List<ResolvedUnitResult>> resolveProjectUnits(
   String rootPath, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final units = <ResolvedUnitResult>[];
   await resolveProjectUnitsEach(
@@ -1868,6 +1893,7 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
     units.add,
     linkEscapes: linkEscapes,
     aggregateWorkspace: aggregateWorkspace,
+    linkedDirectories: linkedDirectories,
   );
   return units;
 }
@@ -1875,16 +1901,17 @@ Future<List<ResolvedUnitResult>> resolveProjectUnits(
 /// [resolveProjectUnits]와 같은 유닛을 같은 순서로 해석하는 즉시 [onUnit]에
 /// 넘긴다.
 ///
-/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]의
-/// 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석 컨텍스트를 닫기 전에
-/// 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다 독립인
-/// 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
+/// 파일 열거·SDK 탐색·컨텍스트 선택과 [linkEscapes]·[aggregateWorkspace]·
+/// [linkedDirectories]의 계약은 [resolveProjectUnits]와 같다. [onUnit]은 분석
+/// 컨텍스트를 닫기 전에 불리고, 넘긴 유닛을 보관할지는 호출자가 정한다 — 유닛마다
+/// 독립인 방문자(런타임 사실)는 보관하지 않아 최대 메모리가 파일 수에 비례해 커지지
 /// 않는다. [onUnit]이 던진 예외는 컨텍스트를 닫은 뒤 그대로 전파된다.
 Future<void> resolveProjectUnitsEach(
   String rootPath,
   void Function(ResolvedUnitResult unit) onUnit, {
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
   // 이 경로는 그래프 캐시 입력 열거가 안 돌아 탈출 링크 기록과 비정규 입력
@@ -1906,6 +1933,7 @@ Future<void> resolveProjectUnitsEach(
       sourcePackages,
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
+      linkedDirectories ?? LinkedDirectoryVisits(),
     )) {
       final result = await _resolvedUnit(collection, path);
       if (result is ResolvedUnitResult) onUnit(result);
@@ -1933,12 +1961,15 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
   final collection = await _openCollection(root);
   try {
     final units = <String, ResolvedUnitResult>{};
+    // 건너뛴 링크 경로는 schema가 자기 열거([indexProjectFiles], 같은 규칙)에서
+    // 센다. 여기서는 사실이 난 파일의 유닛만 고른다.
     final files = _dartFilesUnder(
       root,
       collection,
       _readSourcePackages(root),
       const [],
       const [],
+      LinkedDirectoryVisits(),
     ).where((path) => wanted.contains(p.normalize(path)));
     for (final path in files) {
       final result = await _resolvedUnit(collection, path);
@@ -1980,8 +2011,11 @@ const _cacheSchemaVersion = 7;
 // analyzer 읽기 경계(v18)는 import로 끌어온 장치·FIFO·상한 초과 입력을 분석
 // 실패로 바꾼다. 그런 대상(숨김 디렉터리·build 디렉터리 안 파일, 절대 경로)은
 // 키 열거 밖이라, 같은 도구 버전의 이전 캐시가 남긴 성공 결과가 거부를 가린다.
+// 링크 경로 중복 제거(v19)로 같은 입력의 분석 단위가 바뀐다 — 같은 디렉터리로 가는
+// 링크 경로는 하나만 분석하고 나머지는 symlink-duplicate-directories로 센다. 이전
+// 캐시는 경로마다 펼친 단위를 이 limitation 없이 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v18-read-boundary';
+    'dartograph-analysis-$toolVersion-cache-v19-linked-directories';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2032,7 +2066,12 @@ Future<String> _analysisCacheKey(
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
-  final files = await _analysisInputFiles(root, linkEscapes: linkEscapes);
+  final linkedDirectories = LinkedDirectoryVisits();
+  final files = await _analysisInputFiles(
+    root,
+    linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
+  );
   late Digest digest;
   final digestSink = ChunkedConversionSink<Digest>.withCallback(
     (digests) => digest = digests.single,
@@ -2065,13 +2104,30 @@ Future<String> _analysisCacheKey(
     }
     bytes.add(const [0]);
   }
+  // 같은 디렉터리로 가는 링크 경로를 더하거나 지우면 파일 목록은 그대로인데 분석
+  // 단위의 경로와 symlink-duplicate-directories 수가 바뀐다. 건너뛴 경로와 그
+  // 정규 경로를 키에 넣어 낡은 결과를 재사용하지 않게 한다.
+  for (final skipped in linkedDirectories.skipped) {
+    bytes
+      ..add(utf8.encode('linked-directory-skipped'))
+      ..add(const [0])
+      ..add(utf8.encode(p.relative(skipped.path, from: root)))
+      ..add(const [0])
+      ..add(utf8.encode(skipped.canonical))
+      ..add(const [0]);
+  }
   bytes.close();
   return digest.toString();
 }
 
+/// [root]의 캐시 키·증분 해시가 읽는 분석 입력 파일이다(경로순).
+///
+/// [linkedDirectories]를 주면 루트 순회가 그 기록을 쓴다. 의존 패키지의 `lib/`
+/// 순회는 분석 단위가 아니어서 따로 기록한다.
 Future<List<File>> _analysisInputFiles(
   String root, {
   Set<String>? linkEscapes,
+  LinkedDirectoryVisits? linkedDirectories,
 }) async {
   final files = <String, File>{};
 
@@ -2176,6 +2232,7 @@ Future<List<File>> _analysisInputFiles(
     skipHiddenDirectories: true,
     boundary: root,
     linkEscapes: linkEscapes,
+    linkedDirectories: linkedDirectories,
   )) {
     final base = p.basename(file.path);
     if (file.path.endsWith('.dart') || base == 'analysis_options.yaml') {
@@ -2633,12 +2690,14 @@ Iterable<File> _projectFiles(
   String? boundary,
   String displayBase = '',
   Set<String>? linkEscapes,
+  LinkedDirectoryVisits? linkedDirectories,
 }) => indexProjectFiles(
   directory,
   skipHiddenDirectories: skipHiddenDirectories,
   boundary: boundary,
   displayBase: displayBase,
   linkEscapes: linkEscapes,
+  linkedDirectories: linkedDirectories,
 );
 const _namedNavigationMethods = {
   'popAndPushNamed',
@@ -3891,12 +3950,19 @@ String projectIdForPath(String path, String root, {p.Context? context}) {
   return 'project:${p.url.joinAll(paths.split(relativePath))}';
 }
 
+/// [root] 그래프가 분석하는 Dart 파일 경로다(정렬됨).
+///
+/// 후보는 [_analyzedFilesOf]로 열거하고 디렉터리는 [linkedDirectories]의 규칙으로
+/// 한 번만 연다. 건너뛴 경로는 [linkedDirectories]에 남아 호출자가 limitation으로
+/// 싣는다. 분석 단위가 들 수 없는 디렉터리(아래 범위 경계와 무관한 경로)에는
+/// 내려가지 않는다.
 List<String> _dartFilesUnder(
   String root,
   AnalysisContextCollection collection,
   List<Directory> sourcePackages,
   List<String> memberAbsPaths,
   List<String> skippedMemberAbsPaths,
+  LinkedDirectoryVisits linkedDirectories,
 ) {
   final paths = <String>{};
   bool inAnalysisScope(String path) {
@@ -3933,9 +3999,33 @@ List<String> _dartFilesUnder(
     }
   }
 
-  for (final context in collection.contexts) {
+  // inAnalysisScope가 받는 경로는 모두 이 경계 중 하나 아래에 있다. 경계의 조상이나
+  // 경계 안이 아닌 디렉터리 아래 파일은 결과에서 빠지므로 내려가지 않는다. 그러면
+  // 범위 밖 링크(`tool/x -> ../shared`)가 범위 안 링크(`lib/x -> ../shared`)보다
+  // 먼저 그 디렉터리를 차지하지 않는다.
+  final scopeRoots = [
+    for (final name in _sourceDirectories) p.join(root, name),
+    for (final member in memberAbsPaths)
+      for (final name in _sourceDirectories) p.join(member, name),
+    for (final package in sourcePackages) p.join(package.path, 'lib'),
+  ];
+  bool mayHoldUnits(String directory) => scopeRoots.any(
+    (scopeRoot) =>
+        isPathWithinRoot(directory, scopeRoot) ||
+        isPathWithinRoot(scopeRoot, directory),
+  );
+
+  // 컨텍스트 순서를 고정해야 같은 디렉터리로 가는 경로 중 남는 경로가 정해진다.
+  final contexts = [
+    ...collection.contexts,
+  ]..sort((a, b) => a.contextRoot.root.path.compareTo(b.contextRoot.root.path));
+  for (final context in contexts) {
     paths.addAll(
-      context.contextRoot.analyzedFiles().where(
+      _analyzedFilesOf(
+        context.contextRoot,
+        linkedDirectories,
+        mayHoldUnits,
+      ).where(
         (path) =>
             path.endsWith('.dart') &&
             isPathWithinRoot(path, root) &&
@@ -3951,6 +4041,120 @@ List<String> _dartFilesUnder(
     _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
+}
+
+/// [contextRoot]가 분석하는 파일 경로를 analyzer의 `ContextRoot.analyzedFiles()`와
+/// 같은 규칙으로 돌려준다.
+///
+/// analyzer의 열거는 링크 순환만 스택 범위 집합으로 막는다. 그래서 단계마다 다음
+/// 단계를 두 번 가리키는 링크 트리를 경로마다 다시 펼쳐, 실제 파일 십여 개로 수천
+/// 개의 분석 단위를 만든다. 여기서는 세 가지가 다르다.
+///
+/// - 디렉터리는 [visits]의 규칙으로 연다. 순환은 지금처럼 조용히 건너뛰고, 다른
+///   링크 경로로 이미 연 디렉터리는 열지 않고 [visits]에 남긴다.
+/// - 항목을 이름순으로 훑는다. 남는 경로가 파일 시스템의 목록 순서에 따라
+///   갈리지 않는다.
+/// - [mayHoldUnits]가 거짓인 디렉터리에는 내려가지 않는다.
+///
+/// 나머지는 analyzer와 같다. 제외 규칙(숨김 경로·중첩 컨텍스트·analysis_options의
+/// exclude)은 [ContextRoot.isAnalyzed]가 판정한다. 목록은 링크를 따라가 받는다.
+/// 끊어진 링크는 건너뛰고, 장치·FIFO와 그 링크는 파일로 돌려준다. 해석할 때 읽기
+/// 경계([BoundedResourceProvider])가 거부한다. 읽을 수 없거나 정규 경로를 풀 수
+/// 없는 디렉터리는 analyzer처럼 조용히 건너뛴다.
+Iterable<String> _analyzedFilesOf(
+  ContextRoot contextRoot,
+  LinkedDirectoryVisits visits,
+  bool Function(String directory) mayHoldUnits,
+) sync* {
+  for (final included in contextRoot.includedPaths.toList()..sort()) {
+    switch (FileSystemEntity.typeSync(included)) {
+      case FileSystemEntityType.file:
+        yield included;
+      case FileSystemEntityType.directory:
+        final String canonical;
+        try {
+          canonical = Directory(included).resolveSymbolicLinksSync();
+        } on FileSystemException {
+          // 확인한 뒤 사라졌다. analyzer도 읽지 못한 폴더는 건너뛴다.
+          continue;
+        }
+        yield* _analyzedFilesIn(
+          contextRoot,
+          included,
+          canonical,
+          visits,
+          mayHoldUnits,
+          ancestors: <String>{},
+          throughLink: false,
+        );
+      default:
+        // analyzer도 없는 포함 경로에서는 아무것도 열거하지 않는다.
+        continue;
+    }
+  }
+}
+
+/// [_analyzedFilesOf]의 재귀다. [canonical]은 [directory]의 정규 경로다.
+/// [ancestors]는 지금 경로에서 연 조상 디렉터리들의 정규 경로다(포함 경로 자신은
+/// 넣지 않는다 — analyzer와 같다). [throughLink]는
+/// [LinkedDirectoryVisits.admits]의 같은 이름이다.
+Iterable<String> _analyzedFilesIn(
+  ContextRoot contextRoot,
+  String directory,
+  String canonical,
+  LinkedDirectoryVisits visits,
+  bool Function(String directory) mayHoldUnits, {
+  required Set<String> ancestors,
+  required bool throughLink,
+}) sync* {
+  final List<FileSystemEntity> children;
+  try {
+    children = Directory(directory).listSync()
+      ..sort((a, b) => a.path.compareTo(b.path));
+  } on FileSystemException {
+    // analyzer도 읽을 수 없는 디렉터리는 조용히 건너뛴다.
+    return;
+  }
+  for (final child in children) {
+    final path = child.path;
+    if (!contextRoot.isAnalyzed(path)) continue;
+    if (child is File) {
+      yield path;
+      continue;
+    }
+    if (child is! Directory || !mayHoldUnits(path)) continue;
+    final String childCanonical;
+    try {
+      childCanonical = child.resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛴다.
+      continue;
+    }
+    // 목록은 링크를 따라가 받으므로 링크인지는 정규 경로로 안다. 링크가 아닌 하위
+    // 디렉터리의 정규 경로는 부모의 정규 경로 아래 같은 이름이다.
+    final childThroughLink =
+        throughLink ||
+        !p.equals(childCanonical, p.join(canonical, p.basename(path)));
+    if (!visits.admits(
+      path,
+      childCanonical,
+      ancestors,
+      throughLink: childThroughLink,
+    )) {
+      continue;
+    }
+    ancestors.add(childCanonical);
+    yield* _analyzedFilesIn(
+      contextRoot,
+      path,
+      childCanonical,
+      visits,
+      mayHoldUnits,
+      ancestors: ancestors,
+      throughLink: childThroughLink,
+    );
+    ancestors.remove(childCanonical);
+  }
 }
 
 /// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.

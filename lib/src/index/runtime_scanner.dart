@@ -21,12 +21,14 @@ final class RuntimeScanner {
   ///
   /// 파일 집합·해석 규칙은 그래프 인덱스와 같다([resolveProjectUnits]).
   /// [linkEscapes]가 주어지면 패키지 루트 밖을 가리키는 링크 경로를 기록한다.
-  /// [aggregateWorkspace]는 `resolveProjectUnits`의 같은 이름과 같은 계약이다
-  /// — 선언된 워크스페이스 멤버 소스도 스캔한다.
+  /// [linkedDirectories]가 주어지면 같은 디렉터리로 가는 링크 경로를 건너뛴 기록을
+  /// 남긴다. [aggregateWorkspace]는 `resolveProjectUnits`의 같은 이름과 같은
+  /// 계약이다 — 선언된 워크스페이스 멤버 소스도 스캔한다.
   Future<List<RuntimeFact>> scan(
     String rootPath, {
     Set<String>? linkEscapes,
     bool aggregateWorkspace = false,
+    LinkedDirectoryVisits? linkedDirectories,
   }) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     final facts = <RuntimeFact>[];
@@ -38,6 +40,7 @@ final class RuntimeScanner {
       (unit) => unit.unit.accept(_RuntimeFactVisitor(root, facts, unit)),
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
+      linkedDirectories: linkedDirectories,
     );
     facts.addAll(_pubspecAssetFacts(root));
     return _dedupeSorted(facts);

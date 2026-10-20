@@ -292,6 +292,14 @@ Limitations:
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
+- Symbolic links inside the project are followed like the analyzer does, but a
+  directory reached through links is read only once. When several link paths
+  resolve to the same directory, only the first in name order is analyzed; a
+  directory's real location and one link to it are both analyzed, and link
+  cycles are not entered. The analysis commands, `runtime`, `routes`,
+  `bridges`, and `schema` count the skipped paths in a
+  `symlink-duplicate-directories:` limitation, and declarations under those
+  paths are not in the graph.
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.

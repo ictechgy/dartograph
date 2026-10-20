@@ -98,6 +98,7 @@ dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래�
 | `unscanned-ffi-interop: N` | dart:ffi·package:jni 계열 import를 가진 소스 N개 — 채널 조인 범위 밖 |
 | `flutter-services-provenance-unverified:` | package_config가 `package:flutter/services.dart` 출처를 검증하지 못했다 |
 | `flutter-services-reexports: N` | re-export로 들어온 services import N건 — 직접 import만 provenance로 쓴다 |
+| `symlink-duplicate-directories: N` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 N개 — 같은 소스의 사실은 남은 경로에서 난다 |
 | `conditional-flutter-services-imports: N` | 조건부 지시문의 services import N건 |
 | `pub-workspace-*` | workspace 감지 폴백 — `project` 기준이 스캔 루트로 내려갔다 |
 
@@ -235,6 +236,7 @@ class CameraBridge {
 | `missing-relation-usrs:` | 그래프 선언 ID(`symbol.usr`)가 없는 사실 수 — 체인 전용, trace가 그 사실에서 이어 가지 못한다 |
 | `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
 | `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
+| `symlink-duplicate-directories:` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 수 — 같은 소스의 사실은 남은 경로에서 난다 |
 
 ## http 문서 (`routes --role client`)
 

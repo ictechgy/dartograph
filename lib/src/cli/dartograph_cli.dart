@@ -3739,12 +3739,15 @@ Future<int> _runRuntime(
         return ExitStatus.usage.code;
       }
     }
-    // 루트 밖 링크의 내용이 사실로 흘러드는 것을 limitation으로 드러낸다.
+    // 루트 밖 링크의 내용이 사실로 흘러드는 것과 같은 디렉터리로 가는 링크
+    // 경로를 건너뛴 것을 limitation으로 드러낸다.
     final linkEscapes = <String>{};
+    final linkedDirectories = LinkedDirectoryVisits();
     final facts = await RuntimeScanner().scan(
       rootPath,
       linkEscapes: linkEscapes,
       aggregateWorkspace: workspace,
+      linkedDirectories: linkedDirectories,
     );
     RuntimeExecution? execution;
     if (entrypoint != null) {
@@ -3768,6 +3771,8 @@ Future<int> _runRuntime(
         for (final escape in linkEscapes.toList()..sort())
           'symlink-escape: $escape resolves outside its package root; its '
               'contents are scanned as project sources',
+        if (linkedDirectories.skipped.isNotEmpty)
+          skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
       ],
     );
     output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));

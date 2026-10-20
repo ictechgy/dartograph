@@ -139,6 +139,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
+- 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.
 - `bridges --events`는 정적으로 식별한 EventChannel의 `receiveBroadcastStream()` 호출을 반환 스트림의 소비 여부와 무관하게 `stream-listen` 사실로 기록한다. 호출 실행·리스너 부착·활성 구독·이벤트 수신을 증명하지 않는다.
 - git 조회는 저장소가 설정한 명령을 실행하지 않으므로(보장 참고) git은 작업 트리 원본 내용을 읽고 stat 캐시를 새로 고치지 않는다. 그래서 `--since`와 `affected`는 시각만 바뀐 파일도 변경으로 세고, git-lfs처럼 filter가 정규화하던 파일도 git의 stat 캐시가 낡았으면 변경으로 센다. 신뢰하는 checkout이면 먼저 `git status`를 실행해 stat 캐시를 새로 고친다.
