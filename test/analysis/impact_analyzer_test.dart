@@ -477,6 +477,163 @@ void main() {
     }
   });
 
+  test(
+    'impacted and test paths match the per-vertex path copies on random graphs',
+    () {
+      final random = Random(20261020);
+      for (var round = 0; round < 300; round++) {
+        final size = 2 + random.nextInt(round.isEven ? 10 : 80);
+        final nodes = [
+          for (var i = 0; i < size; i++) 'n${'$i'.padLeft(2, '0')}',
+        ];
+        final edges = [
+          for (var i = random.nextInt(size * 3); i >= 0; i--)
+            (
+              nodes[random.nextInt(size)],
+              nodes[random.nextInt(size)],
+              const [
+                EdgeKind.call,
+                EdgeKind.reference,
+                EdgeKind.import,
+                EdgeKind.member,
+              ][random.nextInt(4)],
+            ),
+        ];
+        // 정점 일부를 몇 개의 테스트 파일에 나눠 둔다. 테스트는 limit과 상관없이
+        // 모두 보고하므로, 보고 범위 밖에 있는 테스트의 경로도 맞아야 한다.
+        final sources = {
+          for (final node in nodes)
+            if (random.nextInt(3) == 0)
+              node: 'project:test/t${random.nextInt(3)}_test.dart',
+        };
+        final seeds = [
+          for (final node in nodes)
+            if (random.nextInt(100) < const [40, 15, 5][round % 3]) node,
+        ];
+        final maxDepth = const [null, 1, 3][(round ~/ 3) % 3];
+        final limit = const [null, 1, 4, 1000][(round ~/ 9) % 4];
+        final report = ImpactAnalysis.analyze(
+          _usageGraph(edges, nodes: nodes, sources: sources),
+          changedSymbols: seeds,
+          maxDepth: maxDepth,
+          limit: limit,
+        );
+        // 오라클 경로의 키 순서는 BFS 발견 순서다(씨앗이 먼저).
+        final paths = _legacyPaths(seeds, edges, maxDepth: maxDepth);
+        final reached = paths.keys.skip(seeds.length).toList();
+        int compare(String a, String b) {
+          final byDepth = paths[a]!.length.compareTo(paths[b]!.length);
+          return byDepth != 0 ? byDepth : a.compareTo(b);
+        }
+
+        // 테스트 파일마다 가장 얕은 정점, 깊이가 같으면 먼저 발견한 정점이 대표다.
+        final testByFile = <String, String>{};
+        for (final id in reached) {
+          final file = sources[id];
+          if (file == null) continue;
+          final kept = testByFile[file];
+          if (kept == null || paths[id]!.length < paths[kept]!.length) {
+            testByFile[file] = id;
+          }
+        }
+        final sortedReached = reached.toList()..sort(compare);
+        String describe(String id, int depth, List<String> path) =>
+            '$id@$depth ${path.join(' > ')}';
+        final reason =
+            'round $round maxDepth $maxDepth limit $limit seeds $seeds '
+            'edges $edges';
+        expect(
+          [
+            for (final item in report.impacted)
+              describe(item.id, item.depth, item.path),
+          ],
+          [
+            for (final id
+                in limit == null ? sortedReached : sortedReached.take(limit))
+              describe(id, paths[id]!.length - 1, paths[id]!),
+          ],
+          reason: reason,
+        );
+        expect(
+          [
+            for (final test in report.tests)
+              describe(test.id, test.depth, test.path),
+          ],
+          [
+            for (final id in testByFile.values.toList()..sort(compare))
+              describe(id, paths[id]!.length - 1, paths[id]!),
+          ],
+          reason: reason,
+        );
+      }
+    },
+  );
+
+  test('limit builds dependency paths only for reported symbols', () {
+    // 의존자 사슬 c004000 → … → c000001 → s의 영향 정점은 깊이 1..4000이다.
+    // 정점마다 최단 경로 사본을 만들면 limit과 상관없이 경로 칸이 약 800만 개다.
+    // 보고할 항목만 경로를 만들면 limit 1은 사슬 길이에 비례한다. 만든 경로 수는
+    // 결과에 드러나지 않고 GraphSnapshot이 final 클래스라 셀 주입 지점도 없다.
+    // 그래서 같은 그래프에서 limit 없음과 limit 1의 시간 비를 본다. 기계 속도·
+    // 커버리지 계측은 두 쪽을 함께 늦추므로 비는 거의 그대로다. 수정 전 구현은
+    // 두 쪽이 같은 일을 해 비가 약 1배였다. 하한 4배는 수정 뒤의 비와 그 사이에서
+    // 양쪽에 여유를 둔다. 회차마다 두 analyze를 바로 이어 재서 같은 부하를 받게
+    // 하고, 회차 비의 중앙값으로 한두 회차의 튐을 걸러 낸다.
+    const length = 4000;
+    String link(int index) => 'c${'$index'.padLeft(6, '0')}';
+    final graph = _usageGraph([
+      for (var i = 1; i <= length; i++)
+        (link(i), i == 1 ? 's' : link(i - 1), EdgeKind.call),
+    ]);
+    int timed(int? limit) {
+      final stopwatch = Stopwatch()..start();
+      final report = ImpactAnalysis.analyze(
+        graph,
+        changedSymbols: const ['s'],
+        limit: limit,
+      );
+      stopwatch.stop();
+      expect(report.coverage.transitivelyImpacted, length);
+      if (limit == null) {
+        // 가장 깊은 정점의 경로는 사슬 전체다(반복으로 복원해 깊어도 넘치지 않는다).
+        expect(report.impacted.last.path, [
+          for (var i = length; i >= 1; i--) link(i),
+          's',
+        ]);
+      } else {
+        expect(report.impacted.single.path, [link(1), 's']);
+      }
+      return stopwatch.elapsedMicroseconds;
+    }
+
+    // 앞 두 회차는 JIT 컴파일을 포함하므로 버린다.
+    for (var round = 0; round < 2; round++) {
+      timed(null);
+      timed(1);
+    }
+    final ratios = <double>[];
+    for (var round = 0; round < 5; round++) {
+      // 먼저 잰 쪽이 남긴 GC 부담이 한쪽에만 쌓이지 않게 순서를 번갈아 바꾼다.
+      final int full;
+      final int limited;
+      if (round.isEven) {
+        full = timed(null);
+        limited = timed(1);
+      } else {
+        limited = timed(1);
+        full = timed(null);
+      }
+      ratios.add(full / limited);
+    }
+    ratios.sort();
+    final shown = ratios.map((ratio) => ratio.toStringAsFixed(2)).join(', ');
+    expect(
+      ratios[ratios.length ~/ 2],
+      greaterThan(4),
+      reason: 'unlimited/limit-1 time ratios [$shown]',
+    );
+  });
+
   test('a changed source without any node is reported unattributed', () {
     final report = ImpactAnalysis.analyze(
       _graph().snapshot(),
@@ -507,17 +664,19 @@ void main() {
 String _seed(int index) => 's${'$index'.padLeft(2, '0')}';
 
 /// `::` 없는 ID의 선언 정점과 주어진 간선만 가진 그래프다 — 라이브러리 씨앗이
-/// 덧붙지 않아 씨앗이 요청한 심볼 그대로다.
+/// 덧붙지 않아 씨앗이 요청한 심볼 그대로다. [sources]에 있는 정점은 그 소스
+/// URI를 갖는다(테스트 파일 정점을 만들 때 쓴다).
 GraphSnapshot _usageGraph(
   List<(String, String, EdgeKind)> edges, {
   List<String> nodes = const [],
+  Map<String, String> sources = const {},
 }) => GraphSnapshot(
   nodes: [
     for (final id in {
       ...nodes,
       for (final (from, to, _) in edges) ...[from, to],
     })
-      GraphNode(id: id),
+      GraphNode(id: id, sourceUri: sources[id]),
   ],
   edges: [
     for (final (from, to, kind) in edges)
@@ -532,6 +691,46 @@ int _cycleWeight(GraphSnapshot graph, List<String> seeds, {int? maxDepth}) =>
         .factors
         .singleWhere((factor) => factor.name == 'cycle-participation')
         .weight;
+
+/// 성능 수정 전의 영향 BFS다 — 발견한 정점마다 직전 정점의 경로를 복사해 최단
+/// 경로를 만든다. 경로 동등성의 오라클로 옮겨 둔다. 씨앗을 포함한 모든 도달
+/// 정점의 경로를 BFS 발견 순서(정렬한 씨앗이 먼저)의 맵으로 돌려준다.
+Map<String, List<String>> _legacyPaths(
+  List<String> seeds,
+  List<(String, String, EdgeKind)> edges, {
+  int? maxDepth,
+}) {
+  final sortedSeeds = seeds.toSet().toList()..sort();
+  final reverse = <String, List<(String, String)>>{};
+  for (final (from, to, kind) in edges.toSet()) {
+    if (!kind.impliesUsage) continue;
+    (reverse[to] ??= <(String, String)>[]).add((from, kind.name));
+  }
+  for (final list in reverse.values) {
+    list.sort((a, b) {
+      final bySource = a.$1.compareTo(b.$1);
+      return bySource != 0 ? bySource : a.$2.compareTo(b.$2);
+    });
+  }
+  final depths = <String, int>{for (final seed in sortedSeeds) seed: 0};
+  final paths = <String, List<String>>{
+    for (final seed in sortedSeeds) seed: [seed],
+  };
+  final queue = [...sortedSeeds];
+  for (var cursor = 0; cursor < queue.length; cursor++) {
+    final current = queue[cursor];
+    final currentDepth = depths[current]!;
+    if (maxDepth != null && currentDepth >= maxDepth) continue;
+    for (final (dependent, _)
+        in reverse[current] ?? const <(String, String)>[]) {
+      if (depths.containsKey(dependent)) continue;
+      depths[dependent] = currentDepth + 1;
+      paths[dependent] = [dependent, ...paths[current]!];
+      queue.add(dependent);
+    }
+  }
+  return paths;
+}
 
 /// 성능 수정 전의 씨앗별 전방 탐색이다 — 결과 동등성의 오라클로 옮겨 둔다.
 bool _legacyHasCyclicSeed(

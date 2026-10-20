@@ -286,6 +286,7 @@ abstract final class ImpactAnalysis {
   /// [maxDepth]가 주어지면 그 깊이까지만 건넌다. [limit]은 **보고** 항목 수를
   /// 제한하며(정렬 후 앞에서부터), 초과분은 [ImpactReport.truncatedImpacted]로
   /// 센다 — 탐색 자체는 제한하지 않아 개수·위험도가 잘림에 좌우되지 않는다.
+  /// 최단 경로는 보고하는 항목과 테스트에만 만든다.
   static ImpactReport analyze(
     GraphSnapshot graph, {
     Set<String> changedSources = const {},
@@ -344,9 +345,10 @@ abstract final class ImpactAnalysis {
     }
 
     final depths = <String, int>{for (final seed in sortedSeeds) seed: 0};
-    final paths = <String, List<String>>{
-      for (final seed in sortedSeeds) seed: [seed],
-    };
+    // 정점마다 최단 경로 사본을 두면 보고하지 않을 정점까지 O(정점 × 깊이)
+    // 메모리를 쓴다. 처음 발견한 직전 정점의 queue 위치만 적어 두고(씨앗은
+    // -1), 경로는 보고할 항목만 아래에서 복원한다.
+    final parents = <int>[for (final _ in sortedSeeds) -1];
     final queue = <String>[...sortedSeeds];
     for (var cursor = 0; cursor < queue.length; cursor++) {
       final current = queue[cursor];
@@ -356,60 +358,49 @@ abstract final class ImpactAnalysis {
         final dependent = edge.sourceId;
         if (depths.containsKey(dependent)) continue;
         depths[dependent] = currentDepth + 1;
-        paths[dependent] = [dependent, ...paths[current]!];
+        parents.add(cursor);
         queue.add(dependent);
       }
     }
 
-    final impacted = <ImpactedSymbol>[];
+    final impacted = <_Reached>[];
     // 테스트는 파일 단위로 중복 없이 보고한다(같은 파일의 여러 선언이 영향을
     // 받아도 재실행 대상 테스트는 하나다). 가장 얕은 깊이를 대표로 남긴다.
-    final testsBySource = <String, ImpactedTest>{};
-    for (final id in depths.keys.where((id) => depths[id]! > 0)) {
+    final testsBySource = <String, _Reached>{};
+    // queue는 씨앗 다음에 발견 순서로 정점을 담는다(depths의 키 순서와 같다).
+    for (var index = sortedSeeds.length; index < queue.length; index++) {
+      final id = queue[index];
       final node = nodeById[id];
       if (node == null) continue;
       final source = node.sourceUri;
-      final depth = depths[id]!;
-      final path = paths[id]!;
-      final path0 = source == null ? null : _toPath(source);
-      final level = _symbolRisk(depth, node);
-      impacted.add(
-        ImpactedSymbol(
-          id: id,
-          kind: node.isLibrary ? 'file' : 'declaration',
-          depth: depth,
-          path: path,
-          riskScore: level.$2,
-          riskLevel: level.$1,
-          source: path0,
-          line: node.line,
-          column: node.column,
-        ),
-      );
+      final reached = (id: id, depth: depths[id]!, node: node, index: index);
+      impacted.add(reached);
       if (source != null && _isTestSource(_toPath(source))) {
-        final key = path0!;
+        final key = _toPath(source);
         final existing = testsBySource[key];
-        if (existing == null || depth < existing.depth) {
-          testsBySource[key] = ImpactedTest(
-            id: id,
-            depth: depth,
-            path: path,
-            source: path0,
-          );
+        if (existing == null || reached.depth < existing.depth) {
+          testsBySource[key] = reached;
         }
       }
     }
-    impacted.sort((a, b) {
-      final byDepth = a.depth.compareTo(b.depth);
-      if (byDepth != 0) return byDepth;
-      return a.id.compareTo(b.id);
-    });
-    final tests = testsBySource.values.toList()
-      ..sort((a, b) {
-        final byDepth = a.depth.compareTo(b.depth);
-        if (byDepth != 0) return byDepth;
-        return a.id.compareTo(b.id);
-      });
+    impacted.sort(_compareReached);
+    final shownReached = limit == null ? impacted : impacted.take(limit);
+    final testReached = testsBySource.values.toList()..sort(_compareReached);
+    final paths = _PathIndex(queue, parents);
+    // 정렬 순서대로 만들어야 보고 항목의 직전 정점 경로가 이미 있다(_PathIndex).
+    final shown = [
+      for (final reached in shownReached)
+        _impactedSymbol(reached, paths.pathOf(reached.index)),
+    ];
+    final tests = [
+      for (final reached in testReached)
+        ImpactedTest(
+          id: reached.id,
+          depth: reached.depth,
+          path: paths.pathOf(reached.index),
+          source: _toPath(reached.node.sourceUri!),
+        ),
+    ];
 
     final changedDeclarations = <String>{
       for (final seed in sortedSeeds)
@@ -458,7 +449,6 @@ abstract final class ImpactAnalysis {
       reachesSeed: maxDepth == null ? depths.containsKey : null,
     );
 
-    final shown = limit == null ? impacted : impacted.take(limit).toList();
     final truncatedCount = impacted.length - shown.length;
 
     return ImpactReport(
@@ -485,6 +475,31 @@ abstract final class ImpactAnalysis {
     );
   }
 
+  /// 보고할 영향 항목 하나를 [path]와 함께 만든다.
+  static ImpactedSymbol _impactedSymbol(_Reached reached, List<String> path) {
+    final node = reached.node;
+    final source = node.sourceUri;
+    final level = _symbolRisk(reached.depth, node);
+    return ImpactedSymbol(
+      id: reached.id,
+      kind: node.isLibrary ? 'file' : 'declaration',
+      depth: reached.depth,
+      path: path,
+      riskScore: level.$2,
+      riskLevel: level.$1,
+      source: source == null ? null : _toPath(source),
+      line: node.line,
+      column: node.column,
+    );
+  }
+
+  /// 영향 항목과 테스트의 보고 순서(깊이, 그다음 ID)다.
+  static int _compareReached(_Reached a, _Reached b) {
+    final byDepth = a.depth.compareTo(b.depth);
+    if (byDepth != 0) return byDepth;
+    return a.id.compareTo(b.id);
+  }
+
   /// 개별 심볼의 위험도: 깊을수록 위험이 낮다(간접적 영향).
   static (String, int) _symbolRisk(int depth, GraphNode node) {
     var score = 100 - (depth - 1) * 15;
@@ -504,7 +519,7 @@ abstract final class ImpactAnalysis {
     required GraphSnapshot graph,
     required List<String> seeds,
     required Set<String> changedDeclarations,
-    required List<ImpactedSymbol> impacted,
+    required List<_Reached> impacted,
     required List<ImpactedTest> tests,
     required Map<String, GraphNode> nodeById,
     required Map<String, List<GraphEdge>> reverse,
@@ -753,4 +768,54 @@ abstract final class ImpactAnalysis {
       path.startsWith('test/') ||
       path.startsWith('integration_test/') ||
       path.startsWith('test_driver/');
+}
+
+/// 영향 BFS가 도달한 씨앗 밖 정점이다. [index]는 BFS queue의 위치다. 경로는
+/// 보고할 때만 만든다.
+typedef _Reached = ({String id, int depth, GraphNode node, int index});
+
+/// 영향 BFS가 처음 발견한 직전 정점으로 최단 경로를 복원한다.
+///
+/// 경로는 정점에서 직전 정점을 거슬러 씨앗에서 끝난다. 수정 전 BFS가 발견할 때
+/// 붙이던 `[정점, ...직전 정점의 경로]`와 같다. 만든 경로를 기억해 두므로 보고
+/// 순서(깊이, ID)로 부르면 직전 정점은 씨앗이거나 먼저 만든 보고 항목이다.
+/// `--limit`의 보고 항목은 정렬의 앞부분이라 더 얕은 정점이 모두 그 안에 있다.
+/// 그래서 보고 항목 하나는 수정 전처럼 경로 사본 하나로 끝나고, 보고 범위 밖의
+/// 테스트만 기억된 조상까지 거슬러 오른다. 정점을 queue 위치로 다뤄 해시 조회가
+/// 없고, 재귀하지 않으므로 깊은 사슬에서도 스택이 넘치지 않는다.
+final class _PathIndex {
+  /// [queue]는 BFS 방문 순서의 정점 ID, [parents]는 같은 위치 정점의 직전 정점
+  /// 위치다(씨앗은 -1).
+  _PathIndex(this._queue, this._parents)
+    : _paths = List<List<String>?>.filled(_queue.length, null);
+
+  /// BFS 방문 순서의 정점 ID다(정렬한 씨앗이 먼저).
+  final List<String> _queue;
+
+  /// 같은 위치 정점을 처음 발견한 직전 정점의 위치다(씨앗은 -1).
+  final List<int> _parents;
+
+  /// queue 위치마다 이미 만든 경로다.
+  final List<List<String>?> _paths;
+
+  /// queue의 [index] 위치 정점에서 시작해 변경 씨앗에서 끝나는 최단 경로다.
+  List<String> pathOf(int index) {
+    final known = _paths[index];
+    if (known != null) return known;
+    final parent = _parents[index];
+    if (parent < 0) return _paths[index] = [_queue[index]];
+    final parentPath = _paths[parent];
+    if (parentPath != null) {
+      return _paths[index] = [_queue[index], ...parentPath];
+    }
+    // 보고 범위 밖의 정점이다. 기억된 경로나 씨앗까지 거슬러 오른다.
+    final head = <String>[];
+    var step = index;
+    while (_paths[step] == null && _parents[step] >= 0) {
+      head.add(_queue[step]);
+      step = _parents[step];
+    }
+    final tail = _paths[step] ?? [_queue[step]];
+    return _paths[index] = [...head, ...tail];
+  }
 }
