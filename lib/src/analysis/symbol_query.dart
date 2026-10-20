@@ -14,7 +14,8 @@ final class SymbolQuerySession {
     required Map<String, RetentionReason> roots,
     required List<String> limitations,
   }) : roots = Map.unmodifiable(roots),
-       limitations = List.unmodifiable(limitations) {
+       limitations = List.unmodifiable(limitations),
+       _documentLimitations = List.unmodifiable([...limitations]..sort()) {
     _analysis = ReachabilityAnalyzer().analyze(
       graph,
       roots: this.roots,
@@ -45,6 +46,14 @@ final class SymbolQuerySession {
   /// 모든 응답이 함께 전달하는 분석 한계다.
   final List<String> limitations;
 
+  /// 모든 문서가 함께 싣는 정렬된 불변 limitation 목록이다.
+  ///
+  /// 세션을 만들 때 한 번만 정렬한다. 문서마다 복사·정렬하면 batch(최대
+  /// 1000건)가 수천 개의 source 한계를 질의마다 다시 정렬한다. 정렬 결과와
+  /// 중복 보존은 문서마다 정렬하던 때와 같다. 문서끼리 공유하므로 불변이다.
+  /// 공개 필드 [limitations]는 입력 순서를 그대로 둔다.
+  final List<String> _documentLimitations;
+
   /// 질의 사이에 공유하는 도달성 결과다. 내부 타입이라 공개 필드로 노출하지
   /// 않고 deadDeclarations로 필요한 발견만 드러내 공개 표면을 좁힌다.
   late final ReachabilityResult _analysis;
@@ -67,6 +76,8 @@ final class SymbolQuerySession {
   /// 포함 관계(members·declaredIn)는 cartograph와 같이 항상 한 단계다.
   /// [limit]은 방향별 이웃 최대 개수며 null이면 제한하지 않는다. 제한으로
   /// 생략하면 `truncated`를 세워 잘린 사실을 숨기지 않는다.
+  /// 문서의 `limitations`는 이 세션의 모든 문서가 공유하는 정렬된 불변 목록이다.
+  /// 바꿔 써야 하면 복사한다.
   Map<String, Object?> query(
     String requested, {
     Set<String> suppressedIds = const {},
@@ -75,13 +86,13 @@ final class SymbolQuerySession {
   }) {
     final matches = _names[requested] ?? const <GraphNode>[];
     if (matches.isEmpty) {
-      return _document('notFound', requested, limitations);
+      return _document('notFound', requested, _documentLimitations);
     }
     if (matches.length > 1) {
       return _document(
         'ambiguous',
         requested,
-        limitations,
+        _documentLimitations,
         candidates: [
           for (final node in matches)
             {'qualifiedName': node.id, 'usr': node.id},
@@ -126,7 +137,7 @@ final class SymbolQuerySession {
     return _document(
       'found',
       requested,
-      limitations,
+      _documentLimitations,
       result: {
         'subject': _subject(node),
         'reachability': {
@@ -240,6 +251,10 @@ final class SymbolQuerySession {
   }..remove('accessibility');
 }
 
+/// cartograph SymbolQueryDocument 모양의 질의 문서를 만든다.
+///
+/// [limitations]는 세션이 한 번 정렬한 공유 불변 목록이다. 문서마다 복사·정렬하지
+/// 않고 그대로 싣는다.
 Map<String, Object?> _document(
   String status,
   String requested,
@@ -250,7 +265,7 @@ Map<String, Object?> _document(
   'status': status,
   'requested': requested,
   'level': 'symbol',
-  'limitations': [...limitations]..sort(),
+  'limitations': limitations,
   'result': result,
   'candidates': candidates,
 };
