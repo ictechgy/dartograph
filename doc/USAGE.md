@@ -157,8 +157,10 @@ affected·baseline)은 빈 목록이다.
   블록을 병합한다 — 어떤 질문에 어떤 dartograph 명령을 쓸지 라우팅을 매
   세션 컨텍스트에 올리기 위해서다. 표지가 짝 없이 있거나 중복이면 사람이
   고친 흔적으로 보고 실패(exit 2)한다. 생성된 훅은 Dart 파일 편집마다
-  `dartograph impact --changed --fail-on high`를 실행해 발견이 있으면 종료 2로
-  에이전트에게 보고한다. `<package-root>`가 필요하다.
+  `dartograph impact --changed --fail-on high --incremental-user-cache`를 실행해
+  발견이 있으면 종료 2로 에이전트에게 보고한다. 증분 사실 캐시는 프로젝트 밖 사용자
+  캐시에 둔다(이전 훅은 프로젝트 안 `.dartograph/cache`를 썼다 — 설치된 훅은
+  `setup --install --force`로 새 훅으로 바꾼다). `<package-root>`가 필요하다.
 - `cursor`: `<package-root>/.cursor/mcp.json`의 `mcpServers`에 병합한다.
 - `opencode`: `<package-root>/opencode.json`의 `mcp`에 `type: local` 항목을
   병합한다.
@@ -671,8 +673,10 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   `impact --changed`의 입력으로 쓰고 영향받는 선언·관련 테스트를 Problems에
   표시한다. risk가 high인 대상만 경고다.
 - `dartograph.runOnSave`를 켜면 Dart 파일 저장 직후 디바운스된 재분석이 돈다.
-  기본 `dartograph.args`는 `--incremental .dartograph/cache`로 재실행을 빠르게
-  유지한다. `dartograph.minTokens`·`dartograph.executable`도 설정으로 조정된다.
+  기본 `dartograph.args`는 `--incremental-user-cache`로, 증분 사실 캐시를 작업
+  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.16.2 이하 CLI는 이 스위치를
+  몰라 usage(64)로 끝나므로 CLI를 올리거나 그동안 `dartograph.args`를 `[]`로 둔다.
+  `dartograph.minTokens`·`dartograph.executable`도 설정으로 조정된다.
 - 각 보고서의 `limitations`는 dartograph 출력 채널에 기록한다 — 발견이 없다는
   사실이 안전의 증명이 되지 않는다.
 
@@ -697,7 +701,9 @@ plugins:
 
 플러그인은 PATH의 `dartograph` 실행 파일을 호출한다(`DARTOGRAPH_EXECUTABLE`로
 교체 가능). 첫 분석 패스가 보고서를 동기로 적재하고 이후는 TTL 만료 시
-백그라운드로 갱신한다 — 증분 캐시(`.dartograph/cache`)가 반복 비용을 줄인다.
+백그라운드로 갱신한다 — `--incremental-user-cache`로 프로젝트 밖 사용자 캐시에 둔
+증분 사실 캐시가 반복 비용을 줄인다. 이 스위치를 아는 CLI(0.16.2 다음 릴리스)가
+필요하다.
 진단은 근거 관측이며 삭제 판정이 아니다.
 
 ## 종료 코드

@@ -202,16 +202,26 @@ async function main() {
       `impact check failed: ${outputLines.join('\n')}`,
     );
     assert.deepStrictEqual(seen.entries, ['lib/step0.dart']);
+    // 기본 인자는 증분 사실 캐시를 작업 공간 밖 사용자 캐시에 둔다. 작업 공간
+    // 안 `.dartograph/cache`는 저장소가 위조한 캐시를 심어 둘 수 있는 자리다.
     assert.deepStrictEqual(seen.args, [
       'impact',
       '--changed',
       seen.changed,
       '--format',
       'json',
-      '--incremental',
-      '.dartograph/cache',
+      '--incremental-user-cache',
       root,
     ]);
+    // 실제 VS Code는 package.json이 선언한 기본값을 넘긴다 — 두 기본값이 같아야
+    // 위의 인자가 설치된 확장의 동작이다.
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
+    );
+    assert.deepStrictEqual(
+      manifest.contributes.configuration.properties['dartograph.args'].default,
+      ['--incremental-user-cache'],
+    );
     assert.strictEqual(path.basename(seen.changed), 'changes.json');
     assert.strictEqual(path.dirname(path.dirname(seen.changed)), os.tmpdir());
     assert.strictEqual(fs.existsSync(path.dirname(seen.changed)), false);

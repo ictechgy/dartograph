@@ -14,7 +14,10 @@ dart pub global activate dartograph
 ```
 
 The plugin runs the `dartograph` executable on PATH (override with the
-`DARTOGRAPH_EXECUTABLE` environment variable).
+`DARTOGRAPH_EXECUTABLE` environment variable). It passes
+`--incremental-user-cache`, so it needs a dartograph CLI newer than 0.16.2;
+with an older CLI both commands fail with a usage error and no diagnostics
+appear.
 
 ## Enable
 
@@ -41,7 +44,8 @@ plugins:
 | `dartograph_duplicate_block` | `dup --format json` — token-structural duplicate blocks |
 
 The first analysis pass loads the report synchronously (one CLI run per
-package; the incremental cache under `.dartograph/cache` keeps it fast).
+package; the incremental fact cache in dartograph's per-user cache directory,
+outside the project, keeps it fast).
 Reports refresh in the background after a short TTL, so findings track edits
 on subsequent analysis passes.
 

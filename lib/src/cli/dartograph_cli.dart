@@ -4033,9 +4033,10 @@ instead of being overwritten. --force replaces an existing dartograph entry.
 hook script and the managed guide block (a guide file holding exactly the
 generated block is removed; a block whose interior was edited is stripped
 but its file kept). The hook runs `dartograph impact --changed` after Dart
-file edits
-and requires dartograph on PATH; no paid service, login, or telemetry is
-involved.
+file edits, keeping its fact cache outside the project with
+--incremental-user-cache (run --install --force to replace an older hook that
+used .dartograph/cache), and requires dartograph on PATH; no paid service,
+login, or telemetry is involved.
 
 
 dead --format codeowners groups findings by the owners of their source paths

@@ -125,6 +125,31 @@ void main() {
   });
 
   group('ReportCache', () {
+    test('CLI 실행은 증분 캐시를 패키지 밖 사용자 캐시에 둔다', () async {
+      final dir = await Directory.systemTemp.createTemp('dgplug_args_');
+      final record = File('${dir.path}/argv');
+      // 받은 인자를 한 줄로 남기고 빈 보고서로 성공하는 가짜 CLI다.
+      final script = File('${dir.path}/record.sh')
+        ..writeAsStringSync(
+          '#!/bin/sh\nprintf \'%s\\n\' "\$*" >> "${record.path}"\n'
+          'printf \'{"findings":[],"report":"dead"}\'\n',
+        );
+      await Process.run('chmod', ['+x', script.path]);
+      ReportCache.clear();
+      ReportCache.debugExecutable = script.path;
+      try {
+        expect(ReportCache.reportFor(dir.path), isNotNull);
+        // 패키지 안 `.dartograph/cache`를 넘기면 저장소가 심어 둔 캐시를 믿는다.
+        expect(record.readAsLinesSync(), [
+          'dead --format json --incremental-user-cache ${dir.path}',
+          'dup --format json --incremental-user-cache ${dir.path}',
+        ]);
+      } finally {
+        ReportCache.clear();
+        await dir.delete(recursive: true);
+      }
+    });
+
     test('실행 실패를 캐시해 파일마다 재실행하지 않는다', () async {
       final dir = await Directory.systemTemp.createTemp('dgplug_cache_');
       final counter = File('${dir.path}/count');

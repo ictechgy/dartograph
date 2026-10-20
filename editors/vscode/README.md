@@ -17,6 +17,13 @@ The extension is on the
 dart pub global activate dartograph
 ```
 
+The default `dartograph.args` passes `--incremental-user-cache`, which needs a
+dartograph CLI newer than 0.16.2. With an older CLI every run fails with a usage
+error in the *dartograph* output channel: upgrade the CLI, or set
+`dartograph.args` to `[]` until you can. Avoid pointing `--incremental` at a
+directory inside a workspace you do not trust; a repository can commit cache
+files there.
+
 ## Commands
 
 | Command | What it does |
@@ -32,7 +39,7 @@ dart pub global activate dartograph
 | `dartograph.executable` | `dartograph` | Path to the CLI. |
 | `dartograph.runOnSave` | `false` | Re-run the workspace analysis shortly after a Dart file is saved. |
 | `dartograph.minTokens` | `40` | Minimum token window reported by `dup`. |
-| `dartograph.args` | `["--incremental", ".dartograph/cache"]` | Extra arguments appended to every invocation. |
+| `dartograph.args` | `["--incremental-user-cache"]` | Extra arguments appended to every invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace. |
 
 ## Reading the findings
 

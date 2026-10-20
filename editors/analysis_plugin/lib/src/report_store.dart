@@ -209,18 +209,26 @@ abstract final class ReportCache {
     );
   }
 
+  /// [root]에서 [command]를 실행할 CLI 인자다. 동기·비동기 실행이 같은 인자를
+  /// 쓴다.
+  ///
+  /// 증분 사실 캐시는 `--incremental-user-cache`로 패키지 밖 사용자 캐시에 둔다.
+  /// 패키지 안 캐시 디렉터리는 저장소가 위조한 사실이나 FIFO 링크를 커밋해 둘 수
+  /// 있는 자리다 — 첫 적재는 동기 실행이라, 그런 링크에서 CLI가 멈추면 플러그인
+  /// isolate도 함께 멈춘다.
+  static List<String> _arguments(String command, String root) => [
+    command,
+    '--format',
+    'json',
+    '--incremental-user-cache',
+    root,
+  ];
+
   static Map<String, Object?>? _runSync(String command, String root) {
     try {
       final result = Process.runSync(
         _executable,
-        [
-          command,
-          '--format',
-          'json',
-          '--incremental',
-          '.dartograph/cache',
-          root,
-        ],
+        _arguments(command, root),
         workingDirectory: root,
         stdoutEncoding: utf8,
       );
@@ -240,14 +248,7 @@ abstract final class ReportCache {
     try {
       final result = await Process.run(
         _executable,
-        [
-          command,
-          '--format',
-          'json',
-          '--incremental',
-          '.dartograph/cache',
-          root,
-        ],
+        _arguments(command, root),
         workingDirectory: root,
         stdoutEncoding: utf8,
       );

@@ -11,6 +11,11 @@ const mapper = require('./mapper');
 
 const SAVE_DELAY_MS = 1500;
 
+// 기본 인자는 package.json의 `dartograph.args` 기본값과 같다. 증분 사실 캐시를
+// 작업 공간 밖 사용자 캐시에 둔다 — 작업 공간 안 캐시 디렉터리는 저장소가 위조한
+// 사실이나 FIFO 링크를 커밋해 둘 수 있는 자리다.
+const DEFAULT_ARGS = ['--incremental-user-cache'];
+
 const SEVERITY = {
   warning: () => vscode.DiagnosticSeverity.Warning,
   information: () => vscode.DiagnosticSeverity.Information,
@@ -71,7 +76,7 @@ function config() {
     executable: section.get('executable', 'dartograph'),
     runOnSave: section.get('runOnSave', false),
     minTokens: section.get('minTokens', 40),
-    args: section.get('args', ['--incremental', '.dartograph/cache']),
+    args: section.get('args', DEFAULT_ARGS),
   };
 }
 
