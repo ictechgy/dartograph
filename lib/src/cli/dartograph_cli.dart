@@ -937,6 +937,16 @@ Future<int> _runImpact(
       limit: limitOption,
     );
     failedItems.addAll([for (final item in report.impacted) item.id]);
+    if (limitOption != null && report.truncated) {
+      // --limit은 coverage 목록도 보고 항목과 같은 수로 자른다. 개수·위험도는
+      // 전체 기준이라 빠진 수를 limitation으로 드러낸다.
+      limitations.add(
+        'impact-coverage-truncated: --limit $limitOption omitted '
+        '${report.truncatedImpacted} of '
+        '${report.coverage.transitivelyImpacted} impacted symbol(s) from '
+        'coverage.missedWithoutPrecheck',
+      );
+    }
     if (unmappedDartFiles > 0) {
       limitations.add(
         'changed-dart-files-without-library: $unmappedDartFiles changed Dart '
@@ -4230,6 +4240,10 @@ symbol that transitively uses it with a shortest usage path, the call sites
 into changed declarations, the test libraries that depend on the changed set,
 and a risk score with its factors. The coverage block counts the impacted
 symbols that inspecting only the changed files would have missed.
+--limit <n> reports the first n impacted symbols, in impacted and in
+coverage.missedWithoutPrecheck alike; counts and risk still cover every
+impacted symbol, and truncated plus an impact-coverage-truncated limitation
+report the cut. Call sites and related tests are not limited.
 --format test-list prints only the affected test library paths, one per line,
 ready to feed `dart test` (it is never truncated by --limit; an empty list
 means no affected tests — do not run bare `dart test` on empty output).

@@ -212,7 +212,10 @@ final class ImpactCoverage {
   /// 관련 테스트 라이브러리 수다.
   final int relatedTests;
 
-  /// 변경 파일만 확인했을 때 누락됐을 심볼 ID 목록(정렬)이다.
+  /// 변경 파일만 확인했을 때 누락됐을 심볼 ID 목록(깊이, ID 순)이다.
+  ///
+  /// `limit`이 있으면 [ImpactReport.impacted]와 같은 앞 n개만 싣는다. 전체 수는
+  /// [transitivelyImpacted]다.
   final List<String> missedWithoutPrecheck;
 
   /// 키가 알파벳 순서인 결정적 JSON 값이다.
@@ -272,6 +275,8 @@ final class ImpactReport {
   final ImpactCoverage coverage;
 
   /// `--limit`로 잘려 나간 영향 항목 수다(0이면 전부 표시).
+  ///
+  /// [ImpactCoverage.missedWithoutPrecheck]에서 빠진 수와 같다.
   final int truncatedImpacted;
 
   /// 잘림이 있었는지 나타낸다.
@@ -286,7 +291,8 @@ abstract final class ImpactAnalysis {
   /// [maxDepth]가 주어지면 그 깊이까지만 건넌다. [limit]은 **보고** 항목 수를
   /// 제한하며(정렬 후 앞에서부터), 초과분은 [ImpactReport.truncatedImpacted]로
   /// 센다 — 탐색 자체는 제한하지 않아 개수·위험도가 잘림에 좌우되지 않는다.
-  /// 최단 경로는 보고하는 항목과 테스트에만 만든다.
+  /// [ImpactCoverage.missedWithoutPrecheck]도 같은 항목으로 자른다. 최단 경로는
+  /// 보고하는 항목과 테스트에만 만든다.
   static ImpactReport analyze(
     GraphSnapshot graph, {
     Set<String> changedSources = const {},
@@ -469,7 +475,9 @@ abstract final class ImpactAnalysis {
         directlyChangedSymbols: changedDeclarations.length,
         transitivelyImpacted: impacted.length,
         relatedTests: tests.length,
-        missedWithoutPrecheck: [for (final item in impacted) item.id],
+        // limit의 문서 의미대로 보고 항목과 같은 심볼만 싣는다. 전체 수는
+        // transitivelyImpacted, 잘린 수는 truncatedImpacted다.
+        missedWithoutPrecheck: [for (final item in shown) item.id],
       ),
       truncatedImpacted: truncatedCount,
     );

@@ -167,27 +167,61 @@ void main() {
     ]);
   });
 
-  test('limit truncates the report but not counts or risk', () {
-    final full = ImpactAnalysis.analyze(
-      _graph().snapshot(),
-      changedSources: {'project:lib/a.dart'},
-    );
-    final limited = ImpactAnalysis.analyze(
-      _graph().snapshot(),
-      changedSources: {'project:lib/a.dart'},
-      limit: 1,
-    );
+  test(
+    'limit truncates the report and coverage list but not counts or risk',
+    () {
+      final full = ImpactAnalysis.analyze(
+        _graph().snapshot(),
+        changedSources: {'project:lib/a.dart'},
+      );
+      final limited = ImpactAnalysis.analyze(
+        _graph().snapshot(),
+        changedSources: {'project:lib/a.dart'},
+        limit: 1,
+      );
 
-    expect(limited.impacted.length, 1);
-    expect(limited.truncatedImpacted, full.impacted.length - 1);
-    expect(limited.truncated, isTrue);
-    expect(limited.risk.toJson(), full.risk.toJson());
-    expect(
-      limited.coverage.transitivelyImpacted,
-      full.coverage.transitivelyImpacted,
-    );
-    expect(limited.coverage.missedWithoutPrecheck.length, 4);
-  });
+      expect(limited.impacted.length, 1);
+      expect(limited.truncatedImpacted, full.impacted.length - 1);
+      expect(limited.truncated, isTrue);
+      expect(limited.risk.toJson(), full.risk.toJson());
+      expect(
+        limited.coverage.transitivelyImpacted,
+        full.coverage.transitivelyImpacted,
+      );
+      // coverage 목록도 보고 항목과 같은 앞 n개다(깊이, ID 순).
+      expect(limited.coverage.missedWithoutPrecheck, ['project:lib/b.dart']);
+      expect(full.coverage.missedWithoutPrecheck, [
+        'project:lib/b.dart',
+        'project:lib/b.dart::Bar',
+        'project:test/a_test.dart',
+        'project:test/a_test.dart::main',
+      ]);
+      final three = ImpactAnalysis.analyze(
+        _graph().snapshot(),
+        changedSources: {'project:lib/a.dart'},
+        limit: 3,
+      );
+      expect(three.coverage.missedWithoutPrecheck, [
+        'project:lib/b.dart',
+        'project:lib/b.dart::Bar',
+        'project:test/a_test.dart',
+      ]);
+      // limit이 영향 수 이상이면 잘림이 없다.
+      for (final limit in const [4, 5]) {
+        final report = ImpactAnalysis.analyze(
+          _graph().snapshot(),
+          changedSources: {'project:lib/a.dart'},
+          limit: limit,
+        );
+        expect(report.truncatedImpacted, 0, reason: 'limit $limit');
+        expect(
+          report.coverage.missedWithoutPrecheck,
+          full.coverage.missedWithoutPrecheck,
+          reason: 'limit $limit',
+        );
+      }
+    },
+  );
 
   test('a missing symbol is reported and seeds nothing', () {
     final report = ImpactAnalysis.analyze(

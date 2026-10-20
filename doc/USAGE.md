@@ -510,11 +510,14 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 JSON 문자열 배열, 1–1000개·1 MiB 이하 정규 파일, `query --batch`와 같은 상한), 또는
 `--symbol <symbol-id>`(한 심볼의 종속자). 둘 이상이거나 없으면 usage(64)다.
 
-`--depth`는 전이 한계(기본 무제한), `--limit`은 **보고** 항목 수 제한이다(탐색과
-개수·위험도는 제한하지 않고 잘린 수만 `truncated`로 알린다). `--fail-on <level>`은
-전체 위험도가 그 수준 이상이면 종료 코드 1로 만든다(기본 `none`은 항상 0). 출력에는
-`coverage` 블록이 있어 **변경 파일만 확인했을 때 누락됐을** 영향 심볼 수와 목록을
-제시한다 — 사전 점검의 가치를 수치로 남긴다.
+`--depth`는 전이 한계(기본 무제한), `--limit <n>`은 **보고** 항목 수 제한이다.
+`impacted`와 `coverage.missedWithoutPrecheck`를 같은 앞 n개(깊이, ID 순)로 자른다.
+탐색과 개수(`coverage.transitivelyImpacted`)·위험도는 제한하지 않고, 잘린 수는
+`truncated`와 `impact-coverage-truncated:` limitation으로 알린다. `callSites`와
+`tests`는 자르지 않는다. `--fail-on <level>`은 전체 위험도가 그 수준 이상이면 종료
+코드 1로 만든다(기본 `none`은 항상 0). 출력에는 `coverage` 블록이 있어 **변경 파일만
+확인했을 때 누락됐을** 영향 심볼 수와 목록을 제시한다 — 사전 점검의 가치를 수치로
+남긴다. text·markdown의 coverage 문장은 `--limit`과 상관없이 전체 수를 센다.
 
 `--format test-list`는 영향받는 테스트 라이브러리의 프로젝트 상대 경로만 한 줄에
 하나씩 낸다 — `dart test`의 인자로 곧바로 쓰는 소비 형식이다. 테스트 선택은

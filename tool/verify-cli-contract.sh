@@ -208,6 +208,8 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 0 "impact changed sarif" impact --changed "$CHANGES_FILE" --format sarif fixtures/phase5_contract
   expect_status 0 "impact changed github-actions" impact --changed "$CHANGES_FILE" --format github-actions fixtures/phase5_contract
   expect_status 0 "impact changed test-list" impact --changed "$CHANGES_FILE" --format test-list fixtures/phase5_contract
+  # --limit은 impacted와 coverage 목록을 자르고 limitation을 더할 뿐 종료 코드를 바꾸지 않는다.
+  expect_status 0 "impact changed limit" impact --changed "$CHANGES_FILE" --limit 1 --format json fixtures/phase5_contract
   expect_status 0 "impact symbol" impact --symbol project:lib/a.dart::a --format json fixtures/phase5_contract
   expect_status 0 "impact since" impact --since HEAD --format json fixtures/phase5_contract
   expect_status 64 "impact no seed" impact fixtures/phase5_contract
@@ -217,6 +219,7 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "impact duplicate since" impact --since A --since B fixtures/phase5_contract
   expect_status 64 "impact missing symbol" impact --symbol project:lib/missing.dart fixtures/phase5_contract
   expect_status 64 "impact zero depth" impact --since HEAD --depth 0 fixtures/phase5_contract
+  expect_status 64 "impact zero limit" impact --since HEAD --limit 0 fixtures/phase5_contract
   expect_status 2 "impact failure" impact --changed "$CHANGES_FILE" fixtures/does-not-exist
   expect_status 0 "runtime report" runtime fixtures/runtime_corpus
   expect_status 0 "runtime text" runtime --format text fixtures/runtime_corpus

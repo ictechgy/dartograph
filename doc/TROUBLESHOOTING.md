@@ -49,6 +49,8 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
 - **`--changed <changes.json>` 형식 오류**는 64로 끝난다. 파일 경로와 형식을 확인한다.
 - **결과가 비어 보인다.** `changed`가 비어 있으면 씨앗이 없다. `coverage`의
   `missedWithoutPrecheck`를 함께 읽는다 — 직접 변경만 봤을 때 놓쳤을 항목을 세는 필드다.
+  `--limit`을 주면 이 목록도 앞 n개로 잘리므로(`impact-coverage-truncated:` limitation) 전체 수는
+  `transitivelyImpacted`로 읽는다.
 - **나열되지 않은 선언이 안전하다는 뜻이 아니다.** `limitations`를 반드시 함께 읽는다.
 
 ## 5. `runtime` 결과 해석

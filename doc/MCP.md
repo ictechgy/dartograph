@@ -131,7 +131,7 @@ exitCode: 0
 | `changed` | string[] | | 프로젝트 상대 변경 경로 1–1000개 |
 | `symbol` | string | | 종속자를 볼 심볼 ID |
 | `depth` | integer ≥1 | | 전이 한계(기본 무제한) |
-| `limit` | integer ≥1 | | 보고 항목 수 제한 |
+| `limit` | integer ≥1 | | 보고 항목 수 제한(`impacted`와 `coverage.missedWithoutPrecheck`. 개수·위험도는 전체 기준) |
 | `workspace` | boolean | | pub workspace 멤버 집계(CLI `--workspace`) |
 
 `since`·`changed`·`symbol` 중 **정확히 하나**를 준다.
@@ -147,6 +147,9 @@ exitCode: 0
 응답 텍스트 첫 줄은 `exitCode: 0`이고, 그 다음 줄부터 영향 문서(JSON)가 온다.
 문서에는 `changed`·`impacted`·`callSites`·`tests`·`risk`·`coverage`·`limitations`가
 있고, `coverage.missedWithoutPrecheck`가 "변경 파일만 봤을 때 누락됐을" 심볼을 담는다.
+`limit`을 주면 이 목록도 `impacted`와 같은 앞 n개로 자르고, 전체 수는
+`coverage.transitivelyImpacted`, 잘린 수는 `truncated`와 `impact-coverage-truncated:`
+limitation이 알린다. `callSites`와 `tests`는 자르지 않는다.
 
 실제 호출 성공 사례(이 저장소, `changed: ["lib/src/core/graph_edge.dart"]`):
 
