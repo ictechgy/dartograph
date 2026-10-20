@@ -85,8 +85,15 @@ PATH의 명령 이름이어야 한다. 상대 경로는 실행 디렉터리인 �
 커밋한 스크립트를 가리킬 수 있으므로 실행하지 않는다. Windows에서 Node(libuv)는 이름만 받은 실행
 파일을 PATH보다 먼저 실행 디렉터리에서 찾고, POSIX의 execvp는 PATH의 빈 항목(앞뒤·연속 `:`)과
 `.` 같은 상대 항목을 실행 디렉터리 기준으로 푼다. 그래서 확장이 두 경우 모두 PATH의 절대 경로
-디렉터리에서 직접 찾아(POSIX는 실행 권한이 있는 정규 파일만) 그 경로를 실행한다. 확장은 제한
-모드에서도 켜지지만 `dartograph.args`·`dartograph.runOnSave`도 사용자 설정 값만 쓴다.
+디렉터리에서 직접 찾아(POSIX는 실행 권한이 있는 정규 파일만) 그 경로를 실행한다. CLI와 그
+자손도 같은 실행 디렉터리에서 프로그램을 이름으로 찾는다. `dart pub global activate`가 설치하는
+실행 스크립트의 `#!/usr/bin/env sh`와 본문의 `dart`, CLI가 `--since`·`--record`에서 부르는
+`git`이 그렇다. 그래서 POSIX에서는 CLI에 넘기는 환경의 PATH도 같은 규칙으로 걸러 절대 경로
+디렉터리만 순서대로 넘긴다. 남는 디렉터리가 없으면 `/usr/bin:/bin`을 넘긴다. 빈 PATH는 execvp가
+현재 디렉터리로 읽기 때문이다. Windows에서는 환경을 그대로 넘긴다. Windows의 이름 탐색은 PATH보다
+현재 디렉터리를 먼저 볼 수 있어 PATH를 거르는 것만으로는 막지 못하므로, Windows에서 이 경계는
+CLI 자체를 찾는 데까지다. 확장은 제한 모드에서도 켜지지만 `dartograph.args`·`dartograph.runOnSave`도
+사용자 설정 값만 쓴다.
 
 MCP 도구 인자는 분석 대상 저장소의 문서에 심은 지시를 따른 에이전트가 보낼 수 있다. 그래서
 `packageRoot`·`baseline`·`config`는 서버 작업 디렉터리 안의 실제 디렉터리·정규 파일로만
