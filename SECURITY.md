@@ -53,10 +53,10 @@ analyzer가 해석하며 여는 모든 파일을 읽기 직전에 확인한다. 
 그래서 길이를 0으로 보고하는 가상 파일(`/proc/self/pagemap` 등)이나 큰 호스트 파일도 메모리를
 소진하지 못한다. 캐시 키·증분 해시도 같은 입력을 같은 상한으로 읽는다. 저장소 설정 파일과
 `--baseline` 파일도 열기 전에 정규 파일인지 확인하고 1 MiB(`package_config.json`은 16 MiB,
-baseline은 64 MiB)까지만 읽는다. `--incremental <dir>`의 캐시 파일(`facts.json`)은 링크를
-따라가지 않고 확인한다. 심볼릭 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이면 대상이
-무엇이든 열지 않고, 정규 파일은 1 GiB까지만 읽는다. 거부한 캐시 대신 사실을 모두 다시 해석하고
-`incremental-cache-not-read:` limitation을 남긴다.
+baseline은 64 MiB)까지만 읽는다. `--incremental <dir>`의 캐시 파일(`facts.json`, 그리고
+`dup`만 읽는 `tokens.json`)은 링크를 따라가지 않고 확인한다. 심볼릭 링크(장치·FIFO를 가리키는
+링크 포함)·FIFO·소켓이면 대상이 무엇이든 열지 않고, 정규 파일은 1 GiB까지만 읽는다. 거부한
+캐시 대신 사실을 모두 다시 해석하고 `incremental-cache-not-read:` limitation을 남긴다.
 
 `--since`·`affected`(MCP `since` 포함)의 변경 파일 계산, `impact --format language-traversal`의
 깨끗한 HEAD `revision` 판독, `--record` 원장의 commit 관측은 분석 대상에서 git을 읽기 전용으로

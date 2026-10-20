@@ -110,7 +110,8 @@ final class AnalyzerGraphResult {
   /// `dup` 중복 탐지의 입력이 되는 정규화 토큰 세그먼트다.
   ///
   /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
-  /// 기계 산출물의 반복은 검토 신호가 아니다.
+  /// 기계 산출물의 반복은 검토 신호가 아니다. 색인기가
+  /// `includeTokenSegments: true`로 만들어졌을 때만 채워지고, 아니면 비어 있다.
   final List<TokenSegment> tokenSegments;
 
   /// `dartograph.yaml`의 `include` glob이다. 비어 있으면 모든 소스가 범위다.
@@ -140,26 +141,38 @@ final class AnalyzerGraphResult {
   /// 결과를 호출부에서 손으로 복사하면 필드가 추가될 때 한 곳이 빠져 결과가
   /// 조용히 바뀐다 — 증분 캐시 쓰기 실패 분기가 [workspacePackages]를 잃어
   /// `deps --workspace`가 거짓 발견을 낸 사례다. 복사를 필드 선언 옆에 두어
-  /// 필드 목록과 함께 고치게 한다.
+  /// 필드 목록과 함께 고치게 한다([_copy]).
   AnalyzerGraphResult withAddedLimitationDetail(String detail) =>
-      AnalyzerGraphResult(
-        graph: graph,
-        limitations: limitations,
-        limitationDetails: [...limitationDetails, detail],
-        retentionRoots: retentionRoots,
-        packageName: packageName,
-        declaredDependencies: declaredDependencies,
-        declaredDevDependencies: declaredDevDependencies,
-        declaredDependencyOverrides: declaredDependencyOverrides,
-        packageImports: packageImports,
-        complexity: complexity,
-        tokenSegments: tokenSegments,
-        includeGlobs: includeGlobs,
-        excludeGlobs: excludeGlobs,
-        metricsDistanceThreshold: metricsDistanceThreshold,
-        metricsComplexityThreshold: metricsComplexityThreshold,
-        workspacePackages: workspacePackages,
-      );
+      _copy(limitationDetails: [...limitationDetails, detail]);
+
+  /// [tokenSegments]만 비운 복사본이다.
+  ///
+  /// 토큰을 요청하지 않은 색인이 돌려준다. 해석하며 뽑은 토큰은 캐시에만 두고
+  /// 결과에는 싣지 않아, 캐시를 읽은 실행과 해석한 실행의 결과가 같다.
+  AnalyzerGraphResult _withoutTokenSegments() => _copy(tokenSegments: const []);
+
+  /// 준 필드만 바꾼 복사본이다. 필드를 더하면 여기도 함께 고친다.
+  AnalyzerGraphResult _copy({
+    List<String>? limitationDetails,
+    List<TokenSegment>? tokenSegments,
+  }) => AnalyzerGraphResult(
+    graph: graph,
+    limitations: limitations,
+    limitationDetails: limitationDetails ?? this.limitationDetails,
+    retentionRoots: retentionRoots,
+    packageName: packageName,
+    declaredDependencies: declaredDependencies,
+    declaredDevDependencies: declaredDevDependencies,
+    declaredDependencyOverrides: declaredDependencyOverrides,
+    packageImports: packageImports,
+    complexity: complexity,
+    tokenSegments: tokenSegments ?? this.tokenSegments,
+    includeGlobs: includeGlobs,
+    excludeGlobs: excludeGlobs,
+    metricsDistanceThreshold: metricsDistanceThreshold,
+    metricsComplexityThreshold: metricsComplexityThreshold,
+    workspacePackages: workspacePackages,
+  );
 }
 
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
@@ -212,17 +225,25 @@ final class AnalyzerGraphIndex {
   /// 포함되고, 각 멤버의 `lib/<name>.dart`가 대표 라이브러리로 공개 API 보존
   /// 근거를 제공한다. 루트가 pub workspace를 선언하지 않으면
   /// [FormatException]이다.
+  ///
+  /// [includeTokenSegments]가 true일 때만 결과의
+  /// [AnalyzerGraphResult.tokenSegments]를 채운다. 그 토큰은 `dup`만 쓰고 사실
+  /// 캐시 크기의 약 30%라, 두 캐시 모두 토큰을 따로 저장하고 이 값이 true인
+  /// 색인만 읽는다. false여도 해석한 파일의 토큰은 뽑아 캐시에 둔다 — 다음 `dup`이
+  /// 그 파일을 다시 해석하지 않게 한다.
   AnalyzerGraphIndex({
     FactCache? cache,
     IncrementalCache? incremental,
     bool incrementalInUserCache = false,
     Map<String, String>? userCacheEnvironment,
     bool aggregateWorkspace = false,
+    bool includeTokenSegments = false,
   }) : _cache = cache,
        _incremental = incremental,
        _incrementalInUserCache = incrementalInUserCache,
        _userCacheEnvironment = userCacheEnvironment,
-       _aggregateWorkspace = aggregateWorkspace {
+       _aggregateWorkspace = aggregateWorkspace,
+       _includeTokenSegments = includeTokenSegments {
     if (incremental != null && incrementalInUserCache) {
       throw ArgumentError(
         'incremental and incrementalInUserCache choose different fact cache '
@@ -236,6 +257,7 @@ final class AnalyzerGraphIndex {
   final bool _incrementalInUserCache;
   final Map<String, String>? _userCacheEnvironment;
   final bool _aggregateWorkspace;
+  final bool _includeTokenSegments;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
@@ -261,7 +283,11 @@ final class AnalyzerGraphIndex {
       await _scanAnalysisInputs(root, linkEscapes);
     }
     if (cache != null && initialCacheKey != null) {
-      final cached = await _readCachedAnalysis(cache, initialCacheKey);
+      final cached = await _readCachedAnalysis(
+        cache,
+        initialCacheKey,
+        includeTokenSegments: _includeTokenSegments,
+      );
       if (cached != null &&
           await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
               initialCacheKey) {
@@ -283,7 +309,7 @@ final class AnalyzerGraphIndex {
               initialCacheKey) {
         await _writeCachedAnalysis(cache, initialCacheKey, result);
       }
-      return result;
+      return _includeTokenSegments ? result : result._withoutTokenSegments();
     } finally {
       await collection.dispose();
     }
@@ -435,6 +461,11 @@ final class AnalyzerGraphIndex {
         ),
     };
     final cached = await incremental.load();
+    // dup 전용 토큰 사실은 그것을 쓰는 색인만 읽는다. 다른 명령은 토큰 파일을
+    // 열지도 디코드하지도 않는다.
+    final cachedTokens = _includeTokenSegments
+        ? await incremental.loadTokens()
+        : const <String, CachedFacts>{};
     // 이전 실행의 의존 표로 역방향 폐쇄를 만든다. 캐시에만 있는 파일(삭제)도
     // 그 파일에 의존하던 라이브러리를 무효화해야 하므로 캐시 전체를 본다.
     // 사실 본문 파싱은 폐쇄가 정해진 뒤 재사용할 파일에만 한다 — 폐쇄에 걸려
@@ -516,7 +547,19 @@ final class AnalyzerGraphIndex {
         resolved.add(source);
         continue;
       }
-      final parsed = _UnitFacts.fromJson(cached[source]!.facts);
+      // 토큰을 쓰는 색인은 토큰도 재사용할 수 있어야 사실을 재사용한다. 토큰
+      // 항목이 없거나 낡았거나 망가졌으면 아래에서 그 파일만 다시 해석한다 —
+      // 토큰은 그 파일 내용만의 함수라 폐쇄까지 넓히지 않는다.
+      final tokens = _includeTokenSegments
+          ? _reusableUnitTokens(
+              cachedTokens[source],
+              currentKeys[source]!,
+              source,
+            )
+          : const <TokenSegment>[];
+      final parsed = tokens == null
+          ? null
+          : _UnitFacts.fromJson(cached[source]!.facts, tokenSegments: tokens);
       if (parsed != null) {
         facts[source] = parsed;
         continue;
@@ -552,7 +595,12 @@ final class AnalyzerGraphIndex {
     // 갱신 여부와 무관하게 출력에 드러나야 한다.
     if (incremental.stats.cacheNotRead) {
       result = result.withAddedLimitationDetail(
-        _cacheNotReadDetail(incremental.readLimit),
+        _cacheNotReadDetail('fact cache file', incremental.readLimit),
+      );
+    }
+    if (incremental.stats.tokenCacheNotRead) {
+      result = result.withAddedLimitationDetail(
+        _cacheNotReadDetail('dup token cache file', incremental.readLimit),
       );
     }
     incremental.stats
@@ -561,11 +609,15 @@ final class AnalyzerGraphIndex {
     // 캐시가 이미 현재 입력과 정확히 일치하면(전부 재사용, 추가·삭제 없음)
     // 다시 쓰지 않는다. 디스크의 캐시가 곧 이번 실행이 쓸 내용이다. 다시 쓰면
     // 3.5MB 인코딩·원자적 교체를 매 실행 지불한다(600파일 기준 41ms).
-    final cacheIsCurrent =
-        resolved.isEmpty &&
-        cached.length == currentSources.length &&
-        currentSources.every(cached.containsKey);
-    if (cacheIsCurrent) return result;
+    final writeFacts = !_entriesAreCurrent(cached, resolved, currentSources);
+    // 토큰 파일은 토큰을 읽은 색인이면 같은 기준으로 쓴다. 다른 색인은 이번 실행이
+    // 모든 파일을 해석해 토큰을 다 가졌을 때만 쓴다 — 재사용한 파일의 토큰은 읽지
+    // 않았으므로 일부만 쓰면 그 파일들의 토큰 항목을 잃는다. 남겨 둔 낡은 항목은
+    // 다음 dup이 파일 키로 가려 그 파일만 다시 해석한다.
+    final writeTokens = _includeTokenSegments
+        ? !_entriesAreCurrent(cachedTokens, resolved, currentSources)
+        : resolved.isNotEmpty && sources.every(resolved.contains);
+    if (!writeFacts && !writeTokens) return result;
     final inputsUnchanged = await _incrementalInputsUnchanged(
       root,
       resolved,
@@ -577,13 +629,25 @@ final class AnalyzerGraphIndex {
       incremental.stats.cacheNotUpdated = true;
       return result;
     }
-    final written = await incremental.store({
-      for (final source in sources)
-        source: CachedFacts(
-          key: currentKeys[source]!,
-          facts: facts[source]!.toJson(),
-        ),
-    });
+    final factsWritten =
+        !writeFacts ||
+        await incremental.store({
+          for (final source in sources)
+            source: CachedFacts(
+              key: currentKeys[source]!,
+              facts: facts[source]!.toJson(),
+            ),
+        });
+    final tokensWritten =
+        !writeTokens ||
+        await incremental.storeTokens({
+          for (final source in sources)
+            source: CachedFacts(
+              key: currentKeys[source]!,
+              facts: _unitTokensJson(facts[source]!.tokenSegments),
+            ),
+        });
+    final written = factsWritten && tokensWritten;
     if (!written) {
       incremental.stats.cacheNotUpdated = true;
       result = result.withAddedLimitationDetail(_cacheWriteFailureDetail);
@@ -618,15 +682,91 @@ const _userCacheUnavailableDetail =
 /// 쓰기 실패와 같이 경로를 넣지 않는다. 분석 결과는 전체 해석과 같다 — 버린
 /// 캐시 대신 모든 파일을 다시 해석했다. 접두사는 MCP 세션 캐시의 쓰기 실패
 /// 감지([incrementalCacheWriteFailurePrefix])와 겹치지 않는다. 상한 표기는
-/// 분석 입력 상한 진단과 같은 형식이다.
-String _cacheNotReadDetail(int readLimit) {
+/// 분석 입력 상한 진단과 같은 형식이다. [cacheFile]은 버린 파일의 이름이다
+/// (`fact cache file`, 또는 dup만 읽는 `dup token cache file`).
+String _cacheNotReadDetail(String cacheFile, int readLimit) {
   const mebibyte = 1024 * 1024;
   final limit = readLimit % mebibyte == 0
       ? '${readLimit ~/ mebibyte} MiB'
       : '$readLimit-byte';
-  return 'incremental-cache-not-read: the fact cache file is a symbolic link, '
+  return 'incremental-cache-not-read: the $cacheFile is a symbolic link, '
       'is not a regular file, or exceeds the $limit read limit; it was ignored '
       'and every file was resolved again';
+}
+
+/// 캐시 파일 하나가 이번 실행이 쓸 내용과 이미 같은지다.
+///
+/// 아무 파일도 다시 해석하지 않았고 항목 집합이 현재 분석 대상과 같으면 디스크의
+/// 내용이 곧 쓸 내용이다(재사용한 항목은 모두 현재 파일 키와 맞았다).
+bool _entriesAreCurrent(
+  Map<String, CachedFacts> entries,
+  Set<String> resolved,
+  Set<String> currentSources,
+) =>
+    resolved.isEmpty &&
+    entries.length == currentSources.length &&
+    currentSources.every(entries.containsKey);
+
+/// 유닛 하나의 토큰 사실 저장 형식이다(증분 캐시 토큰 파일의 항목).
+Map<String, Object?> _unitTokensJson(List<TokenSegment> segments) => {
+  'tokens': [
+    for (final segment in segments) {'c': segment.codes, 'l': segment.lines},
+  ],
+};
+
+/// 토큰 파일 항목 [entry]에서 재사용할 수 있는 [source] 파일의 토큰이다.
+///
+/// 항목이 없거나 파일 키가 [key]와 다르거나(내용·해석 입력이 바뀜) 형식이
+/// 어긋나면 null이고, 호출자는 그 파일을 다시 해석한다. 항목은 source를 따로
+/// 담지 않는다 — 토큰 파일의 키가 곧 루트 기준 경로다.
+List<TokenSegment>? _reusableUnitTokens(
+  CachedFacts? entry,
+  String key,
+  String source,
+) {
+  if (entry == null || entry.key != key) return null;
+  return _tokenSegmentsFromJson(
+    entry.facts['tokens'],
+    (_) => 'project:$source',
+  );
+}
+
+/// 토큰 세그먼트 목록을 복원한다. 형식이 어긋나면 null이다.
+///
+/// 코드와 행은 정수 목록이고 길이가 같아야 한다 — `dup`은 토큰 위치로 행을
+/// 찾으므로 어긋난 항목을 그대로 쓰면 범위 밖 접근으로 실패한다. [sourceOf]는
+/// 세그먼트 항목에서 `project:` source ID를 정하고, 정하지 못하면 null이다.
+List<TokenSegment>? _tokenSegmentsFromJson(
+  Object? value,
+  String? Function(Map<Object?, Object?> segment) sourceOf,
+) {
+  if (value is! List) return null;
+  final segments = <TokenSegment>[];
+  for (final segment in value) {
+    if (segment is! Map) return null;
+    final source = sourceOf(segment);
+    final codes = _intList(segment['c']);
+    final lines = _intList(segment['l']);
+    if (source == null ||
+        codes == null ||
+        lines == null ||
+        codes.length != lines.length) {
+      return null;
+    }
+    segments.add(TokenSegment(source: source, codes: codes, lines: lines));
+  }
+  return segments;
+}
+
+/// 정수만 담은 JSON 목록의 사본이다. 목록이 아니거나 정수 아닌 값이 있으면 null이다.
+List<int>? _intList(Object? value) {
+  if (value is! List) return null;
+  final integers = <int>[];
+  for (final item in value) {
+    if (item is! int) return null;
+    integers.add(item);
+  }
+  return integers;
 }
 
 /// [path]를 루트 기준 posix 상대 경로로 바꾼다. 루트 밖이면 null이다.
@@ -1024,12 +1164,16 @@ final class _UnitFacts {
   final Map<String, int> complexity;
 
   /// 이 유닛의 최상위 선언별 정규화 토큰 세그먼트다(생성 파일은 빈 목록).
+  ///
+  /// 사실 파일에는 저장하지 않는다([toJson]). 토큰 파일에서 따로 읽어 넘기거나
+  /// 해석에서 뽑으며, 토큰을 읽지 않은 실행의 재사용 유닛은 빈 목록이다.
   final List<TokenSegment> tokenSegments;
 
   /// `project:` source ID다.
   String get sourceId => 'project:$source';
 
-  /// 캐시 저장 형식이다.
+  /// 사실 파일의 저장 형식이다. `dup` 전용 [tokenSegments]는 토큰 파일에 따로
+  /// 둔다([_unitTokensJson]).
   Map<String, Object?> toJson() => {
     'complexity': complexity,
     'conditional': conditionalDirectives,
@@ -1046,16 +1190,16 @@ final class _UnitFacts {
     'routes': routeTables,
     'routeUses': routeUses,
     'source': source,
-    'tokens': [
-      for (final segment in tokenSegments)
-        {'c': segment.codes, 'l': segment.lines},
-    ],
     'unresolved': hasUnresolvedInvocations,
   };
 
   /// 캐시 항목을 복원한다. 형식이 어긋나면 null이고 호출자는 그 파일만 다시
-  /// 해석한다 — 캐시 손상이 분석 실패가 되지 않는다.
-  static _UnitFacts? fromJson(Object? value) {
+  /// 해석한다 — 캐시 손상이 분석 실패가 되지 않는다. [tokenSegments]는 토큰
+  /// 파일에서 따로 읽은 이 유닛의 토큰이다.
+  static _UnitFacts? fromJson(
+    Object? value, {
+    List<TokenSegment> tokenSegments = const [],
+  }) {
     try {
       if (value is! Map) return null;
       final source = value['source'];
@@ -1112,21 +1256,7 @@ final class _UnitFacts {
           for (final entry in (value['complexity'] as Map? ?? const {}).entries)
             entry.key as String: entry.value as int,
         },
-        tokenSegments: [
-          for (final segment in value['tokens'] as List? ?? const [])
-            if (segment is Map)
-              TokenSegment(
-                source: 'project:$source',
-                codes: [
-                  for (final code in segment['c'] as List? ?? const [])
-                    code as int,
-                ],
-                lines: [
-                  for (final line in segment['l'] as List? ?? const [])
-                    line as int,
-                ],
-              ),
-        ],
+        tokenSegments: tokenSegments,
         libraryFacts: libraryFacts,
       );
     } on Object {
@@ -1988,7 +2118,9 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
 // 선언별 순환 복잡도 필드 추가로 v5다 — 역시 형식만 바뀐다.
 // include/exclude·thresholds 필드 추가로 v6다 — 역시 형식만 바뀐다.
 // workspacePackages 필드 추가로 v7다 — 역시 형식만 바뀐다.
-const _cacheSchemaVersion = 7;
+// dup 전용 토큰 세그먼트를 결과 항목에서 빼 별도 항목([_tokenSegmentsCacheKey])에
+// 두어 v8이다 — 추출 의미는 그대로라 identity는 올리지 않는다.
+const _cacheSchemaVersion = 8;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
@@ -2407,28 +2539,88 @@ Directory? defaultAnalyzerCacheDirectory(
   return Directory(p.join(base, 'dartograph', projectKey));
 }
 
+/// 전체 결과 캐시의 [key] 항목이다. 없거나 망가졌으면 null이다(재분석).
+///
+/// [includeTokenSegments]면 dup 전용 토큰 항목([_tokenSegmentsCacheKey])도 읽는다.
+/// 토큰 항목이 없거나 망가졌으면 결과 항목이 멀쩡해도 미스다 — 다시 분석해 두
+/// 항목을 함께 복구한다. dup이 아닌 색인은 토큰 항목을 읽지 않는다.
 Future<AnalyzerGraphResult?> _readCachedAnalysis(
   FactCache cache,
-  String key,
-) async {
+  String key, {
+  required bool includeTokenSegments,
+}) async {
   try {
     final payload = await cache.read(key);
-    return payload == null ? null : _decodeCachedAnalysis(payload);
+    if (payload == null) return null;
+    var tokenSegments = const <TokenSegment>[];
+    if (includeTokenSegments) {
+      final tokenPayload = await cache.read(_tokenSegmentsCacheKey(key));
+      final decoded = tokenPayload == null
+          ? null
+          : _decodeCachedTokenSegments(tokenPayload);
+      if (decoded == null) return null;
+      tokenSegments = decoded;
+    }
+    return _decodeCachedAnalysis(payload, tokenSegments: tokenSegments);
   } on Object {
     return null;
   }
 }
 
+/// 분석 결과를 결과 항목과 dup 전용 토큰 항목으로 나눠 쓴다.
+///
+/// 토큰 항목을 먼저 쓴다. 결과 항목만 남는 중단은 다음 dup 실행 하나가 재분석으로
+/// 복구한다. 두 항목은 따로 읽히므로 한쪽 쓰기 실패가 다른 쪽 저장을 막지 않는다.
 Future<void> _writeCachedAnalysis(
   FactCache cache,
   String key,
   AnalyzerGraphResult result,
 ) async {
-  try {
-    await cache.write(key, _encodeCachedAnalysis(result));
-  } on Object {
-    // 캐시는 성능 계층이다. 쓸 수 없어도 같은 분석 결과를 반환한다.
+  for (final (entryKey, encode) in [
+    (
+      _tokenSegmentsCacheKey(key),
+      () => _encodeCachedTokenSegments(result.tokenSegments),
+    ),
+    (key, () => _encodeCachedAnalysis(result)),
+  ]) {
+    try {
+      await cache.write(entryKey, encode());
+    } on Object {
+      // 캐시는 성능 계층이다. 쓸 수 없어도 같은 분석 결과를 반환한다.
+    }
   }
+}
+
+/// [key] 결과 항목의 dup 전용 토큰 항목 키다(SHA-256 hex).
+///
+/// 결과 키에서 만들므로 두 항목은 같은 입력·identity·SDK·집계 여부에 묶인다.
+String _tokenSegmentsCacheKey(String key) =>
+    sha256.convert(utf8.encode('$key\u0000token-segments')).toString();
+
+String _encodeCachedTokenSegments(List<TokenSegment> segments) => jsonEncode({
+  'schemaVersion': _cacheSchemaVersion,
+  'tokenSegments': [
+    for (final segment in segments)
+      {'c': segment.codes, 'l': segment.lines, 's': segment.source},
+  ],
+});
+
+/// 토큰 항목을 복원한다. 형식·스키마 버전이 어긋나면 null이다.
+List<TokenSegment>? _decodeCachedTokenSegments(String payload) {
+  final Object? document;
+  try {
+    document = jsonDecode(payload);
+  } on FormatException {
+    // 잘린 JSON 같은 손상은 캐시 미스다. 호출자가 다시 분석해 복구한다.
+    return null;
+  }
+  if (document is! Map || document['schemaVersion'] != _cacheSchemaVersion) {
+    return null;
+  }
+  return _tokenSegmentsFromJson(document['tokenSegments'], (segment) {
+    final source = segment['s'];
+    return source is String ? source : null;
+  });
 }
 
 String _encodeCachedAnalysis(AnalyzerGraphResult result) {
@@ -2447,10 +2639,6 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'includeGlobs': result.includeGlobs,
     'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
     'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
-    'tokenSegments': [
-      for (final segment in result.tokenSegments)
-        {'c': segment.codes, 'l': segment.lines, 's': segment.source},
-    ],
     'packageImports': result.packageImports,
     'packageName': ?result.packageName,
     'retentionRoots': {
@@ -2470,7 +2658,11 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
   });
 }
 
-AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
+/// 결과 항목을 복원한다. [tokenSegments]는 토큰 항목에서 따로 읽은 값이다.
+AnalyzerGraphResult? _decodeCachedAnalysis(
+  String payload, {
+  required List<TokenSegment> tokenSegments,
+}) {
   try {
     final document = (jsonDecode(payload) as Map).cast<String, Object?>();
     if (document['schemaVersion'] != _cacheSchemaVersion) return null;
@@ -2537,19 +2729,7 @@ AnalyzerGraphResult? _decodeCachedAnalysis(String payload) {
           document['metricsComplexityThreshold'] as int?,
       metricsDistanceThreshold: (document['metricsDistanceThreshold'] as num?)
           ?.toDouble(),
-      tokenSegments: [
-        for (final value in document['tokenSegments']! as List<Object?>)
-          TokenSegment(
-            source: (value! as Map)['s']! as String,
-            codes: [
-              for (final code in (value as Map)['c']! as List<Object?>)
-                code! as int,
-            ],
-            lines: [
-              for (final line in value['l']! as List<Object?>) line! as int,
-            ],
-          ),
-      ],
+      tokenSegments: tokenSegments,
       workspacePackages: [
         for (final value in document['workspacePackages']! as List<Object?>)
           _workspacePackageFromJson((value! as Map).cast<String, Object?>()),

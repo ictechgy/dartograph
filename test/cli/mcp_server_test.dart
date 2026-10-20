@@ -174,6 +174,63 @@ void main() {
     expect(diagnostics.toString(), isEmpty);
   });
 
+  test('session dup reuses the token facts that other tools cached', () async {
+    // 이름만 다른 두 사본이다(fixtures/duplication과 같은 구조).
+    for (final (name, input, limit) in const [
+      ('alpha', 'input', 'limit'),
+      ('beta', 'value', 'cap'),
+    ]) {
+      File(p.join(directory.path, 'lib', '$name.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          'int normalize$name(int $input, int $limit) {\n'
+          '  if ($input <= 0) {\n    return 0;\n  }\n'
+          '  var result = 0;\n'
+          '  for (var i = 0; i < $input; i++) {\n'
+          '    result += i * 2;\n'
+          '    if (result > $limit) {\n      result = result - $limit;\n    }\n'
+          '  }\n'
+          '  while (result > 10) {\n    result = result - 7;\n  }\n'
+          '  return result;\n}\n',
+        );
+    }
+    final cliOutput = StringBuffer();
+    final cliStatus = await runDartograph(
+      ['dup', '--format', 'json', '--min-tokens', '20', directory.path],
+      output: cliOutput,
+      error: StringBuffer(),
+      userCacheEnvironment: const {},
+    );
+    expect(cliStatus, ExitStatus.findings.code);
+    Object dup(int id) => request(id, 'tools/call', {
+      'name': verifyToolName,
+      'arguments': {
+        'packageRoot': directory.path,
+        'command': 'dup',
+        'format': 'json',
+        'minTokens': 20,
+      },
+    });
+    Stream<Object?> messages() async* {
+      yield query(1, directory.path, 'normalizealpha');
+      // dup이 아닌 도구가 모든 파일을 해석하며 토큰 사실을 따로 저장해 둔다.
+      final tokens = File(p.join(scratch.single.path, 'package-0/tokens.json'));
+      expect(tokens.existsSync(), isTrue);
+      final saved = tokens.readAsStringSync();
+      yield dup(2);
+      expect(tokens.readAsStringSync(), saved);
+      yield dup(3);
+    }
+
+    final responses = await exchangeDefault(
+      messages(),
+      createCacheDirectory: createCache,
+    );
+    expect(textOf(responses[1]), 'exitCode: $cliStatus\n$cliOutput');
+    expect(responses[2]['result'], responses[1]['result']);
+    expect(diagnostics.toString(), isEmpty);
+  });
+
   test('a stale package_config entry keeps the CLI exit code', () async {
     writeSource(directory.path, 'class Foo {}');
     File(

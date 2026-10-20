@@ -74,7 +74,12 @@ impact·baseline·cycles·rules·metrics)이 받는다. 디렉터리에 파일�
 심볼릭 링크(장치·FIFO를 가리키는 링크 포함)·FIFO·소켓이거나 1 GiB를 넘으면 열지 않고
 모든 파일을 다시 해석하며, 그 사실을 `incremental-cache-not-read:` limitation으로
 남긴다. 그 실행의 캐시 쓰기가 링크 자리를 정규 파일로 바꾸고, 링크 대상은 건드리지
-않는다. 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면 폐쇄가
+않는다. `dup`만 쓰는 토큰 사실은 같은 디렉터리의 `<dir>/tokens.json`에 따로 둔다. 다른
+명령은 이 파일을 읽지 않고, 모든 파일을 다시 해석한 실행에서만 새로 쓴다. `dup`은 토큰
+항목이 없거나 내용이 바뀐 파일만 다시 해석한다. `tokens.json`도 같은 읽기 경계를 지나며,
+버리면 `dup`이 모든 파일을 다시 해석하고 `incremental-cache-not-read: the dup token cache
+file …` limitation을 남긴다. 전체 결과 캐시도 토큰을 결과와 다른 항목에 두어 `dup`만
+읽는다. 캐시 디렉터리는 프로젝트마다 따로 쓴다. 널리 import되는 파일을 바꾸면 폐쇄가
 사실상 전체에 가까워 이득이 줄어든다(변경 없음·잎 파일 변경에서는 크다).
 
 분석 대상 안 디렉터리(예: `--incremental .dartograph/cache`)는 **신뢰하는 저장소에만**

@@ -67,8 +67,15 @@ typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
 /// 고정된 [IndexPackage] 주입은 옵션을 받을 수 없어 `--workspace`를 usage(64)로
 /// 거부한다. 이 경계는 `aggregateWorkspace`를 받아 그 값에 맞는 색인 함수를
 /// 돌려주므로 집계 요청이 조용히 단일 패키지 색인으로 바뀌지 않는다.
+///
+/// `includeTokenSegments`는 `dup`만 true다. 고른 색인 함수는 그때만 결과에 토큰
+/// 세그먼트를 채운다(`AnalyzerGraphIndex`의 같은 이름 옵션). 다른 명령은 dup 전용
+/// 토큰 사실을 캐시에서 읽지 않는다.
 typedef IndexPackageFactory =
-    IndexPackage Function({required bool aggregateWorkspace});
+    IndexPackage Function({
+      required bool aggregateWorkspace,
+      required bool includeTokenSegments,
+    });
 
 /// 색인 명령이 쓸 색인 함수의 주입 상태다. 둘 다 null이면 기본 색인기를 쓴다.
 ///
@@ -282,7 +289,12 @@ Future<int> _dispatchCommand(
         failedItems,
       );
     case 'dup':
-      final indexed = _indexArguments(arguments, stderrSink, indexSource);
+      final indexed = _indexArguments(
+        arguments,
+        stderrSink,
+        indexSource,
+        includeTokenSegments: true,
+      );
       if (indexed == null) return ExitStatus.usage.code;
       return await _runDup(
         indexed.arguments,
@@ -415,11 +427,15 @@ final class _IndexedArguments {
 /// 반영할 수 없으므로 `--workspace`를 usage로 거부한다 — 떼어 낸 플래그를
 /// 버리면 집계를 요청한 호출이 단일 패키지 결과를 정상 종료로 받는다. 증분
 /// 옵션은 주입된 색인 함수가 캐시를 스스로 정하므로 떼어 내기만 한다.
+///
+/// [includeTokenSegments]는 결과에 dup 전용 토큰 세그먼트를 채울지다(`dup`만
+/// true). 기본 색인기와 팩터리에 넘기고, 고정 주입 함수는 스스로 정한다.
 _IndexedArguments? _indexArguments(
   List<String> arguments,
   StringSink error,
-  _IndexSource source,
-) {
+  _IndexSource source, {
+  bool includeTokenSegments = false,
+}) {
   final remaining = arguments.skip(1).toList();
   String? directory;
   var userCache = false;
@@ -465,7 +481,10 @@ _IndexedArguments? _indexArguments(
   }
   final factory = source.factory;
   if (factory != null) {
-    final chosen = factory(aggregateWorkspace: workspace);
+    final chosen = factory(
+      aggregateWorkspace: workspace,
+      includeTokenSegments: includeTokenSegments,
+    );
     return _IndexedArguments(remaining, chosen);
   }
   final injected = source.fixed;
@@ -487,6 +506,7 @@ _IndexedArguments? _indexArguments(
       incrementalInUserCache: userCache,
       userCacheEnvironment: source.userCacheEnvironment,
       aggregateWorkspace: workspace,
+      includeTokenSegments: includeTokenSegments,
     ).index,
   );
 }

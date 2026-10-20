@@ -474,17 +474,17 @@ include:
         final cache = _MemoryCache();
 
         await AnalyzerGraphIndex(cache: cache).index(workspace.path);
-        expect(cache.writes, 1);
+        expect(cache.writes, 2);
         await AnalyzerGraphIndex(
           cache: cache,
           aggregateWorkspace: true,
         ).index(workspace.path);
         expect(
           cache.writes,
-          2,
+          4,
           reason: 'workspace and single-package cache keys must differ',
         );
-        expect(cache.values.length, 2);
+        expect(cache.values.length, 4);
         // 단일 패키지 항목은 워크스페이스 집계 결과로 덮어쓰이지 않았다.
         for (final payload in cache.values.values) {
           final document = (jsonDecode(payload) as Map).cast<String, Object?>();
@@ -560,7 +560,7 @@ include:
       final index = AnalyzerGraphIndex(cache: cache);
 
       await index.index(member.path);
-      expect(cache.writes, 1);
+      expect(cache.writes, 2);
 
       // 루트 `pub get` 결과물이 바뀌면 멤버의 해석 입력도 바뀌었을 수 있다 —
       // 멤버에 자체 package_config가 없어도 캐시 키가 갱신돼 재분석해야 한다.
@@ -576,7 +576,7 @@ include:
       await index.index(member.path);
       expect(
         cache.writes,
-        2,
+        4,
         reason:
             'workspace root package_config changes must invalidate member '
             'analysis caches',
@@ -636,6 +636,8 @@ void main() { Foo().call(); }
   return workspace;
 }
 
+/// 읽기·쓰기 수를 세는 메모리 캐시다. 분석 한 번은 결과 항목과 dup 토큰 항목
+/// 두 개를 쓴다 — [writes]는 분석 수의 두 배다.
 final class _MemoryCache implements FactCache {
   final values = <String, String>{};
   int reads = 0;

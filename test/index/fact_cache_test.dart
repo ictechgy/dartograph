@@ -124,8 +124,10 @@ environment:
 
       final first = await index.index(root.path);
       final second = await index.index(root.path);
+      // dup이 아닌 실행은 결과 항목만 읽는다. 분석 한 번은 결과 항목과 dup 토큰
+      // 항목을 함께 쓴다([_MemoryFactCache]).
       expect(cache.readCount, 2);
-      expect(cache.writeCount, 1);
+      expect(cache.writeCount, 2);
       expect(
         GraphExporter.json(second.graph.snapshot()),
         GraphExporter.json(first.graph.snapshot()),
@@ -141,25 +143,28 @@ environment:
 
       await source.writeAsString('class First {}\nclass Second {}\n');
       final changed = await index.index(root.path);
-      expect(cache.writeCount, 2);
+      expect(cache.writeCount, 4);
       expect(
         changed.graph.nodes.keys,
         contains('project:lib/cache_fixture.dart::Second'),
       );
 
-      final changedKey = cache.values.keys.last;
+      // 바뀐 입력의 결과 항목(정점이 든 항목)을 망가뜨린다. 토큰 항목은 dup만 읽는다.
+      final changedKey = cache.values.keys.lastWhere(
+        (key) => cache.values[key]!.contains('"nodes"'),
+      );
       final typeCorrupt = jsonDecode(cache.values[changedKey]!) as Map;
       typeCorrupt['limitationDetails'] = [1];
       cache.values[changedKey] = jsonEncode(typeCorrupt);
       final eagerlyRepaired = await index.index(root.path);
-      expect(cache.writeCount, 3);
+      expect(cache.writeCount, 6);
       expect(eagerlyRepaired.limitationDetails, everyElement(isA<String>()));
 
       for (final key in cache.values.keys.toList()) {
         cache.values[key] = '{';
       }
       final repaired = await index.index(root.path);
-      expect(cache.writeCount, 4);
+      expect(cache.writeCount, 8);
       expect(
         repaired.graph.nodes.keys,
         contains('project:lib/cache_fixture.dart::Second'),
@@ -229,7 +234,7 @@ class Framework {
     final second = await index.index(application.path);
 
     expect(second.retentionRoots[callbackId], isNull);
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
   test('linked source contents invalidate analyzer facts', () async {
     final root = await Directory.systemTemp.createTemp(
@@ -268,7 +273,7 @@ void main() {
     final second = await index.index(root.path);
 
     expect(second.graph.nodes.keys, contains('project:lib/shared.dart::Beta'));
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
 
   test('links escaping the package root are recorded as limitations', () async {
@@ -380,7 +385,7 @@ environment:
       second.graph.nodes.keys,
       contains('project:lib/linked/thing.dart::Beta'),
     );
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
 
   test(
@@ -429,7 +434,7 @@ environment:
         second.graph.nodes.keys,
         isNot(contains('project:lib/second/thing.dart::A')),
       );
-      expect(cache.writeCount, 2);
+      expect(cache.writeCount, 4);
     },
   );
 
@@ -502,7 +507,7 @@ class Framework {
     final second = await index.index(application.path);
 
     expect(second.retentionRoots[callbackId], isNull);
-    expect(cache.writeCount, 2);
+    expect(cache.writeCount, 4);
   });
 
   test(
@@ -547,7 +552,7 @@ environment:
       final second = await index.index(root.path);
 
       // 키가 helper.dart를 커버하면 재분석(writeCount 증가)되고 한계가 나타난다.
-      expect(cache.writeCount, writesAfterFirst + 1);
+      expect(cache.writeCount, writesAfterFirst + 2);
       expect(
         second.limitationDetails,
         anyElement(
@@ -567,6 +572,10 @@ final class _FailingFactCache implements FactCache {
       throw FileSystemException('unwritable');
 }
 
+/// 읽기·쓰기 수를 세는 메모리 캐시다.
+///
+/// 분석 한 번은 결과 항목과 dup 토큰 항목 두 개를 쓴다 — [writeCount]는 분석
+/// 수의 두 배다. dup이 아닌 색인은 결과 항목 하나만 읽는다.
 final class _MemoryFactCache implements FactCache {
   final values = <String, String>{};
   var readCount = 0;

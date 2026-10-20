@@ -38,6 +38,47 @@ void main() {
     ]);
   });
 
+  test('token facts round-trip in their own file beside facts.json', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'dartograph-incremental-cache-tokens.',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final cache = IncrementalCache(directory.path);
+
+    expect(cache.tokenFile.path, p.join(directory.path, 'tokens.json'));
+    expect(await cache.loadTokens(), isEmpty);
+    expect(cache.stats.tokenCacheNotRead, isFalse);
+    expect(
+      await cache.storeTokens({
+        'lib/a.dart': CachedFacts(key: 'k', facts: const {'tokens': []}),
+      }),
+      isTrue,
+    );
+    // 토큰 파일만 썼다 — 사실 파일은 아직 없고, 사실을 읽는 쪽은 토큰을 보지 않는다.
+    expect(await cache.load(), isEmpty);
+    expect(directory.listSync().map((entity) => p.basename(entity.path)), [
+      'tokens.json',
+    ]);
+    expect(
+      await cache.store({
+        'lib/a.dart': CachedFacts(key: 'k', facts: const {'nodes': 1}),
+      }),
+      isTrue,
+    );
+    expect((await cache.load())['lib/a.dart']!.facts, {'nodes': 1});
+    final tokens = await cache.loadTokens();
+    expect(tokens.keys, ['lib/a.dart']);
+    expect(tokens['lib/a.dart']!.facts, {'tokens': <Object?>[]});
+
+    // 형식은 사실 파일과 같다 — 다른 스키마 버전은 전부 미스다.
+    await cache.tokenFile.writeAsString(
+      '{"entries":{"lib/a.dart":{"facts":{},"key":"k"}},'
+      '"schemaVersion":${IncrementalCache.schemaVersion + 1}}',
+    );
+    expect(await cache.loadTokens(), isEmpty);
+    expect(cache.stats.tokenCacheNotRead, isFalse);
+  });
+
   test('load treats unreadable and mismatched caches as empty', () async {
     final directory = await Directory.systemTemp.createTemp(
       'dartograph-incremental-cache-invalid.',
@@ -138,6 +179,18 @@ void main() {
         expect(await cache.load(), isEmpty, reason: name);
         expect(cache.stats.cacheNotRead, isTrue, reason: name);
       }
+      // dup만 읽는 토큰 파일도 같은 경계를 지난다. 두 파일의 관측값은 따로다 —
+      // 버린 파일이 어느 쪽인지 limitation이 구별한다.
+      for (final MapEntry(key: name, value: plant) in rejected.entries) {
+        final cacheDirectory = Directory(
+          p.join(directory.path, 'planted-tokens-${cases++}'),
+        )..createSync();
+        final cache = IncrementalCache(cacheDirectory.path);
+        plant(cache.tokenFile.path);
+        expect(await cache.loadTokens(), isEmpty, reason: name);
+        expect(cache.stats.tokenCacheNotRead, isTrue, reason: name);
+        expect(cache.stats.cacheNotRead, isFalse, reason: name);
+      }
 
       // 부재(첫 실행)와 디렉터리는 열어도 멈추지 않는다 — 조용한 미스이고,
       // 디렉터리는 다음 쓰기 실패가 limitation으로 드러난다.
@@ -227,7 +280,9 @@ void main() {
     expect(cache.stats.resolvedFiles, 0);
     expect(cache.stats.cacheNotUpdated, isFalse);
     expect(cache.stats.cacheNotRead, isFalse);
+    expect(cache.stats.tokenCacheNotRead, isFalse);
     expect(cache.file.path, p.join('unused', 'facts.json'));
+    expect(cache.tokenFile.path, p.join('unused', 'tokens.json'));
     // 문서화된 기본 읽기 상한(1 GiB)이다.
     expect(cache.readLimit, 1024 * 1024 * 1024);
   });

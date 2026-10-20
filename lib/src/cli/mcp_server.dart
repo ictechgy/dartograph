@@ -356,19 +356,32 @@ final class _McpIndexSession {
   Directory? directory;
   bool isDisabled = false;
 
-  /// `--workspace` 값에 맞는 세션 색인 함수다([IndexPackageFactory]).
-  IndexPackage indexer({required bool aggregateWorkspace}) =>
-      (root) => index(root, aggregateWorkspace: aggregateWorkspace);
+  /// `--workspace` 값과 dup 여부에 맞는 세션 색인 함수다([IndexPackageFactory]).
+  ///
+  /// dup과 다른 도구는 같은 세션 캐시 디렉터리를 쓴다. 다른 도구가 모든 파일을
+  /// 해석하며 남긴 토큰 파일을 dup이 재사용한다.
+  IndexPackage indexer({
+    required bool aggregateWorkspace,
+    required bool includeTokenSegments,
+  }) =>
+      (root) => index(
+        root,
+        aggregateWorkspace: aggregateWorkspace,
+        includeTokenSegments: includeTokenSegments,
+      );
 
   Future<AnalyzerGraphResult> index(
     String root, {
     required bool aggregateWorkspace,
+    required bool includeTokenSegments,
   }) async {
-    if (isDisabled) return _fullIndex(root, aggregateWorkspace);
+    if (isDisabled) {
+      return _fullIndex(root, aggregateWorkspace, includeTokenSegments);
+    }
     try {
       directory ??= await createDirectory();
     } on Object {
-      return _fallback(root, aggregateWorkspace);
+      return _fallback(root, aggregateWorkspace, includeTokenSegments);
     }
     final key = (root, aggregateWorkspace);
     final cachePath = directories.putIfAbsent(
@@ -378,28 +391,38 @@ final class _McpIndexSession {
     final result = await AnalyzerGraphIndex(
       incremental: IncrementalCache(cachePath),
       aggregateWorkspace: aggregateWorkspace,
+      includeTokenSegments: includeTokenSegments,
     ).index(root);
     if (result.limitationDetails.any(
       (detail) => detail.startsWith(incrementalCacheWriteFailurePrefix),
     )) {
-      return _fallback(root, aggregateWorkspace);
+      return _fallback(root, aggregateWorkspace, includeTokenSegments);
     }
     return result;
   }
 
-  Future<AnalyzerGraphResult> _fallback(String root, bool aggregateWorkspace) {
+  Future<AnalyzerGraphResult> _fallback(
+    String root,
+    bool aggregateWorkspace,
+    bool includeTokenSegments,
+  ) {
     isDisabled = true;
     error.writeln(
       'dartograph mcp: temporary cache unavailable; using full analysis for '
       'this session. Check OS temporary storage permissions and free space.',
     );
-    return _fullIndex(root, aggregateWorkspace);
+    return _fullIndex(root, aggregateWorkspace, includeTokenSegments);
   }
 
-  Future<AnalyzerGraphResult> _fullIndex(String root, bool aggregateWorkspace) {
+  Future<AnalyzerGraphResult> _fullIndex(
+    String root,
+    bool aggregateWorkspace,
+    bool includeTokenSegments,
+  ) {
     final uncached = AnalyzerGraphIndex(
       cache: const _McpUncachedFacts(),
       aggregateWorkspace: aggregateWorkspace,
+      includeTokenSegments: includeTokenSegments,
     );
     return uncached.index(root);
   }

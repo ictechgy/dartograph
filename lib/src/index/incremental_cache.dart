@@ -74,6 +74,12 @@ final class IncrementalStats {
   /// 호출자가 그 사실을 limitation으로 남긴다. 형식 오류·스키마 불일치·권한
   /// 실패는 여기에 들지 않는다 — 지금처럼 조용한 캐시 미스다.
   bool cacheNotRead = false;
+
+  /// 마지막 [IncrementalCache.loadTokens]가 토큰 파일을 열지 않고 버렸는지 여부다.
+  ///
+  /// 판정 기준은 [cacheNotRead]와 같다. 토큰 파일은 `dup`만 읽으므로 다른 명령의
+  /// 실행에서는 늘 false다. 버린 경우 `dup`은 모든 파일의 토큰을 다시 해석한다.
+  bool tokenCacheNotRead = false;
 }
 
 /// 파일 단위 사실 캐시다.
@@ -114,12 +120,22 @@ final class IncrementalCache {
   /// 캐시 파일이다.
   File get file => File(p.join(directory, _fileName));
 
+  /// `dup` 전용 토큰 사실 파일이다.
+  ///
+  /// 토큰 사실은 사실 파일 크기의 약 30%인데 소비자는 `dup` 하나다. 그래서 따로
+  /// 두어 다른 명령은 읽지도 디코드하지도 않는다. 형식·스키마 버전·읽기 경계·
+  /// 원자적 교체는 [file]과 같고, 항목은 같은 파일 키로 검증된다.
+  File get tokenFile => File(p.join(directory, _tokenFileName));
+
   /// 캐시 스키마 버전이다. 사실 JSON의 형식을 바꾸면 올린다 — 올리면 전부
-  /// 미스가 되어 다음 실행이 전체 재해석으로 복구한다.
+  /// 미스가 되어 다음 실행이 전체 재해석으로 복구한다. [tokenFile]도 같은 버전을 쓴다.
   /// v2: `_UnitFacts.complexity` 필드 추가.
-  static const schemaVersion = 2;
+  /// v3: `dup` 전용 토큰 사실을 사실 파일에서 [tokenFile]로 분리.
+  static const schemaVersion = 3;
 
   static const _fileName = 'facts.json';
+
+  static const _tokenFileName = 'tokens.json';
 
   /// 전체 해석 키를 만든다.
   ///
@@ -170,13 +186,32 @@ final class IncrementalCache {
   ///
   /// 캐시 파일 자리가 정규 파일이 아니거나 [readLimit]을 넘으면 열지 않고 빈
   /// 맵을 돌려주며 [IncrementalStats.cacheNotRead]로 알린다([_readCacheFile]).
-  Future<Map<String, CachedFacts>> load() async {
+  Future<Map<String, CachedFacts>> load() {
     stats.cacheNotRead = false;
+    return _loadEntries(file, onRejected: () => stats.cacheNotRead = true);
+  }
+
+  /// [tokenFile]을 [load]와 같은 규칙으로 읽는다.
+  ///
+  /// 버린 토큰 파일은 [IncrementalStats.tokenCacheNotRead]로 알린다.
+  Future<Map<String, CachedFacts>> loadTokens() {
+    stats.tokenCacheNotRead = false;
+    return _loadEntries(
+      tokenFile,
+      onRejected: () => stats.tokenCacheNotRead = true,
+    );
+  }
+
+  /// [target]의 항목이다. 열지 않고 버린 경우에만 [onRejected]를 부른다.
+  Future<Map<String, CachedFacts>> _loadEntries(
+    File target, {
+    required void Function() onRejected,
+  }) async {
     final String? text;
     try {
-      text = await _readCacheFile();
+      text = await _readCacheFile(target);
     } on _CacheFileRejected {
-      stats.cacheNotRead = true;
+      onRejected();
       return const {};
     } on Object {
       // 권한 실패·디코드 실패는 지금처럼 캐시 미스다. 전체 분석이 복구 경로다.
@@ -216,20 +251,21 @@ final class IncrementalCache {
   /// 정규 파일은 길이가 [readLimit]을 넘으면 읽기 전에 거부하고, 아니면 연
   /// 시점의 길이만큼만 읽는다. 길이를 0으로 보고하는 파일(빈 파일이나 가상
   /// 파일)은 상한까지 나눠 읽는다. 판정과 열기 사이에 항목을 바꾸는 동시 실행
-  /// 공격자는 범위 밖이다(`AtomicWrite`와 같은 경계).
-  Future<String?> _readCacheFile() async {
-    final type = await FileSystemEntity.type(file.path, followLinks: false);
+  /// 공격자는 범위 밖이다(`AtomicWrite`와 같은 경계). [target]은 [file]이나
+  /// [tokenFile]이다.
+  Future<String?> _readCacheFile(File target) async {
+    final type = await FileSystemEntity.type(target.path, followLinks: false);
     if (type == FileSystemEntityType.notFound ||
         type == FileSystemEntityType.directory) {
       return null;
     }
     if (type != FileSystemEntityType.file) throw const _CacheFileRejected();
-    final length = await file.length();
+    final length = await target.length();
     if (length > readLimit) throw const _CacheFileRejected();
-    if (length > 0) return file.readAsString();
+    if (length > 0) return target.readAsString();
     try {
       return await readBoundedFile(
-        file,
+        target,
         readLimit,
         tooLargeMessage: 'fact cache file exceeds the read limit',
       );
@@ -248,11 +284,21 @@ final class IncrementalCache {
   /// 캐시 파일 자리의 링크는 rename이 링크 자체를 교체하므로 링크 대상에 쓰지
   /// 않는다. 디렉터리 생성은 경로 중간의 링크를 따라간다. 사용자가 명시한
   /// 디렉터리(신뢰하는 저장소 전용)와 사용자 소유 캐시 위치에만 쓰므로 허용한다.
-  Future<bool> store(Map<String, CachedFacts> entries) async {
+  Future<bool> store(Map<String, CachedFacts> entries) =>
+      _storeEntries(file, entries);
+
+  /// [tokenFile]을 [store]와 같은 규칙으로 원자적으로 갱신한다.
+  Future<bool> storeTokens(Map<String, CachedFacts> entries) =>
+      _storeEntries(tokenFile, entries);
+
+  Future<bool> _storeEntries(
+    File target,
+    Map<String, CachedFacts> entries,
+  ) async {
     try {
       await Directory(directory).create(recursive: true);
       await AtomicWrite.string(
-        file,
+        target,
         jsonEncode({
           'entries': {
             for (final entry in entries.entries)
