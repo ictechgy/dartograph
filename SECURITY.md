@@ -68,16 +68,16 @@ diff에는 `diff.autoRefreshIndex=false`를 붙여 index를 다시 쓰지 않는
 `post-index-change` 훅이 돈다. diff에는 `--no-ext-diff --no-textconv`를, 작업 트리를 보는 diff와
 status에는 `--ignore-submodules=all`을 붙여 서브모듈 저장소의 설정을 따르는 git을 띄우지 않는다.
 `=`가 들었거나 UTF-8이 아닌 드라이버 이름은 `-c`로 덮을 수 없으므로 git을 실행하지 않는다
-(fail-closed). 부분 클론에서 git은 조회에 필요한 객체가 없으면 promisor 원격에서 fetch를 띄우고,
-그 fetch는 원격의 전송 설정이 정한 명령(ssh URL의 `core.sshCommand`, 로컬 경로 URL의
-`remote.<이름>.uploadpack` 등)을 실행한다. 그래서 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 같은
-`git config` 목록에 promisor 원격(`extensions.partialClone`, `remote.<이름>.promisor`,
+(fail-closed). 그 대가로 git-lfs처럼 filter가 정규화하던 파일은 stat 정보가 낡으면 바뀐 것으로
+보이고, `--since`는 stat만 바뀐 파일도 변경으로 센다(보수적 방향). 깨끗한 HEAD 판정은 그런 파일이나
+서브모듈이 있으면 revision을 싣지 않는다. 부분 클론에서 git은 조회에 필요한 객체가 없으면 promisor
+원격에서 fetch를 띄우고, 그 fetch는 원격의 전송 설정이 정한 명령(ssh URL의 `core.sshCommand`, 로컬
+경로 URL의 `remote.<이름>.uploadpack` 등)을 실행한다. 그래서 모든 호출에 `GIT_NO_LAZY_FETCH=1`을
+주고, 같은 `git config` 목록에 promisor 원격(`extensions.partialClone`, `remote.<이름>.promisor`,
 `remote.<이름>.partialCloneFilter`)이 있으면 `--no-lazy-fetch`를 붙인다. 이 옵션을 모르는
 git(2.45 미만)이면 부분 클론에서 git을 실행하지 않는다(fail-closed). 이름 변경 감지는 옛 내용을
-읽으므로 diff에는 `--no-renames`를 붙인다. 바뀐 파일 목록은 같다. 그 대가로 git-lfs처럼 filter가 정규화하던 파일은 stat 정보가 낡으면 바뀐 것으로
-보이고, `--since`는 stat만 바뀐 파일도 변경으로 센다(보수적 방향). 깨끗한 HEAD 판정은 그런 파일이나
-서브모듈이 있으면 revision을 싣지 않는다. PATH의 git 실행 파일과 git이 설정 파일을 읽는 동작
-자체(include가 가리키는 파일 포함)는 여전히 신뢰 경계 안이다.
+읽으므로 diff에는 `--no-renames`를 붙인다. 바뀐 파일 목록은 같다. PATH의 git 실행 파일과 git이 설정
+파일을 읽는 동작 자체(include가 가리키는 파일 포함)는 여전히 신뢰 경계 안이다.
 
 VS Code 확장은 실행할 CLI(`dartograph.executable`)를 사용자(원격) 설정에서만 받는다(machine
 범위). 작업 공간 `.vscode/settings.json`의 값은 신뢰한 작업 공간에서도 무시된다. 값은 절대 경로나
@@ -85,8 +85,8 @@ PATH의 명령 이름이어야 한다. 상대 경로는 실행 디렉터리인 �
 커밋한 스크립트를 가리킬 수 있으므로 실행하지 않는다. Windows에서 Node(libuv)는 이름만 받은 실행
 파일을 PATH보다 먼저 실행 디렉터리에서 찾고, POSIX의 execvp는 PATH의 빈 항목(앞뒤·연속 `:`)과
 `.` 같은 상대 항목을 실행 디렉터리 기준으로 푼다. 그래서 확장이 두 경우 모두 PATH의 절대 경로
-디렉터리에서 직접 찾아(POSIX는 실행 권한이 있는 정규 파일만) 그 경로를 실행한다. 확장은 제한 모드에서도 켜지지만 `dartograph.args`·`dartograph.runOnSave`도
-사용자 설정 값만 쓴다.
+디렉터리에서 직접 찾아(POSIX는 실행 권한이 있는 정규 파일만) 그 경로를 실행한다. 확장은 제한
+모드에서도 켜지지만 `dartograph.args`·`dartograph.runOnSave`도 사용자 설정 값만 쓴다.
 
 MCP 도구 인자는 분석 대상 저장소의 문서에 심은 지시를 따른 에이전트가 보낼 수 있다. 그래서
 `packageRoot`·`baseline`·`config`는 서버 작업 디렉터리 안의 실제 디렉터리·정규 파일로만
