@@ -34,12 +34,27 @@ files there.
 
 ## Settings
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `dartograph.executable` | `dartograph` | Path to the CLI. |
-| `dartograph.runOnSave` | `false` | Re-run the workspace analysis shortly after a Dart file is saved. |
-| `dartograph.minTokens` | `40` | Minimum token window reported by `dup`. |
-| `dartograph.args` | `["--incremental-user-cache"]` | Extra arguments appended to every invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace. |
+| Setting | Default | Scope | Meaning |
+|---|---|---|---|
+| `dartograph.executable` | `dartograph` | `machine`: user or remote settings only | The CLI: an absolute path, or a command name looked up on `PATH`. Relative paths such as `./tools/dartograph` are rejected with a message in the *dartograph* output channel. |
+| `dartograph.runOnSave` | `false` | `window`: user or workspace settings (user settings only in Restricted Mode) | Re-run the workspace analysis shortly after a Dart file is saved. |
+| `dartograph.minTokens` | `40` | `window`: user or workspace settings | Minimum token window reported by `dup`. |
+| `dartograph.args` | `["--incremental-user-cache"]` | `window`: user or workspace settings (user settings only in Restricted Mode) | Extra arguments appended to every invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace. |
+
+VS Code ignores `dartograph.executable` in a workspace `.vscode/settings.json`,
+even in a trusted workspace, so a checked-out repository cannot point it at a
+script it ships. A relative path would resolve inside the package folder, so it
+is not run either. On Windows a command name is looked up only in the absolute
+directories on `PATH`, because Node would otherwise look in the package folder
+before `PATH`.
+
+## Workspace Trust
+
+The extension supports Restricted Mode with limits. In an untrusted workspace
+it still runs, but it takes `dartograph.executable`, `dartograph.args`, and
+`dartograph.runOnSave` only from your user settings. Trusting the workspace
+applies the workspace's own `dartograph.args` and `dartograph.runOnSave`. The
+CLI analyzes the workspace's sources without running the project's code.
 
 ## Reading the findings
 
@@ -58,6 +73,8 @@ The extension is plain CommonJS JavaScript with no build step.
 ```sh
 node --check extension.js
 node test/mapper.test.js
+node test/executable.test.js
+node test/extension.test.js
 ```
 
 Package with `vsce package` (requires `npm i -g @vscode/vsce`), or copy this

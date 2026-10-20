@@ -683,7 +683,15 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   기본 `dartograph.args`는 `--incremental-user-cache`로, 증분 사실 캐시를 작업
   공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.16.2 이하 CLI는 이 스위치를
   몰라 usage(64)로 끝나므로 CLI를 올리거나 그동안 `dartograph.args`를 `[]`로 둔다.
-  `dartograph.minTokens`·`dartograph.executable`도 설정으로 조정된다.
+  `dartograph.minTokens`도 설정으로 조정된다.
+- `dartograph.executable`은 machine 범위 설정이라 사용자(원격) 설정에서만 정한다. 작업
+  공간 `.vscode/settings.json`의 값은 신뢰한 작업 공간에서도 무시된다. 값은 절대 경로나
+  PATH의 명령 이름이어야 한다. `./tools/dartograph` 같은 상대 경로는 패키지 폴더 기준으로
+  풀리므로 실행하지 않고 출력 채널에 이유를 남긴다. Windows에서는 명령 이름을 PATH의 절대
+  경로 디렉터리에서만 찾는다(그러지 않으면 Node가 패키지 폴더를 PATH보다 먼저 찾는다).
+- 확장은 제한 모드(신뢰하지 않는 작업 공간)에서도 켜진다. 이때 `dartograph.executable`·
+  `dartograph.args`·`dartograph.runOnSave`는 사용자 설정 값만 쓴다. 작업 공간을 신뢰하면
+  작업 공간의 `dartograph.args`·`dartograph.runOnSave`가 적용된다.
 - 각 보고서의 `limitations`는 dartograph 출력 채널에 기록한다 — 발견이 없다는
   사실이 안전의 증명이 되지 않는다.
 

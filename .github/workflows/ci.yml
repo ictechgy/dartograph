@@ -46,6 +46,7 @@ jobs:
         run: |
           node --check editors/vscode/extension.js
           node editors/vscode/test/mapper.test.js
+          node editors/vscode/test/executable.test.js
           node editors/vscode/test/extension.test.js
       - name: Analysis plugin checks
         working-directory: editors/analysis_plugin

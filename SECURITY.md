@@ -73,6 +73,14 @@ status에는 `--ignore-submodules=all`을 붙여 서브모듈 저장소의 설�
 서브모듈이 있으면 revision을 싣지 않는다. PATH의 git 실행 파일과 git이 설정 파일을 읽는 동작
 자체(include가 가리키는 파일 포함)는 여전히 신뢰 경계 안이다.
 
+VS Code 확장은 실행할 CLI(`dartograph.executable`)를 사용자(원격) 설정에서만 받는다(machine
+범위). 작업 공간 `.vscode/settings.json`의 값은 신뢰한 작업 공간에서도 무시된다. 값은 절대 경로나
+PATH의 명령 이름이어야 한다. 상대 경로는 실행 디렉터리인 패키지 폴더를 기준으로 풀려 저장소가
+커밋한 스크립트를 가리킬 수 있으므로 실행하지 않는다. Windows에서 Node(libuv)는 이름만 받은 실행
+파일을 PATH보다 먼저 실행 디렉터리에서 찾는다. 그래서 확장이 PATH의 절대 경로 디렉터리에서 직접
+찾아 그 경로를 실행한다. 확장은 제한 모드에서도 켜지지만 `dartograph.args`·`dartograph.runOnSave`도
+사용자 설정 값만 쓴다.
+
 MCP 도구 인자는 분석 대상 저장소의 문서에 심은 지시를 따른 에이전트가 보낼 수 있다. 그래서
 `packageRoot`·`baseline`·`config`는 서버 작업 디렉터리 안의 실제 디렉터리·정규 파일로만
 받는다([MCP](doc/MCP.md)).
