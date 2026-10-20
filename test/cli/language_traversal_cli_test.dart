@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/analysis_git.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
 import 'package:path/path.dart' as p;
@@ -273,6 +274,74 @@ class Screen {
               expect(document['revision'], repository.head);
               expect(unverified(document), isEmpty);
             }
+          },
+          skip: Platform.isWindows
+              ? 'the fixture plants POSIX sh scripts'
+              : false,
+        );
+      }
+
+      test('a refused git query explains the missing revision', () {
+        // 2.45 미만 git의 거부는 시험 환경의 git으로 재현할 수 없어 이유를 직접 본다.
+        expect(
+          unverifiedRevisionNote(AnalysisGitRefusal.configurationUnreadable),
+          isNull,
+        );
+        expect(
+          unverifiedRevisionNote(AnalysisGitRefusal.unavoidableLazyFetch),
+          startsWith(
+            'revision-unverified: the git configuration names a promisor '
+            'remote',
+          ),
+        );
+        expect(
+          unverifiedRevisionNote(
+            AnalysisGitRefusal.unneutralizableFilterDriver,
+          ),
+          startsWith(
+            'revision-unverified: the git configuration defines a filter '
+            'driver',
+          ),
+        );
+      });
+
+      for (final transport in PromisorTransport.values) {
+        test(
+          'a partial clone missing the HEAD tree fetches nothing '
+          '(${transport.name})',
+          () async {
+            final repository = await createPartialCloneRepository(
+              root,
+              transport,
+              MissingObject.headTree,
+            );
+
+            final document = await traverse(repository.root);
+
+            expect(repository.commandRan, isFalse);
+            // git이 HEAD tree를 읽지 못하면 깨끗함을 확인할 수 없다.
+            expect(document['revision'], isNull);
+            expect(unverified(document), isEmpty);
+          },
+          skip: Platform.isWindows
+              ? 'the fixture plants POSIX sh scripts'
+              : false,
+        );
+
+        test(
+          'a clean partial clone still records HEAD (${transport.name})',
+          () async {
+            final repository = await createPartialCloneRepository(
+              root,
+              transport,
+              MissingObject.renamedFileBaseBlob,
+            );
+
+            final document = await traverse(repository.root);
+
+            expect(repository.commandRan, isFalse);
+            expect(document['revision'], repository.head);
+            expect(unverified(document), isEmpty);
           },
           skip: Platform.isWindows
               ? 'the fixture plants POSIX sh scripts'

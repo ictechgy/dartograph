@@ -240,11 +240,15 @@ Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
-Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 안의 git)을 실행하지 않고 stat
-캐시를 새로 고치지 않는다. 그래서 시각만 바뀐 파일과 stat이 낡은 filter 대상 파일(git-lfs 등)도
-바뀐 파일로 센다. 신뢰하는 checkout이면 먼저 `git status`를 실행한다. git이 건너뛰게 할 수 없는
-이름(`=`가 들었거나 UTF-8이 아닌 이름)의 filter 드라이버가 설정돼 있으면 git을 실행하지 않고 2로
-끝난다(`affected`도 같다).
+Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 안의 git, 부분 클론의 promisor
+원격에서 없는 객체를 가져오는 fetch)을 실행하지 않고 stat 캐시를 새로 고치지 않는다. 그래서 시각만
+바뀐 파일과 stat이 낡은 filter 대상 파일(git-lfs 등)도 바뀐 파일로 센다. 신뢰하는 checkout이면 먼저
+`git status`를 실행한다. git이 건너뛰게 할 수 없는 이름(`=`가 들었거나 UTF-8이 아닌 이름)의 filter
+드라이버가 설정돼 있으면 git을 실행하지 않고 2로 끝난다(`affected`도 같다). 부분 클론에서 비교할
+이력이 로컬에 없으면 가져오지 않고 2로 끝나고, `--no-lazy-fetch`를 모르는 git(2.45 미만)이면 부분
+클론에서 git을 실행하지 않고 2로 끝난다. 이름 변경은 감지하지 않는다 — 감지하려면 옛 내용(blob)을
+읽어야 하는데 blob 없는 클론에는 없기 때문이다. 바뀐 파일 목록은 같다(이름을 바꾼 파일은 새 경로로
+나온다).
 심볼릭 링크 소스는 양방향으로 매치된다 — 링크 파일 자체가 바뀐 경우(링크 경로)와
 링크 대상이 바뀐 경우(해석된 실 경로) 모두 변경 집합에 속한다.
 `--explain`은 단일 대상의 전체 근거를 묻는 명령이라 `--baseline`·`--since`와 함께 쓰지 않는다.
@@ -433,10 +437,11 @@ pub workspace 감지는 `bridges`와 같다. 사용 오류(role 누락·`server`
 `unresolvedCalls`·`dispatch`는 싣지 않는다. `revision`은 `--revision`이나 깨끗한 작업
 트리의 git HEAD, `graphRevision`은 그래프 내용 해시다. 깨끗함은 저장소 설정의 명령을 실행하지
 않고 판정한다. 그래서 stat이 낡은 filter 대상 파일(git-lfs 등)은 수정으로 읽혀 `revision`을
-생략한다. 패키지 루트에 git 서브모듈이 있거나 git이 건너뛰게 할 수 없는 이름의 filter 드라이버가
-있으면 `revision`을 생략하고 `revision-unverified:` limitation을 단다. 정확한 그래프 ID가 아닌 root는
-`root-not-found`로 문서에 남기고 64로 끝난다. 제어 문자가 든 root·revision과 이 형식이
-받지 않는 `impact` 옵션(`--since` 등)은 64다.
+생략한다. 패키지 루트에 git 서브모듈이 있거나, git이 건너뛰게 할 수 없는 이름의 filter 드라이버가
+있거나, 부분 클론인데 git이 `--no-lazy-fetch`를 모르면(2.45 미만) `revision`을 생략하고
+`revision-unverified:` limitation을 단다. 부분 클론에서 HEAD tree가 로컬에 없으면 가져오지 않고
+`revision`만 생략한다. 정확한 그래프 ID가 아닌 root는 `root-not-found`로 문서에 남기고 64로
+끝난다. 제어 문자가 든 root·revision과 이 형식이 받지 않는 `impact` 옵션(`--since` 등)은 64다.
 
 ```sh
 dartograph routes --role client --wrappers http-wrappers.json . > dart.http.json

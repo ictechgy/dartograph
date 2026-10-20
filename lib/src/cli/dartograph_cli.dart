@@ -617,7 +617,8 @@ Map<String, String> _ledgerInputs(List<String> arguments) {
 /// 관측한 Git HEAD SHA다. 계산하지 못하면 null이다(추정값을 넣지 않는다).
 ///
 /// [AnalysisGit]을 지나 cwd 저장소 설정의 명령을 실행하지 않는다. 설정을 읽지
-/// 못하거나 끌 수 없는 filter 드라이버 이름이 있어도 null이다.
+/// 못하거나, 끌 수 없는 filter 드라이버 이름이 있거나, promisor 원격의 fetch를
+/// 끌 수 없는 git이어도 null이다.
 Future<String?> _observeCommit() async {
   try {
     final result = await AnalysisGit.run(Directory.current.path, const [
@@ -3862,19 +3863,34 @@ Future<int> _runMcp(
 ///
 /// 끌 수 없는 filter 드라이버 이름 때문에 git을 실행하지 않았으면 이력 fetch가
 /// 아니라 그 설정을 고치라고 안내한다. 이름 원문은 신뢰하지 않는 설정 값이라
-/// 싣지 않는다.
+/// 싣지 않는다. promisor 원격(부분 클론)의 fetch를 끌 수 없는 git이면 git을
+/// 올리라고 하고, 부분 클론에서 git이 실패했으면 dartograph가 없는 객체를 가져오지
+/// 않는다는 사실을 알린다 — 사용자의 git은 그 객체를 스스로 가져와 같은 명령이
+/// 성공하므로, 그 사실 없이는 원인을 찾을 수 없다.
 int _reportChangedFilesFailure(
   StringSink error,
   ChangedFilesException failure,
 ) {
-  error.writeln(
-    failure.unneutralizableFilterDriver
-        ? 'Changed files could not be computed: the git configuration defines '
-              "a filter driver whose name contains '=' or is not valid UTF-8, "
-              'which git cannot be told to skip. Rename or remove that filter '
-              'driver.'
-        : 'Changed files could not be computed. In CI, fetch full Git history.',
-  );
+  error.writeln(switch (failure) {
+    ChangedFilesException(
+      refusal: AnalysisGitRefusal.unneutralizableFilterDriver,
+    ) =>
+      'Changed files could not be computed: the git configuration defines '
+          "a filter driver whose name contains '=' or is not valid UTF-8, "
+          'which git cannot be told to skip. Rename or remove that filter '
+          'driver.',
+    ChangedFilesException(refusal: AnalysisGitRefusal.unavoidableLazyFetch) =>
+      'Changed files could not be computed: the git configuration names a '
+          'promisor remote (a partial clone), and git older than 2.45 cannot '
+          'be told not to fetch missing objects from it, which runs commands '
+          "from the remote's settings. Use git 2.45 or newer.",
+    ChangedFilesException(partialClone: true) =>
+      'Changed files could not be computed. In a partial clone, dartograph '
+          'does not let git fetch missing objects from the promisor remote; '
+          'fetch the history you compare against first (in CI, fetch full '
+          'Git history).',
+    _ => 'Changed files could not be computed. In CI, fetch full Git history.',
+  });
   return ExitStatus.failure.code;
 }
 

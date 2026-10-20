@@ -278,8 +278,8 @@ const _ObservedRevision _noRevision = (revision: null, limitation: null);
 /// 모든 git 호출은 [AnalysisGit]을 지나 저장소 설정의 명령을 실행하지 않는다.
 /// 그래서 filter가 정규화하던 파일(git-lfs 등)은 stat 정보가 낡으면 바뀐 것으로
 /// 보이고, 그때는 깨끗하다고 주장하지 않는다(fail-safe, DECISIONS D1). 끌 수 없는
-/// filter 드라이버 이름 때문에 git을 실행하지 않았으면 그 이유를 limitation으로
-/// 남긴다.
+/// filter 드라이버 이름이나, promisor 원격의 fetch를 끌 수 없는 git(2.45 미만)
+/// 때문에 git을 실행하지 않았으면 그 이유를 limitation으로 남긴다.
 Future<_ObservedRevision> _cleanGitHead(String root) async {
   try {
     final status = await AnalysisGit.run(root, const [
@@ -298,11 +298,25 @@ Future<_ObservedRevision> _cleanGitHead(String root) async {
   } on ProcessException {
     return _noRevision;
   } on AnalysisGitException catch (refused) {
-    return refused.refusal == AnalysisGitRefusal.unneutralizableFilterDriver
-        ? (revision: null, limitation: _unneutralizableRevisionNote)
-        : _noRevision;
+    return (
+      revision: null,
+      limitation: unverifiedRevisionNote(refused.refusal),
+    );
   }
 }
+
+/// git을 실행하지 않은 [refusal]을 순회 문서의 `revision-unverified:` 이유로
+/// 바꾼다.
+///
+/// 설정을 읽지 못한 경우는 null이다 — git이 없거나 저장소가 아닐 때처럼
+/// revision이 없다는 것 자체가 신호다. 나머지는 git이 저장소 설정의 명령을 끌 수
+/// 없어 일부러 실행하지 않은 경우라, 원인과 `--revision` 안내를 남긴다.
+String? unverifiedRevisionNote(AnalysisGitRefusal refusal) => switch (refusal) {
+  AnalysisGitRefusal.configurationUnreadable => null,
+  AnalysisGitRefusal.unneutralizableFilterDriver =>
+    _unneutralizableRevisionNote,
+  AnalysisGitRefusal.unavoidableLazyFetch => _lazyFetchRevisionNote,
+};
 
 /// 깨끗한 작업 트리의 HEAD다. 서브모듈(index의 gitlink)이 있으면 싣지 않는다.
 ///
@@ -350,3 +364,11 @@ const _unneutralizableRevisionNote =
     "name contains '=' or is not valid UTF-8, which git cannot be told to "
     'skip, so dartograph did not inspect the work tree; pass --revision to '
     'record the analyzed revision';
+
+/// promisor 원격의 fetch를 끌 수 없는 git이라 git을 실행하지 않은 이유다.
+const _lazyFetchRevisionNote =
+    'revision-unverified: the git configuration names a promisor remote (a '
+    'partial clone), and git older than 2.45 cannot be told not to fetch '
+    "missing objects from it, which runs commands from the remote's settings, "
+    'so dartograph did not inspect the work tree; use git 2.45 or newer, or '
+    'pass --revision to record the analyzed revision';

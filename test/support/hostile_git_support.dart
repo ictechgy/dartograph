@@ -166,6 +166,124 @@ Future<HostileRepository> createNormalizedFilterRepository(
   return HostileRepository._(root, File(p.join(base, 'command-ran')), head);
 }
 
+/// 부분 클론의 git이 없는 객체를 promisor 원격에서 가져올 때(lazy fetch) 실행하는
+/// 원격 전송 설정이다.
+enum PromisorTransport {
+  /// ssh URL 원격. fetch는 `core.sshCommand`를 실행한다.
+  sshCommand,
+
+  /// 로컬 경로 URL 원격. fetch는 `remote.<이름>.uploadpack`을 실행한다.
+  uploadPack,
+}
+
+/// 부분 클론에서 로컬에 없는 객체다.
+enum MissingObject {
+  /// `base` 태그의 커밋. 기준 이력을 받지 않은 클론과 같다.
+  baseCommit,
+
+  /// HEAD의 tree. tree 없는 클론(`--filter=tree:0`)과 같다.
+  headTree,
+
+  /// `base`와 HEAD 사이에 `lib/moving.dart`에서 `lib/moved.dart`로 이름을 바꾸며
+  /// 고친 파일의 옛 blob. blob 없는 클론(`--filter=blob:none`)은 체크아웃하지 않은
+  /// 옛 내용을 받지 않는다. 이름 변경 감지만 이 blob을 읽는다.
+  renamedFileBaseBlob,
+
+  /// 작업 트리에서 `lib/moved.dart`를 `lib/staged.dart`로 옮기고 고쳐 스테이징한
+  /// 뒤의 HEAD 쪽 blob. 이름 변경 감지만 이 blob을 읽는다.
+  stagedRenameHeadBlob,
+}
+
+/// [workspace] 아래 `repo`에 promisor 원격(부분 클론)을 설정하고 [missing] 객체를
+/// 지운 저장소를 만든다.
+///
+/// `base`(fx·edited·moving)와 HEAD(moving을 moved로 옮기며 고침) 두 커밋을 만들고
+/// promisor 설정과 [transport]의 명령을 심은 뒤 마지막에 객체를 지운다. 지운 뒤에는
+/// fixture git을 실행하지 않는다. git이 없는 객체를 원격에서 가져오려 하면
+/// [transport]의 명령이 [HostileRepository.marker]에 줄을 남기고 실패한다.
+Future<HostileRepository> createPartialCloneRepository(
+  Directory workspace,
+  PromisorTransport transport,
+  MissingObject missing,
+) async {
+  final base = await workspace.resolveSymbolicLinks();
+  final root = p.join(base, 'repo');
+  final marker = File(p.join(base, 'command-ran'));
+  final lines = [for (var index = 0; index < 20; index++) 'int v$index = 0;'];
+  _writeFile(root, 'lib/fx.dart', 'class Alpha {}\n');
+  _writeFile(root, 'lib/edited.dart', 'class Edited {}\n');
+  _writeFile(root, 'lib/moving.dart', '${lines.join('\n')}\n');
+  await _commitAll(root);
+  await fixtureGit(root, const ['tag', 'base']);
+  await fixtureGit(root, const ['mv', 'lib/moving.dart', 'lib/moved.dart']);
+  _appendLine(root, 'lib/moved.dart', 'int moved = 0;');
+  await fixtureGit(root, const ['commit', '-q', '-am', 'move']);
+  final head = (await fixtureGit(root, const ['rev-parse', 'HEAD'])).trim();
+  if (missing == MissingObject.stagedRenameHeadBlob) {
+    await fixtureGit(root, const ['mv', 'lib/moved.dart', 'lib/staged.dart']);
+    _appendLine(root, 'lib/staged.dart', 'int staged = 0;');
+    await fixtureGit(root, const ['add', '-A']);
+  }
+  final object = (await fixtureGit(root, [
+    'rev-parse',
+    switch (missing) {
+      MissingObject.baseCommit => 'base^{commit}',
+      MissingObject.headTree => 'HEAD^{tree}',
+      MissingObject.renamedFileBaseBlob => 'base:lib/moving.dart',
+      MissingObject.stagedRenameHeadBlob => 'HEAD:lib/moved.dart',
+    },
+  ])).trim();
+  final command = (await _markerCommands(base, marker)).hook;
+  for (final (key, value) in [
+    ('core.repositoryformatversion', '1'),
+    ('extensions.partialClone', 'origin'),
+    ('remote.origin.promisor', 'true'),
+    ('remote.origin.partialCloneFilter', 'blob:none'),
+    ...switch (transport) {
+      PromisorTransport.sshCommand => [
+        ('remote.origin.url', 'ssh://example.invalid/repo.git'),
+        ('core.sshCommand', command),
+      ],
+      PromisorTransport.uploadPack => [
+        ('remote.origin.url', p.join(base, 'no-such-remote')),
+        ('remote.origin.uploadpack', command),
+      ],
+    },
+  ]) {
+    await fixtureGit(root, ['config', key, value]);
+  }
+  _deleteLooseObject(root, object);
+  return HostileRepository._(root, marker, head);
+}
+
+/// `--no-lazy-fetch`를 모르고 `GIT_NO_LAZY_FETCH`를 따르지 않는 git(2.45 미만)을
+/// 흉내 내는 실행 파일을 [workspace]에 만들고 그 경로를 돌려준다.
+///
+/// 그 옵션을 받으면 옛 git처럼 사용법 오류(129)로 끝나고, 아니면 변수를 지운 뒤
+/// PATH의 실제 git에 넘긴다.
+Future<String> createGitWithoutNoLazyFetch(Directory workspace) async {
+  final lookup = await Process.run('sh', const ['-c', 'command -v git']);
+  final realGit = (lookup.stdout as String).trim();
+  if (lookup.exitCode != 0 || !p.isAbsolute(realGit)) {
+    throw StateError('git was not found on PATH: ${lookup.stderr}');
+  }
+  final script = p.join(await workspace.resolveSymbolicLinks(), 'old-git');
+  File(script).writeAsStringSync(
+    '#!/bin/sh\n'
+    'for argument in "\$@"; do\n'
+    '  if [ "\$argument" = --no-lazy-fetch ]; then\n'
+    '    echo "unknown option: --no-lazy-fetch" >&2\n'
+    '    exit 129\n'
+    '  fi\n'
+    'done\n'
+    'unset GIT_NO_LAZY_FETCH\n'
+    "exec '$realGit' \"\$@\"\n",
+  );
+  final chmod = await Process.run('chmod', ['+x', script]);
+  if (chmod.exitCode != 0) throw StateError('chmod failed: ${chmod.stderr}');
+  return script;
+}
+
 /// 테스트가 소유한 저장소에서 fixture용 git을 실행한다.
 ///
 /// 사용자 전역·시스템 설정(훅 경로, filter, 서명 등)이 fixture를 바꾸지 않게
@@ -322,6 +440,28 @@ void _writeFile(String root, String relative, String contents) {
   final file = File(p.join(root, relative));
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(contents);
+}
+
+void _appendLine(String root, String relative, String line) {
+  File(
+    p.join(root, relative),
+  ).writeAsStringSync('$line\n', mode: FileMode.append);
+}
+
+/// 느슨한 객체 파일 [object]를 지운다. 압축(pack)돼 있으면 fixture가 기대하는
+/// 저장소가 아니므로 [StateError]다.
+void _deleteLooseObject(String root, String object) {
+  final file = File(
+    p.join(
+      root,
+      '.git',
+      'objects',
+      object.substring(0, 2),
+      object.substring(2),
+    ),
+  );
+  if (!file.existsSync()) throw StateError('object $object is not loose');
+  file.deleteSync();
 }
 
 /// 내용은 두고 mtime만 2001년으로 돌린다.

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartograph/dartograph.dart';
+import 'package:dartograph/src/cli/analysis_git.dart';
 import 'package:dartograph/src/cli/changed_files.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
@@ -295,6 +296,64 @@ void main() {
     },
     skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
   );
+
+  test(
+    'a partial clone without the base history is diagnosed, not fetched',
+    () async {
+      final workspace = await Directory.systemTemp.createTemp(
+        'affected-partial-clone.',
+      );
+      addTearDown(() => workspace.delete(recursive: true));
+      final repository = await createPartialCloneRepository(
+        workspace,
+        PromisorTransport.sshCommand,
+        MissingObject.baseCommit,
+      );
+      final errors = StringBuffer();
+
+      final status = await runDartograph(
+        ['affected', 'base', repository.root],
+        output: StringBuffer(),
+        error: errors,
+        indexPackage: (_) async => indexed,
+      );
+
+      expect(status, ExitStatus.failure.code);
+      expect(repository.commandRan, isFalse);
+      expect(
+        errors.toString(),
+        'Changed files could not be computed. In a partial clone, dartograph '
+        'does not let git fetch missing objects from the promisor remote; '
+        'fetch the history you compare against first (in CI, fetch full Git '
+        'history).\n',
+      );
+    },
+    skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+  );
+
+  test('a git that cannot skip the promisor fetch is diagnosed', () async {
+    // 2.45 미만 git은 시험 환경의 git으로 재현할 수 없어 거부 결과를 주입한다.
+    final errors = StringBuffer();
+
+    final status = await runDartograph(
+      ['affected', 'HEAD', directory.path],
+      output: StringBuffer(),
+      error: errors,
+      indexPackage: (_) async => indexed,
+      changedFilesSince: (_, _) async => throw const ChangedFilesException(
+        refusal: AnalysisGitRefusal.unavoidableLazyFetch,
+      ),
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      errors.toString(),
+      'Changed files could not be computed: the git configuration names a '
+      'promisor remote (a partial clone), and git older than 2.45 cannot be '
+      'told not to fetch missing objects from it, which runs commands from '
+      "the remote's settings. Use git 2.45 or newer.\n",
+    );
+  });
 
   test('index failures are not blamed on git', () async {
     final errors = StringBuffer();

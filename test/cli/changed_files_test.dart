@@ -219,6 +219,85 @@ void main() {
       );
     }
   });
+
+  group('since in a partial clone', () {
+    late Directory workspace;
+
+    setUp(() async {
+      workspace = await Directory.systemTemp.createTemp(
+        'changed-files-partial.',
+      );
+    });
+    tearDown(() => workspace.delete(recursive: true));
+
+    for (final transport in PromisorTransport.values) {
+      test(
+        'missing base history fails closed instead of being fetched '
+        '(${transport.name})',
+        () async {
+          final repository = await createPartialCloneRepository(
+            workspace,
+            transport,
+            MissingObject.baseCommit,
+          );
+
+          await expectLater(
+            ChangedFiles.since('base', repository.root),
+            throwsA(
+              isA<ChangedFilesException>()
+                  .having((failure) => failure.partialClone, 'partial', isTrue)
+                  .having((failure) => failure.refusal, 'refusal', isNull),
+            ),
+          );
+          expect(repository.commandRan, isFalse);
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+
+      test(
+        'a renamed file whose old blob is absent is listed by its new path '
+        '(${transport.name})',
+        () async {
+          // blob 없는 클론의 흔한 모양이다. 이름 변경 감지만 옛 blob을 읽는다.
+          final repository = await createPartialCloneRepository(
+            workspace,
+            transport,
+            MissingObject.renamedFileBaseBlob,
+          );
+
+          final changed = await ChangedFiles.since('base', repository.root);
+
+          expect(repository.commandRan, isFalse);
+          expect(changed, {repository.path('lib/moved.dart')});
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+
+      test(
+        'a staged rename whose HEAD blob is absent is listed by its new path '
+        '(${transport.name})',
+        () async {
+          final repository = await createPartialCloneRepository(
+            workspace,
+            transport,
+            MissingObject.stagedRenameHeadBlob,
+          );
+
+          final changed = await ChangedFiles.since('HEAD', repository.root);
+
+          expect(repository.commandRan, isFalse);
+          expect(changed, {repository.path('lib/staged.dart')});
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+    }
+  });
 }
 
 Future<String> _git(Directory directory, List<String> arguments) async {

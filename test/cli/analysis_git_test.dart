@@ -83,6 +83,40 @@ void main() {
     }
   });
 
+  group('namesPromisorRemote', () {
+    test('finds every key that makes git use a promisor remote', () {
+      for (final key in [
+        'extensions.partialclone',
+        'remote.origin.promisor',
+        'remote.a.b.partialclonefilter',
+        // 서브섹션 없는 키도 git은 이름이 빈 promisor 원격으로 받는다.
+        'remote.promisor',
+      ]) {
+        expect(
+          namesPromisorRemote(_listing(['core.bare', key])),
+          isTrue,
+          reason: key,
+        );
+      }
+    });
+
+    test('ignores keys that do not make a promisor remote', () {
+      expect(
+        namesPromisorRemote(
+          _listing([
+            'remote.origin.url',
+            'remote.origin.fetch',
+            'remote.x.promisor.url',
+            'remotes.x.promisor',
+            'core.partialclonefilter',
+            'extensions.partialclonex',
+          ]),
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('AnalysisGit.run', () {
     late Directory workspace;
 
@@ -112,8 +146,83 @@ void main() {
 
         expect(head.exitCode, 0);
         expect(utf8.decode(head.stdout), '${repository.head}\n');
+        expect(head.partialClone, isFalse);
         expect(missing.exitCode, 1);
         expect(missing.stdout, isEmpty);
+      },
+      skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+    );
+
+    for (final transport in PromisorTransport.values) {
+      test(
+        'does not fetch an object missing from a partial clone '
+        '(${transport.name})',
+        () async {
+          final repository = await createPartialCloneRepository(
+            workspace,
+            transport,
+            MissingObject.baseCommit,
+          );
+
+          final result = await AnalysisGit.run(repository.root, const [
+            'rev-parse',
+            '--verify',
+            '--end-of-options',
+            'base^{commit}',
+          ]);
+
+          expect(repository.commandRan, isFalse);
+          expect(result.exitCode, isNot(0));
+          expect(result.partialClone, isTrue);
+        },
+        skip: Platform.isWindows
+            ? 'the fixture plants POSIX sh scripts'
+            : false,
+      );
+    }
+
+    test(
+      'runs nothing in a partial clone when git cannot skip the fetch',
+      () async {
+        // 2.45 미만 git은 --no-lazy-fetch도 GIT_NO_LAZY_FETCH도 모른다.
+        final oldGit = await createGitWithoutNoLazyFetch(workspace);
+        final repository = await createPartialCloneRepository(
+          workspace,
+          PromisorTransport.uploadPack,
+          MissingObject.baseCommit,
+        );
+
+        await expectLater(
+          AnalysisGit.run(repository.root, const [
+            'rev-parse',
+            '--verify',
+            '--end-of-options',
+            'base^{commit}',
+          ], executable: oldGit),
+          _refused(AnalysisGitRefusal.unavoidableLazyFetch),
+        );
+        expect(repository.commandRan, isFalse);
+      },
+      skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
+    );
+
+    test(
+      'still runs with that git outside a partial clone',
+      () async {
+        final oldGit = await createGitWithoutNoLazyFetch(workspace);
+        final repository = await createHostileRepository(
+          workspace,
+          HostileGitSetting.committedAttributes,
+        );
+
+        final head = await AnalysisGit.run(repository.root, const [
+          'rev-parse',
+          'HEAD',
+        ], executable: oldGit);
+
+        expect(head.exitCode, 0);
+        expect(utf8.decode(head.stdout), '${repository.head}\n');
+        expect(repository.commandRan, isFalse);
       },
       skip: Platform.isWindows ? 'the fixture plants POSIX sh scripts' : false,
     );

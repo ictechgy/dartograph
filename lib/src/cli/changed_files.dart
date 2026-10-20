@@ -7,11 +7,16 @@ import 'analysis_git.dart';
 /// Git 기준점이나 변경 파일 집합을 신뢰할 수 있게 계산하지 못했다.
 final class ChangedFilesException implements Exception {
   /// 호출자가 경로나 Git stderr를 노출하지 않는 진단으로 바꾸도록 표식만 남긴다.
-  const ChangedFilesException({this.unneutralizableFilterDriver = false});
+  const ChangedFilesException({this.refusal, this.partialClone = false});
 
-  /// 저장소 설정의 filter 드라이버 이름을 `-c`로 덮을 수 없어 git을 실행하지
-  /// 않았는지다. 호출자는 이때 일반 Git 실패와 다른 원인·해결 방향을 알린다.
-  final bool unneutralizableFilterDriver;
+  /// 저장소 설정의 명령을 끌 수 없어 git을 실행하지 않은 이유다. git을 실행했거나
+  /// 출력이 잘못됐으면 null이다. 호출자는 이유마다 일반 Git 실패와 다른 원인·해결
+  /// 방향을 알린다.
+  final AnalysisGitRefusal? refusal;
+
+  /// promisor 원격(부분 클론)이 설정된 저장소에서 git이 실패했는지다. 없는 객체를
+  /// 원격에서 가져오지 않으므로 비교할 이력이 로컬에 없으면 이렇게 실패한다.
+  final bool partialClone;
 }
 
 /// Git 기준점과 현재 작업 상태 사이에서 바뀐 파일을 완전하게 모은다.
@@ -25,8 +30,14 @@ abstract final class ChangedFiles {
   /// 오기 때문이다. 삭제 파일은 `--diff-filter=d`로 제외된다.
   ///
   /// 모든 git 호출은 [AnalysisGit]을 지나 저장소 설정의 명령(filter·fsmonitor·
-  /// 훅·서브모듈 설정)을 실행하지 않는다. 그래서 git-lfs처럼 filter가 정규화하던
-  /// 파일과 stat만 바뀐 파일도 변경으로 센다(보수적 상위집합).
+  /// 훅·서브모듈 설정, promisor 원격의 fetch)을 실행하지 않는다. 그래서 git-lfs처럼
+  /// filter가 정규화하던 파일과 stat만 바뀐 파일도 변경으로 센다(보수적 상위집합).
+  /// 부분 클론에 없는 객체는 가져오지 않으므로, 비교할 이력이 없으면 실패한다.
+  ///
+  /// 두 diff는 이름 변경을 감지하지 않는다(`--no-renames`). 감지는 지운 파일과 새
+  /// 파일의 내용(blob)을 읽어 비교하는데, blob 없는 부분 클론에는 옛 blob이 없어
+  /// 그것을 가져오지 않으면 diff가 실패한다. `--name-only --diff-filter=d`에서는
+  /// 이름 변경도 새 경로 하나로 나오므로 결과가 같다.
   static Future<Set<String>> since(
     String reference,
     String workingDirectory,
@@ -54,6 +65,7 @@ abstract final class ChangedFiles {
         'diff',
         '--no-ext-diff',
         '--no-textconv',
+        '--no-renames',
         '--name-only',
         '--diff-filter=d',
         '-z',
@@ -69,6 +81,7 @@ abstract final class ChangedFiles {
           'diff',
           '--no-ext-diff',
           '--no-textconv',
+          '--no-renames',
           '--ignore-submodules=all',
           '--name-only',
           '--diff-filter=d',
@@ -110,13 +123,10 @@ abstract final class ChangedFiles {
         configuration: ['diff.relative=false', ...configuration],
       );
     } on AnalysisGitException catch (refused) {
-      throw ChangedFilesException(
-        unneutralizableFilterDriver:
-            refused.refusal == AnalysisGitRefusal.unneutralizableFilterDriver,
-      );
+      throw ChangedFilesException(refusal: refused.refusal);
     }
     if (result.exitCode != 0) {
-      throw const ChangedFilesException();
+      throw ChangedFilesException(partialClone: result.partialClone);
     }
     return decodeChangedFilesOutput(result.stdout, nulSeparated: nulSeparated);
   }
