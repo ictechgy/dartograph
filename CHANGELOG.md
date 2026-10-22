@@ -4,6 +4,7 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## 0.17.0
 
+- Preserve analyzer-observed library source paths, including package URI barrels and part hosts, so prepared packages with import/export-only edits map to their library and importers. Invalidate older graph caches lacking that attribution.
 - Add `impact --before <prepared-base-root> <current-root>` and MCP `beforeRoot`: compare actual Dart/configuration content, retain deleted/renamed historical callers, and report historical/current paths separately. Include input content hashes checked around indexing, `stale`/`incomplete` status, change reasons, and preparation-inclusive cost. Existing seed modes remain explicitly current-only.
 - Include deleted paths in Git change collection. Project implementation edits through observed override contracts to base-typed callers, with explicit projection evidence. Preserve the numeric `truncated` row count and add depth-frontier metadata; label call-site coordinates as caller declarations. Static test candidates and empty output never predict failures or authorize skipping tests.
 - Keep projected contracts from descending into unrelated sibling implementations. Text and Markdown label the projection as distinct from a call. Limit new installations to validated analyzer 14.3–14.5 and preserve the raw bytes of shared conformance fixtures on Windows.

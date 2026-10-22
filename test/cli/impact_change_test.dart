@@ -127,6 +127,64 @@ void main() {
   });
 
   test(
+    'prepared package barrel edits seed the observed library and importers',
+    () async {
+      for (final root in [before, current]) {
+        write(root, 'lib/a.dart', 'int api() => 1;\n');
+        write(root, 'lib/b.dart', 'int api() => 2;\n');
+        // 정렬상 먼저 오는 빈 part도 라이브러리의 소스를 바꾸면 안 된다.
+        write(root, 'lib/aaa_part.dart', "part of 'api.dart';\n");
+        final prepared = await Process.run(Platform.resolvedExecutable, [
+          'pub',
+          'get',
+          '--offline',
+        ], workingDirectory: root.path);
+        expect(prepared.exitCode, 0, reason: prepared.stderr.toString());
+      }
+      write(before, 'lib/api.dart', "export 'a.dart';\npart 'aaa_part.dart';\n");
+      write(current, 'lib/api.dart', "export 'b.dart';\npart 'aaa_part.dart';\n");
+      final result = await impact();
+      for (final side in ['historical', 'current']) {
+        final report = result[side] as Map;
+        expect(
+          report['changed']['libraries'],
+          contains('package:change_example/api.dart'),
+        );
+        expect(report['changed']['unattributedSources'], isEmpty);
+        expect(
+          (report['impacted'] as List).map((item) => item['id']),
+          contains('package:change_example/caller.dart'),
+        );
+        expect(
+          (report['tests'] as List).map((item) => item['source']),
+          contains('test/api_test.dart'),
+        );
+      }
+      expect(result['status'], 'incomplete');
+      final changedList = File(p.join(workspace.path, 'changes.json'))
+        ..writeAsStringSync(jsonEncode(['lib/api.dart']));
+      final output = StringBuffer();
+      expect(
+        await runDartograph([
+          'impact',
+          '--changed',
+          changedList.path,
+          '--format',
+          'json',
+          current.path,
+        ], output: output),
+        0,
+      );
+      final legacy = jsonDecode(output.toString()) as Map;
+      expect(
+        legacy['changed']['libraries'],
+        contains('package:change_example/api.dart'),
+      );
+      expect(legacy['changed']['unattributedSources'], isEmpty);
+    },
+  );
+
+  test(
     'MCP exposes separate captures and enforces the beforeRoot boundary',
     () async {
       final output = StringBuffer();
