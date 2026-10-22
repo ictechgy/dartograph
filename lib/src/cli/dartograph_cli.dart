@@ -946,6 +946,19 @@ Future<int> _runImpact(
         failedItems,
       );
     }
+    final changedSources = <String>{};
+    if (changedFile != null) {
+      // 요청 파일은 분석 입력을 열거하기 전에 검증한다. 같은 디렉터리 안의
+      // 장치/FIFO 요청이 분석 실패(2)로 가려지지 않고 기존 사용 오류(64)를 낸다.
+      try {
+        changedSources.addAll(await _readChangedEntries(changedFile));
+      } on NonRegularFileException {
+        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
+      } on FileSystemException {
+        error.writeln('Changed list could not be read: $changedFile');
+        return ExitStatus.usage.code;
+      }
+    }
     final capture = await captureAnalysisInputs(rootPath);
     final indexed = await indexPackage(rootPath);
     final recaptured = await captureAnalysisInputs(rootPath);
@@ -970,7 +983,6 @@ Future<int> _runImpact(
         'input-changed-during-analysis: captured content changed while indexing; rerun',
       );
     }
-    final changedSources = <String>{};
     final changedSymbols = <String>[];
     var unmappedDartFiles = 0;
     if (since != null) {
@@ -983,19 +995,7 @@ Future<int> _runImpact(
       );
       changedSources.addAll(matched.matchedSources);
       unmappedDartFiles = matched.unmappedDartFiles;
-    } else if (changedFile != null) {
-      try {
-        changedSources.addAll(await _readChangedEntries(changedFile));
-      } on NonRegularFileException {
-        // 사용자가 준 입력 경로 문제(64)다. 아래 분석 입력 거부(2)로 흘리지 않는다.
-        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
-      } on FileSystemException {
-        // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
-        // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
-        error.writeln('Changed list could not be read: $changedFile');
-        return ExitStatus.usage.code;
-      }
-    } else {
+    } else if (changedFile == null) {
       changedSymbols.add(symbol!);
     }
     final report = ImpactAnalysis.analyze(

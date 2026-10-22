@@ -250,7 +250,7 @@ void main() {
         expect(repository.commandRan, isFalse);
       }, skip: partialCloneSkip);
 
-      test('a renamed file whose old blob is absent is listed by its new path '
+      test('a renamed file whose old blob is absent retains both paths '
           '(${transport.name})', () async {
         // blob 없는 클론의 흔한 모양이다. 이름 변경 감지만 옛 blob을 읽는다.
         final repository = await createPartialCloneRepository(
@@ -262,26 +262,28 @@ void main() {
         final changed = await ChangedFiles.since('base', repository.root);
 
         expect(repository.commandRan, isFalse);
-        expect(changed, {repository.path('lib/moved.dart')});
+        expect(changed, {
+          repository.path('lib/moving.dart'),
+          repository.path('lib/moved.dart'),
+        });
       }, skip: partialCloneSkip);
 
-      test(
-        'a staged rename whose HEAD blob is absent is listed by its new path '
-        '(${transport.name})',
-        () async {
-          final repository = await createPartialCloneRepository(
-            workspace,
-            transport,
-            MissingObject.stagedRenameHeadBlob,
-          );
+      test('a staged rename whose HEAD blob is absent retains both paths '
+          '(${transport.name})', () async {
+        final repository = await createPartialCloneRepository(
+          workspace,
+          transport,
+          MissingObject.stagedRenameHeadBlob,
+        );
 
-          final changed = await ChangedFiles.since('HEAD', repository.root);
+        final changed = await ChangedFiles.since('HEAD', repository.root);
 
-          expect(repository.commandRan, isFalse);
-          expect(changed, {repository.path('lib/staged.dart')});
-        },
-        skip: partialCloneSkip,
-      );
+        expect(repository.commandRan, isFalse);
+        expect(changed, {
+          repository.path('lib/moved.dart'),
+          repository.path('lib/staged.dart'),
+        });
+      }, skip: partialCloneSkip);
     }
   });
 }
