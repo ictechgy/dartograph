@@ -166,10 +166,15 @@ void main() {
       'project:lib/b.dart',
     ]);
     expect(limited['truncated'], 3);
-    expect(limited['limitations'], [
-      'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
-          'symbol(s) from coverage.missedWithoutPrecheck',
-    ]);
+    expect(
+      (limited['limitations'] as List).where(
+        (value) => (value as String).startsWith('impact-coverage-truncated:'),
+      ),
+      [
+        'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
+            'symbol(s) from coverage.missedWithoutPrecheck',
+      ],
+    );
 
     // limit이 영향 수와 같으면 자르지 않고 limitation도 없다.
     final whole = await render('4');
@@ -180,7 +185,12 @@ void main() {
       'project:test/a_test.dart::main',
     ]);
     expect(whole['truncated'], 0);
-    expect(whole['limitations'], isEmpty);
+    expect(
+      (whole['limitations'] as List).where(
+        (value) => (value as String).startsWith('impact-coverage-truncated:'),
+      ),
+      isEmpty,
+    );
   });
 
   test(
@@ -256,10 +266,15 @@ void main() {
         'project:lib/b.dart',
       ]);
       expect((properties['coverage'] as Map)['transitivelyImpacted'], 4);
-      expect(properties['limitations'], [
-        'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
-            'symbol(s) from coverage.missedWithoutPrecheck',
-      ]);
+      expect(
+        (properties['limitations'] as List).where(
+          (value) => (value as String).startsWith('impact-coverage-truncated:'),
+        ),
+        [
+          'impact-coverage-truncated: --limit 1 omitted 3 of 4 impacted '
+              'symbol(s) from coverage.missedWithoutPrecheck',
+        ],
+      );
     },
   );
 

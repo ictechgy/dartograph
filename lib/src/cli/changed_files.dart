@@ -27,7 +27,8 @@ abstract final class ChangedFiles {
   /// `p.normalize(p.join(root, relative))` 절대 경로다. 소비자는 이 형태와
   /// canonical(심볼릭 링크 해석) 경로 **양쪽**으로 매칭한다(_changedContains) —
   /// 링크 파일 자체의 변경은 toplevel 기준 경로로, 대상의 변경은 해석 경로로
-  /// 오기 때문이다. 삭제 파일은 `--diff-filter=d`로 제외된다.
+  /// 오기 때문이다. 삭제 파일도 보존하므로 현재 그래프에서 매핑되지 않은 입력을
+  /// 숨기지 않는다. 과거 호출자 분석은 준비된 이전 그래프가 필요하다.
   ///
   /// 모든 git 호출은 [AnalysisGit]을 지나 저장소 설정의 명령(filter·fsmonitor·
   /// 훅·서브모듈 설정, promisor 원격의 fetch)을 실행하지 않는다. 그래서 git-lfs처럼
@@ -36,8 +37,7 @@ abstract final class ChangedFiles {
   ///
   /// 두 diff는 이름 변경을 감지하지 않는다(`--no-renames`). 감지는 지운 파일과 새
   /// 파일의 내용(blob)을 읽어 비교하는데, blob 없는 부분 클론에는 옛 blob이 없어
-  /// 그것을 가져오지 않으면 diff가 실패한다. `--name-only --diff-filter=d`에서는
-  /// 이름 변경도 새 경로 하나로 나오므로 결과가 같다.
+  /// 그것을 가져오지 않으면 diff가 실패한다. 이름 변경은 삭제/추가 경로로 남는다.
   static Future<Set<String>> since(
     String reference,
     String workingDirectory,
@@ -67,7 +67,6 @@ abstract final class ChangedFiles {
         '--no-textconv',
         '--no-renames',
         '--name-only',
-        '--diff-filter=d',
         '-z',
         '$baseCommit...HEAD',
       ], workingDirectory),
@@ -84,7 +83,6 @@ abstract final class ChangedFiles {
           '--no-renames',
           '--ignore-submodules=all',
           '--name-only',
-          '--diff-filter=d',
           '-z',
           'HEAD',
         ],

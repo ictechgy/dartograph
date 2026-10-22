@@ -16,6 +16,7 @@ final class ImpactedSymbol {
     required this.path,
     required this.riskScore,
     required this.riskLevel,
+    this.pathEvidence = const [],
     this.source,
     this.line,
     this.column,
@@ -32,6 +33,9 @@ final class ImpactedSymbol {
 
   /// 이 항목에서 시작해 변경 씨앗에서 끝나는 최단 사용 경로다.
   final List<String> path;
+
+  /// 일반 역참조와 다른 override 투영 단계의 실제 간선과 탐색 방향이다.
+  final List<Map<String, String>> pathEvidence;
 
   /// 개별 항목 위험 점수(0–100)다.
   final int riskScore;
@@ -56,6 +60,7 @@ final class ImpactedSymbol {
     'kind': kind,
     'line': ?line,
     'path': path,
+    'pathEvidence': pathEvidence,
     'risk': riskLevel,
     'riskScore': riskScore,
     'source': ?source,
@@ -87,10 +92,10 @@ final class ImpactCallSite {
   /// 호출이 일어나는 파일의 프로젝트 상대 경로다.
   final String? fromSource;
 
-  /// 호출 지점의 1부터 시작하는 줄이다.
+  /// 호출자 선언의 1부터 시작하는 줄이다. 호출식 위치는 수집하지 않는다.
   final int? fromLine;
 
-  /// 호출 지점의 1부터 시작하는 열이다.
+  /// 호출자 선언의 1부터 시작하는 열이다.
   final int? fromColumn;
 
   /// 호출 주체가 라이브러리(파일) 정점인지 나타낸다.
@@ -103,6 +108,7 @@ final class ImpactCallSite {
     'fromKind': fromIsLibrary ? 'file' : 'declaration',
     'kind': kind,
     'line': ?fromLine,
+    'locationKind': 'caller-declaration',
     'source': ?fromSource,
     'to': toId,
   };
@@ -115,6 +121,7 @@ final class ImpactedTest {
     required this.id,
     required this.depth,
     required this.path,
+    this.pathEvidence = const [],
     this.source,
   });
 
@@ -127,6 +134,9 @@ final class ImpactedTest {
   /// 이 테스트에서 변경 씨앗에서 끝나는 최단 경로다.
   final List<String> path;
 
+  /// 테스트 경로 중 일반 역참조와 다른 override 투영 단계다.
+  final List<Map<String, String>> pathEvidence;
+
   /// 테스트 파일의 프로젝트 상대 경로다.
   final String? source;
 
@@ -135,6 +145,7 @@ final class ImpactedTest {
     'depth': depth,
     'id': id,
     'path': path,
+    'pathEvidence': pathEvidence,
     'source': ?source,
   };
 }
@@ -242,6 +253,9 @@ final class ImpactReport {
     required this.risk,
     required this.coverage,
     required this.truncatedImpacted,
+    this.depthLimited = false,
+    this.maxDepth,
+    this.outputLimit,
   });
 
   /// 변경 파일이 귀속된 라이브러리 정점 ID(정렬)다.
@@ -279,8 +293,17 @@ final class ImpactReport {
   /// [ImpactCoverage.missedWithoutPrecheck]에서 빠진 수와 같다.
   final int truncatedImpacted;
 
+  /// 깊이 경계 밖에 아직 방문하지 않은 의존 후보가 있는지다.
+  final bool depthLimited;
+
+  /// 요청한 깊이와 출력 행 상한이다(null은 해당 상한 없음).
+  final int? maxDepth;
+
+  /// 출력할 영향 행의 상한이다(null은 제한 없음).
+  final int? outputLimit;
+
   /// 잘림이 있었는지 나타낸다.
-  bool get truncated => truncatedImpacted > 0;
+  bool get truncated => truncatedImpacted > 0 || depthLimited;
 }
 
 /// 변경 씨앗에서 출발하는 영향 사전 점검을 계산한다.
@@ -308,7 +331,9 @@ abstract final class ImpactAnalysis {
     final missing = <String>{};
 
     for (final node in graph.nodes) {
-      final source = node.sourceUri;
+      final source =
+          node.sourceUri ??
+          (node.isLibrary && node.id.startsWith('project:') ? node.id : null);
       if (source == null || !changedSources.contains(source)) continue;
       seeds.add(node.id);
       attributed.add(source);
@@ -340,6 +365,17 @@ abstract final class ImpactAnalysis {
     for (final edge in graph.edges) {
       if (!edge.kind.impliesUsage) continue;
       (reverse[edge.targetId] ??= <GraphEdge>[]).add(edge);
+      // 구현 변경은 기반 계약으로 디스패치하는 호출자도 검토 대상으로 만든다.
+      // 그래프 자체는 바꾸지 않고 영향 탐색 안에서만 방향을 투영한다.
+      if (edge.kind == EdgeKind.override) {
+        (reverse[edge.sourceId] ??= <GraphEdge>[]).add(
+          GraphEdge(
+            sourceId: edge.targetId,
+            targetId: edge.sourceId,
+            kind: edge.kind,
+          ),
+        );
+      }
     }
     for (final list in reverse.values) {
       // GraphSnapshot이 간선을 정렬하지만 결정성을 이 모듈 안에서 보증한다.
@@ -351,6 +387,21 @@ abstract final class ImpactAnalysis {
     }
 
     final depths = <String, int>{for (final seed in sortedSeeds) seed: 0};
+    final originalEdges = graph.edges.toSet();
+    final visitDepths = <(String, bool), int>{
+      for (final seed in sortedSeeds) (seed, false): 0,
+    };
+    final projectedVisits = <bool>[for (final _ in sortedSeeds) false];
+    final firstIndex = <String, int>{
+      for (var i = 0; i < sortedSeeds.length; i++) sortedSeeds[i]: i,
+    };
+    bool isProjection(GraphEdge edge) =>
+        edge.kind == EdgeKind.override && !originalEdges.contains(edge);
+    bool canFollow(GraphEdge edge, bool projected) =>
+        !projected || edge.kind != EdgeKind.override || isProjection(edge);
+    bool wasVisited(String id, bool projected) =>
+        visitDepths.containsKey((id, projected)) ||
+        (projected && visitDepths.containsKey((id, false)));
     // 정점마다 최단 경로 사본을 두면 보고하지 않을 정점까지 O(정점 × 깊이)
     // 메모리를 쓴다. 처음 발견한 직전 정점의 queue 위치만 적어 두고(씨앗은
     // -1), 경로는 보고할 항목만 아래에서 복원한다.
@@ -358,16 +409,35 @@ abstract final class ImpactAnalysis {
     final queue = <String>[...sortedSeeds];
     for (var cursor = 0; cursor < queue.length; cursor++) {
       final current = queue[cursor];
-      final currentDepth = depths[current]!;
+      final projected = projectedVisits[cursor];
+      final currentDepth = visitDepths[(current, projected)]!;
       if (maxDepth != null && currentDepth >= maxDepth) continue;
       for (final edge in reverse[current] ?? const <GraphEdge>[]) {
+        // 구현에서 위로 투영한 계약은 형제 구현으로 다시 내려가지 않는다.
+        // 계약 자체도 변경/의존 경로로 도달하면 별도 상태로 정상 탐색한다.
+        if (!canFollow(edge, projected)) continue;
         final dependent = edge.sourceId;
-        if (depths.containsKey(dependent)) continue;
-        depths[dependent] = currentDepth + 1;
+        final nextProjected = isProjection(edge);
+        if (wasVisited(dependent, nextProjected)) continue;
+        visitDepths[(dependent, nextProjected)] = currentDepth + 1;
+        depths.putIfAbsent(dependent, () => currentDepth + 1);
+        firstIndex.putIfAbsent(dependent, () => queue.length);
         parents.add(cursor);
         queue.add(dependent);
+        projectedVisits.add(nextProjected);
       }
     }
+    final depthLimited =
+        maxDepth != null &&
+        List.generate(queue.length, (i) => i).any(
+          (i) =>
+              visitDepths[(queue[i], projectedVisits[i])] == maxDepth &&
+              (reverse[queue[i]] ?? const <GraphEdge>[]).any(
+                (edge) =>
+                    canFollow(edge, projectedVisits[i]) &&
+                    !wasVisited(edge.sourceId, isProjection(edge)),
+              ),
+        );
 
     final impacted = <_Reached>[];
     // 테스트는 파일 단위로 중복 없이 보고한다(같은 파일의 여러 선언이 영향을
@@ -376,6 +446,7 @@ abstract final class ImpactAnalysis {
     // queue는 씨앗 다음에 발견 순서로 정점을 담는다(depths의 키 순서와 같다).
     for (var index = sortedSeeds.length; index < queue.length; index++) {
       final id = queue[index];
+      if (firstIndex[id] != index) continue;
       final node = nodeById[id];
       if (node == null) continue;
       final source = node.sourceUri;
@@ -393,10 +464,14 @@ abstract final class ImpactAnalysis {
     final shownReached = limit == null ? impacted : impacted.take(limit);
     final testReached = testsBySource.values.toList()..sort(_compareReached);
     final paths = _PathIndex(queue, parents);
+    final evidenceEdges = <(String, String), GraphEdge>{
+      for (final edge in graph.edges)
+        if (edge.kind.impliesUsage) (edge.sourceId, edge.targetId): edge,
+    };
     // 정렬 순서대로 만들어야 보고 항목의 직전 정점 경로가 이미 있다(_PathIndex).
     final shown = [
       for (final reached in shownReached)
-        _impactedSymbol(reached, paths.pathOf(reached.index)),
+        _impactedSymbol(reached, paths.pathOf(reached.index), evidenceEdges),
     ];
     final tests = [
       for (final reached in testReached)
@@ -404,6 +479,14 @@ abstract final class ImpactAnalysis {
           id: reached.id,
           depth: reached.depth,
           path: paths.pathOf(reached.index),
+          pathEvidence: [
+            for (var i = 0; i + 1 < paths.pathOf(reached.index).length; i++)
+              ?_pathEvidence(
+                paths.pathOf(reached.index)[i],
+                paths.pathOf(reached.index)[i + 1],
+                evidenceEdges,
+              ),
+          ],
           source: _toPath(reached.node.sourceUri!),
         ),
     ];
@@ -480,11 +563,18 @@ abstract final class ImpactAnalysis {
         missedWithoutPrecheck: [for (final item in shown) item.id],
       ),
       truncatedImpacted: truncatedCount,
+      depthLimited: depthLimited,
+      maxDepth: maxDepth,
+      outputLimit: limit,
     );
   }
 
   /// 보고할 영향 항목 하나를 [path]와 함께 만든다.
-  static ImpactedSymbol _impactedSymbol(_Reached reached, List<String> path) {
+  static ImpactedSymbol _impactedSymbol(
+    _Reached reached,
+    List<String> path,
+    Map<(String, String), GraphEdge> evidenceEdges,
+  ) {
     final node = reached.node;
     final source = node.sourceUri;
     final level = _symbolRisk(reached.depth, node);
@@ -493,12 +583,33 @@ abstract final class ImpactAnalysis {
       kind: node.isLibrary ? 'file' : 'declaration',
       depth: reached.depth,
       path: path,
+      pathEvidence: [
+        for (var i = 0; i + 1 < path.length; i++)
+          ?_pathEvidence(path[i], path[i + 1], evidenceEdges),
+      ],
       riskScore: level.$2,
       riskLevel: level.$1,
       source: source == null ? null : _toPath(source),
       line: node.line,
       column: node.column,
     );
+  }
+
+  static Map<String, String>? _pathEvidence(
+    String dependent,
+    String target,
+    Map<(String, String), GraphEdge> evidenceEdges,
+  ) {
+    final edge = evidenceEdges[(dependent, target)];
+    if (edge != null) {
+      return null;
+    }
+    return {
+      'from': target,
+      'kind': 'override',
+      'to': dependent,
+      'traversal': 'implementation-to-contract',
+    };
   }
 
   /// 영향 항목과 테스트의 보고 순서(깊이, 그다음 ID)다.

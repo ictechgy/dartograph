@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:math' show min;
+import 'dart:math' show min, max;
 
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
@@ -21,7 +21,7 @@ const _validatedMinors = {3, 4, 5};
 // 의존한다 — 이 테스트가 강제하지 않는 유일한 연결이다.
 final _validatedConstraint =
     '>=$_validatedMajor.${_validatedMinors.reduce(min)}.0 '
-    '<${_validatedMajor + 1}.0.0';
+    '<$_validatedMajor.${_validatedMinors.reduce(max) + 1}.0';
 
 void main() {
   test(

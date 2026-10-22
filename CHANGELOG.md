@@ -2,7 +2,11 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
-## Unreleased
+## 0.17.0
+
+- Add `impact --before <prepared-base-root> <current-root>` and MCP `beforeRoot`: compare actual Dart/configuration content, retain deleted/renamed historical callers, and report historical/current paths separately. Include input content hashes checked around indexing, `stale`/`incomplete` status, change reasons, and preparation-inclusive cost. Existing seed modes remain explicitly current-only.
+- Include deleted paths in Git change collection. Project implementation edits through observed override contracts to base-typed callers, with explicit projection evidence. Preserve the numeric `truncated` row count and add depth-frontier metadata; label call-site coordinates as caller declarations. Static test candidates and empty output never predict failures or authorize skipping tests.
+- Keep projected contracts from descending into unrelated sibling implementations. Text and Markdown label the projection as distinct from a call. Limit new installations to validated analyzer 14.3–14.5 and preserve the raw bytes of shared conformance fixtures on Windows.
 
 - Invalidate cached analysis when package or workspace `build.yaml` is created, edited, deleted, or becomes malformed. Builder retention roots and parsing limitations now match fresh analysis; older cache entries are discarded.
 - MCP tools honor `workspace: true`. On pub workspace roots, `impact_query`, `dependency_query`, `verify_run`, and `dartograph_explore` dropped `--workspace` and analyzed the root package alone, so member code was missing from findings, impact results, and symbol lookups (`notFound`). Results and exit codes now match the CLI with `--workspace`. Session caches are kept per package root and workspace mode, and the full-analysis fallback keeps the mode.

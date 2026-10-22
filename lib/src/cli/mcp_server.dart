@@ -493,6 +493,11 @@ List<Map<String, Object?>> get _toolDefinitions => [
               'One symbol id — answers what depends on that declaration '
               '(pre-change blast radius).',
         },
+        'beforeRoot': {
+          'type': 'string',
+          'description':
+              'Prepared base checkout within the server working directory. Compare actual source/configuration content with packageRoot and keep historical/current impact separate. Exclusive with other question seeds.',
+        },
         'since': {
           'type': 'string',
           'description':
@@ -588,7 +593,7 @@ List<Map<String, Object?>> get _toolDefinitions => [
     'description':
         'Pre-check what a code change affects before making it. Give a git '
         'revision (since), project-relative changed paths (changed), or one '
-        'symbol id (symbol). Returns changed libraries/symbols, transitively '
+        'symbol id (symbol), or beforeRoot for two prepared checkouts. Since/changed/symbol are current-snapshot only. Returns changed libraries/symbols, transitively '
         'impacted symbols with shortest usage paths and depths, call sites '
         'into changed declarations, related test libraries, a risk score with '
         'factors, and the coverage of what inspecting changed files alone '
@@ -599,6 +604,11 @@ List<Map<String, Object?>> get _toolDefinitions => [
         'packageRoot': {
           'type': 'string',
           'description': 'Package root directory to analyze.',
+        },
+        'beforeRoot': {
+          'type': 'string',
+          'description':
+              'Prepared base checkout within the server working directory; compares actual contents and returns separate historical/current reports.',
         },
         'since': {
           'type': 'string',
@@ -1020,6 +1030,18 @@ Future<Map<String, Object?>?> _callTool({
       'working directory',
     );
   }
+  final beforeRoot = arguments['beforeRoot'];
+  if (beforeRoot != null) {
+    final resolvedBefore = beforeRoot is String
+        ? _resolveToolRoot(beforeRoot, rootBoundary)
+        : null;
+    if (resolvedBefore == null) {
+      return _toolError(
+        'beforeRoot must be an existing directory within the server working directory',
+      );
+    }
+    arguments = {...arguments, 'beforeRoot': resolvedBefore};
+  }
   switch (name) {
     case exploreToolName:
       return _exploreTool(
@@ -1114,17 +1136,22 @@ Future<Map<String, Object?>> _impactTool({
   required Future<Directory> Function() createScratch,
 }) async {
   final seeds = [
+    arguments['beforeRoot'],
     arguments['since'],
     arguments['changed'],
     arguments['symbol'],
   ].whereType<Object>().length;
   if (seeds != 1) {
-    return _toolError('provide exactly one of since, changed, or symbol');
+    return _toolError(
+      'provide exactly one of since, changed, symbol, or beforeRoot',
+    );
   }
   final args = <String>['impact'];
   final scratch = <Directory>[];
   try {
-    if (arguments['since'] != null) {
+    if (arguments['beforeRoot'] != null) {
+      args.addAll(['--before', arguments['beforeRoot']! as String]);
+    } else if (arguments['since'] != null) {
       final since = arguments['since'];
       if (since is! String || since.trim().isEmpty) {
         return _toolError('since must be a non-empty string');
@@ -1467,12 +1494,14 @@ Future<Map<String, Object?>> _exploreTool({
     );
   }
   final impactSeeds = [
+    'beforeRoot',
     'since',
     'changed',
     'impactSymbol',
   ].where((key) => arguments[key] != null).toList();
   if (impactSeeds.isNotEmpty) {
     const impactKeys = {
+      'beforeRoot',
       'since',
       'changed',
       'impactSymbol',
@@ -1488,7 +1517,7 @@ Future<Map<String, Object?>> _exploreTool({
     }
     if (impactSeeds.length != 1) {
       return _toolError(
-        'provide exactly one of since, changed, or impactSymbol',
+        'provide exactly one of since, changed, impactSymbol, or beforeRoot',
       );
     }
     return _routed(
@@ -1499,6 +1528,8 @@ Future<Map<String, Object?>> _exploreTool({
           // 경로를 쓰되 질문 형태(심볼 → 영향)가 명시적으로 남는다.
           if (arguments['impactSymbol'] != null)
             'symbol': arguments['impactSymbol'],
+          if (arguments['beforeRoot'] != null)
+            'beforeRoot': arguments['beforeRoot'],
           if (arguments['since'] != null) 'since': arguments['since'],
           if (arguments['changed'] != null) 'changed': arguments['changed'],
           if (arguments['depth'] != null) 'depth': arguments['depth'],

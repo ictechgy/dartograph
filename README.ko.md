@@ -10,6 +10,12 @@ Dart/Flutter 코드베이스를 위한 질의 가능한 의존성 그래프. [ca
 
 ## 30초 데모
 
+실제 patch는 `dartograph impact --before <준비된-base-checkout> --format json <현재-checkout>`으로 분석한다.
+두 checkout의 의존성과 생성 소스를 먼저 준비한다. 현재 checkout에는 작업 트리 편집이 있어도 된다.
+삭제·이름 변경의 과거 경로와 현재 경로를 섞지 않고, 내용 지문·깊이/출력 제한·미해결 경로와
+실제로 연결된 정적 테스트 후보를 함께 확인한다. [캡처 절차와 호환 안내](doc/USAGE.md#실제-변경의-이전현재-영향)를 따른다.
+기존 `--since`·`--changed`·`--symbol`은 현재 그래프 질의이며 빈 결과는 안전 증명이 아니다.
+
 저장소에 포함된 데모는 소스 체크아웃에서 `fixtures/closed_app` fixture를
 실행한다. 실제 `dead`·`impact`·`query` 명령으로 도달 불가 선언, 변경 영향,
 보존 루트의 근거를 확인할 수 있다. 미리보기는 실제 CLI 출력의 요약이고,
@@ -38,7 +44,7 @@ dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 �
 dartograph는 순수 Dart CLI라 Flutter SDK를 필요로 하지 않는다. Dart SDK 3.11 이상에서 동작한다.
 
 ```bash
-dart pub global activate dartograph 0.16.2
+dart pub global activate dartograph 0.17.0
 # 또는 Dart 3.11+에서는 AOT 컴파일 설치:
 dart install dartograph
 dartograph --version
@@ -114,9 +120,9 @@ dartograph mcp
 - `--incremental <dir>`은 캐시된 분석 사실을 재사용해 CI 수준의 재실행 속도를 내고(`--incremental-user-cache`는 그 사실을 프로젝트 밖 사용자 캐시에 둔다 — 신뢰하지 않는 저장소에는 이쪽을 쓴다), `--workspace`는 pub workspace 집계를 옵트인한다(루트 pubspec의 `workspace:` 멤버를 함께 분석하고 `deps`는 패키지별 pubspec으로 감사한다). `--record <dir>`/`history`는 실행 입력·버전·결과를 append-only 원장에 남긴다.
 - 재사용 합성 액션([`action.yml`](action.yml))이 GitHub Actions용 CLI 래퍼다 — 게시 릴리스 또는 체크아웃한 소스 경로를 설치해 패키지를 분석하고 리포트 파일 하나를 쓴다(예시 워크플로 [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)). 액션과 CLI 릴리스를 함께 고정한다. (릴리스 태그의) 커밋 SHA는 액션 자체를, `version`은 액션이 설치할 dartograph 릴리스를 고정한다. `version`이 비면 실행할 때마다 pub.dev의 최신 릴리스를 설치하고 notice를 남긴다.
   ```yaml
-  - uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+  - uses: ictechgy/dartograph@<commit-sha> # v0.17.0
     with:
-      version: 0.16.2
+      version: 0.17.0
       command: dead
       args: --format sarif
       output-file: dead.sarif

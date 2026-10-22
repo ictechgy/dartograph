@@ -2,7 +2,11 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
-## Unreleased
+## 0.17.0
+
+- `impact --before <준비된-base-root> <current-root>`와 MCP `beforeRoot`를 추가한다. 실제 Dart·설정 내용 변경을 비교하고 삭제·이름 변경의 과거 호출자를 보존하며 두 revision 경로를 분리한다. 색인 전후 내용 지문, `stale`/`incomplete`, 변경 이유와 준비 포함 비용을 남긴다. 기존 씨앗 모드는 현재 그래프 질의로 명시한다.
+- Git 변경 집합에 삭제 경로를 포함한다. 관측된 override 계약을 통해 구현 변경을 기반 타입 호출자로 투영하고 그 근거를 구분한다. 기존 숫자 `truncated`는 유지하면서 깊이 경계 제한을 추가하고 호출 위치를 호출자 선언 위치로 명시한다. 정적 테스트 후보와 빈 결과는 실패 예측이나 테스트 생략 허가가 아니다.
+- 투영한 계약에서 무관한 형제 구현으로 다시 내려가지 않는다. text·Markdown에서도 투영이 호출과 다름을 표시한다. 새 설치는 검증된 analyzer 14.3–14.5로 제한하고 Windows에서도 공유 적합성 fixture의 원본 바이트를 보존한다.
 
 - 패키지·워크스페이스의 `build.yaml` 생성·수정·삭제·파싱 실패가 분석 캐시를 무효화한다. builder 보존 루트와 파싱 한계가 새 분석과 같아지며 이전 캐시 항목은 폐기한다.
 - MCP 도구가 `workspace: true`를 반영한다. pub workspace 루트에서 `impact_query`·`dependency_query`·`verify_run`·`dartograph_explore`가 `--workspace`를 버리고 루트 패키지만 분석해, 멤버 코드가 finding·영향 결과·심볼 조회(`notFound`)에서 빠지던 문제를 고친다. 이제 결과와 종료 코드가 CLI `--workspace`와 같다. 세션 캐시는 패키지 루트와 workspace 모드마다 나뉘고 전체 분석 폴백도 모드를 유지한다.

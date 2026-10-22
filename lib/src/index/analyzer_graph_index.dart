@@ -175,6 +175,46 @@ final class AnalyzerGraphResult {
   );
 }
 
+/// 색인 전후 내용 비교와 준비된 두 checkout의 변경 파일 귀속에 쓰는 입력 캡처다.
+/// 해시 범위는 기존 캐시 입력 열거와 같으며 런타임·외부 시스템의 신선도는 보장하지 않는다.
+final class AnalysisInputCapture {
+  /// 내용 지문과 프로젝트 파일별 지문을 보존한다.
+  const AnalysisInputCapture({
+    required this.contentHash,
+    required this.projectFiles,
+  });
+
+  /// SDK·해석 입력 파일 경로/내용을 포함하는 지문이다(mtime 라벨이 아니다).
+  final String contentHash;
+
+  /// 프로젝트 안 Dart·설정 파일의 상대 경로와 내용 지문이다.
+  final Map<String, String> projectFiles;
+}
+
+/// 캐시와 같은 정규 파일·크기 경계를 적용하여 분석 입력 내용을 캡처한다.
+Future<AnalysisInputCapture> captureAnalysisInputs(String rootPath) async {
+  final root = await Directory(rootPath).resolveSymbolicLinks();
+  final files = await _analysisInputFiles(root);
+  final values = <String>[];
+  final projectFiles = <String, String>{};
+  for (final file in files) {
+    final relative = p.posix.joinAll(
+      p.relative(file.path, from: root).split(p.separator),
+    );
+    final hash = fileContentHash(file);
+    values.add('$relative\u0000$hash');
+    if (isPathWithinRoot(file.path, root) &&
+        !relative.startsWith('.dart_tool/')) {
+      projectFiles[relative] = hash;
+    }
+  }
+  return AnalysisInputCapture(
+    contentHash:
+        'sha256:${sha256.convert(utf8.encode('${Platform.version}\u0000${values.join('\u0000')}'))}',
+    projectFiles: Map.unmodifiable(projectFiles),
+  );
+}
+
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
 final class WorkspacePackage {
   /// 멤버 매니페스트 사실을 보존한다.

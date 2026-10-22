@@ -1,0 +1,3 @@
+# 공유 적합성 입력은 원본 바이트의 SHA-256으로 검증한다.
+fixtures/isthmus_conformance/*.json -text
+fixtures/isthmus_conformance/conformance.lock -text
