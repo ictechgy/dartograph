@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Fix "dartograph: Check Impact of Current File". It always failed with "dartograph impact failed — see output" because the changed list was passed to `impact --changed` as inline JSON instead of a file path. The list is now written to a temporary `changes.json` that is deleted after the run. Impacted symbols with `high` risk are now shown as warnings; they were shown as information with `risk: undefined`.
 - Compatibility: the default `dartograph.args` is now `["--incremental-user-cache"]`, which keeps the incremental fact cache in dartograph's per-user cache directory instead of `.dartograph/cache` inside the workspace, so a repository can no longer plant cache files that the extension trusts. It needs a dartograph CLI newer than 0.16.2; with an older CLI every run fails with a usage error in the output channel, so upgrade the CLI or set `dartograph.args` to `[]`. An explicit `dartograph.args` setting is kept.

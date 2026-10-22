@@ -57,6 +57,7 @@ import 'mcp_server.dart';
 
 part 'routes_command.dart';
 part 'traversal_command.dart';
+part 'impact_change_command.dart';
 
 /// 패키지 경로를 analyzer 그래프로 바꾸는 주입 가능한 경계다.
 typedef IndexPackage = Future<AnalyzerGraphResult> Function(String rootPath);
@@ -816,6 +817,7 @@ Future<int> _runImpact(
   // (query --depth/--limit·rules --config와 같은 계약).
   String? since;
   String? changedFile;
+  String? beforeRoot;
   String? symbol;
   String? failOn;
   String? rootPath;
@@ -824,7 +826,13 @@ Future<int> _runImpact(
   int? limitOption;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
-    if (argument == '--since' && since == null) {
+    if (argument == '--before' && beforeRoot == null) {
+      if (++index >= arguments.length || arguments[index].startsWith('-')) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      beforeRoot = arguments[index];
+    } else if (argument == '--since' && since == null) {
       if (++index >= arguments.length || arguments[index].startsWith('-')) {
         error.write(_help);
         return ExitStatus.usage.code;
@@ -911,7 +919,12 @@ Future<int> _runImpact(
       return ExitStatus.usage.code;
     }
   }
-  final seedModes = [since, changedFile, symbol].where((v) => v != null).length;
+  final seedModes = [
+    since,
+    changedFile,
+    symbol,
+    beforeRoot,
+  ].where((v) => v != null).length;
   if (rootPath == null || seedModes != 1) {
     error.write(_help);
     return ExitStatus.usage.code;
@@ -919,10 +932,57 @@ Future<int> _runImpact(
   const thresholds = {'none': 0, 'low': 1, 'medium': 2, 'high': 3};
   final threshold = thresholds[failOn ?? 'none']!;
   try {
+    if (beforeRoot != null) {
+      return await _runImpactChange(
+        beforeRoot,
+        rootPath,
+        output,
+        error,
+        indexPackage,
+        format ?? ImpactFormat.text,
+        depthOption,
+        limitOption,
+        threshold,
+        failedItems,
+      );
+    }
+    final changedSources = <String>{};
+    if (changedFile != null) {
+      // 요청 파일은 분석 입력을 열거하기 전에 검증한다. 같은 디렉터리 안의
+      // 장치/FIFO 요청이 분석 실패(2)로 가려지지 않고 기존 사용 오류(64)를 낸다.
+      try {
+        changedSources.addAll(await _readChangedEntries(changedFile));
+      } on NonRegularFileException {
+        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
+      } on FileSystemException {
+        error.writeln('Changed list could not be read: $changedFile');
+        return ExitStatus.usage.code;
+      }
+    }
+    final capture = await captureAnalysisInputs(rootPath);
     final indexed = await indexPackage(rootPath);
+    final recaptured = await captureAnalysisInputs(rootPath);
     final snapshot = indexed.graph.snapshot();
     final limitations = _limitations(indexed);
-    final changedSources = <String>{};
+    limitations.add(
+      'current-snapshot-only: historical callers of deleted or renamed declarations require --before',
+    );
+    final input = await _impactInput(
+      rootPath,
+      capture,
+      recaptured,
+      since != null
+          ? 'git-since'
+          : changedFile != null
+          ? 'changed-paths'
+          : 'symbol',
+    );
+    if (since != null) input['requestedReference'] = since;
+    if (input['freshness'] == 'stale') {
+      limitations.add(
+        'input-changed-during-analysis: captured content changed while indexing; rerun',
+      );
+    }
     final changedSymbols = <String>[];
     var unmappedDartFiles = 0;
     if (since != null) {
@@ -935,19 +995,7 @@ Future<int> _runImpact(
       );
       changedSources.addAll(matched.matchedSources);
       unmappedDartFiles = matched.unmappedDartFiles;
-    } else if (changedFile != null) {
-      try {
-        changedSources.addAll(await _readChangedEntries(changedFile));
-      } on NonRegularFileException {
-        // 사용자가 준 입력 경로 문제(64)다. 아래 분석 입력 거부(2)로 흘리지 않는다.
-        return _reportNonRegularRequestFile(error, 'Changed list', changedFile);
-      } on FileSystemException {
-        // 파일 부재·권한 같은 입력 경로 문제는 분석 실패(2)가 아니라 잘못된
-        // 사용(64)이다 — query --batch의 경로 검증과 같은 분류.
-        error.writeln('Changed list could not be read: $changedFile');
-        return ExitStatus.usage.code;
-      }
-    } else {
+    } else if (changedFile == null) {
       changedSymbols.add(symbol!);
     }
     final report = ImpactAnalysis.analyze(
@@ -958,7 +1006,7 @@ Future<int> _runImpact(
       limit: limitOption,
     );
     failedItems.addAll([for (final item in report.impacted) item.id]);
-    if (limitOption != null && report.truncated) {
+    if (limitOption != null && report.truncatedImpacted > 0) {
       // --limit은 coverage 목록도 보고 항목과 같은 수로 자른다. 개수·위험도는
       // 전체 기준이라 빠진 수를 limitation으로 드러낸다.
       limitations.add(
@@ -987,6 +1035,7 @@ Future<int> _runImpact(
         limitations: limitations.toSet().toList()..sort(),
         explainId: symbol,
         known: symbol == null ? null : report.missingSymbols.isEmpty,
+        input: input,
       ),
     );
     // 미발견 심볼은 query/--explain 계열과 같이 64로 구분한다(보고는 그대로).
@@ -1089,8 +1138,8 @@ String _relativeToProjectSource(String entry) {
 ///
 /// dead --since·affected·impact가 공유하는 양방향 링크 매칭이다(링크 경로 자체와
 /// 링크 대상 실 경로). canonical을 얻지 못한 소스(깨진 링크·소멸)는 affected·impact
-/// 에서 비매치로 처리한다 — git은 삭제 파일을 변경 집합에 넣지 않으므로 사라진
-/// 파일의 라이브러리를 '변경됨'으로 보고하면 오보다. 매치된 절대 경로와 함께
+/// 에서 경로 자체로도 매치한다. 삭제 파일은 현재 그래프에 없으면 미귀속으로
+/// 남기며 과거 호출자는 --before 모드로 따로 확인한다. 매치된 절대 경로와 함께
 /// 라이브러리로 귀속되지 못한 변경 Dart 파일 수를 돌려준다.
 ///
 /// [snapshot]은 호출자가 분석에 쓰려고 이미 만든 것을 받는다.
@@ -4039,6 +4088,7 @@ Usage: dartograph [--help] [--version]
        dartograph query --batch <requests.json> [--baseline <file>] [--depth <n>] [--limit <n>] [--with-source] [--source-context <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph compare [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <before-package-root> <after-package-root>
        dartograph affected [--format <text|json|sarif>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <git-ref> <package-root>
+       dartograph impact --before <prepared-base-root> [--format <text|json|markdown>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--workspace] <current-root>
        dartograph impact --since <git-ref> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph impact --changed <changes.json> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--fail-on <level>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph impact --symbol <symbol-id> [--format <text|json|markdown|github-actions|sarif|test-list>] [--depth <n>] [--limit <n>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -4269,7 +4319,16 @@ limitation instead of failing the read.
 Paths and files that begin with "-" are rejected as usage errors so that a
 missing option value is not silently consumed. Pass such a path as "./-name".
 
-impact answers "what does changing this affect?" before the edit. Give it a
+impact --before compares actual Dart/configuration content in two prepared
+checkouts. Prepare BASE/HEAD with git worktree add --detach and run pub get
+in each (plus project-specific code generation), or use the working tree as
+current-root. Historical and current results are separate: deleted/renamed
+callers are preserved without joining edges across revisions. Input hashes
+are checked before/after indexing; a revision label alone is not freshness.
+Rename is delete/add and file seeds select whole declarations. Configuration
+and dynamic runtime paths can remain unknown. Empty results are not safety.
+
+Without --before, impact answers current-snapshot reachability. Give it a
 git revision (--since), a JSON array of changed project-relative paths
 (--changed), or one symbol id (--symbol); it reports the changed set, every
 symbol that transitively uses it with a shortest usage path, the call sites
@@ -4279,10 +4338,12 @@ symbols that inspecting only the changed files would have missed.
 --limit <n> reports the first n impacted symbols, in impacted and in
 coverage.missedWithoutPrecheck alike; counts and risk still cover every
 impacted symbol, and truncated plus an impact-coverage-truncated limitation
-report the cut. Call sites and related tests are not limited.
+report the cut. traversalTruncated and analysis.limits.depthLimited report
+unvisited depth frontiers separately. Call sites identify caller declaration
+locations, not expression locations. Test paths are static review candidates.
 --format test-list prints only the affected test library paths, one per line,
 ready to feed `dart test` (it is never truncated by --limit; an empty list
-means no affected tests — do not run bare `dart test` on empty output).
+means no observed static candidates; it never authorizes skipping tests).
 --fail-on <level> turns a risk level of at least <level> into exit 1
 (default none). Impact is an observed dependency reachability, not a deletion
 verdict; an unlisted declaration is not proven unaffected.

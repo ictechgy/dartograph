@@ -13,6 +13,13 @@ account sign-in.
 
 ## See it in 30 seconds
 
+For an actual patch, use `dartograph impact --before <prepared-base-checkout> --format json <current-checkout>`.
+Prepare dependencies and generated sources in both checkouts first. The current checkout may include working-tree edits.
+Historical and current paths remain separate, including deleted/renamed symbols. Source/configuration content hashes,
+depth/output limits, unresolved paths, and connected static test candidates accompany the result.
+See the [capture workflow and migration notes (Korean)](doc/USAGE.md#실제-변경의-이전현재-영향).
+Existing `--since`, `--changed`, and `--symbol` modes query the current graph; empty results never prove safety.
+
 This checked-in demo runs the `fixtures/closed_app` fixture from a source
 checkout. See unreachable declarations, change impact, and retained-root
 evidence from the real `dead`, `impact`, and `query` commands. The preview
@@ -55,7 +62,7 @@ dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
 Dart SDK 3.11 or later.
 
 ```bash
-dart pub global activate dartograph 0.16.2
+dart pub global activate dartograph 0.17.0
 # or, on Dart 3.11+, an AOT-compiled install:
 dart install dartograph
 dartograph --version
@@ -102,7 +109,8 @@ dartograph compare ../before-checkout ../after-checkout
 dartograph affected origin/main .
 
 # change impact pre-check & runtime-only dependencies
-dartograph impact --changed lib/api.dart .
+printf '["lib/api.dart"]\n' > changes.json
+dartograph impact --changed changes.json .
 dartograph runtime .
 
 # duplicate code, cycles, layer rules, metrics
@@ -216,9 +224,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   installs. With an empty `version`, every run installs the latest release on
   pub.dev and the action prints a notice.
   ```yaml
-  - uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+  - uses: ictechgy/dartograph@<commit-sha> # v0.17.0
     with:
-      version: 0.16.2
+      version: 0.17.0
       command: dead
       args: --format sarif
       output-file: dead.sarif

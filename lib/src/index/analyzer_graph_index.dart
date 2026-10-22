@@ -175,6 +175,46 @@ final class AnalyzerGraphResult {
   );
 }
 
+/// 색인 전후 내용 비교와 준비된 두 checkout의 변경 파일 귀속에 쓰는 입력 캡처다.
+/// 해시 범위는 기존 캐시 입력 열거와 같으며 런타임·외부 시스템의 신선도는 보장하지 않는다.
+final class AnalysisInputCapture {
+  /// 내용 지문과 프로젝트 파일별 지문을 보존한다.
+  const AnalysisInputCapture({
+    required this.contentHash,
+    required this.projectFiles,
+  });
+
+  /// SDK·해석 입력 파일 경로/내용을 포함하는 지문이다(mtime 라벨이 아니다).
+  final String contentHash;
+
+  /// 프로젝트 안 Dart·설정 파일의 상대 경로와 내용 지문이다.
+  final Map<String, String> projectFiles;
+}
+
+/// 캐시와 같은 정규 파일·크기 경계를 적용하여 분석 입력 내용을 캡처한다.
+Future<AnalysisInputCapture> captureAnalysisInputs(String rootPath) async {
+  final root = await Directory(rootPath).resolveSymbolicLinks();
+  final files = await _analysisInputFiles(root);
+  final values = <String>[];
+  final projectFiles = <String, String>{};
+  for (final file in files) {
+    final relative = p.posix.joinAll(
+      p.relative(file.path, from: root).split(p.separator),
+    );
+    final hash = fileContentHash(file);
+    values.add('$relative\u0000$hash');
+    if (isPathWithinRoot(file.path, root) &&
+        !relative.startsWith('.dart_tool/')) {
+      projectFiles[relative] = hash;
+    }
+  }
+  return AnalysisInputCapture(
+    contentHash:
+        'sha256:${sha256.convert(utf8.encode('${Platform.version}\u0000${values.join('\u0000')}'))}',
+    projectFiles: Map.unmodifiable(projectFiles),
+  );
+}
+
 /// `--workspace` 집계에서 분석된 워크스페이스 멤버 패키지의 매니페스트 사실이다.
 final class WorkspacePackage {
   /// 멤버 매니페스트 사실을 보존한다.
@@ -1369,7 +1409,17 @@ AnalyzerGraphResult _assembleResult({
   for (final source in sources) {
     final unit = facts[source]!;
     if (!graph.containsNode(unit.libraryId)) {
-      graph.addNode(GraphNode(id: unit.libraryId, isLibrary: true));
+      // package: ID와 파일 경로는 별개다. 선언 없는 import/export 파일도
+      // 변경 씨앗으로 귀속하고, part는 첫 유닛이 아닌 실제 호스트를 가리킨다.
+      graph.addNode(
+        GraphNode(
+          id: unit.libraryId,
+          sourceUri: unit.librarySource == null
+              ? null
+              : 'project:${unit.librarySource}',
+          isLibrary: true,
+        ),
+      );
     }
     for (final node in unit.nodes) {
       if (!graph.containsNode(node.id)) graph.addNode(node);
@@ -2146,8 +2196,10 @@ const _cacheSchemaVersion = 8;
 // 링크 경로 중복 제거(v19)로 같은 입력의 분석 단위가 바뀐다 — 같은 디렉터리로 가는
 // 링크 경로는 하나만 분석하고 나머지는 symlink-duplicate-directories로 센다. 이전
 // 캐시는 경로마다 펼친 단위를 이 limitation 없이 남기므로 폐기한다.
+// 라이브러리 소스 귀속(v20)을 복원한다. 소스 없는 이전 전체 그래프 캐시는
+// 선언 없는 barrel 변경을 누락하므로 폐기한다. 증분 사실도 같은 신원을 쓴다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v19-linked-directories';
+    'dartograph-analysis-$toolVersion-cache-v20-library-source';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///

@@ -2,7 +2,7 @@
   "name": "dartograph",
   "displayName": "dartograph",
   "description": "Dependency-graph evidence queries for Dart: dead code, dependency hygiene, and duplication findings as Problems.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "ictechgy",
   "license": "MIT",
   "icon": "icon.png",
