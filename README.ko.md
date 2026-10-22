@@ -83,7 +83,8 @@ dartograph compare ../before-checkout ../after-checkout
 dartograph affected origin/main .
 
 # 변경 영향 사전 점검 & 런타임 의존성
-dartograph impact --changed lib/api.dart .
+printf '["lib/api.dart"]\n' > changes.json
+dartograph impact --changed changes.json .
 dartograph runtime .
 
 # 중복 코드, 순환, 레이어 규칙, 지표

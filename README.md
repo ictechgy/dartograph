@@ -109,7 +109,8 @@ dartograph compare ../before-checkout ../after-checkout
 dartograph affected origin/main .
 
 # change impact pre-check & runtime-only dependencies
-dartograph impact --changed lib/api.dart .
+printf '["lib/api.dart"]\n' > changes.json
+dartograph impact --changed changes.json .
 dartograph runtime .
 
 # duplicate code, cycles, layer rules, metrics
