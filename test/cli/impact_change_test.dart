@@ -141,8 +141,16 @@ void main() {
         ], workingDirectory: root.path);
         expect(prepared.exitCode, 0, reason: prepared.stderr.toString());
       }
-      write(before, 'lib/api.dart', "export 'a.dart';\npart 'aaa_part.dart';\n");
-      write(current, 'lib/api.dart', "export 'b.dart';\npart 'aaa_part.dart';\n");
+      write(
+        before,
+        'lib/api.dart',
+        "export 'a.dart';\npart 'aaa_part.dart';\n",
+      );
+      write(
+        current,
+        'lib/api.dart',
+        "export 'b.dart';\npart 'aaa_part.dart';\n",
+      );
       final result = await impact();
       for (final side in ['historical', 'current']) {
         final report = result[side] as Map;
