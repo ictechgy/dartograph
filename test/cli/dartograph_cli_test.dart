@@ -40,7 +40,7 @@ void main() {
     final status = await runDartograph(const ['--version'], output: output);
 
     expect(status, ExitStatus.success.code);
-    expect(output.toString(), 'dartograph 0.16.2\n');
+    expect(output.toString(), 'dartograph 0.17.0\n');
   });
 
   test(
@@ -52,7 +52,7 @@ void main() {
 
       expect(status, ExitStatus.usage.code);
       expect(error.toString(), contains('Usage: dartograph'));
-      expect(error.toString(), isNot(contains('delete')));
+      expect(error.toString(), isNot(contains('dartograph delete')));
     },
   );
 

@@ -2,10 +2,10 @@
 
 ## 설치
 
-dartograph 0.16.2는 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
+dartograph 0.17.0는 Dart SDK 3.11 이상에서 동작하는 순수 Dart 패키지다.
 
 ```bash
-dart pub global activate dartograph 0.16.2
+dart pub global activate dartograph 0.17.0
 dartograph --version
 ```
 
@@ -494,6 +494,47 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 이는 관측된 그래프 변화이며 단일 변경의 인과 증명이나 삭제 가능 판정은 아니다.
 이름 변경은 삭제/추가로 나타난다. 두 입력의 한계를 함께 읽어야 하며 보고 성공은 코드 0이다.
 
+### 실제 변경의 이전/현재 영향
+
+```bash
+git worktree add --detach ../change-before <base-commit>
+git worktree add --detach ../change-after <head-commit>
+# 각 checkout에서 dart pub get과 프로젝트의 코드 생성 절차를 수행한다.
+dartograph impact --before ../change-before --format json ../change-after
+# HEAD 이후 staged/unstaged/untracked 변경까지 보려면 현재 작업 트리를 사용한다.
+dartograph impact --before ../change-before --format json .
+```
+
+`--before`는 Git 이력을 자동 checkout하거나 의존성·생성 명령을 실행하지 않는다.
+두 입력에 같은 SDK와 적절한 의존성·생성 결과를 준비한다. base/head의 라벨만으로
+신선도를 주장하지 않고, 실제 Dart·설정 내용을 비교해 수정·삭제·추가 파일을 찾는다.
+이름 변경은 삭제/추가로 유지한다. 파일 전체 선언을 씨앗으로 쓰므로 변경 줄보다 넓다.
+설정 파일 변경은 목록과 미귀속 한계에 남기며 런타임 전파를 발명하지 않는다.
+
+JSON `mode: before-current`의 `historical`과 `current`는 각 그래프에서 따로 탐색한
+기존 impact 문서다. 서로 다른 revision의 간선을 이어 경로를 만들지 않는다.
+과거 호출자·테스트는 현재 checkout에 없을 수 있으므로 두 목록을 합쳐 실행하지 않는다.
+`changes`에는 경로·삭제/추가/수정 이유·전후 내용 해시가 있다. 각 결과의
+`analysis.input`은 색인 전후 전체 입력 지문과 `content-checked`/`stale`, 관측한 Git HEAD를
+보존한다. HEAD는 문맥 라벨이며 dirty 내용과 일치한다는 주장이 아니다.
+지문 범위는 기존 캐시 입력 열거와 같고, 내용 고정으로 취급하는 pub cache 패키지 본문,
+숨김 import·경계 밖 상대 import·외부 서비스·런타임 상태까지 보장하지 않는다.
+`status`는 `incomplete` 또는 `stale`이며, 빈 결과나 종료 코드 0은 안전 판정이 아니다.
+`cost.preparationAndAnalysisMilliseconds`는 입력 해싱·두 색인·질의 준비를 포함한 관측 시간이다.
+이 시간 필드를 제외한 같은 입력의 JSON 목록·키는 결정적으로 정렬한다.
+
+MCP `impact_query`와 `dartograph_explore`에는 `packageRoot`와 `beforeRoot`를 준다.
+두 디렉터리는 서버를 시작한 작업 디렉터리 안에 있어야 한다. 그 공통 부모에서 MCP를
+시작하면 된다. `beforeRoot`는 `since`·`changed`·`symbol`/`impactSymbol`과 배타적이다.
+
+호환성: 기존 `--since`·`--changed`·`--symbol` 및 기존 JSON 필드는 유지한다.
+이 모드들은 `analysis.mode: single-snapshot`이고 과거 호출자 누락 가능성을 명시한다.
+숫자 `truncated`는 여전히 출력 행 생략 수다. 새 `traversalTruncated`와
+`analysis.limits`로 깊이 제한을 별도 확인한다. `callSites[].locationKind`는
+`caller-declaration`이다. 관련 테스트는 정적으로 연결된 검토 후보이며 실패 예측이나
+기존 테스트 정책을 생략할 허가가 아니다. 메타데이터가 필요한 소비자는 경로 전용
+`test-list` 대신 JSON을 읽는다.
+
 `affected <git-ref>`는 Git 기준점(커밋·브랜치·태그·`HEAD~1` 등) 이후 변경된 라이브러리와
 그에 전이적으로 의존하는 라이브러리를 JSON으로 답한다. 변경 파일이 귀속되는 라이브러리를
 씨앗으로 import·export 간선을 역방향으로 건너며, 각 피영향 라이브러리에는 가장 가까운
@@ -504,14 +545,15 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 영향 반경은 라이브러리(파일) 수준 관측이고, 나열되지 않은 라이브러리의 개별 선언이
 영향받지 않았다는 증명은 아니다. 패키지 안에 있으면서 어떤 분석 대상 라이브러리에도
 속하지 않는 변경 Dart 파일은 `changed-dart-files-without-library` 한계로 알린다.
-삭제된 파일은 Git 변경 집합에 포함되지 않는다(`--since`와 같은 ChangedFiles 계약).
+삭제된 파일도 Git 변경 집합에 포함된다. 현재 그래프에 없으면 미귀속 한계로 남고,
+과거 호출자는 아래 `impact --before`로 확인한다.
 보고 성공은 영향 개수와 무관하게 코드 0이다.
 
 `impact`는 같은 질문을 **수정 전에, 더 깊게** 답한다. `affected`가 라이브러리(파일)
 수준 영향 반경만 내는 것과 달리, `impact`는 변경 씨앗에 사용 간선(`call`·`reference`·
 `inheritance`·`implements`·`mixin`·`override`·`import`·`export`)으로 전이적으로
 의존하는 **심볼**을 최단 사용 경로·깊이와 함께 나열하고, 변경 선언으로 들어오는
-**호출 지점**(파일·줄·열), 변경 라이브러리를 (전이적으로) import하는 **관련 테스트
+**호출자 선언 위치**(파일·줄·열, 호출식 위치가 아님), 변경 라이브러리를 (전이적으로) import하는 **관련 테스트
 라이브러리**, 그리고 팩터별 **위험도**(0–100, `low`/`medium`/`high`)를 함께 낸다.
 사람은 `text`·`markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다.
 
@@ -524,7 +566,9 @@ JSON 문자열 배열, 1–1000개·1 MiB 이하 정규 파일, `query --batch`�
 `impacted`와 `coverage.missedWithoutPrecheck`를 같은 앞 n개(깊이, ID 순)로 자른다.
 탐색과 개수(`coverage.transitivelyImpacted`)·위험도는 제한하지 않고, 잘린 수는
 `truncated`와 `impact-coverage-truncated:` limitation으로 알린다. `callSites`와
-`tests`는 자르지 않는다. `--fail-on <level>`은 전체 위험도가 그 수준 이상이면 종료
+`tests`는 출력 행 수로 자르지 않지만 깊이 제한은 적용된다. `analysis.limits.depthLimited`와
+`traversalTruncated`는 깊이 경계 밖 미방문 후보를 알린다. `pathEvidence`는 일반 역참조와
+달리 탐색한 구현→계약 override 투영 단계의 실제 간선을 담는다. `--fail-on <level>`은 관측된 위험도가 그 수준 이상이면 종료
 코드 1로 만든다(기본 `none`은 항상 0). 출력에는 `coverage` 블록이 있어 **변경 파일만
 확인했을 때 누락됐을** 영향 심볼 수와 목록을 제시한다 — 사전 점검의 가치를 수치로
 남긴다. text·markdown의 coverage 문장은 `--limit`과 상관없이 전체 수를 센다.
@@ -543,7 +587,7 @@ tests=$(dartograph impact --since origin/main --format test-list .)
 [ -n "$tests" ] && dart test $tests
 ```
 
-빈 출력은 "영향받는 테스트 없음"이다 — 인자 없는 `dart test`는 전체 스위트를
+빈 출력은 "관측된 정적 테스트 후보 없음"이다 — 인자 없는 `dart test`는 전체 스위트를
 실행하므로 빈 출력 가드는 필수다(macOS/BSD `xargs`는 빈 입력을 건너뛰지만 GNU는
 `-r`이 필요하다). 목록이 비는 것은 "테스트가 안전하다"의 증명이 아니라 관측된
 테스트 의존이 없다는 뜻이다. 줄 단위 `xargs`·따옴표 없는 `$tests` 확장은 공백이
@@ -750,7 +794,7 @@ plugins:
 - 명령이 실패한 보고는 변경이 없어도 간격 뒤 다시 시도한다.
 
 `--incremental-user-cache`로 프로젝트 밖 사용자 캐시에 둔 증분 사실 캐시가 반복
-비용을 줄인다. 이 스위치를 아는 CLI(0.16.2 다음 릴리스)가 필요하다.
+비용을 줄인다. 이 스위치를 아는 CLI(0.17.0 이상)가 필요하다.
 진단은 디스크에 저장된 파일 기준의 근거 관측이며 삭제 판정이 아니다.
 
 ## 종료 코드
@@ -768,7 +812,7 @@ plugins:
 
 ```yaml
 - uses: dart-lang/setup-dart@v1
-- run: dart pub global activate dartograph 0.16.2
+- run: dart pub global activate dartograph 0.17.0
 - run: dartograph dead --format github-actions --since origin/main .
 - run: dartograph impact --since origin/main --format github-actions --fail-on high .
 ```
@@ -794,7 +838,7 @@ steps:
       fetch-depth: 0  # --since의 merge-base 계산에 필요
   - uses: dart-lang/setup-dart@v1
   - run: dart pub get
-  - run: dart pub global activate dartograph 0.16.2
+  - run: dart pub global activate dartograph 0.17.0
   # dead는 finding이 있으면 코드 1이다 — continue-on-error로 업로드 단계까지
   # 도달하게 하고, 경고로 실패시키려면 이 줄을 빼면 된다(아래 참조).
   - id: dead
@@ -833,9 +877,9 @@ steps:
 `version`도 함께 고정한다.
 
 ```yaml
-- uses: ictechgy/dartograph@<commit-sha> # v0.16.2
+- uses: ictechgy/dartograph@<commit-sha> # v0.17.0
   with:
-    version: 0.16.2
+    version: 0.17.0
     command: dead
     args: --format sarif
     output-file: dead.sarif

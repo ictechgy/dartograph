@@ -950,7 +950,7 @@ void main() {
     expect(result['isError'], isTrue);
     expect(
       ((result['content'] as List).single as Map)['text'],
-      contains('exactly one of since, changed, or symbol'),
+      contains('exactly one of since, changed, symbol, or beforeRoot'),
     );
   });
 
@@ -1532,7 +1532,7 @@ void main() {
       expect(textOf(responses[0]), contains('cannot combine'));
       expect(
         textOf(responses[1]),
-        contains('exactly one of since, changed, or impactSymbol'),
+        contains('exactly one of since, changed, impactSymbol, or beforeRoot'),
       );
       expect(
         textOf(responses[2]),

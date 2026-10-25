@@ -45,8 +45,19 @@ abstract final class ImpactReporter {
     Iterable<String> limitations = const [],
     String? explainId,
     bool? known,
+    Map<String, Object?> input = const {},
   }) {
-    final limits = limitations.toSet().toList()..sort();
+    final limits = {
+      ...limitations,
+      'static-candidates-only: empty results do not prove safety; related tests are review candidates, not failure predictions or permission to skip tests',
+      'call-site-location: line and column identify the caller declaration, not a call expression',
+      if (report.changedSources.isNotEmpty)
+        'file-wide-seeds: every declaration in a changed source is selected; changed lines are not isolated',
+      if (report.depthLimited)
+        'impact-depth-truncated: unvisited dependents remain beyond the requested depth',
+      if (input.isNotEmpty && format != ImpactFormat.json)
+        'input-provenance: ${jsonEncode(input)}',
+    }.toList()..sort();
     return switch (format) {
       ImpactFormat.text => _text(report, limits),
       ImpactFormat.json => _json(
@@ -54,6 +65,7 @@ abstract final class ImpactReporter {
         limits,
         explainId: explainId,
         known: known,
+        input: input,
       ),
       ImpactFormat.markdown => _markdown(report, limits),
       ImpactFormat.githubActions => _githubActions(report, limits),
@@ -92,12 +104,31 @@ abstract final class ImpactReporter {
     return value;
   }
 
-  static Map<String, Object> _document(
+  /// 두 revision의 분리된 리포트와 MCP가 같은 JSON 계약을 사용한다.
+  static Map<String, Object?> document(
     ImpactReport report,
     List<String> limits, {
     String? explainId,
     bool? known,
+    Map<String, Object?> input = const {},
   }) => {
+    'analysis': {
+      'status': input['freshness'] == 'stale' ? 'stale' : 'incomplete',
+      'mode': 'single-snapshot',
+      'input': input.isEmpty
+          ? {'origin': 'graph-snapshot', 'freshness': 'unknown'}
+          : input,
+      'limits': {
+        'maxDepth': report.maxDepth,
+        'outputLimit': report.outputLimit,
+        'depthLimited': report.depthLimited,
+        'omittedRows': report.truncatedImpacted,
+      },
+      'scope':
+          'observed static usage edges with implementation-to-contract override projection',
+      'unresolved':
+          'dynamic dispatch, callbacks, configuration and external/runtime paths may be unobserved',
+    },
     'callSites': report.callSites.map((item) => item.toJson()).toList(),
     'changed': {
       // 라이브러리 · 심별은 그래프 정점 ID 그대로다(sources만 프로젝트 상대 경로).
@@ -118,6 +149,7 @@ abstract final class ImpactReporter {
     'risk': report.risk.toJson(),
     'tests': report.tests.map((item) => item.toJson()).toList(),
     'truncated': report.truncatedImpacted,
+    'traversalTruncated': report.depthLimited,
     'version': 1,
   };
 
@@ -126,8 +158,9 @@ abstract final class ImpactReporter {
     List<String> limits, {
     String? explainId,
     bool? known,
+    Map<String, Object?> input = const {},
   }) =>
-      '${jsonEncode(_document(report, limits, explainId: explainId, known: known))}\n';
+      '${jsonEncode(document(report, limits, explainId: explainId, known: known, input: input))}\n';
 
   static String _text(ImpactReport report, List<String> limits) {
     final output = StringBuffer();
@@ -157,8 +190,13 @@ abstract final class ImpactReporter {
       output.writeln(
         '    path: ${item.path.map(ReportEscapes.escapeText).join(' -> ')}',
       );
+      for (final step in item.pathEvidence) {
+        output.writeln(
+          '    projection: ${ReportEscapes.escapeText(step['from']!)} -> ${ReportEscapes.escapeText(step['to']!)} (implementation-to-contract; not a call)',
+        );
+      }
     }
-    if (report.truncated) {
+    if (report.truncatedImpacted > 0) {
       output.writeln(
         '  ${report.truncatedImpacted} more impacted symbol(s) omitted by --limit',
       );
@@ -168,6 +206,11 @@ abstract final class ImpactReporter {
       output.writeln(
         '  ${ReportEscapes.escapeText(test.source ?? test.id)}: depth ${test.depth}',
       );
+      for (final step in test.pathEvidence) {
+        output.writeln(
+          '    projection: ${ReportEscapes.escapeText(step['from']!)} -> ${ReportEscapes.escapeText(step['to']!)} (implementation-to-contract; not a call)',
+        );
+      }
     }
     output.writeln('callSites: ${report.callSites.length}');
     for (final call in report.callSites) {
@@ -244,9 +287,14 @@ abstract final class ImpactReporter {
         output.writeln(
           '| ↳ path |  |  |  | ${ReportEscapes.mdCode(item.path.join(' → '))} |',
         );
+        for (final step in item.pathEvidence) {
+          output.writeln(
+            '| ↳ projection | | | | ${ReportEscapes.mdCode('${step['from']} → ${step['to']}')} (implementation-to-contract; not a call) |',
+          );
+        }
       }
     }
-    if (report.truncated) {
+    if (report.truncatedImpacted > 0) {
       output.writeln();
       output.writeln(
         '_${report.truncatedImpacted} more impacted symbol(s) omitted by --limit._',
@@ -262,6 +310,11 @@ abstract final class ImpactReporter {
         output.writeln(
           '- ${ReportEscapes.mdCode(test.source ?? test.id)} (depth ${test.depth})',
         );
+        for (final step in test.pathEvidence) {
+          output.writeln(
+            '  - Projection: ${ReportEscapes.mdCode('${step['from']} → ${step['to']}')} (implementation-to-contract; not a call)',
+          );
+        }
       }
     }
     output.writeln();

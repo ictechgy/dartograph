@@ -2,7 +2,7 @@ name: dartograph_analysis_plugin
 description: >-
   Analysis server plugin that surfaces dartograph graph findings as
   diagnostics with evidence — never a deletion verdict.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/ictechgy/dartograph
 
 environment:
