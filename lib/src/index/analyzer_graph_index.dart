@@ -2198,8 +2198,10 @@ const _cacheSchemaVersion = 8;
 // 캐시는 경로마다 펼친 단위를 이 limitation 없이 남기므로 폐기한다.
 // 라이브러리 소스 귀속(v20)을 복원한다. 소스 없는 이전 전체 그래프 캐시는
 // 선언 없는 barrel 변경을 누락하므로 폐기한다. 증분 사실도 같은 신원을 쓴다.
+// 복합 대입·증감의 property 읽기/쓰기 간선(v21)을 보완한다. 이전 캐시는
+// `++field`로만 쓰는 필드를 미도달로 남기므로 같은 입력도 다시 해석해야 한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v20-library-source';
+    'dartograph-analysis-$toolVersion-cache-v21-compound-properties';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3942,7 +3944,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     }
     // 복합 대입(`a += b`)은 연산자도 호출한다. 단순 대입에서는 null이다.
     _addOperatorCall(node.element);
-    _addCompoundIndexTargets(node);
+    _addCompoundTargets(node);
     super.visitAssignmentExpression(node);
   }
 
@@ -3961,14 +3963,14 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
   @override
   void visitPrefixExpression(PrefixExpression node) {
     _addOperatorCall(node.element);
-    _addCompoundIndexTargets(node);
+    _addCompoundTargets(node);
     super.visitPrefixExpression(node);
   }
 
   @override
   void visitPostfixExpression(PostfixExpression node) {
     _addOperatorCall(node.element);
-    _addCompoundIndexTargets(node);
+    _addCompoundTargets(node);
     super.visitPostfixExpression(node);
   }
 
@@ -4011,14 +4013,20 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
     super.visitPatternField(node);
   }
 
-  /// 복합 대입·증감(`m[i] += v`·`m[i]++`·`++m[i]`)의 인덱스 읽기·쓰기는
-  /// `[]`·`[]=` 연산자를 거치는데 writeElement만 보면 읽기가 누락된다.
-  /// 속성(getter·setter) 읽기·쓰기는 식별자 경로가 이미 잡으므로
-  /// 연산자(MethodElement) 경우만 보탠다.
-  void _addCompoundIndexTargets(CompoundAssignmentExpression node) {
+  /// 복합 대입·증감은 인덱스 연산자뿐 아니라 property도 읽고 쓴다.
+  /// analyzer가 `++field` 식별자의 element를 비워 두는 경우가 있어 구문 식별자
+  /// 방문만으로는 부족하다. 해석된 read/write element로 필드·getter/setter의
+  /// reference와 `[]`·`[]=`의 call을 각각 보탠다.
+  void _addCompoundTargets(CompoundAssignmentExpression node) {
     for (final element in [node.readElement, node.writeElement]) {
       if (element is MethodElement) {
         _addOperatorCall(element);
+      } else {
+        final owner = _owner;
+        final target = _graphTarget(element);
+        if (owner != null && target != null && _isGraphElement(target)) {
+          _add(owner, _idOf(target), EdgeKind.reference);
+        }
       }
     }
   }
