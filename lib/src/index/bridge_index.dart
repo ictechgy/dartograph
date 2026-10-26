@@ -6,10 +6,13 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import '../core/config_source.dart' show InputRejectedException;
 import 'bounded_resource_provider.dart' show readAnalysisInputSync;
 import 'project_files.dart';
+
+part 'bridge_constants.dart';
 
 /// Flutter 플랫폼 채널 구문 사실과 실제 동적 이름 개수다.
 final class BridgeIndexResult {
@@ -80,11 +83,13 @@ BridgeIndexResult indexBridges(
   // limitation에 남겨 경계 밖 파일 내용이 사실로 흘러든 것이 드러나게 한다.
   final linkEscapes = <String>{};
   final linkedDirectories = LinkedDirectoryVisits();
-  for (final entity in _dartFiles(
+  final files = _dartFiles(
     root,
     linkEscapes: linkEscapes,
     linkedDirectories: linkedDirectories,
-  )) {
+  ).toList();
+  final constantResolver = _SourceStringConstants(root, files);
+  for (final entity in files) {
     final relative = p.posix.joinAll(
       p.relative(entity.path, from: pathBase).split(p.separator),
     );
@@ -119,6 +124,13 @@ BridgeIndexResult indexBridges(
       parsed.unit,
       auxMode: messages || events,
     );
+    constantResolver.register(
+      entity.path,
+      parsed.unit,
+      hasErrors: parsed.errors.isNotEmpty,
+    );
+    String? importedConstant(String name) =>
+        constantResolver.resolve(entity.path, name);
     // aux 채널의 초기값 신뢰 게이트 — 유닛 단위 재대입 관측이 필요한 유일한
     // 데이터이므로 opt-in 모드에서만 계산한다.
     final assignedNames = messages || events
@@ -130,6 +142,7 @@ BridgeIndexResult indexBridges(
       constants,
       flutterPrefixes,
       rootDeclaredNames,
+      importedConstant,
     );
     final visitor = _BridgeVisitor(
       relative,
@@ -146,8 +159,10 @@ BridgeIndexResult indexBridges(
         rootDeclaredNames,
         auxChannelType,
         assignedNames,
+        importedConstant,
       ),
       assignedNames,
+      importedConstant,
       messages: messages,
       events: events,
     );
@@ -251,6 +266,7 @@ BridgeIndexResult indexBridges(
           'Flutter services',
     if (parseErrorFiles > 0)
       'parse-errors: $parseErrorFiles Dart source file(s) could not be parsed completely',
+    ...constantResolver.limitations,
   ]);
 }
 
@@ -291,7 +307,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     Map<String, _BridgeName> rootConstants,
     Map<String, _BridgeName> rootChannels,
     Map<String, _BridgeName> rootAuxChannels,
-    this._assignedNames, {
+    this._assignedNames,
+    this._rootStringConstant, {
     required this.messages,
     required this.events,
   }) : _declaredNameScopes = [rootDeclaredNames],
@@ -317,6 +334,8 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   /// 유닛 어디에서든 재대입되는 이름 관측. aux 채널의 초기값 신뢰를 게이트한다
   /// — 외부 receiver 대입이 보이면 선언 초기값을 믿지 않고 미해석으로 둔다.
   final _AssignedNames _assignedNames;
+  final String? Function(String) _rootStringConstant;
+  final _invalidatedRootStrings = <String>{};
   final List<Map<String, _BridgeName>> _channelScopes;
   final List<Map<String, _BridgeName>> _auxChannelScopes;
   final List<Map<String, _BridgeName>> _auxFieldScopes = [];
@@ -417,9 +436,11 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     for (final field in members.whereType<FieldDeclaration>()) {
       for (final variable in field.fields.variables) {
         _declare(variable.name.lexeme);
-        _recordStringConstant(variable);
         variables.add(variable);
       }
+    }
+    for (final variable in variables) {
+      _recordStringConstant(variable);
     }
     final enclosing = _EnclosingAssignedNames();
     for (final member in members) {
@@ -677,6 +698,16 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
         );
       }
     }
+    // import prefix를 통한 const 쓰기도 parse-only 입력에서는 관측될 수 있다.
+    // 의미 오류를 컴파일러가 거부할 것이라고 가정해 예전 리터럴을 복원하지 않는다.
+    final assignedConstant = _constantReference(left);
+    if (assignedConstant != null) {
+      final head = assignedConstant.split('.').first;
+      final owner = _declaredNameScopes.lastIndexWhere(
+        (scope) => scope.contains(head),
+      );
+      if (owner <= 0) _invalidatedRootStrings.add(assignedConstant);
+    }
     super.visitAssignmentExpression(node);
   }
 
@@ -706,9 +737,11 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   void _recordStringConstant(VariableDeclaration declaration) {
     final initializer = declaration.initializer;
-    if (initializer is! SingleStringLiteral ||
-        !(declaration.isConst || (_auxMode && declaration.isFinal)) ||
-        (!_auxMode && initializer is! SimpleStringLiteral)) {
+    if (initializer == null ||
+        !(declaration.isConst ||
+            (_auxMode &&
+                declaration.isFinal &&
+                initializer is SingleStringLiteral))) {
       return;
     }
     _stringConstantScopes.last[declaration.name.lexeme] = _bridgeName(
@@ -892,8 +925,9 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     if (node is SimpleStringLiteral) {
       return (value: node.value, dynamic: false, channelPrefix: null);
     }
-    if (node is SimpleIdentifier) {
-      final value = _stringConstant(named: node.name);
+    final name = _constantReference(node);
+    if (name != null) {
+      final value = _stringConstant(named: name);
       if (value != null) {
         return value.dynamic
             ? (
@@ -1087,12 +1121,24 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   }
 
   _BridgeName? _stringConstant({required String named}) {
+    final prefix = named.contains('.') ? named.split('.').first : null;
     for (var index = _stringConstantScopes.length - 1; index >= 0; index--) {
+      if (prefix != null && _declaredNameScopes[index].contains(prefix)) {
+        return null;
+      }
       final value = _stringConstantScopes[index][named];
       if (value != null) return value;
-      if (_declaredNameScopes[index].contains(named)) return null;
+      if (_declaredNameScopes[index].contains(named)) {
+        if (index != 0) return null;
+        break;
+      }
     }
-    return null;
+    final value = _invalidatedRootStrings.contains(named)
+        ? null
+        : _rootStringConstant(named);
+    return value == null
+        ? null
+        : (value: value, dynamic: false, channelPrefix: null);
   }
 
   void _removeStringConstant(String name) {
@@ -1216,6 +1262,7 @@ Map<String, _BridgeName> _topLevelChannels(
   Map<String, _BridgeName> strings,
   Map<String, Set<String?>> flutterPrefixes,
   Set<String> declaredNames,
+  String? Function(String) constantLookup,
 ) {
   final channels = <String, _BridgeName>{};
   for (final declaration
@@ -1246,7 +1293,11 @@ Map<String, _BridgeName> _topLevelChannels(
       }
       final first = arguments?.arguments.firstOrNull;
       if (first != null) {
-        channels[variable.name.lexeme] = _bridgeName(first, strings);
+        channels[variable.name.lexeme] = _bridgeName(
+          first,
+          strings,
+          constantLookup,
+        );
       }
     }
   }
@@ -1260,6 +1311,7 @@ Map<String, _BridgeName> _topLevelAuxChannels(
   Set<String> declaredNames,
   String channelType,
   _AssignedNames assignedNames,
+  String? Function(String) constantLookup,
 ) {
   final channels = <String, _BridgeName>{};
   for (final declaration
@@ -1297,7 +1349,11 @@ Map<String, _BridgeName> _topLevelAuxChannels(
       }
       final first = arguments?.arguments.firstOrNull;
       if (first != null) {
-        channels[variable.name.lexeme] = _bridgeName(first, strings);
+        channels[variable.name.lexeme] = _bridgeName(
+          first,
+          strings,
+          constantLookup,
+        );
       }
     }
   }
@@ -1317,12 +1373,18 @@ bool _matchesPrefix(
           : !declaredNames.contains(prefix));
 }
 
-_BridgeName _bridgeName(AstNode node, Map<String, _BridgeName> strings) {
+_BridgeName _bridgeName(
+  AstNode node,
+  Map<String, _BridgeName> strings,
+  String? Function(String) constantLookup,
+) {
   if (node is SimpleStringLiteral) {
     return (value: node.value, dynamic: false, channelPrefix: null);
   }
-  if (node is SimpleIdentifier && strings[node.name] != null) {
-    final value = strings[node.name]!;
+  final name = _constantReference(node);
+  final known = name == null ? null : strings[name];
+  if (known != null) {
+    final value = known;
     return value.dynamic
         ? (
             value: node.toSource(),
@@ -1330,6 +1392,10 @@ _BridgeName _bridgeName(AstNode node, Map<String, _BridgeName> strings) {
             channelPrefix: value.channelPrefix,
           )
         : value;
+  }
+  final constant = name == null ? null : constantLookup(name);
+  if (constant != null) {
+    return (value: constant, dynamic: false, channelPrefix: null);
   }
   return (
     value: node.toSource(),
@@ -1380,7 +1446,12 @@ Map<String, _BridgeName> _topLevelStringConstants(
       if (value is SingleStringLiteral &&
           (variable.isConst || (auxMode && variable.isFinal)) &&
           (auxMode || value is SimpleStringLiteral)) {
-        strings[variable.name.lexeme] = _bridgeName(value, strings);
+        // 이 패스는 단일 리터럴만 보므로 import 조회는 필요 없다.
+        strings[variable.name.lexeme] = _bridgeName(
+          value,
+          strings,
+          (_) => null,
+        );
       }
     }
   }

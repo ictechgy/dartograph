@@ -10,6 +10,25 @@
 `method-invoke`가 있다고 그 호출이 실행된다는 증명이 아니고, 채널 이름이 같다고 두
 플랫폼이 실제로 통신한다는 인과 증명도 아니다. 조인은 관측된 문자열의 일치다.
 
+이름은 리터럴 외에 스캔 목록 안의 최상위 `const` 문자열도 따라간다. 상대 import와
+스캔 루트 `pubspec.yaml`의 자기 패키지 import, prefix·show/hide·export 경로의 선언
+신원을 사용한다. 같은 선언을 여러 경로로 내보낸 경우는 하나로 보지만 서로 다른
+동명 선언은 값이 같아도 모호하다. 상수 별칭·괄호·문자열 `+`·인접 리터럴만 계산하며
+대상 코드나 초기화 함수를 실행하지 않는다. 지역 선언·파라미터·필드의 가림을 유지한다.
+
+이는 컴파일러의 전체 namespace 해석이 아니다. 스캔 밖 상대 경로, 명시 prefix/show의
+미검증 import, 조건부·deferred import, mutable/final 초기값, part를 가진 라이브러리,
+구문 오류·상수 순환은 확정값으로 쓰지 않는다. 광범위 외부 package/dart import는
+해당 namespace를 검사하지 못했다는 `constant-imports-unresolved`를 남긴다. 이 경우
+`dynamic: false`는 스캔한 선언으로부터 얻은 리터럴이며 컴파일 성공·외부 이름 충돌의
+부재를 증명하지 않는다. 기존 Flutter services provenance 한계도 별도로 유지된다.
+
+해석 예산은 라이브러리 4096개, 선언·지시문 100000개, 단계 250000회,
+참조/표현식 깊이 64, 문자열 65536 UTF-16 code unit, 보관한 전체 리터럴
+4194304 code unit이다. 예산을 넘긴 이름은
+dynamic으로 남기고 `constant-resolution-limit`를 알린다. 테스트 소스와 mock에
+나타난 채널 생성도 위치를 가진 소스 사실로 보존하며 production 등록 증거로 바꾸지 않는다.
+
 ## 문서 봉투
 
 `bridges --format json`이 출력하는 최상위 객체다. JSON 키는 재귀적으로 코드포인트
@@ -100,6 +119,10 @@ dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래�
 | `flutter-services-reexports: N` | re-export로 들어온 services import N건 — 직접 import만 provenance로 쓴다 |
 | `symlink-duplicate-directories: N` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 N개 — 같은 소스의 사실은 남은 경로에서 난다 |
 | `conditional-flutter-services-imports: N` | 조건부 지시문의 services import N건 |
+| `constant-imports-unresolved: N` | 상수 조회 중 검사하지 못한 import/export namespace N개 — 스캔한 선언 신원만 해석했다 |
+| `constant-library-parts-unsupported: N` | part를 합치지 않아 교차 파일 상수 해석에 쓰지 않은 라이브러리 N개 |
+| `constant-source-parse-errors: N` | 구문 오류 때문에 정적 상수 근거에서 제외한 소스 N개 |
+| `constant-resolution-limit` | 고정된 상수 해석 예산을 넘긴 이름은 dynamic으로 남았다 |
 | `pub-workspace-*` | workspace 감지 폴백 — `project` 기준이 스캔 루트로 내려갔다 |
 
 ## 예제
