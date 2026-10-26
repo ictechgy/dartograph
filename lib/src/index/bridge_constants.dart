@@ -87,8 +87,9 @@ final class _SourceStringConstants {
         in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
       for (final variable in declaration.variables.variables) {
         if (!variable.isConst ||
-            summary.conflicts.contains(variable.name.lexeme))
+            summary.conflicts.contains(variable.name.lexeme)) {
           continue;
+        }
         final expression = _expression(variable.initializer, 0);
         if (expression != null) constants[variable.name.lexeme] = expression;
       }
@@ -183,8 +184,9 @@ final class _SourceStringConstants {
     final prefix = segments.length == 2 ? segments.first : null;
     final bare = segments.last;
     if (prefix == null && library.names.contains(bare)) {
-      if (library.conflicts.contains(bare))
+      if (library.conflicts.contains(bare)) {
         return _ConstantCandidates(blocked: true);
+      }
       return _ConstantCandidates()..symbols.add((path, bare));
     }
     if (bare.startsWith('_') ||
@@ -223,8 +225,9 @@ final class _SourceStringConstants {
       final library = _library(path);
       if (library == null) return _ConstantCandidates(blocked: true);
       if (library.names.contains(name)) {
-        if (library.conflicts.contains(name))
+        if (library.conflicts.contains(name)) {
           return _ConstantCandidates(blocked: true);
+        }
         return _ConstantCandidates()..symbols.add((path, name));
       }
       final result = _ConstantCandidates();
