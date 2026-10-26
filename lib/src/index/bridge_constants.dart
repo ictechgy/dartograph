@@ -14,6 +14,7 @@ final class _SourceStringConstants {
   final _unresolved = <(String, String)>{};
   final _parts = <String>{};
   final _parseErrors = <String>{};
+  final _nameConflicts = <(String, String)>{};
   var _operations = 0;
   var _declarations = 0;
   var _literalCodeUnits = 0;
@@ -31,6 +32,9 @@ final class _SourceStringConstants {
   static const _maxLiteralCodeUnits = 4194304;
 
   List<String> get limitations => [
+    if (_nameConflicts.isNotEmpty)
+      'constant-name-conflicts: ${_nameConflicts.length} top-level name(s) '
+          'have incompatible duplicate declarations; affected names remain unresolved',
     if (_unresolved.isNotEmpty)
       'constant-imports-unresolved: ${_unresolved.length} import/export '
           'namespace(s) were not inspected; static names use scanned-source '
@@ -68,25 +72,30 @@ final class _SourceStringConstants {
       _libraries[path] = null;
       return;
     }
-    final names = _topLevelDeclaredNames(unit);
-    final entries = names.length + unit.directives.length;
+    final summary = _topLevelNameSummary(unit);
+    final names = summary.names;
+    final entries = summary.declarations + unit.directives.length;
     if (_declarations + entries > _maxDeclarations) {
       _limited = true;
       _libraries[path] = null;
       return;
     }
     _declarations += entries;
+    _nameConflicts.addAll(summary.conflicts.map((name) => (path, name)));
     final constants = <String, _ConstantExpression>{};
     for (final declaration
         in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
       for (final variable in declaration.variables.variables) {
-        if (!variable.isConst) continue;
+        if (!variable.isConst ||
+            summary.conflicts.contains(variable.name.lexeme))
+          continue;
         final expression = _expression(variable.initializer, 0);
         if (expression != null) constants[variable.name.lexeme] = expression;
       }
     }
     _libraries[path] = _ConstantLibrary(
       names,
+      summary.conflicts,
       constants,
       [
         for (final directive in unit.directives.whereType<ImportDirective>())
@@ -174,6 +183,8 @@ final class _SourceStringConstants {
     final prefix = segments.length == 2 ? segments.first : null;
     final bare = segments.last;
     if (prefix == null && library.names.contains(bare)) {
+      if (library.conflicts.contains(bare))
+        return _ConstantCandidates(blocked: true);
       return _ConstantCandidates()..symbols.add((path, bare));
     }
     if (bare.startsWith('_') ||
@@ -212,6 +223,8 @@ final class _SourceStringConstants {
       final library = _library(path);
       if (library == null) return _ConstantCandidates(blocked: true);
       if (library.names.contains(name)) {
+        if (library.conflicts.contains(name))
+          return _ConstantCandidates(blocked: true);
         return _ConstantCandidates()..symbols.add((path, name));
       }
       final result = _ConstantCandidates();
@@ -356,8 +369,15 @@ String? _constantReference(AstNode node) => switch (node) {
 };
 
 final class _ConstantLibrary {
-  _ConstantLibrary(this.names, this.constants, this.imports, this.exports);
+  _ConstantLibrary(
+    this.names,
+    this.conflicts,
+    this.constants,
+    this.imports,
+    this.exports,
+  );
   final Set<String> names;
+  final Set<String> conflicts;
   final Map<String, _ConstantExpression> constants;
   final List<_ConstantNamespace> imports;
   final List<_ConstantNamespace> exports;

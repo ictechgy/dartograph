@@ -370,4 +370,110 @@ void partCall() => c.invokeMethod(part.method);
       );
     },
   );
+
+  test(
+    'duplicate constants stay dynamic locally and through re-exports',
+    () async {
+      final root = await fixture({
+        'duplicates.dart': '''
+import 'package:flutter/services.dart';
+const method = 'first';
+const method = 'last';
+final local = MethodChannel('local');
+void go() => local.invokeMethod(method);
+''',
+        'barrel.dart': "export 'duplicates.dart';",
+        'main.dart': '''
+import 'package:flutter/services.dart';
+import 'barrel.dart' as names;
+final imported = MethodChannel('imported');
+void go() => imported.invokeMethod(names.method);
+''',
+      });
+      final result = indexBridges(root.path);
+      expect(
+        calls(result).map((fact) => fact['dynamic']),
+        everyElement(isTrue),
+      );
+      expect(calls(result).map((fact) => fact['method']), [
+        'method',
+        'names.method',
+      ]);
+      expect(
+        result.limitations,
+        contains(startsWith('constant-name-conflicts:')),
+      );
+    },
+  );
+
+  for (final declaration in [
+    "String get method => 'getter';",
+    "String method() => 'function';",
+    'class method {}',
+  ]) {
+    test('const conflicts with another declaration: $declaration', () async {
+      final root = await fixture({
+        'names.dart': "const method = 'const'; $declaration",
+        'main.dart': '''
+import 'package:flutter/services.dart';
+import 'names.dart';
+final c = MethodChannel('native');
+void go() => c.invokeMethod(method);
+''',
+      });
+      final result = indexBridges(root.path);
+      expect(calls(result).single['method'], 'method');
+      expect(calls(result).single['dynamic'], isTrue);
+      expect(
+        result.limitations,
+        contains(startsWith('constant-name-conflicts:')),
+      );
+    });
+  }
+
+  test('an unrelated duplicate does not block unambiguous constants', () async {
+    final root = await fixture({
+      'names.dart':
+          "const duplicate = 'one'; const duplicate = 'two'; const channel = 'native'; const method = 'ping';",
+      'main.dart': '''
+import 'package:flutter/services.dart';
+import 'names.dart';
+final c = MethodChannel(channel);
+void go() => c.invokeMethod(method);
+''',
+    });
+    final result = indexBridges(root.path);
+    expect(calls(result).single['channel'], 'native');
+    expect(calls(result).single['method'], 'ping');
+    expect(calls(result).single['dynamic'], isFalse);
+  });
+
+  test(
+    'a valid getter and setter pair is one nonconstant namespace name',
+    () async {
+      final root = await fixture({
+        'names.dart': '''
+String _value = 'mutable';
+String get value => _value;
+set value(String next) { _value = next; }
+const channel = 'native';
+const method = 'ping';
+''',
+        'main.dart': '''
+import 'package:flutter/services.dart';
+import 'names.dart';
+final c = MethodChannel(channel);
+void go() => c.invokeMethod(method);
+void getter() => c.invokeMethod(value);
+''',
+      });
+      final result = indexBridges(root.path);
+      expect(calls(result).first['dynamic'], isFalse);
+      expect(calls(result).last['dynamic'], isTrue);
+      expect(
+        result.limitations,
+        isNot(contains(startsWith('constant-name-conflicts:'))),
+      );
+    },
+  );
 }

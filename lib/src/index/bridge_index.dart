@@ -120,9 +120,11 @@ BridgeIndexResult indexBridges(
     if (flutterPrefixes.values.every((prefixes) => prefixes.isEmpty)) continue;
     sawFlutterServicesImport = true;
 
+    final rootNames = _topLevelNameSummary(parsed.unit);
     final constants = _topLevelStringConstants(
       parsed.unit,
       auxMode: messages || events,
+      conflictingNames: rootNames.conflicts,
     );
     constantResolver.register(
       entity.path,
@@ -136,7 +138,7 @@ BridgeIndexResult indexBridges(
     final assignedNames = messages || events
         ? _assignedNamesIn(parsed.unit)
         : _AssignedNames();
-    final rootDeclaredNames = _topLevelDeclaredNames(parsed.unit);
+    final rootDeclaredNames = rootNames.names;
     final rootChannels = _topLevelChannels(
       parsed.unit,
       constants,
@@ -150,6 +152,7 @@ BridgeIndexResult indexBridges(
       parsed.lineInfo,
       flutterPrefixes,
       rootDeclaredNames,
+      rootNames.conflicts,
       constants,
       rootChannels,
       _topLevelAuxChannels(
@@ -304,6 +307,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
     this.lineInfo,
     this.flutterPrefixes,
     Set<String> rootDeclaredNames,
+    this._rootNameConflicts,
     Map<String, _BridgeName> rootConstants,
     Map<String, _BridgeName> rootChannels,
     Map<String, _BridgeName> rootAuxChannels,
@@ -335,6 +339,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   /// — 외부 receiver 대입이 보이면 선언 초기값을 믿지 않고 미해석으로 둔다.
   final _AssignedNames _assignedNames;
   final String? Function(String) _rootStringConstant;
+  final Set<String> _rootNameConflicts;
   final _invalidatedRootStrings = <String>{};
   final List<Map<String, _BridgeName>> _channelScopes;
   final List<Map<String, _BridgeName>> _auxChannelScopes;
@@ -736,6 +741,10 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   }
 
   void _recordStringConstant(VariableDeclaration declaration) {
+    if (_isTopLevelVariable(declaration) &&
+        _rootNameConflicts.contains(declaration.name.lexeme)) {
+      return;
+    }
     final initializer = declaration.initializer;
     if (initializer == null ||
         !(declaration.isConst ||
@@ -1104,6 +1113,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   _BridgeName? _channel({required String named}) {
     for (var index = _channelScopes.length - 1; index >= 0; index--) {
+      if (index == 0 && _rootNameConflicts.contains(named)) return null;
       final value = _channelScopes[index][named];
       if (value != null) return value;
       if (_declaredNameScopes[index].contains(named)) return null;
@@ -1113,6 +1123,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
 
   _BridgeName? _auxChannel({required String named}) {
     for (var index = _auxChannelScopes.length - 1; index >= 0; index--) {
+      if (index == 0 && _rootNameConflicts.contains(named)) return null;
       final value = _auxChannelScopes[index][named];
       if (value != null) return value;
       if (_declaredNameScopes[index].contains(named)) return null;
@@ -1123,6 +1134,7 @@ final class _BridgeVisitor extends RecursiveAstVisitor<void> {
   _BridgeName? _stringConstant({required String named}) {
     final prefix = named.contains('.') ? named.split('.').first : null;
     for (var index = _stringConstantScopes.length - 1; index >= 0; index--) {
+      if (index == 0 && _rootNameConflicts.contains(named)) return null;
       if (prefix != null && _declaredNameScopes[index].contains(prefix)) {
         return null;
       }
@@ -1407,41 +1419,71 @@ _BridgeName _bridgeName(
   );
 }
 
-Set<String> _topLevelDeclaredNames(CompilationUnit unit) {
-  final names = <String>{};
+({Set<String> names, Set<String> conflicts, int declarations})
+_topLevelNameSummary(CompilationUnit unit) {
+  final counts = <String, ({int plain, int getters, int setters})>{};
+  var declarations = 0;
+  void add(String name, {bool getter = false, bool setter = false}) {
+    declarations++;
+    final before = counts[name] ?? (plain: 0, getters: 0, setters: 0);
+    counts[name] = (
+      plain: before.plain + (getter || setter ? 0 : 1),
+      getters: before.getters + (getter ? 1 : 0),
+      setters: before.setters + (setter ? 1 : 0),
+    );
+  }
+
   for (final declaration in unit.declarations) {
     if (declaration is FunctionDeclaration) {
-      names.add(declaration.name.lexeme);
+      add(
+        declaration.name.lexeme,
+        getter: declaration.isGetter,
+        setter: declaration.isSetter,
+      );
     } else if (declaration is ClassDeclaration) {
-      names.add(declaration.namePart.typeName.lexeme);
+      add(declaration.namePart.typeName.lexeme);
     } else if (declaration is MixinDeclaration) {
-      names.add(declaration.name.lexeme);
+      add(declaration.name.lexeme);
     } else if (declaration is EnumDeclaration) {
-      names.add(declaration.namePart.typeName.lexeme);
+      add(declaration.namePart.typeName.lexeme);
     } else if (declaration is ExtensionDeclaration) {
       final name = declaration.name?.lexeme;
-      if (name != null) names.add(name);
+      if (name != null) add(name);
     } else if (declaration is ExtensionTypeDeclaration) {
-      names.add(declaration.namePart.typeName.lexeme);
+      add(declaration.namePart.typeName.lexeme);
     } else if (declaration is TypeAlias) {
-      names.add(declaration.name.lexeme);
+      add(declaration.name.lexeme);
     } else if (declaration is TopLevelVariableDeclaration) {
-      names.addAll(
-        declaration.variables.variables.map((variable) => variable.name.lexeme),
-      );
+      for (final variable in declaration.variables.variables) {
+        add(variable.name.lexeme);
+      }
     }
   }
-  return names;
+  return (
+    names: counts.keys.toSet(),
+    conflicts: {
+      for (final entry in counts.entries)
+        if (entry.value.plain > 1 ||
+            (entry.value.plain > 0 &&
+                entry.value.getters + entry.value.setters > 0) ||
+            entry.value.getters > 1 ||
+            entry.value.setters > 1)
+          entry.key,
+    },
+    declarations: declarations,
+  );
 }
 
 Map<String, _BridgeName> _topLevelStringConstants(
   CompilationUnit unit, {
   required bool auxMode,
+  required Set<String> conflictingNames,
 }) {
   final strings = <String, _BridgeName>{};
   for (final declaration
       in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
     for (final variable in declaration.variables.variables) {
+      if (conflictingNames.contains(variable.name.lexeme)) continue;
       final value = variable.initializer;
       if (value is SingleStringLiteral &&
           (variable.isConst || (auxMode && variable.isFinal)) &&

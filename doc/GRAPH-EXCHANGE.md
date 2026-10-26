@@ -13,7 +13,9 @@
 이름은 리터럴 외에 스캔 목록 안의 최상위 `const` 문자열도 따라간다. 상대 import와
 스캔 루트 `pubspec.yaml`의 자기 패키지 import, prefix·show/hide·export 경로의 선언
 신원을 사용한다. 같은 선언을 여러 경로로 내보낸 경우는 하나로 보지만 서로 다른
-동명 선언은 값이 같아도 모호하다. 상수 별칭·괄호·문자열 `+`·인접 리터럴만 계산하며
+동명 선언은 값이 같아도 모호하다. 한 라이브러리의 중복 최상위 선언도 해당 이름만
+미해석으로 남긴다. 정상 getter/setter 쌍은 중복 선언으로 세지 않는다.
+상수 별칭·괄호·문자열 `+`·인접 리터럴만 계산하며
 대상 코드나 초기화 함수를 실행하지 않는다. 지역 선언·파라미터·필드의 가림을 유지한다.
 
 이는 컴파일러의 전체 namespace 해석이 아니다. 스캔 밖 상대 경로, 명시 prefix/show의
@@ -120,6 +122,7 @@ dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래�
 | `symlink-duplicate-directories: N` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 N개 — 같은 소스의 사실은 남은 경로에서 난다 |
 | `conditional-flutter-services-imports: N` | 조건부 지시문의 services import N건 |
 | `constant-imports-unresolved: N` | 상수 조회 중 검사하지 못한 import/export namespace N개 — 스캔한 선언 신원만 해석했다 |
+| `constant-name-conflicts: N` | 서로 양립할 수 없는 중복 최상위 선언 이름 N개 — 다른 이름의 해석은 계속한다 |
 | `constant-library-parts-unsupported: N` | part를 합치지 않아 교차 파일 상수 해석에 쓰지 않은 라이브러리 N개 |
 | `constant-source-parse-errors: N` | 구문 오류 때문에 정적 상수 근거에서 제외한 소스 N개 |
 | `constant-resolution-limit` | 고정된 상수 해석 예산을 넘긴 이름은 dynamic으로 남았다 |
