@@ -34,4 +34,7 @@ enum RetentionReason {
   /// `dartograph.yaml`의 `retained_names`/`retained_files`가 이름·파일 glob으로
   /// 명시한 보존 루트다 — 인라인 `dartograph:ignore`의 설정 파일 판이다.
   configuredRetention,
+
+  /// 현재 analyzer가 선택하지 않은 조건부 라이브러리와 그 의존 파일의 선언이다.
+  conditionalConfiguration,
 }
