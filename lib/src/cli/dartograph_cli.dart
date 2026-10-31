@@ -1502,14 +1502,22 @@ Future<int> _runMetrics(
   try {
     final indexed = await indexPackage(root);
     final snapshot = indexed.graph.snapshot();
+    final packageRoots = indexed.workspacePackages
+        .map((package) => package.path)
+        .toList();
     final metrics = ArchitectureMetricsCalculator().calculate(
       snapshot,
       includeTests: includeTests,
+      packageRoots: packageRoots,
     );
     final nodeSources = {for (final node in snapshot.nodes) node.id: node};
     final complexity = {
       for (final entry in indexed.complexity.entries)
-        if (includeTests || !isTestSourceUri(nodeSources[entry.key]?.sourceUri))
+        if (includeTests ||
+            !isTestSourceUri(
+              nodeSources[entry.key]?.sourceUri,
+              packageRoots: packageRoots,
+            ))
           entry.key: entry.value,
     };
     // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의

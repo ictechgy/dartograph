@@ -91,6 +91,7 @@ final class ArchitectureMetricsCalculator {
   List<ArchitectureMetrics> calculate(
     GraphSnapshot graph, {
     bool includeTests = false,
+    Iterable<String> packageRoots = const [],
   }) {
     final incoming = <String, Set<String>>{};
     final outgoing = <String, Set<String>>{};
@@ -99,7 +100,10 @@ final class ArchitectureMetricsCalculator {
     final included = <String>{};
     for (final node in graph.nodes) {
       if (!includeTests &&
-          isTestSourceUri(node.sourceUri ?? _libraryId(node.id))) {
+          isTestSourceUri(
+            node.sourceUri ?? _libraryId(node.id),
+            packageRoots: packageRoots,
+          )) {
         continue;
       }
       included.add(node.id);

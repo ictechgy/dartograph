@@ -163,6 +163,73 @@ rules:
   });
 
   test(
+    'workspace test complexity is excluded until include-tests is selected',
+    () async {
+      final graph = CodeGraph()
+        ..addNode(
+          GraphNode(
+            id: 'package:member/math.dart',
+            sourceUri: 'project:packages/member/lib/math.dart',
+            isLibrary: true,
+          ),
+        )
+        ..addNode(
+          GraphNode(
+            id: 'project:packages/member/test/math_test.dart',
+            sourceUri: 'project:packages/member/test/math_test.dart',
+            isLibrary: true,
+          ),
+        );
+      indexed = AnalyzerGraphResult(
+        graph: graph,
+        limitations: const [],
+        workspacePackages: const [
+          WorkspacePackage(path: 'packages/member', name: 'member'),
+        ],
+        complexity: const {
+          'package:member/math.dart': 1,
+          'project:packages/member/test/math_test.dart': 99,
+        },
+        metricsComplexityThreshold: 2,
+      );
+      final normal = StringBuffer();
+      Future<int> workspaceRun(List<String> arguments, StringBuffer output) =>
+          runDartograph(
+            arguments,
+            output: output,
+            error: StringBuffer(),
+            indexFactory:
+                ({required aggregateWorkspace, required includeTokenSegments}) {
+                  expect(aggregateWorkspace, isTrue);
+                  return (_) async => indexed;
+                },
+          );
+      expect(
+        await workspaceRun([
+          'metrics',
+          '--workspace',
+          '--strict',
+          temporary.path,
+        ], normal),
+        ExitStatus.success.code,
+      );
+      final included = StringBuffer();
+      expect(
+        await workspaceRun([
+          'metrics',
+          '--workspace',
+          '--strict',
+          '--include-tests',
+          temporary.path,
+        ], included),
+        ExitStatus.findings.code,
+      );
+      expect(normal.toString(), isNot(contains('math_test.dart')));
+      expect(included.toString(), contains('math_test.dart'));
+    },
+  );
+
+  test(
     'rules reports a config read failure distinctly from an index failure',
     () async {
       final error = StringBuffer();
