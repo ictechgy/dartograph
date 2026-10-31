@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartograph/src/cli/dartograph_cli.dart';
@@ -434,7 +435,15 @@ void main() {
 
     test('workspace aggregation keeps its own fact cache', () async {
       // 저장소 fixture는 읽기만 한다 — 사실은 주입한 사용자 캐시 아래에 쓴다.
-      const fixture = 'fixtures/workspace_audit';
+      final libraryUri = await Isolate.resolvePackageUri(
+        Uri.parse('package:dartograph/dartograph.dart'),
+      );
+      expect(libraryUri, isNotNull);
+      final fixture = p.join(
+        File.fromUri(libraryUri!).parent.parent.path,
+        'fixtures',
+        'workspace_audit',
+      );
       final arguments = ['deps', '--workspace', '--format', 'json', fixture];
       final plain = await run(arguments);
       final cached = await run([...arguments, '--incremental-user-cache']);
