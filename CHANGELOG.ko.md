@@ -2,7 +2,12 @@
 
 이 변경 이력의 영어 정본은 [CHANGELOG.md](CHANGELOG.md)다. pub.dev에는 영어본이 렌더링된다.
 
-## 0.17.0
+## 0.17.0 - Unreleased
+
+- 선택되지 않은 조건부 import/export 라이브러리와 파일 의존성을 명시적 구성 보존 근거로 유지한다. 현재 구성의 사용 간선을 만들지 않으며 이전 캐시는 폐기한다.
+
+- metrics는 기본으로 테스트 라이브러리와 그 결합도를 제외한다.
+  `metrics --include-tests`로 복잡도 게이트를 포함한 테스트 코드 집계를 선택한다.
 
 - analyzer가 관측한 라이브러리 소스 경로를 package URI barrel과 part 호스트까지 보존한다. 준비된 패키지에서 import/export만 바뀐 파일도 라이브러리와 호출자로 귀속하며, 소스 귀속이 없는 이전 그래프 캐시는 폐기한다.
 - `impact --before <준비된-base-root> <current-root>`와 MCP `beforeRoot`를 추가한다. 실제 Dart·설정 내용 변경을 비교하고 삭제·이름 변경의 과거 호출자를 보존하며 두 revision 경로를 분리한다. 색인 전후 내용 지문, `stale`/`incomplete`, 변경 이유와 준비 포함 비용을 남긴다. 기존 씨앗 모드는 현재 그래프 질의로 명시한다.

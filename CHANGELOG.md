@@ -2,7 +2,12 @@
 
 A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md).
 
-## 0.17.0
+## 0.17.0 - Unreleased
+
+- Retain unselected conditional import/export libraries and their file dependencies with an explicit conditional-configuration reason, without inventing selected usage edges. Invalidate earlier caches.
+
+- Metrics exclude test libraries and their couplings by default. Use
+  `metrics --include-tests` to include test code, including complexity gates.
 
 - Preserve analyzer-observed library source paths, including package URI barrels and part hosts, so prepared packages with import/export-only edits map to their library and importers. Invalidate older graph caches lacking that attribution.
 - Add `impact --before <prepared-base-root> <current-root>` and MCP `beforeRoot`: compare actual Dart/configuration content, retain deleted/renamed historical callers, and report historical/current paths separately. Include input content hashes checked around indexing, `stale`/`incomplete` status, change reasons, and preparation-inclusive cost. Existing seed modes remain explicitly current-only.
