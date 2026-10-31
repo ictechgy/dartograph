@@ -20,6 +20,7 @@ import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/path_glob.dart';
 import '../core/retention_reason.dart';
+import '../core/test_source.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'bounded_resource_provider.dart';
@@ -923,6 +924,7 @@ Future<_UnitFacts?> _resolveUnitFacts({
           },
         )
         .length,
+    conditionalSources: _unselectedConditionalSources(root, resolved),
     routeTables: routeTables.toList(),
     routeUses: routeUses,
     dependencies: _libraryDependencies(root, library, resolved).toList()
@@ -994,6 +996,61 @@ Set<String> _libraryDependencies(
   }
   if (host != null) dependencies.add(host);
   return dependencies;
+}
+
+/// 선택되지 않은 구성 URI도 실제 analyzer URI 변환기로 파일 경로에 귀속한다.
+/// 이 목록은 보존 근거이며 현재 구성의 import/export 사용 간선은 아니다.
+List<String> _unselectedConditionalSources(
+  String root,
+  ResolvedUnitResult unit,
+) {
+  final sources = <String>{};
+  for (final directive in unit.unit.directives) {
+    final List<Configuration> configurations;
+    final String? selected;
+    final String? defaultUri;
+    switch (directive) {
+      case ImportDirective():
+        configurations = directive.configurations;
+        defaultUri = directive.uri.stringValue;
+        selected = directive
+            .libraryImport
+            ?.importedLibrary
+            ?.firstFragment
+            .source
+            .fullName;
+      case ExportDirective():
+        configurations = directive.configurations;
+        defaultUri = directive.uri.stringValue;
+        selected = directive
+            .libraryExport
+            ?.exportedLibrary
+            ?.firstFragment
+            .source
+            .fullName;
+      default:
+        continue;
+    }
+    if (configurations.isEmpty) continue;
+    for (final declared in [
+      defaultUri,
+      ...configurations.map((configuration) => configuration.uri.stringValue),
+    ]) {
+      if (declared == null) continue;
+      final uri = Uri.tryParse(declared);
+      if (uri == null) continue;
+      final target = unit.session.uriConverter.uriToPath(
+        Uri.file(unit.path).resolveUri(uri),
+      );
+      if (target == null ||
+          p.normalize(target) == p.normalize(selected ?? '')) {
+        continue;
+      }
+      final source = _relativeSourcePath(target, root);
+      if (source != null) sources.add(source);
+    }
+  }
+  return sources.toList()..sort();
 }
 
 /// 유닛의 import/export 지시문이 선언한 `package:` 이름 집합이다(정렬).
@@ -1144,6 +1201,7 @@ final class _UnitFacts {
     required this.hasErrors,
     required this.hasUnresolvedInvocations,
     required this.conditionalDirectives,
+    required this.conditionalSources,
     required this.routeTables,
     required this.routeUses,
     required this.dependencies,
@@ -1185,6 +1243,9 @@ final class _UnitFacts {
   /// 조건부 import/export 지시문 수.
   final int conditionalDirectives;
 
+  /// 현재 구성 밖 조건부 라이브러리의 프로젝트 상대 경로다.
+  final List<String> conditionalSources;
+
   /// 이 유닛이 관측한 route table 키와 named route 사용이다.
   final List<String> routeTables;
   final List<String> routeUses;
@@ -1217,6 +1278,7 @@ final class _UnitFacts {
   Map<String, Object?> toJson() => {
     'complexity': complexity,
     'conditional': conditionalDirectives,
+    'conditionalSources': conditionalSources,
     'dependencies': dependencies,
     'edges': [for (final edge in edges) _edgeJson(edge)],
     'errors': hasErrors,
@@ -1276,6 +1338,10 @@ final class _UnitFacts {
         hasErrors: value['errors'] == true,
         hasUnresolvedInvocations: value['unresolved'] == true,
         conditionalDirectives: value['conditional'] as int? ?? 0,
+        conditionalSources: [
+          for (final source in value['conditionalSources'] as List? ?? const [])
+            source as String,
+        ],
         routeTables: [
           for (final route in value['routes'] as List? ?? const [])
             route as String,
@@ -1478,6 +1544,7 @@ AnalyzerGraphResult _assembleResult({
       }
     }
   }
+  _retainConditionalSources(facts, retentionRoots);
   final limitations = <AnalyzerLimitation>{};
   // 집계된 멤버의 pubspec도 플러그인 진입점을 선언할 수 있다 — federated
   // plugin 모노레포가 pub workspace의 대표 배치라 멤버 클래스가 미보존으로
@@ -1650,6 +1717,37 @@ AnalyzerGraphResult _assembleResult({
     metricsComplexityThreshold: scope.complexityThreshold,
     tokenSegments: List.unmodifiable(tokenSegments),
   );
+}
+
+/// 구성 밖 선언은 호출 여부를 입증하지 못한다. 실제 파일 의존 폐쇄만 보존한다.
+/// parts와 import cycle도 한 번만 방문하며 다른 파일의 미사용 판정은 유지한다.
+void _retainConditionalSources(
+  Map<String, _UnitFacts> facts,
+  Map<String, RetentionReason> roots,
+) {
+  final unitsByLibrary = <String, List<String>>{};
+  for (final unit in facts.values) {
+    final librarySource = unit.librarySource;
+    if (librarySource != null) {
+      (unitsByLibrary[librarySource] ??= []).add(unit.source);
+    }
+  }
+  final pending = [for (final unit in facts.values) ...unit.conditionalSources];
+  final visited = <String>{};
+  while (pending.isNotEmpty) {
+    final source = pending.removeLast();
+    if (!visited.add(source)) continue;
+    pending.addAll(unitsByLibrary[source] ?? const []);
+    final unit = facts[source];
+    if (unit == null) continue;
+    pending.addAll(unit.dependencies);
+    for (final node in unit.nodes) {
+      roots.putIfAbsent(
+        node.id,
+        () => RetentionReason.conditionalConfiguration,
+      );
+    }
+  }
 }
 
 /// pubspec에서 deps 감사가 쓰는 매니페스트 사실이다.
@@ -2200,8 +2298,9 @@ const _cacheSchemaVersion = 8;
 // 선언 없는 barrel 변경을 누락하므로 폐기한다. 증분 사실도 같은 신원을 쓴다.
 // 복합 대입·증감의 property 읽기/쓰기 간선(v21)을 보완한다. 이전 캐시는
 // `++field`로만 쓰는 필드를 미도달로 남기므로 같은 입력도 다시 해석해야 한다.
+// 조건부 구성 보존(v22)은 선택되지 않은 파일의 선언·의존 폐쇄를 루트로 남긴다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v21-compound-properties';
+    'dartograph-analysis-$toolVersion-cache-v22-conditional-retention';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3649,10 +3748,7 @@ RetentionReason? _retentionReason(
     // 설정된 진입점이 아닌 main은 강제 루트로 보존하지 않는다.
     // 다른 보존 근거(pragma·생성 코드 등)는 계속 검사한다.
   }
-  if (packageSource.startsWith('project:test/') ||
-      packageSource.startsWith('project:integration_test/') ||
-      packageSource.startsWith('project:example/test/') ||
-      packageSource.startsWith('project:example/integration_test/')) {
+  if (isTestSourceUri(packageSource)) {
     return RetentionReason.visibleForTesting;
   }
   if (_isGenerated(packageSource)) {

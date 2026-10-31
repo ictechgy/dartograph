@@ -62,7 +62,7 @@ dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> |
 dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
-dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph metrics [--format <text|json|sarif>] [--strict] [--include-tests] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 ```
 
 `--incremental <dir>`는 분석·색인 명령(graph·dead·deps·dup·query·compare·affected·

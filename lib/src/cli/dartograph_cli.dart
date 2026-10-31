@@ -25,6 +25,7 @@ import '../core/graph_snapshot.dart';
 import '../core/path_glob.dart';
 import '../core/result_ledger.dart';
 import '../core/tool_info.dart';
+import '../core/test_source.dart';
 import '../export/bridge_exporter.dart';
 import '../export/analysis_reporter.dart';
 import '../export/codeowners_reporter.dart';
@@ -1467,6 +1468,7 @@ Future<int> _runMetrics(
   List<String> failedItems,
 ) async {
   var strict = false;
+  var includeTests = false;
   String? formatName;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
@@ -1477,6 +1479,8 @@ Future<int> _runMetrics(
         return ExitStatus.usage.code;
       }
       strict = true;
+    } else if (argument == '--include-tests' && !includeTests) {
+      includeTests = true;
     } else if (argument == '--format' && formatName == null) {
       if (++index >= arguments.length || arguments[index].startsWith('-')) {
         error.write(_help);
@@ -1498,7 +1502,24 @@ Future<int> _runMetrics(
   try {
     final indexed = await indexPackage(root);
     final snapshot = indexed.graph.snapshot();
-    final metrics = ArchitectureMetricsCalculator().calculate(snapshot);
+    final packageRoots = indexed.workspacePackages
+        .map((package) => package.path)
+        .toList();
+    final metrics = ArchitectureMetricsCalculator().calculate(
+      snapshot,
+      includeTests: includeTests,
+      packageRoots: packageRoots,
+    );
+    final nodeSources = {for (final node in snapshot.nodes) node.id: node};
+    final complexity = {
+      for (final entry in indexed.complexity.entries)
+        if (includeTests ||
+            !isTestSourceUri(
+              nodeSources[entry.key]?.sourceUri,
+              packageRoots: packageRoots,
+            ))
+          entry.key: entry.value,
+    };
     // thresholds.distance가 |D'| 허용치를, thresholds.complexity가 strict의
     // 복잡도 상한을 정한다 — 설정 파일이 게이트를 바꾼다는 사실은 한계에 남긴다.
     final tolerance = indexed.metricsDistanceThreshold ?? 0.3;
@@ -1516,8 +1537,8 @@ Future<int> _runMetrics(
         metrics,
         limitations: limitations,
         tolerance: tolerance,
-        complexity: indexed.complexity,
-        nodeSources: {for (final node in snapshot.nodes) node.id: node},
+        complexity: complexity,
+        nodeSources: nodeSources,
         complexityLimit: complexityLimit,
         format: format,
       ),
@@ -1531,7 +1552,7 @@ Future<int> _runMetrics(
     ]);
     var exceedsComplexity = false;
     if (complexityLimit != null) {
-      for (final entry in indexed.complexity.entries) {
+      for (final entry in complexity.entries) {
         if (entry.value > complexityLimit) {
           exceedsComplexity = true;
           failedItems.add(entry.key);
@@ -4107,7 +4128,7 @@ Usage: dartograph [--help] [--version]
        dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
-       dartograph metrics [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph metrics [--format <text|json|sarif>] [--strict] [--include-tests] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 
 init writes a commented dartograph.yaml configuration template to the project
 root. Pass --force to overwrite an existing configuration file.

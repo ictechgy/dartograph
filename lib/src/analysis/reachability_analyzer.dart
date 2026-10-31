@@ -3,6 +3,7 @@ import 'dart:collection';
 import '../core/graph_edge.dart';
 import '../core/graph_snapshot.dart';
 import '../core/retention_reason.dart';
+import '../core/test_source.dart';
 
 export '../core/retention_reason.dart';
 
@@ -745,26 +746,13 @@ const _operatorNames = {'unary-'};
 /// 상단에서 한 번 만든다(감사 P4의 layer_rules 패턴 캐시와 같은 부류).
 final _operatorSymbolPattern = RegExp(r'^[+\-*/%<>=&|^~\[\]]+$');
 
-/// 테스트 코드의 보존 루트 source 접두어다.
-///
-/// `analyzer_graph_index.dart`의 `_retentionReason`이 테스트 디렉터리 선언에
-/// `visibleForTesting`를 부여하는 접두어와 일치해야 한다. 어긋나면 테스트 전용
-/// 도달 판정이 테스트 루트를 잘못 분류하므로 회귀로 고정한다.
-const _testSourcePrefixes = [
-  'project:test/',
-  'project:integration_test/',
-  'project:example/test/',
-  'project:example/integration_test/',
-];
-
-bool _isTestSource(String? source) =>
-    source != null && _testSourcePrefixes.any(source.startsWith);
+bool _isTestSource(String? source) => isTestSourceUri(source);
 
 /// 보존 루트를 테스트 루트로 분류한다. reason과 source 접두어를 **양쪽** 요구한다.
 ///
 /// `visibleForTesting` reason은 테스트 디렉터리 선언과 `@visibleForTesting`
 /// 프로덕션 선언이 공유하므로 source 접두어로 가른다. 양쪽을 요구하면 인덱스의
-/// 테스트 디렉터리 접두어와 `_testSourcePrefixes`가 어긋나도 프로덕션 루트를
+/// 테스트 디렉터리 판정이 어긋나도 프로덕션 루트를
 /// 오제거(거짓 양성)하지 않고 누락(안전) 쪽으로 편향된다.
 bool _isTestRoot(RetentionReason reason, String? source) =>
     reason == RetentionReason.visibleForTesting && _isTestSource(source);

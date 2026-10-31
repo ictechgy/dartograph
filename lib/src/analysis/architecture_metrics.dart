@@ -1,4 +1,5 @@
 import '../core/graph_snapshot.dart';
+import '../core/test_source.dart';
 
 /// 주계열(main sequence) 기준으로 본 정점의 위치(cartograph `MetricsZone` 패리티).
 enum MetricsZone {
@@ -87,12 +88,25 @@ final class ArchitectureMetrics {
 /// 불변 그래프에서 Martin 계열 지표를 계산한다.
 final class ArchitectureMetricsCalculator {
   /// 사용 의미의 서로 다른 이웃과 타입 표식을 사용해 지표를 계산한다.
-  List<ArchitectureMetrics> calculate(GraphSnapshot graph) {
+  List<ArchitectureMetrics> calculate(
+    GraphSnapshot graph, {
+    bool includeTests = false,
+    Iterable<String> packageRoots = const [],
+  }) {
     final incoming = <String, Set<String>>{};
     final outgoing = <String, Set<String>>{};
     final typeTotals = <String, int>{};
     final abstractTotals = <String, int>{};
+    final included = <String>{};
     for (final node in graph.nodes) {
+      if (!includeTests &&
+          isTestSourceUri(
+            node.sourceUri ?? _libraryId(node.id),
+            packageRoots: packageRoots,
+          )) {
+        continue;
+      }
+      included.add(node.id);
       final library = _libraryId(node.id);
       incoming.putIfAbsent(library, () => <String>{});
       outgoing.putIfAbsent(library, () => <String>{});
@@ -104,6 +118,10 @@ final class ArchitectureMetricsCalculator {
       }
     }
     for (final edge in graph.edges.where((edge) => edge.kind.impliesUsage)) {
+      if (!included.contains(edge.sourceId) ||
+          !included.contains(edge.targetId)) {
+        continue;
+      }
       final source = _libraryId(edge.sourceId);
       final target = _libraryId(edge.targetId);
       if (source == target) continue;
