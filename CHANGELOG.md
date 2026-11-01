@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## 0.17.0 - Unreleased
 
+- `dead` no longer reports a class that is created only through a redirecting factory constructor, such as `C` in `abstract class S { factory S() = C; }` when code calls `S()`. The redirect target had no usage edge, so the class (and, with no other reference, its file) was reported as unreachable; `--report-override-only` also listed such classes when they override a member. A redirecting constructor now adds a `call` edge from its class to the target class, so `graph`, `impact`, `query`, and the other commands see that edge too, and these findings disappear. The analysis cache identity is bumped.
+
 - `rules` adds an `unassigned-layer-targets:` limitation that counts usage edges from a layer with rules to declarations or libraries outside every layer. Rules check only edges whose both ends are in a layer, so even an `allow` rule did not see a dependency on unassigned code, and nothing said so. Violations and exit codes are unchanged.
 
 - Analysis commands add an `unanalyzed-directories:` limitation when `web/`, `tool/`, `hook/`, or `benchmark/` at the package root holds Dart files of the package (hidden directories and nested packages with their own `pubspec.yaml` are not counted), for example `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …`. Only `lib/`, `bin/`, `example/`, `integration_test/`, and `test/` are analyzed, so a `lib/` declaration used only from `web/main.dart` or a `tool/` script is reported as unreachable with no hint why. The analyzed scope and the findings are unchanged; the analysis cache identity is bumped.

@@ -2302,8 +2302,10 @@ const _cacheSchemaVersion = 8;
 // `@override` 멤버의 다른 annotation 보존 근거(v23)를 우선한다. 이전 캐시는
 // `@override @pragma('vm:entry-point')`를 재정의 계약으로만 남긴다.
 // 범위 밖 진입점 디렉터리 limitation(v24)을 싣는다. 이전 캐시에는 이 한계가 없다.
+// 리다이렉트 factory의 대상 클래스 call 간선(v25)을 더한다. 이전 캐시는 그 간선이
+// 없어 리다이렉트로만 만들어지는 구현을 미도달로 남긴다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v24-unanalyzed-directories';
+    'dartograph-analysis-$toolVersion-cache-v25-redirecting-factories';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -4100,6 +4102,22 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
       _add(owner, _idOf(target), EdgeKind.call);
     }
     super.visitInstanceCreationExpression(node);
+  }
+
+  /// 리다이렉트 factory(`factory S() = C;`)는 대상 생성자를 호출해 인스턴스를
+  /// 만든다. 대상은 InstanceCreationExpression이 아니라 [ConstructorName]으로만
+  /// 나타나고 그 타입 이름은 구조적 위치라 [visitNamedType]이 간선을 만들지 않는다.
+  /// 생성자는 소속 클래스로 모델링하므로(README 한계) 리다이렉트하는 클래스에서
+  /// 대상 클래스로 call 간선을 둔다. 없으면 리다이렉트로만 만들어지는 구현
+  /// 클래스가 미도달로 보고된다.
+  @override
+  void visitConstructorDeclaration(ConstructorDeclaration node) {
+    final owner = _owner;
+    final target = node.redirectedConstructor?.element?.enclosingElement;
+    if (owner != null && target != null && _isGraphElement(target)) {
+      _add(owner, _idOf(target.baseElement), EdgeKind.call);
+    }
+    super.visitConstructorDeclaration(node);
   }
 
   @override

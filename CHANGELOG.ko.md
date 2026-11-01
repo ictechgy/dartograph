@@ -4,6 +4,8 @@
 
 ## 0.17.0 - Unreleased
 
+- `dead`는 리다이렉트 factory 생성자로만 만들어지는 클래스를 더 이상 보고하지 않는다. 예를 들어 코드가 `S()`를 부를 때 `abstract class S { factory S() = C; }`의 `C`다. 리다이렉트 대상에 사용 간선이 없어 그 클래스(다른 참조가 없으면 그 파일까지)가 미도달로 보고됐고, 멤버를 재정의한 클래스면 `--report-override-only`에도 나왔다. 이제 리다이렉트 생성자는 소속 클래스에서 대상 클래스로 `call` 간선을 더하므로 `graph`·`impact`·`query` 등 다른 명령도 그 간선을 보고, 이 finding은 사라진다. 분석 캐시 신원을 올렸다.
+
 - `rules`는 규칙이 있는 레이어에서 어느 레이어에도 없는 선언·라이브러리로 가는 사용 간선 수를 `unassigned-layer-targets:` 한계로 알린다. 규칙은 양끝이 모두 레이어에 있는 간선만 검사하므로 `allow` 규칙도 미배정 코드로의 의존을 보지 못했고 그 사실도 드러나지 않았다. 위반과 종료 코드는 바뀌지 않는다.
 
 - 패키지 루트의 `web/`·`tool/`·`hook/`·`benchmark/`에 패키지의 Dart 파일이 있으면(숨김 디렉터리와 자체 `pubspec.yaml`이 있는 중첩 패키지 제외) 분석 명령이 `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` 같은 한계를 더한다. 분석 대상은 `lib/`·`bin/`·`example/`·`integration_test/`·`test/`뿐이라, `web/main.dart`나 `tool/` 스크립트에서만 쓰는 `lib/` 선언이 이유 없이 미도달로 보고됐다. 분석 범위와 finding은 바뀌지 않으며 분석 캐시 신원을 올렸다.
