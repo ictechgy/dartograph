@@ -87,10 +87,20 @@ void main() {
 
   test('http-limitation-scope producer cases pass', () {
     final cases = producerCases('http-limitation-scope.json');
+    var notApplicable = 0;
     for (final testCase in cases) {
       final id = testCase['id'];
       final input = testCase['input']! as Map<String, Object?>;
       final expected = testCase['expect']! as Map<String, Object?>;
+      // `dynamicScope`는 dynamic `route-decl`·`route-contract`에만 오는 필드다
+      // (GRAPH-EXCHANGE "dynamic 선언의 스코프"). dartograph는 클라이언트
+      // route-call만 내고 `dynamicScope`를 쓰지 않으므로, 이 규칙으로 검증할
+      // 생산 출력이 없다. 다른 생산자 규칙은 아래 default에서 실패한다.
+      if (testCase['ruleId']
+          case 'scope.dynamic-validate' || 'scope.dynamic-applies') {
+        notApplicable++;
+        continue;
+      }
       final entry = input['scope']! as Map<String, Object?>;
       switch (testCase['ruleId']) {
         case 'scope.validate':
@@ -114,7 +124,8 @@ void main() {
           fail('unknown producer rule ${testCase['ruleId']} in $id');
       }
     }
-    expect(cases, hasLength(27));
+    expect(cases.length - notApplicable, 27);
+    expect(notApplicable, 31);
   });
 
   // dartograph는 클라이언트 route-call만 내고 route-decl의 `order`를 내지 않는다.
