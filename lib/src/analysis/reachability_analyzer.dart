@@ -682,22 +682,8 @@ final class ReachabilityAnalyzer {
       roots: roots,
       limitations: limitations,
     );
-    var conditional = analyze(graph, roots: active, limitations: limitations);
-    while (pending.isNotEmpty) {
-      final dead = {
-        for (final finding in conditional.deadDeclarations) finding.id,
-      };
-      final enabled = [
-        for (final entry in pending.entries)
-          if (!dead.contains(entry.value)) entry.key,
-      ];
-      if (enabled.isEmpty) break;
-      for (final id in enabled) {
-        pending.remove(id);
-        active[id] = roots[id]!;
-      }
-      conditional = analyze(graph, roots: active, limitations: limitations);
-    }
+    _enableReachedOverrideRoots(graph, nodeIds, roots, active, pending);
+    final conditional = analyze(graph, roots: active, limitations: limitations);
     final deadWithOverrides = {
       for (final finding in withOverrides.deadDeclarations) finding.id,
     };
@@ -730,6 +716,113 @@ final class ReachabilityAnalyzer {
     }
     findings.sort((a, b) => a.id.compareTo(b.id));
     return findings;
+  }
+
+  /// [pending]의 조건부 재정의 루트 중 컨테이너가 살아 있게 되는 것을 [active]로
+  /// 옮긴다. 남는 것이 켜지지 않은 루트다.
+  ///
+  /// "켤 수 있는 루트를 모두 켜고 [analyze]를 다시 돌린다"를 변화가 없을 때까지
+  /// 반복한 최소 고정점과 같은 결과를, 도달 집합과 큐를 유지한 한 번의 순회로
+  /// 구한다(반복은 깊이 × (정점+간선)이다). "살아 있음"은 [analyze]의 발견 제외
+  /// 기준을 그대로 따른다: 직접 도달, 도달한 정점의 점 접두 컨테이너, 직접 도달
+  /// 또는 그런 컨테이너인 enum의 상수, 직접 도달한 sealed 타입(과 그 sealed
+  /// 서브타입)의 서브타입. 정점이 살아나는 순간 그 정점이 켜는 루트를 큐에 넣는다.
+  void _enableReachedOverrideRoots(
+    GraphSnapshot graph,
+    Set<String> nodeIds,
+    Map<String, RetentionReason> roots,
+    Map<String, RetentionReason> active,
+    SplayTreeMap<String, String> pending,
+  ) {
+    final outgoing = <String, List<GraphEdge>>{};
+    final subtypesByParent = <String, List<String>>{};
+    for (final edge in graph.edges) {
+      if (edge.kind.impliesUsage) {
+        outgoing.putIfAbsent(edge.sourceId, () => []).add(edge);
+      }
+      switch (edge.kind) {
+        case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
+          if (edge.sourceId != edge.targetId && edge.sourceId.contains('::')) {
+            subtypesByParent
+                .putIfAbsent(edge.targetId, () => [])
+                .add(edge.sourceId);
+          }
+        default:
+      }
+    }
+    final sealed = <String>{
+      for (final node in graph.nodes)
+        if (node.isSealed) node.id,
+    };
+    // [analyze]와 같이 enum 상수의 컨테이너는 마지막 점 앞 전체다.
+    final enumConstants = <String, List<String>>{};
+    for (final node in graph.nodes) {
+      if (!node.isEnumConstant) continue;
+      final separator = node.id.lastIndexOf('.');
+      if (separator < 0) continue;
+      enumConstants
+          .putIfAbsent(node.id.substring(0, separator), () => [])
+          .add(node.id);
+    }
+    final rootsByContainer = <String, List<String>>{};
+    for (final MapEntry(key: root, value: container) in pending.entries) {
+      rootsByContainer.putIfAbsent(container, () => []).add(root);
+    }
+
+    final reached = <String>{};
+    final queue = Queue<String>();
+    final alive = <String>{};
+    final containers = <String>{};
+    final sealedSubtypes = <String>{};
+    void reach(String id) {
+      if (nodeIds.contains(id) && reached.add(id)) queue.add(id);
+    }
+
+    void markAlive(String id) {
+      if (!alive.add(id)) return;
+      for (final root in rootsByContainer.remove(id) ?? const <String>[]) {
+        pending.remove(root);
+        active[root] = roots[root]!;
+        reach(root);
+      }
+    }
+
+    // 직접 도달했거나 컨테이너로 살아난 enum이면 상수도 산다.
+    void reviveConstants(String container) {
+      for (final constant in enumConstants[container] ?? const <String>[]) {
+        markAlive(constant);
+      }
+    }
+
+    void reviveSealedSubtypes(String parent) {
+      final parents = [parent];
+      for (var index = 0; index < parents.length; index++) {
+        for (final subtype
+            in subtypesByParent[parents[index]] ?? const <String>[]) {
+          if (!sealedSubtypes.add(subtype)) continue;
+          markAlive(subtype);
+          if (sealed.contains(subtype)) parents.add(subtype);
+        }
+      }
+    }
+
+    active.keys.toList().forEach(reach);
+    while (queue.isNotEmpty) {
+      final id = queue.removeFirst();
+      markAlive(id);
+      reviveConstants(id);
+      if (sealed.contains(id)) reviveSealedSubtypes(id);
+      visitMemberContainers(id, nodeIds, (container) {
+        if (containers.add(container)) {
+          markAlive(container);
+          reviveConstants(container);
+        }
+        return true;
+      });
+      for (final edge in outgoing[id] ?? const <GraphEdge>[]) {
+        reach(edge.targetId);
+      }
+    }
   }
 
   /// Periphery `redundant public accessibility`와 같은 질문이다. 살아 있는

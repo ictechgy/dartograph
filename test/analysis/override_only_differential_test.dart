@@ -34,6 +34,56 @@ void main() {
     expect(nonEmpty, greaterThan(100));
   });
 
+  test('enum constants revived through a reached member enable roots', () {
+    // E 자체는 도달하지 않고 멤버 E.helper만 도달한다. 컨테이너로 살아난 enum의
+    // 상수 E.a도 살아 있으므로, E.a 안의 재정의 루트도 켜져야 한다.
+    const library = 'package:app/e.dart';
+    final graph = CodeGraph();
+    for (final (id, constant) in const [
+      ('$library::main', false),
+      ('$library::E', false),
+      ('$library::E.helper', false),
+      ('$library::E.a', true),
+      ('$library::E.a.inner', false),
+      ('$library::Used', false),
+    ]) {
+      graph.addNode(
+        GraphNode(
+          id: id,
+          sourceUri: 'project:lib/e.dart',
+          isEnumConstant: constant,
+        ),
+      );
+    }
+    graph
+      ..addEdge(
+        const GraphEdge(
+          sourceId: '$library::main',
+          targetId: '$library::E.helper',
+          kind: EdgeKind.call,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: '$library::E.a.inner',
+          targetId: '$library::Used',
+          kind: EdgeKind.call,
+        ),
+      );
+    const roots = {
+      '$library::main': RetentionReason.mainEntryPoint,
+      '$library::E.a.inner': RetentionReason.overrideContract,
+    };
+    final snapshot = graph.snapshot();
+    final findings = ReachabilityAnalyzer().overrideOnlyDeclarations(
+      snapshot,
+      roots: roots,
+      limitations: const ['global: kept'],
+    );
+    expect(findings, isEmpty);
+    expect(_reference(snapshot, roots), isEmpty);
+  });
+
   test('a deep chain of override-enabled types stays linear', () {
     // 타입 i의 재정의 멤버가 타입 i+1을 만든다. 반복 고정점은 깊이만큼 전체
     // 도달성을 다시 계산한다. 결과만 고정한다(시간은 단언하지 않는다).
