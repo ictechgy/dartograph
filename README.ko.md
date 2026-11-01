@@ -133,7 +133,7 @@ dartograph mcp
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 그래프 질문을 dartograph 명령으로 안내하는 관리 `CLAUDE.md`/`AGENTS.md` 블록도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
 - `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
-- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
+- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. `cycles --level file`은 라이브러리 사이의 순환만 보고하고 한 파일 안의 재귀는 뺀다(기본 `symbol` 해상도는 보고한다). 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
 - `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 명시적 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
 - `dead --closed-app`은 독립 실행 앱(Flutter 앱·CLI 실행 파일)에서 공개 API 보존을 끈다 — `lib/<package>.dart`가 export해도 `main`에서 도달하지 못하는 선언은 보고된다. `baseline --write --closed-app`과 짝을 이루며, 게시 라이브러리에는 쓰지 않는다.

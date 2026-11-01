@@ -52,6 +52,9 @@ expect_status 1 "cycles trailing strict" cycles fixtures/phase5_contract --stric
   expect_status 0 "cycles format sarif" cycles --format sarif fixtures/phase5_contract
   expect_status 1 "cycles format sarif strict" cycles --format sarif --strict fixtures/phase5_contract
   expect_status 64 "cycles unknown format" cycles --format xml fixtures/phase5_contract
+  expect_status 1 "cycles strict file level" cycles --strict --level file fixtures/phase5_contract
+  expect_status 0 "cycles explain file level" cycles --level file --explain project:lib/a.dart fixtures/phase5_contract
+  expect_status 64 "cycles unknown level" cycles --level module fixtures/phase5_contract
   expect_status 64 "cycles explain with sarif" cycles --explain project:lib/a.dart::a --format sarif fixtures/phase5_contract
   expect_status 0 "rules format text" rules --config fixtures/phase5_contract/layers.yaml --format text fixtures/phase5_contract
   expect_status 0 "rules format sarif" rules --config fixtures/phase5_contract/layers.yaml --format sarif fixtures/phase5_contract

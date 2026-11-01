@@ -59,8 +59,8 @@ dartograph bridges --events --format json [--project <shared-root>] <package-roo
 dartograph schema --format json [--project <shared-root>] <package-root>
 dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
 dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
-dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
-dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph cycles [--format <text|json|sarif>] [--level <file|type|symbol>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--level <file|type|symbol>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph metrics [--format <text|json|sarif>] [--strict] [--include-tests] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -685,6 +685,15 @@ rules:
     from: ui
     deny: [data]
 ```
+
+`cycles --level <file|type|symbol>`은 `graph --level`과 같은 사영 위에서 순환을 찾는다.
+기본값 `symbol`은 선언 사이의 모든 강결합 요소를 보고하므로 같은 파일의 상호 재귀
+(`isEven` ↔ `isOdd`)나 같은 클래스 메서드끼리의 재귀도 순환이 된다. `file`은 선언을 소속
+라이브러리로 접어 라이브러리 사이의 순환만, `type`은 멤버를 최상위 선언으로 접어 타입·최상위
+선언 사이의 순환만 보고한다 — 접힌 단위 안의 관계는 자기 간선으로 버린다. 아키텍처 게이트로
+`cycles --strict`를 걸 때 정상적인 재귀를 실패로 다루지 않으려면 `--level file`을 쓴다.
+`--explain`도 그 해상도의 ID를 받는다(`file`이면 라이브러리 ID). 끊을 후보
+(`breakCandidate`)는 대표 경로의 첫 간선이며 순환을 가장 많이 줄이는 간선이라는 뜻은 아니다.
 
 `cycles --explain <symbol-id>`는 한 정점이 강결합 요소로 참여하는 순환과 각각의
 `breakCandidate`(끊을 후보 간선)를 JSON으로 낸다. 한 정점은 최대 하나의 강결합 요소에

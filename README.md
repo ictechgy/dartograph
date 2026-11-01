@@ -248,7 +248,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   kinds. `metrics` also reports function-level cyclomatic complexity and
   hot-spot rankings.
 - `cycles`, `rules`, and `metrics` only report by default; findings become exit
-  code 1 with `--strict`. Metrics are per-library Ca, Ce, instability,
+  code 1 with `--strict`. `cycles --level file` reports only cycles between
+  libraries, leaving out recursion inside one file (the default `symbol` level
+  reports it). Metrics are per-library Ca, Ce, instability,
   abstractness, and distance from the main sequence — each entry also carries
   its zone (`main-sequence`, `zone-of-pain`, `zone-of-uselessness`, or
   `isolated` for entries with no couplings at all) at the reported tolerance.
