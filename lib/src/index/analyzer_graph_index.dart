@@ -2301,8 +2301,9 @@ const _cacheSchemaVersion = 8;
 // 조건부 구성 보존(v22)은 선택되지 않은 파일의 선언·의존 폐쇄를 루트로 남긴다.
 // `@override` 멤버의 다른 annotation 보존 근거(v23)를 우선한다. 이전 캐시는
 // `@override @pragma('vm:entry-point')`를 재정의 계약으로만 남긴다.
+// 범위 밖 진입점 디렉터리 limitation(v24)을 싣는다. 이전 캐시에는 이 한계가 없다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v23-override-precedence';
+    'dartograph-analysis-$toolVersion-cache-v24-unanalyzed-directories';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2941,6 +2942,7 @@ List<String> _agentLimitations(
       .where((route) => !routeTables.contains(route))
       .length;
   final staleGenerated = _staleGeneratedCount(root);
+  final unanalyzed = _unanalyzedEntryDirectoryCounts(root);
   return [
     if (sourceGaps.isNotEmpty)
       'analysis gaps may affect reachability outside the source files where they were observed',
@@ -2951,7 +2953,68 @@ List<String> _agentLimitations(
       'string-routes: $unmatchedRoutes named route use(s) have no matching route table entry',
     if (staleGenerated > 0)
       'generated-code-staleness: $staleGenerated generated file(s) are older than their source',
+    if (unanalyzed.isNotEmpty)
+      'unanalyzed-directories: Dart files under '
+          '${[for (final MapEntry(:key, :value) in unanalyzed.entries) '$key/ ($value)'].join(', ')} '
+          'are not analyzed; declarations used only from them are reported as '
+          'unreachable (retain them with retained_names or retained_files in '
+          'dartograph.yaml)',
   ];
+}
+
+/// 표준 분석 디렉터리([_sourceDirectories]) 밖에서 Dart 패키지가 관례적으로
+/// 진입점을 두는 루트 디렉터리다. web/(웹 앱 main), tool/(빌드·생성 스크립트),
+/// hook/(native assets 훅), benchmark/는 analyzer 해석 대상이 아니므로 그 파일의
+/// main은 보존 루트가 되지 않는다.
+const _unanalyzedEntryDirectories = ['benchmark', 'hook', 'tool', 'web'];
+
+/// [_unanalyzedEntryDirectories]마다 이 패키지에 속한 `.dart` 파일 수다.
+///
+/// 분석 범위를 넓히지 않고 범위 밖 진입점이 있다는 사실만 limitation으로 남긴다.
+/// 숨김 디렉터리와 중첩 패키지(`pubspec.yaml`이 있는 하위 디렉터리)의 파일은 이
+/// 패키지의 진입점이 아니므로 세지 않는다. 링크는 [indexProjectFiles] 규칙으로
+/// 따라가고 루트 밖 대상도 센다. 결과는 이름순이다.
+Map<String, int> _unanalyzedEntryDirectoryCounts(String root) {
+  final counts = <String, int>{};
+  for (final name in _unanalyzedEntryDirectories) {
+    final directory = Directory(p.join(root, name));
+    if (!directory.existsSync()) continue;
+    final packageRoots = <String, bool>{};
+    bool insideNestedPackage(String path) {
+      for (
+        var parent = p.dirname(path);
+        p.isWithin(root, parent);
+        parent = p.dirname(parent)
+      ) {
+        final nested = packageRoots.putIfAbsent(
+          parent,
+          () => File(p.join(parent, 'pubspec.yaml')).existsSync(),
+        );
+        if (nested) return true;
+      }
+      return false;
+    }
+
+    var count = 0;
+    try {
+      for (final file in _projectFiles(
+        directory,
+        skipHiddenDirectories: true,
+        boundary: root,
+      )) {
+        if (file.path.endsWith('.dart') && !insideNestedPackage(file.path)) {
+          count++;
+        }
+      }
+    } on FileSystemException {
+      // 진단용 수다. 읽을 수 없는 디렉터리가 분석을 실패시키지 않게 하는
+      // 입력 열거(_scanAnalysisInputs)와 같은 수습으로 그 디렉터리를 뺀다.
+      // 장치·FIFO 링크(NonRegularFileException)는 그 열거처럼 그대로 실패한다.
+      continue;
+    }
+    if (count > 0) counts[name] = count;
+  }
+  return counts;
 }
 
 final class _UnresolvedInvocationVisitor extends RecursiveAstVisitor<void> {

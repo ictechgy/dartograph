@@ -303,6 +303,11 @@ Limitations:
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
   functions of those files (a template can be generated with `dartograph init`).
+- Only `lib/`, `bin/`, `example/`, `integration_test/`, and `test/` are
+  analyzed. Code used only from `web/`, `tool/`, `hook/`, or `benchmark/` is
+  reported as unreachable; when those directories hold Dart files of the
+  package, an `unanalyzed-directories:` limitation counts them. Keep such code
+  with `retained_names` or `retained_files`.
 - Local path dependencies are opt-in graph inputs through `source_packages` in
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart

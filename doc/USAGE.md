@@ -267,6 +267,15 @@ Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 �
 finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된다 — 모드를
 다르게 한 baseline은 finding 지문이 어긋나 억제가 적용되지 않는다.
 
+분석 대상은 패키지 루트의 표준 소스 디렉터리(`lib`·`bin`·`example`·`integration_test`·
+`test`)이고 `main` 진입점은 `lib`·`bin`·`example`에서만 보존한다. 그래서 `web/main.dart`
+(Dart 웹 앱), `tool/`(빌드·생성 스크립트), `hook/`(native assets 훅), `benchmark/`에서만
+쓰는 `lib/` 선언은 미도달로 보고된다. 이 네 디렉터리에 이 패키지의 `.dart` 파일이 있으면
+(숨김 디렉터리와 `pubspec.yaml`이 있는 중첩 패키지 제외) 분석 명령은
+`unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` limitation으로
+디렉터리별 파일 수를 알린다. 분석 범위와 보고 대상은 바뀌지 않는다. 그런 선언은
+`dartograph.yaml`의 `retained_names`·`retained_files`로 보존한다.
+
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
 것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"

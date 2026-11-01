@@ -4,6 +4,8 @@
 
 ## 0.17.0 - Unreleased
 
+- 패키지 루트의 `web/`·`tool/`·`hook/`·`benchmark/`에 패키지의 Dart 파일이 있으면(숨김 디렉터리와 자체 `pubspec.yaml`이 있는 중첩 패키지 제외) 분석 명령이 `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` 같은 한계를 더한다. 분석 대상은 `lib/`·`bin/`·`example/`·`integration_test/`·`test/`뿐이라, `web/main.dart`나 `tool/` 스크립트에서만 쓰는 `lib/` 선언이 이유 없이 미도달로 보고됐다. 분석 범위와 finding은 바뀌지 않으며 분석 캐시 신원을 올렸다.
+
 - `graph --level`과 같은 사영을 쓰는 `cycles --level <file|type|symbol>`을 추가했다. 기본값 `symbol`은 그대로이며 한 파일이나 한 클래스 안의 상호 재귀도 계속 순환으로 보고한다. `file`은 라이브러리 사이의 순환만 보고하고 `type`은 멤버를 최상위 선언으로 접는다. 그래서 `cycles --strict --level file` 게이트는 `isEven` ↔ `isOdd` 같은 정상적인 재귀로 실패하지 않는다. `--explain`은 고른 해상도의 ID를 받는다(`file`이면 라이브러리 ID). 알 수 없거나 빠졌거나 반복된 값은 64로 끝난다.
 
 - `dead --report-override-only`를 추가했다. `dead`는 재정의 멤버를 모두 보존 루트로 두므로, 재정의 멤버만이 살리는 클래스(`build()`를 재정의한 미사용 위젯, `toString()`만 재정의한 값 타입, 이들이 구현하는 추상 기반)는 보고되지 않는다. 새 리포트는 재정의 멤버를 그 컨테이너 타입이 다른 근거(인스턴스·타입 참조·도달한 하위 타입·다른 루트 멤버)로 도달한 뒤에만 루트로 켜고, 변화가 없을 때까지 반복한 뒤 남은 재정의 루트로만 살아 있는 선언을 info 심각도·종료 코드 0으로 나열한다. `--closed-app`·`--since`·`--kinds`와 모든 `dead` 형식을 받고, `--explain`·`--baseline`·다른 리포트 모드와의 결합은 64로 거부한다. `dead` 출력은 바뀌지 않는다. `@override` 멤버에 붙은 `@pragma('vm:entry-point')`·JS/FFI binding·`@visibleForTesting` annotation은 `@override`가 먼저 와도 그 멤버의 보존 근거가 된다(이전에는 `overrideContract`로 기록했다). 그래서 `dead --explain`이 그 근거를 보여 준다. 분석 캐시 신원을 올렸다.
