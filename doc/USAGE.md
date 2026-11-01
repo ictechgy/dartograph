@@ -271,8 +271,8 @@ finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된�
 `test`)이고 `main` 진입점은 `lib`·`bin`·`example`에서만 보존한다. 그래서 `web/main.dart`
 (Dart 웹 앱), `tool/`(빌드·생성 스크립트), `hook/`(native assets 훅), `benchmark/`,
 `test_driver/`(flutter_driver 진입점)에서만 쓰는 `lib/` 선언은 미도달로 보고된다. 이 다섯
-디렉터리에 그 패키지의 `.dart` 파일이 있으면(숨김 디렉터리와 `pubspec.yaml`이 있는 중첩 패키지
-제외) 분석 명령은
+디렉터리에 그 패키지의 `.dart` 파일이 있으면(숨김 디렉터리, `pubspec.yaml`이 있는 중첩 패키지,
+루트 밖을 가리키는 링크 아래 파일 제외 — 마지막은 `symlink-escape` 한계가 알린다) 분석 명령은
 `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` limitation으로
 디렉터리별 파일 수를 알린다. `--workspace`에서는 각 멤버의 같은 디렉터리도
 `pkgs/a/web/`처럼 루트 기준 경로로 센다. 분석 범위와 보고 대상은 바뀌지 않는다. 그런 선언은

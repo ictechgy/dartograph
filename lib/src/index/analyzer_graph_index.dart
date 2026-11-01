@@ -2314,8 +2314,9 @@ const _cacheSchemaVersion = 8;
 // 없어 리다이렉트로만 만들어지는 구현을 미도달로 남긴다.
 // 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
 // 한계 문구는 다르다.
+// 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v26-unanalyzed-members';
+    'dartograph-analysis-$toolVersion-cache-v27-unanalyzed-escapes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2993,7 +2994,9 @@ const _unanalyzedEntryDirectories = [
 /// 키는 루트 기준 posix 경로에 `/`를 붙인 표기(`tool/`, `pkgs/a/web/`)이고
 /// 이름순이다. 분석 범위를 넓히지 않고 범위 밖 진입점이 있다는 사실만 limitation으로
 /// 남긴다. 숨김 디렉터리와 중첩 패키지(그 패키지 안에서 `pubspec.yaml`이 있는 하위
-/// 디렉터리)의 파일은 이 패키지의 진입점이 아니므로 세지 않는다.
+/// 디렉터리)의 파일은 이 패키지의 진입점이 아니므로 세지 않는다. 루트 밖을 가리키는
+/// 링크(디렉터리 자체 포함) 아래 파일도 세지 않는다 — 그 경로는 `symlink-escape`
+/// 한계가 따로 알리며, 같은 경로를 두 한계가 서로 다르게 말하지 않게 한다.
 Map<String, int> _unanalyzedEntryDirectoryCounts(
   String root,
   List<String> memberRelPaths,
@@ -3023,12 +3026,18 @@ Map<String, int> _unanalyzedEntryDirectoryCounts(
       final directory = Directory(p.join(packageRoot, name));
       if (!directory.existsSync()) continue;
       final label = base.isEmpty ? '$name/' : '$base/$name/';
+      final escapes = <String>{};
       final files = <String>[];
       try {
+        if (FileSystemEntity.isLinkSync(directory.path) &&
+            !isPathWithinRoot(directory.resolveSymbolicLinksSync(), root)) {
+          continue;
+        }
         for (final file in _projectFiles(
           directory,
           skipHiddenDirectories: true,
           boundary: root,
+          linkEscapes: escapes,
         )) {
           if (file.path.endsWith('.dart') && !insideNestedPackage(file.path)) {
             files.add(
@@ -3042,7 +3051,14 @@ Map<String, int> _unanalyzedEntryDirectoryCounts(
         // 장치·FIFO 링크(NonRegularFileException)는 그 열거처럼 그대로 실패한다.
         continue;
       }
-      if (files.isNotEmpty) counts[label] = files.length;
+      final count = files
+          .where(
+            (file) => !escapes.any(
+              (escape) => file == escape || file.startsWith('$escape/'),
+            ),
+          )
+          .length;
+      if (count > 0) counts[label] = count;
     }
   }
   return {

@@ -122,4 +122,28 @@ resolution: workspace
       limitationFor('pkgs/a/tool/ (1), pkgs/a/web/ (1), tool/ (1)'),
     ]);
   });
+
+  test('links that leave the package are left to symlink-escape', () async {
+    final outside = await Directory.systemTemp.createTemp(
+      'dartograph-unanalyzed-outside.',
+    );
+    addTearDown(() => outside.delete(recursive: true));
+    await File('${outside.path}/shared.dart').writeAsString('void s() {}\n');
+    // tool/ 자체와 web/ 안의 하위 디렉터리가 루트 밖을 가리킨다.
+    await Link('${root.path}/tool').create(outside.path);
+    await write('web/main.dart', 'void main() {}\n');
+    await Link('${root.path}/web/shared').create(outside.path);
+
+    final document = await deadJson();
+    final limitations = (document['limitations']! as List).cast<String>();
+    expect(
+      limitations.where((item) => item.startsWith('symlink-escape:')),
+      containsAll([
+        startsWith('symlink-escape: tool resolves outside'),
+        startsWith('symlink-escape: web/shared resolves outside'),
+      ]),
+    );
+    // 같은 경로를 "분석한다"와 "분석하지 않는다"로 동시에 말하지 않는다.
+    expect(unanalyzedOf(document), [limitationFor('web/ (1)')]);
+  });
 }
