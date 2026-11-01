@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import '../core/graph_edge.dart';
 import '../core/graph_snapshot.dart';
+import '../core/member_containers.dart';
 import '../core/retention_reason.dart';
 import '../core/test_source.dart';
 
@@ -409,14 +410,10 @@ final class ReachabilityAnalyzer {
     final rootsChecked = sortedRoots.keys.where(nodeIds.contains).toList();
     final reachableContainers = <String>{};
     for (final id in paths.keys) {
-      final symbolSeparator = id.indexOf('::');
-      if (symbolSeparator < 0) continue;
-      var memberSeparator = id.lastIndexOf('.');
-      while (memberSeparator > symbolSeparator + 1) {
-        final candidate = id.substring(0, memberSeparator);
-        if (nodeIds.contains(candidate)) reachableContainers.add(candidate);
-        memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
-      }
+      visitMemberContainers(id, nodeIds, (container) {
+        reachableContainers.add(container);
+        return true;
+      });
     }
     // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
     // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다. 메모는 이
@@ -672,7 +669,7 @@ final class ReachabilityAnalyzer {
     final pending = SplayTreeMap<String, String>();
     for (final entry in roots.entries) {
       final container = entry.value == RetentionReason.overrideContract
-          ? _nearestContainer(entry.key, nodeIds)
+          ? nearestMemberContainer(entry.key, nodeIds)
           : null;
       if (container == null) {
         active[entry.key] = entry.value;
@@ -838,22 +835,6 @@ const _operatorNames = {'unary-'};
 final _operatorSymbolPattern = RegExp(r'^[+\-*/%<>=&|^~\[\]]+$');
 
 bool _isTestSource(String? source) => isTestSourceUri(source);
-
-/// 멤버 [id]를 담는 가장 가까운 컨테이너 선언 ID다. 없으면 null이다.
-///
-/// [ReachabilityAnalyzer.analyze]의 컨테이너 보존과 같은 ID 관례(첫 `::` 뒤
-/// 이름의 점 접두)를 쓴다. 최상위 선언과 라이브러리는 컨테이너가 없다.
-String? _nearestContainer(String id, Set<String> nodeIds) {
-  final symbolSeparator = id.indexOf('::');
-  if (symbolSeparator < 0) return null;
-  var memberSeparator = id.lastIndexOf('.');
-  while (memberSeparator > symbolSeparator + 1) {
-    final candidate = id.substring(0, memberSeparator);
-    if (nodeIds.contains(candidate)) return candidate;
-    memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
-  }
-  return null;
-}
 
 /// 보존 루트를 테스트 루트로 분류한다. reason과 source 접두어를 **양쪽** 요구한다.
 ///
