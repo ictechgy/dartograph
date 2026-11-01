@@ -33,11 +33,12 @@ void main() {}
 
   tearDown(() => root.delete(recursive: true));
 
-  Future<Map<String, Object?>> deadJson() async {
+  Future<Map<String, Object?>> deadJson({List<String> extra = const []}) async {
     final output = StringBuffer();
     final status = await runDartograph([
       'dead',
       '--closed-app',
+      ...extra,
       '--format',
       'json',
       root.path,
@@ -46,10 +47,17 @@ void main() {}
     return jsonDecode(output.toString()) as Map<String, Object?>;
   }
 
-  const limitation =
-      'unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not '
+  String limitationFor(String directories) =>
+      'unanalyzed-directories: Dart files under $directories are not '
       'analyzed; declarations used only from them are reported as unreachable '
       '(retain them with retained_names or retained_files in dartograph.yaml)';
+
+  final limitation = limitationFor('test_driver/ (1), tool/ (2), web/ (1)');
+
+  Iterable<Object?> unanalyzedOf(Map<String, Object?> document) =>
+      (document['limitations']! as List).where(
+        (item) => '$item'.startsWith('unanalyzed-directories:'),
+      );
 
   test('Dart files under web/ and tool/ are reported as unanalyzed', () async {
     await write('web/main.dart', '''
@@ -59,6 +67,8 @@ void main() => print(onlyWeb());
 ''');
     await write('tool/gen.dart', 'void main() {}\n');
     await write('tool/src/helper.dart', 'void helper() {}\n');
+    // flutter_driver 진입점도 분석 밖이다.
+    await write('test_driver/app.dart', 'void main() {}\n');
     // 중첩 패키지와 숨김 디렉터리의 파일은 이 패키지의 진입점이 아니다.
     await write('tool/pkg/pubspec.yaml', 'name: pkg\n');
     await write('tool/pkg/lib/y.dart', 'void y() {}\n');
@@ -82,11 +92,34 @@ void main() => print(onlyWeb());
     await write('tool/pkg/pubspec.yaml', 'name: pkg\n');
     await write('tool/pkg/lib/y.dart', 'void y() {}\n');
     final document = await deadJson();
-    expect(
-      (document['limitations']! as List).where(
-        (item) => '$item'.startsWith('unanalyzed-directories:'),
-      ),
-      isEmpty,
-    );
+    expect(unanalyzedOf(document), isEmpty);
+  });
+
+  test('workspace members are scanned under their own paths', () async {
+    await write('pubspec.yaml', '''
+name: webapp
+environment:
+  sdk: ^3.11.0
+workspace:
+  - pkgs/a
+''');
+    await write('pkgs/a/pubspec.yaml', '''
+name: a
+environment:
+  sdk: ^3.11.0
+resolution: workspace
+''');
+    await write('pkgs/a/lib/a.dart', '/// 멤버 선언.\nint a() => 1;\n');
+    await write('pkgs/a/web/main.dart', 'void main() {}\n');
+    await write('pkgs/a/tool/gen.dart', 'void main() {}\n');
+    // 멤버 안의 중첩 패키지는 그 멤버의 진입점이 아니다.
+    await write('pkgs/a/tool/inner/pubspec.yaml', 'name: inner\n');
+    await write('pkgs/a/tool/inner/bin/run.dart', 'void main() {}\n');
+    await write('tool/root.dart', 'void main() {}\n');
+
+    final document = await deadJson(extra: const ['--workspace']);
+    expect(unanalyzedOf(document), [
+      limitationFor('pkgs/a/tool/ (1), pkgs/a/web/ (1), tool/ (1)'),
+    ]);
   });
 }

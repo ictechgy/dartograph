@@ -1565,7 +1565,15 @@ AnalyzerGraphResult _assembleResult({
   if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
     limitations.add(AnalyzerLimitation.testCodeRetention);
   }
-  final limitationDetails = _agentLimitations(root, sources, facts);
+  final limitationDetails = _agentLimitations(
+    root,
+    sources,
+    facts,
+    memberRelPaths: [
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        member.relPath,
+    ],
+  );
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -2304,8 +2312,10 @@ const _cacheSchemaVersion = 8;
 // 범위 밖 진입점 디렉터리 limitation(v24)을 싣는다. 이전 캐시에는 이 한계가 없다.
 // 리다이렉트 factory의 대상 클래스 call 간선(v25)을 더한다. 이전 캐시는 그 간선이
 // 없어 리다이렉트로만 만들어지는 구현을 미도달로 남긴다.
+// 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
+// 한계 문구는 다르다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v25-redirecting-factories';
+    'dartograph-analysis-$toolVersion-cache-v26-unanalyzed-members';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2919,8 +2929,9 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 List<String> _agentLimitations(
   String root,
   List<String> sources,
-  Map<String, _UnitFacts> facts,
-) {
+  Map<String, _UnitFacts> facts, {
+  List<String> memberRelPaths = const [],
+}) {
   final sourceGaps = <String>{};
   var conditionalCount = 0;
   final routeTables = <String>{};
@@ -2944,7 +2955,7 @@ List<String> _agentLimitations(
       .where((route) => !routeTables.contains(route))
       .length;
   final staleGenerated = _staleGeneratedCount(root);
-  final unanalyzed = _unanalyzedEntryDirectoryCounts(root);
+  final unanalyzed = _unanalyzedEntryDirectoryCounts(root, memberRelPaths);
   return [
     if (sourceGaps.isNotEmpty)
       'analysis gaps may affect reachability outside the source files where they were observed',
@@ -2957,7 +2968,7 @@ List<String> _agentLimitations(
       'generated-code-staleness: $staleGenerated generated file(s) are older than their source',
     if (unanalyzed.isNotEmpty)
       'unanalyzed-directories: Dart files under '
-          '${[for (final MapEntry(:key, :value) in unanalyzed.entries) '$key/ ($value)'].join(', ')} '
+          '${[for (final MapEntry(:key, :value) in unanalyzed.entries) '$key ($value)'].join(', ')} '
           'are not analyzed; declarations used only from them are reported as '
           'unreachable (retain them with retained_names or retained_files in '
           'dartograph.yaml)',
@@ -2965,27 +2976,38 @@ List<String> _agentLimitations(
 }
 
 /// 표준 분석 디렉터리([_sourceDirectories]) 밖에서 Dart 패키지가 관례적으로
-/// 진입점을 두는 루트 디렉터리다. web/(웹 앱 main), tool/(빌드·생성 스크립트),
-/// hook/(native assets 훅), benchmark/는 analyzer 해석 대상이 아니므로 그 파일의
-/// main은 보존 루트가 되지 않는다.
-const _unanalyzedEntryDirectories = ['benchmark', 'hook', 'tool', 'web'];
+/// 진입점을 두는 패키지 디렉터리다. web/(웹 앱 main), tool/(빌드·생성 스크립트),
+/// hook/(native assets 훅), benchmark/, test_driver/(flutter_driver 진입점)는
+/// analyzer 해석 대상이 아니므로 그 파일의 main은 보존 루트가 되지 않는다.
+const _unanalyzedEntryDirectories = [
+  'benchmark',
+  'hook',
+  'test_driver',
+  'tool',
+  'web',
+];
 
-/// [_unanalyzedEntryDirectories]마다 이 패키지에 속한 `.dart` 파일 수다.
+/// 스캔 루트 패키지와 `--workspace` 멤버([memberRelPaths])마다
+/// [_unanalyzedEntryDirectories]에 든 그 패키지의 `.dart` 파일 수다.
 ///
-/// 분석 범위를 넓히지 않고 범위 밖 진입점이 있다는 사실만 limitation으로 남긴다.
-/// 숨김 디렉터리와 중첩 패키지(`pubspec.yaml`이 있는 하위 디렉터리)의 파일은 이
-/// 패키지의 진입점이 아니므로 세지 않는다. 링크는 [indexProjectFiles] 규칙으로
-/// 따라가고 루트 밖 대상도 센다. 결과는 이름순이다.
-Map<String, int> _unanalyzedEntryDirectoryCounts(String root) {
+/// 키는 루트 기준 posix 경로에 `/`를 붙인 표기(`tool/`, `pkgs/a/web/`)이고
+/// 이름순이다. 분석 범위를 넓히지 않고 범위 밖 진입점이 있다는 사실만 limitation으로
+/// 남긴다. 숨김 디렉터리와 중첩 패키지(그 패키지 안에서 `pubspec.yaml`이 있는 하위
+/// 디렉터리)의 파일은 이 패키지의 진입점이 아니므로 세지 않는다.
+Map<String, int> _unanalyzedEntryDirectoryCounts(
+  String root,
+  List<String> memberRelPaths,
+) {
   final counts = <String, int>{};
-  for (final name in _unanalyzedEntryDirectories) {
-    final directory = Directory(p.join(root, name));
-    if (!directory.existsSync()) continue;
+  for (final base in ['', ...memberRelPaths]) {
+    final packageRoot = base.isEmpty
+        ? root
+        : p.join(root, p.joinAll(p.posix.split(base)));
     final packageRoots = <String, bool>{};
     bool insideNestedPackage(String path) {
       for (
         var parent = p.dirname(path);
-        p.isWithin(root, parent);
+        p.isWithin(packageRoot, parent);
         parent = p.dirname(parent)
       ) {
         final nested = packageRoots.putIfAbsent(
@@ -2997,26 +3019,35 @@ Map<String, int> _unanalyzedEntryDirectoryCounts(String root) {
       return false;
     }
 
-    var count = 0;
-    try {
-      for (final file in _projectFiles(
-        directory,
-        skipHiddenDirectories: true,
-        boundary: root,
-      )) {
-        if (file.path.endsWith('.dart') && !insideNestedPackage(file.path)) {
-          count++;
+    for (final name in _unanalyzedEntryDirectories) {
+      final directory = Directory(p.join(packageRoot, name));
+      if (!directory.existsSync()) continue;
+      final label = base.isEmpty ? '$name/' : '$base/$name/';
+      final files = <String>[];
+      try {
+        for (final file in _projectFiles(
+          directory,
+          skipHiddenDirectories: true,
+          boundary: root,
+        )) {
+          if (file.path.endsWith('.dart') && !insideNestedPackage(file.path)) {
+            files.add(
+              p.posix.joinAll(p.split(p.relative(file.path, from: root))),
+            );
+          }
         }
+      } on FileSystemException {
+        // 진단용 수다. 읽을 수 없는 디렉터리가 분석을 실패시키지 않게 하는
+        // 입력 열거(_scanAnalysisInputs)와 같은 수습으로 그 디렉터리를 뺀다.
+        // 장치·FIFO 링크(NonRegularFileException)는 그 열거처럼 그대로 실패한다.
+        continue;
       }
-    } on FileSystemException {
-      // 진단용 수다. 읽을 수 없는 디렉터리가 분석을 실패시키지 않게 하는
-      // 입력 열거(_scanAnalysisInputs)와 같은 수습으로 그 디렉터리를 뺀다.
-      // 장치·FIFO 링크(NonRegularFileException)는 그 열거처럼 그대로 실패한다.
-      continue;
+      if (files.isNotEmpty) counts[label] = files.length;
     }
-    if (count > 0) counts[name] = count;
   }
-  return counts;
+  return {
+    for (final label in counts.keys.toList()..sort()) label: counts[label]!,
+  };
 }
 
 final class _UnresolvedInvocationVisitor extends RecursiveAstVisitor<void> {

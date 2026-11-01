@@ -8,7 +8,7 @@
 
 - `rules`는 규칙이 있는 레이어에서 어느 레이어에도 없는 선언·라이브러리로 가는 사용 간선 수를 `unassigned-layer-targets:` 한계로 알린다. 규칙은 양끝이 모두 레이어에 있는 간선만 검사하므로 `allow` 규칙도 미배정 코드로의 의존을 보지 못했고 그 사실도 드러나지 않았다. 위반과 종료 코드는 바뀌지 않는다.
 
-- 패키지 루트의 `web/`·`tool/`·`hook/`·`benchmark/`에 패키지의 Dart 파일이 있으면(숨김 디렉터리와 자체 `pubspec.yaml`이 있는 중첩 패키지 제외) 분석 명령이 `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` 같은 한계를 더한다. 분석 대상은 `lib/`·`bin/`·`example/`·`integration_test/`·`test/`뿐이라, `web/main.dart`나 `tool/` 스크립트에서만 쓰는 `lib/` 선언이 이유 없이 미도달로 보고됐다. 분석 범위와 finding은 바뀌지 않으며 분석 캐시 신원을 올렸다.
+- `web/`·`tool/`·`hook/`·`benchmark/`·`test_driver/`에 패키지의 Dart 파일이 있거나 `--workspace`에서 멤버의 그 디렉터리에 Dart 파일이 있으면(멤버는 `pkgs/a/web/`처럼 그 경로로 센다. 숨김 디렉터리와 자체 `pubspec.yaml`이 있는 중첩 패키지는 제외) 분석 명령이 `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` 같은 한계를 더한다. 분석 대상은 `lib/`·`bin/`·`example/`·`integration_test/`·`test/`뿐이라, `web/main.dart`나 `tool/` 스크립트에서만 쓰는 `lib/` 선언이 이유 없이 미도달로 보고됐다. 분석 범위와 finding은 바뀌지 않으며 분석 캐시 신원을 올렸다.
 
 - `graph --level`과 같은 사영을 쓰는 `cycles --level <file|type|symbol>`을 추가했다. 기본값 `symbol`은 그대로이며 한 파일이나 한 클래스 안의 상호 재귀도 계속 순환으로 보고한다. `file`은 라이브러리 사이의 순환만 보고하고 `type`은 멤버를 최상위 선언으로 접는다. 그래서 `cycles --strict --level file` 게이트는 `isEven` ↔ `isOdd` 같은 정상적인 재귀로 실패하지 않는다. `--explain`은 고른 해상도의 ID를 받는다(`file`이면 라이브러리 ID). 알 수 없거나 빠졌거나 반복된 값은 64로 끝난다.
 
