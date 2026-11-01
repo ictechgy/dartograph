@@ -155,6 +155,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.
 - 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
+- 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.

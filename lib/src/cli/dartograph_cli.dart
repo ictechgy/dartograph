@@ -572,6 +572,7 @@ const _ledgerSwitches = {
   'closed-app',
   'incremental-user-cache',
   'no-verify',
+  'report-override-only',
   'report-redundant-public',
   'report-test-only',
   'strict',
@@ -2724,6 +2725,7 @@ Future<int> _runDead(
   String? rootPath;
   var reportTestOnly = false;
   var reportRedundantPublic = false;
+  var reportOverrideOnly = false;
   var codeownersFormat = false;
   var closedApp = false;
   for (var index = 0; index < arguments.length; index++) {
@@ -2817,6 +2819,12 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       reportRedundantPublic = true;
+    } else if (argument == '--report-override-only') {
+      if (reportOverrideOnly) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      reportOverrideOnly = true;
     } else if (argument == '--closed-app') {
       if (closedApp) {
         error.write(_help);
@@ -2830,16 +2838,22 @@ Future<int> _runDead(
       return ExitStatus.usage.code;
     }
   }
-  // --report-test-only·--report-redundant-public는 각각 다른 질문을 info로
-  // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
-  // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
-  // --closed-app은 공개 API 보존을 거는 분석이므로, 그 보존을 전제로 답하는
-  // --report-redundant-public과는 전제가 모순되어 결합하지 않는다.
+  // --report-test-only·--report-redundant-public·--report-override-only는 각각
+  // 다른 질문을 info로 답한다. 단일 대상을 묻는 --explain, dead finding을
+  // 억제하는 --baseline, 리포트끼리의 동시 사용과는 결합하지 않는다(--since는
+  // 보고 위치만 좁히므로 허용). --closed-app은 공개 API 보존을 거는 분석이므로,
+  // 그 보존을 전제로 답하는 --report-redundant-public과는 전제가 모순되어
+  // 결합하지 않는다.
+  final infoReports = [
+    reportTestOnly,
+    reportRedundantPublic,
+    reportOverrideOnly,
+  ].where((selected) => selected).length;
   if (rootPath == null ||
       (reportFormat == null && !codeownersFormat) ||
       (codeownersFormat && codeownersPath == null) ||
       (!codeownersFormat && codeownersPath != null) ||
-      (reportTestOnly && reportRedundantPublic) ||
+      infoReports > 1 ||
       (closedApp && reportRedundantPublic) ||
       (explainId != null &&
           (codeownersFormat ||
@@ -2847,9 +2861,8 @@ Future<int> _runDead(
               baselinePath != null ||
               since != null ||
               kinds != null ||
-              reportTestOnly ||
-              reportRedundantPublic)) ||
-      ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
+              infoReports > 0)) ||
+      (infoReports > 0 && baselinePath != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -2898,12 +2911,14 @@ Future<int> _runDead(
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }
-    // 두 info 리포트는 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지
+    // info 리포트는 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지
     // 않는다.
     final report = reportTestOnly
         ? DeadReport.testOnly
         : reportRedundantPublic
         ? DeadReport.redundantPublic
+        : reportOverrideOnly
+        ? DeadReport.overrideOnly
         : DeadReport.dead;
     final List<DeadFinding> findings;
     if (reportTestOnly) {
@@ -2914,6 +2929,12 @@ Future<int> _runDead(
       );
     } else if (reportRedundantPublic) {
       findings = analyzer.redundantPublicDeclarations(
+        snapshot,
+        roots: roots,
+        limitations: limitations,
+      );
+    } else if (reportOverrideOnly) {
+      findings = analyzer.overrideOnlyDeclarations(
         snapshot,
         roots: roots,
         limitations: limitations,
@@ -3010,7 +3031,7 @@ Future<int> _runDead(
       );
     }
     failedItems.addAll([for (final finding in reported) finding.id]);
-    if (reportTestOnly || reportRedundantPublic) {
+    if (infoReports > 0) {
       return ExitStatus.success.code;
     }
     return reported.isEmpty
@@ -4102,6 +4123,7 @@ Usage: dartograph [--help] [--version]
        dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-override-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -4174,13 +4196,18 @@ declarations reached only from test code) at info severity, so it never fails
 the build and does not combine with --explain or --baseline. dead
 --report-redundant-public likewise answers at info severity (public
 declarations whose observed references all come from their own library) with
-the same combination rules. dead --closed-app stops retaining the public API
-surface: only actual entry points (main functions, tests, annotations, and
-configured entry_points) keep code alive. Use it for standalone applications,
-not published libraries — the report is still a review list, not a deletion
-instruction. Pass the same --closed-app to baseline --write so the recorded
-fingerprints match. --closed-app does not combine with
---report-redundant-public, whose premise is public-API retention.
+the same combination rules. dead --report-override-only also answers at info
+severity with those rules: override members stay retention roots in dead, and
+this report lists declarations kept alive only by override members whose
+enclosing type is not otherwise reached (no instance, subtype, or other
+reference), such as unused widgets that override build(). A type that only
+reflection or external code instantiates can appear in it. dead --closed-app
+stops retaining the public API surface: only actual entry points (main
+functions, tests, annotations, and configured entry_points) keep code alive.
+Use it for standalone applications, not published libraries — the report is
+still a review list, not a deletion instruction. Pass the same --closed-app to
+baseline --write so the recorded fingerprints match. --closed-app does not
+combine with --report-redundant-public, whose premise is public-API retention.
 
 dartograph.yaml also accepts include/exclude globs that narrow which sources
 produce dead, deps, and dup findings (matched against the source path without

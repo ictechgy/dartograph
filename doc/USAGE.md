@@ -37,6 +37,7 @@ dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [-
 dartograph dead --explain <symbol-id> --format json [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-override-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -236,8 +237,8 @@ Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
 `--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다 — 사람은 `text`·
 `markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다. `markdown`은 `dead`·
-`dead --report-test-only`·`dead --report-redundant-public` 모두에서 표와 limitation
-목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
+`dead --report-test-only`·`dead --report-redundant-public`·`dead --report-override-only`
+모두에서 표와 limitation 목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
 Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 안의 git, 부분 클론의 promisor
@@ -283,6 +284,21 @@ barrel·플러그인 등 외부·도구가 유지를 선언한 선언), enum 상
 override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단일 패키지 분석이라
 외부 소비자는 보이지 않는다 — **게시된 패키지의 공개 API는 이 관측으로 좁히지 말 것**.
 `--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
+
+`dead --report-override-only`도 다른 질문을 답한다. 기본 `dead`는 `@override`가 붙었거나
+상속 멤버를 재정의한 멤버를 모두 보존 루트(`overrideContract`)로 둔다 — 상위 타입을 거친
+디스패치와 프레임워크 호출은 그래프 간선으로 보이지 않기 때문이다. 그래서 `build()`를
+재정의한 위젯이나 `toString()`만 재정의한 클래스는 아무도 만들지 않아도 dead로 보고되지
+않는다. 이 리포트는 재정의 루트를 **가장 가까운 컨테이너 타입이 다른 근거로 살아 있을
+때만**(인스턴스화·타입 참조·살아 있는 하위 타입의 상속·다른 루트 멤버) 켜고, 켜진 루트가
+새 타입을 살리면 고정점까지 다시 계산한다(RTA 방식). 기본 루트로는 살아 있지만 이 조건부
+루트로는 미도달인 **선언**을 `info` 심각도로 보고하고 **finding이 있어도 종료 코드 0**이다.
+파일은 보고하지 않는다. 근거(`retentionRootsChecked`)는 기본 분석에서 그 선언에 도달한 재정의
+루트 하나다. 같은 멤버에 붙은 `@pragma('vm:entry-point')`·JS/FFI binding·`@visibleForTesting`
+annotation은 `@override`보다 우선하는 보존 근거라 조건 없이 루트로 남는다. 리플렉션이나
+외부 코드만 인스턴스를 만드는 타입은 그래프에 보이지 않으므로 이 리포트에 나올 수 있다 —
+삭제 권고가 아니라 검토 목록이다. `--closed-app`과 결합할 수 있고, 다른 리포트와의 동시 사용,
+`--explain`·`--baseline`과의 결합은 usage(64)다.
 
 `deps`는 pubspec 선언과 소스의 `package:` import/export 관측을 대조하는 의존성 위생
 감사다. finding은 네 종류다: `unused-dependency`(선언됐는데 어느 소스도 import하지
@@ -801,8 +817,8 @@ plugins:
 
 | 코드 | 뜻 |
 |---:|---|
-| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
-| 1 | `dead`·`deps` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
+| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`·`dead --report-override-only`(info)는 finding이 있어도 성공 |
+| 1 | `dead`·`deps` finding(`--report-test-only`·`--report-redundant-public`·`--report-override-only` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함, `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다), 또는 `history`가 원장을 읽지 못함 |
 | 64 | 잘못된 명령·인자(`--record`·`history`의 옵션 오류 포함), 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 

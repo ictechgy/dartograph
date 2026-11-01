@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## 0.17.0 - Unreleased
 
+- Added `dead --report-override-only`. `dead` keeps every overriding member as a retention root, so a class kept alive only by its overrides (an unused widget that overrides `build()`, a value type that overrides only `toString()`, and the abstract base they implement) is never reported. The new report treats an override as a root only once its enclosing type is reached some other way (an instance, a type reference, a reached subtype, or another root member), repeats until nothing changes, and lists the declarations that are alive only through the remaining override roots at info severity with exit 0. It accepts `--closed-app`, `--since`, `--kinds`, and every `dead` format, and rejects `--explain`, `--baseline`, and the other report modes with exit 64. `dead` output is unchanged. A `@pragma('vm:entry-point')`, JS/FFI binding, or `@visibleForTesting` annotation on an `@override` member is now its retention reason even when `@override` comes first (it was recorded as `overrideContract`), so `dead --explain` names that reason; the analysis cache identity is bumped.
+
 - Retain unselected conditional import/export libraries and their file dependencies with an explicit conditional-configuration reason, without inventing selected usage edges. Invalidate earlier caches.
 
 - Metrics exclude test libraries and their couplings by default. Use

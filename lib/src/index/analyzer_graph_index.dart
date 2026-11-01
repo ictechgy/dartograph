@@ -2299,8 +2299,10 @@ const _cacheSchemaVersion = 8;
 // 복합 대입·증감의 property 읽기/쓰기 간선(v21)을 보완한다. 이전 캐시는
 // `++field`로만 쓰는 필드를 미도달로 남기므로 같은 입력도 다시 해석해야 한다.
 // 조건부 구성 보존(v22)은 선택되지 않은 파일의 선언·의존 폐쇄를 루트로 남긴다.
+// `@override` 멤버의 다른 annotation 보존 근거(v23)를 우선한다. 이전 캐시는
+// `@override @pragma('vm:entry-point')`를 재정의 계약으로만 남긴다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v22-conditional-retention';
+    'dartograph-analysis-$toolVersion-cache-v23-override-precedence';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3754,11 +3756,17 @@ RetentionReason? _retentionReason(
   if (_isGenerated(packageSource)) {
     return RetentionReason.generatedCode;
   }
+  // `@override`는 다른 annotation을 다 본 뒤에 판정한다. 같은 멤버에 붙은
+  // pragma·binding·visibleForTesting은 컨테이너 타입과 무관한 보존 근거라,
+  // annotation 순서 때문에 재정의 계약으로 덮이면 `--report-override-only`가
+  // 그 멤버를 조건부 루트로 잘못 다룬다.
+  var annotatedOverride = false;
   for (final annotation in node.metadata) {
     final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
     if (name == 'override' && annotationLibrary == 'dart:core') {
-      return RetentionReason.overrideContract;
+      annotatedOverride = true;
+      continue;
     }
     if (name == 'visibleForTesting' &&
         annotationLibrary == 'package:meta/meta.dart') {
@@ -3802,7 +3810,7 @@ RetentionReason? _retentionReason(
       }
     }
   }
-  if (_overridesInheritedMember(element)) {
+  if (annotatedOverride || _overridesInheritedMember(element)) {
     return RetentionReason.overrideContract;
   }
   return null;

@@ -140,6 +140,11 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  expect_status 0 "dead override-only corpus has no dead finding" dead --format json fixtures/override_only_corpus
+  expect_status 0 "dead report-override-only is info" dead --report-override-only --format json fixtures/override_only_corpus
+  expect_status 0 "dead report-override-only closed-app sarif" dead --report-override-only --closed-app --format sarif fixtures/override_only_corpus
+  expect_status 64 "dead override-only with test-only" dead --report-override-only --report-test-only --format json fixtures/override_only_corpus
+  expect_status 64 "dead override-only with baseline" dead --report-override-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/override_only_corpus
   expect_status 1 "dead closed-app findings" dead --format json --closed-app fixtures/closed_app
   expect_status 0 "baseline write closed-app" baseline --write "$TEMPORARY_DIRECTORY/baseline-closed.json" --closed-app fixtures/closed_app
   expect_status 0 "dead closed-app with baseline" dead --format json --closed-app --baseline "$TEMPORARY_DIRECTORY/baseline-closed.json" fixtures/closed_app

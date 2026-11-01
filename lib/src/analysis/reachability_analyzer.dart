@@ -644,6 +644,97 @@ final class ReachabilityAnalyzer {
     return findings;
   }
 
+  /// 재정의 멤버 루트만이 살리는 선언을 info 발견으로 반환한다.
+  ///
+  /// 기본 dead는 `overrideContract` 루트를 무조건 보존한다. 상위 타입을 거친
+  /// 디스패치·프레임워크 호출은 그래프 간선으로 보이지 않기 때문이다. 하지만
+  /// 재정의 멤버는 그 타입(또는 하위 타입)의 인스턴스가 있어야 호출된다. 이
+  /// 리포트는 RTA(Rapid Type Analysis)처럼 재정의 루트를 **가장 가까운 컨테이너
+  /// 선언이 다른 근거로 살아 있을 때만** 루트로 켠다. 켜진 루트가 새 타입을
+  /// 살리면 그 타입의 재정의 루트도 켜지도록 고정점까지 다시 계산한다. "살아
+  /// 있음"은 [analyze]의 발견 제외 기준(직접 도달·도달 멤버의 컨테이너·도달
+  /// enum의 상수·도달 sealed의 서브타입)과 같다.
+  ///
+  /// 기본 루트로는 살아 있지만 조건부 재정의 루트로는 미도달인 선언을 고른다.
+  /// 삭제 권고가 아니라 "재정의 계약만이 보존 근거"라는 관측이다. 리플렉션·
+  /// 외부 코드만 인스턴스를 만드는 타입은 그래프에 없으므로 여기 보고될 수 있다.
+  /// 근거는 기본 분석에서 그 선언에 실제로 도달한 재정의 루트 하나다.
+  /// 파일 발견은 만들지 않는다(`--report-test-only`와 같은 선언 단위 질문).
+  List<DeadFinding> overrideOnlyDeclarations(
+    GraphSnapshot graph, {
+    required Map<String, RetentionReason> roots,
+    List<String> limitations = const [],
+  }) {
+    final nodeIds = graph.nodes.map((node) => node.id).toSet();
+    final active = <String, RetentionReason>{};
+    // 조건부 루트 → 그 루트를 켜는 컨테이너 선언. 컨테이너가 그래프에 없는
+    // 재정의 루트(합성 입력)는 조건을 판정할 수 없으므로 보수적으로 켜 둔다.
+    final pending = SplayTreeMap<String, String>();
+    for (final entry in roots.entries) {
+      final container = entry.value == RetentionReason.overrideContract
+          ? _nearestContainer(entry.key, nodeIds)
+          : null;
+      if (container == null) {
+        active[entry.key] = entry.value;
+      } else {
+        pending[entry.key] = container;
+      }
+    }
+    final withOverrides = analyze(
+      graph,
+      roots: roots,
+      limitations: limitations,
+    );
+    var conditional = analyze(graph, roots: active, limitations: limitations);
+    while (pending.isNotEmpty) {
+      final dead = {
+        for (final finding in conditional.deadDeclarations) finding.id,
+      };
+      final enabled = [
+        for (final entry in pending.entries)
+          if (!dead.contains(entry.value)) entry.key,
+      ];
+      if (enabled.isEmpty) break;
+      for (final id in enabled) {
+        pending.remove(id);
+        active[id] = roots[id]!;
+      }
+      conditional = analyze(graph, roots: active, limitations: limitations);
+    }
+    final deadWithOverrides = {
+      for (final finding in withOverrides.deadDeclarations) finding.id,
+    };
+    final unmetRoots = pending.keys.where(nodeIds.contains).toList();
+    final findings = <DeadFinding>[];
+    for (final finding in conditional.deadDeclarations) {
+      // 모든 루트에서도 죽었으면 일반 dead 발견이다.
+      if (deadWithOverrides.contains(finding.id)) continue;
+      // 이 선언을 살린 실제 재정의 루트를 근거로 쓴다. 조건부 분석에서 켜진
+      // 루트는 이 선언에 닿지 못하므로 path.first는 켜지지 않은 루트다.
+      final explanation = withOverrides.explain(finding.id);
+      final reachingRoot = explanation.reachable && explanation.path.isNotEmpty
+          ? explanation.path.first
+          : null;
+      findings.add(
+        DeadFinding(
+          id: finding.id,
+          kind: 'declaration',
+          source: finding.source,
+          line: finding.line,
+          column: finding.column,
+          reason:
+              'retained only by override members of otherwise unreached types',
+          retentionRootsChecked: reachingRoot != null
+              ? [reachingRoot]
+              : unmetRoots,
+          limitations: finding.limitations,
+        ),
+      );
+    }
+    findings.sort((a, b) => a.id.compareTo(b.id));
+    return findings;
+  }
+
   /// Periphery `redundant public accessibility`와 같은 질문이다. 살아 있는
   /// 공개 선언 중 들어오는 사용 간선이 **모두** 자기 라이브러리 안에서
   /// 시작하는 것을 고른다 — 이 관측만으로는 라이브러리 비공개(`_`)로
@@ -747,6 +838,22 @@ const _operatorNames = {'unary-'};
 final _operatorSymbolPattern = RegExp(r'^[+\-*/%<>=&|^~\[\]]+$');
 
 bool _isTestSource(String? source) => isTestSourceUri(source);
+
+/// 멤버 [id]를 담는 가장 가까운 컨테이너 선언 ID다. 없으면 null이다.
+///
+/// [ReachabilityAnalyzer.analyze]의 컨테이너 보존과 같은 ID 관례(첫 `::` 뒤
+/// 이름의 점 접두)를 쓴다. 최상위 선언과 라이브러리는 컨테이너가 없다.
+String? _nearestContainer(String id, Set<String> nodeIds) {
+  final symbolSeparator = id.indexOf('::');
+  if (symbolSeparator < 0) return null;
+  var memberSeparator = id.lastIndexOf('.');
+  while (memberSeparator > symbolSeparator + 1) {
+    final candidate = id.substring(0, memberSeparator);
+    if (nodeIds.contains(candidate)) return candidate;
+    memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
+  }
+  return null;
+}
 
 /// 보존 루트를 테스트 루트로 분류한다. reason과 source 접두어를 **양쪽** 요구한다.
 ///

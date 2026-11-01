@@ -313,6 +313,11 @@ Limitations:
   changes.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
+- Members that override an inherited member (with or without `@override`) are
+  retained as roots, because calls dispatched through a supertype or a framework
+  are not graph edges. A class kept alive only by such members, such as an
+  unused widget that overrides `build()`, is not reported by `dead`;
+  `dead --report-override-only` lists these declarations at info severity.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
 - Symbolic links inside the project are followed like the analyzer does, but a
   directory reached through links is read only once. When several link paths
