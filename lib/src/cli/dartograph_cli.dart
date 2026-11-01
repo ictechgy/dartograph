@@ -1459,9 +1459,11 @@ Future<int> _runRules(
           ? ExitStatus.success.code
           : ExitStatus.usage.code;
     }
-    final violations = LayerRuleEvaluator(
-      ruleSet,
-    ).evaluate(indexed.graph.snapshot());
+    final evaluator = LayerRuleEvaluator(ruleSet);
+    final snapshot = indexed.graph.snapshot();
+    final violations = evaluator.evaluate(snapshot);
+    final unassigned = evaluator.unassignedTargetsLimitation(snapshot);
+    if (unassigned != null) limitations.add(unassigned);
     output.write(
       AnalysisReporter.rules(
         violations,

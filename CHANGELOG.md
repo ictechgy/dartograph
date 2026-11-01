@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## 0.17.0 - Unreleased
 
+- `rules` adds an `unassigned-layer-targets:` limitation that counts usage edges from a layer with rules to declarations or libraries outside every layer. Rules check only edges whose both ends are in a layer, so even an `allow` rule did not see a dependency on unassigned code, and nothing said so. Violations and exit codes are unchanged.
+
 - Analysis commands add an `unanalyzed-directories:` limitation when `web/`, `tool/`, `hook/`, or `benchmark/` at the package root holds Dart files of the package (hidden directories and nested packages with their own `pubspec.yaml` are not counted), for example `unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …`. Only `lib/`, `bin/`, `example/`, `integration_test/`, and `test/` are analyzed, so a `lib/` declaration used only from `web/main.dart` or a `tool/` script is reported as unreachable with no hint why. The analyzed scope and the findings are unchanged; the analysis cache identity is bumped.
 
 - Added `cycles --level <file|type|symbol>`, the projection that `graph --level` uses. The default, `symbol`, is unchanged and still reports mutual recursion inside one file or one class as a cycle. `file` reports only cycles between libraries and `type` folds members into their top-level declaration, so a `cycles --strict --level file` gate no longer fails on ordinary recursion such as `isEven` ↔ `isOdd`. `--explain` takes an id at the chosen level (a library id for `file`). An unknown, missing, or repeated value exits 64.
