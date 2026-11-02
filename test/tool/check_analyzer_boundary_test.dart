@@ -10,11 +10,15 @@ void main() {
       'dartograph-boundary-test.',
     );
     addTearDown(() => temporaryDirectory.delete(recursive: true));
-    // 최상위 확인은 통과시키고(빈 prefix) grep만 실패시켜 스캐너 실패 경로를 본다.
+    // 최상위 확인은 통과시키고(작업 트리 안, 빈 prefix) grep만 실패시켜 스캐너
+    // 실패 경로를 본다.
     final fakeGit = File('${temporaryDirectory.path}/git');
     await fakeGit.writeAsString(
       '#!/usr/bin/env bash\n'
-      'if [[ "\$1" == rev-parse ]]; then exit 0; fi\n'
+      'if [[ "\$1" == rev-parse ]]; then\n'
+      '  if [[ "\$2" == --is-inside-work-tree ]]; then echo true; fi\n'
+      '  exit 0\n'
+      'fi\n'
       'exit 128\n',
     );
     final chmod = await Process.run('chmod', ['+x', fakeGit.path]);
@@ -104,6 +108,91 @@ void main() {
     await repository.write('lib/src/analysis/leak.dart', _violation);
 
     final result = await repository.scan();
+    expect(result.exitCode, 2, reason: '${result.stdout}${result.stderr}');
+    expect(result.stderr, contains('is not the top level of a Git work tree'));
+  });
+
+  test(
+    'a foreign GIT_DIR and GIT_WORK_TREE do not redirect the scan',
+    () async {
+      // 다른 저장소를 가리키는 GIT_DIR·GIT_WORK_TREE가 내보내져 있으면 git은 그
+      // 저장소의 index·exclude로 이 패키지를 훑는다. 그 저장소가 `lib/`를 제외하면
+      // 위반이 있어도 통과했다. 스크립트는 자기 checkout을 직접 찾아야 한다.
+      final foreign = await Directory.systemTemp.createTemp(
+        'dartograph-boundary-foreign.',
+      );
+      addTearDown(() => foreign.delete(recursive: true));
+      await _git(foreign.path, ['init', '--quiet']);
+      await File('${foreign.path}/.git/info/exclude').writeAsString('lib/\n');
+      final environment = {
+        'GIT_DIR': '${foreign.path}/.git',
+        'GIT_WORK_TREE': foreign.path,
+      };
+
+      // 자기 저장소가 있는 패키지는 그 저장소로 검사해 위반을 찾는다.
+      final repository = await _BoundaryRepository.create();
+      addTearDown(repository.delete);
+      await repository.write('lib/src/analysis/leak.dart', _violation);
+      final redirected = await repository.scan(environment: environment);
+      expect(
+        redirected.exitCode,
+        1,
+        reason: '${redirected.stdout}${redirected.stderr}',
+      );
+      expect(redirected.stderr, contains('lib/src/analysis/leak.dart:1:'));
+
+      // 자기 저장소가 없는 패키지는 다른 저장소를 빌려 통과하지 않고 2로 끝난다.
+      final loose = await _BoundaryRepository.create(initialize: false);
+      addTearDown(loose.delete);
+      await loose.write('lib/src/analysis/leak.dart', _violation);
+      final unrooted = await loose.scan(
+        environment: {
+          ...environment,
+          'GIT_CEILING_DIRECTORIES': loose.directory.parent.path,
+        },
+      );
+      expect(
+        unrooted.exitCode,
+        2,
+        reason: '${unrooted.stdout}${unrooted.stderr}',
+      );
+      expect(
+        unrooted.stderr,
+        contains('is not the top level of a Git work tree'),
+      );
+    },
+  );
+
+  test('a hook-style relative GIT_DIR still scans this checkout', () async {
+    // git hook은 저장소 최상위에서 `GIT_DIR=.git`을 내보낸 채 실행된다.
+    final repository = await _BoundaryRepository.create();
+    addTearDown(repository.delete);
+    await repository.write('lib/src/analysis/leak.dart', _violation);
+    final result = await repository.scan(environment: {'GIT_DIR': '.git'});
+    expect(result.exitCode, 1, reason: '${result.stdout}${result.stderr}');
+    expect(result.stderr, contains('lib/src/analysis/leak.dart:1:'));
+  });
+
+  test('a dotfiles-style work tree above the package fails closed', () async {
+    // 홈 디렉터리를 작업 트리로 쓰는 bare 저장소(dotfiles) 변수가 내보내져 있고
+    // 패키지에 자기 저장소가 없으면 검사할 checkout이 없다.
+    final home = await Directory.systemTemp.createTemp(
+      'dartograph-boundary-home.',
+    );
+    addTearDown(() => home.delete(recursive: true));
+    await _git(home.path, ['init', '--quiet', '--bare', '.dotfiles']);
+    final repository = await _BoundaryRepository.create(
+      directory: Directory('${home.path}/pkg'),
+      initialize: false,
+    );
+    await repository.write('lib/src/analysis/leak.dart', _violation);
+    final result = await repository.scan(
+      environment: {
+        'GIT_DIR': '${home.path}/.dotfiles',
+        'GIT_WORK_TREE': home.path,
+        'GIT_CEILING_DIRECTORIES': home.parent.path,
+      },
+    );
     expect(result.exitCode, 2, reason: '${result.stdout}${result.stderr}');
     expect(result.stderr, contains('is not the top level of a Git work tree'));
   });
