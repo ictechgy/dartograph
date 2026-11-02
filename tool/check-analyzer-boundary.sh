@@ -15,11 +15,13 @@ unset GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_LITERAL_PATHSPECS GIT_ICASE_PA
 
 # 이 디렉터리가 저장소 최상위여야 한다. 자기 .git 없이 이 경로를 무시하는 상위
 # 저장소 안에 있으면 git grep이 파일을 하나도 보지 않아 위반이 있어도 통과한다.
+# 최상위에서 `--show-prefix`는 빈 문자열이다. 경로 문자열을 비교하지 않으므로
+# Git for Windows(`C:/…`)와 MSYS bash(`/c/…`)처럼 경로 표기가 달라도 같다.
 set +e
-toplevel="$(git rev-parse --show-toplevel 2>/dev/null)"
-toplevel_status=$?
+prefix="$(git rev-parse --show-prefix 2>/dev/null)"
+prefix_status=$?
 set -e
-if [[ "$toplevel_status" -ne 0 || "$toplevel" != "$(pwd -P)" ]]; then
+if [[ "$prefix_status" -ne 0 || -n "$prefix" ]]; then
   echo "Analyzer boundary scan failed: $(pwd -P) is not the top level of a Git work tree" >&2
   exit 2
 fi
