@@ -1565,7 +1565,15 @@ AnalyzerGraphResult _assembleResult({
   if (retentionRoots.values.contains(RetentionReason.visibleForTesting)) {
     limitations.add(AnalyzerLimitation.testCodeRetention);
   }
-  final limitationDetails = _agentLimitations(root, sources, facts);
+  final limitationDetails = _agentLimitations(
+    root,
+    sources,
+    facts,
+    memberRelPaths: [
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        member.relPath,
+    ],
+  );
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -2299,8 +2307,16 @@ const _cacheSchemaVersion = 8;
 // 복합 대입·증감의 property 읽기/쓰기 간선(v21)을 보완한다. 이전 캐시는
 // `++field`로만 쓰는 필드를 미도달로 남기므로 같은 입력도 다시 해석해야 한다.
 // 조건부 구성 보존(v22)은 선택되지 않은 파일의 선언·의존 폐쇄를 루트로 남긴다.
+// `@override` 멤버의 다른 annotation 보존 근거(v23)를 우선한다. 이전 캐시는
+// `@override @pragma('vm:entry-point')`를 재정의 계약으로만 남긴다.
+// 범위 밖 진입점 디렉터리 limitation(v24)을 싣는다. 이전 캐시에는 이 한계가 없다.
+// 리다이렉트 factory의 대상 클래스 call 간선(v25)을 더한다. 이전 캐시는 그 간선이
+// 없어 리다이렉트로만 만들어지는 구현을 미도달로 남긴다.
+// 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
+// 한계 문구는 다르다.
+// 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v22-conditional-retention';
+    'dartograph-analysis-$toolVersion-cache-v27-unanalyzed-escapes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2914,8 +2930,9 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 List<String> _agentLimitations(
   String root,
   List<String> sources,
-  Map<String, _UnitFacts> facts,
-) {
+  Map<String, _UnitFacts> facts, {
+  List<String> memberRelPaths = const [],
+}) {
   final sourceGaps = <String>{};
   var conditionalCount = 0;
   final routeTables = <String>{};
@@ -2939,6 +2956,7 @@ List<String> _agentLimitations(
       .where((route) => !routeTables.contains(route))
       .length;
   final staleGenerated = _staleGeneratedCount(root);
+  final unanalyzed = _unanalyzedEntryDirectoryCounts(root, memberRelPaths);
   return [
     if (sourceGaps.isNotEmpty)
       'analysis gaps may affect reachability outside the source files where they were observed',
@@ -2949,7 +2967,103 @@ List<String> _agentLimitations(
       'string-routes: $unmatchedRoutes named route use(s) have no matching route table entry',
     if (staleGenerated > 0)
       'generated-code-staleness: $staleGenerated generated file(s) are older than their source',
+    if (unanalyzed.isNotEmpty)
+      'unanalyzed-directories: Dart files under '
+          '${[for (final MapEntry(:key, :value) in unanalyzed.entries) '$key ($value)'].join(', ')} '
+          'are not analyzed; declarations used only from them are reported as '
+          'unreachable (retain them with retained_names or retained_files in '
+          'dartograph.yaml)',
   ];
+}
+
+/// 표준 분석 디렉터리([_sourceDirectories]) 밖에서 Dart 패키지가 관례적으로
+/// 진입점을 두는 패키지 디렉터리다. web/(웹 앱 main), tool/(빌드·생성 스크립트),
+/// hook/(native assets 훅), benchmark/, test_driver/(flutter_driver 진입점)는
+/// analyzer 해석 대상이 아니므로 그 파일의 main은 보존 루트가 되지 않는다.
+const _unanalyzedEntryDirectories = [
+  'benchmark',
+  'hook',
+  'test_driver',
+  'tool',
+  'web',
+];
+
+/// 스캔 루트 패키지와 `--workspace` 멤버([memberRelPaths])마다
+/// [_unanalyzedEntryDirectories]에 든 그 패키지의 `.dart` 파일 수다.
+///
+/// 키는 루트 기준 posix 경로에 `/`를 붙인 표기(`tool/`, `pkgs/a/web/`)이고
+/// 이름순이다. 분석 범위를 넓히지 않고 범위 밖 진입점이 있다는 사실만 limitation으로
+/// 남긴다. 숨김 디렉터리와 중첩 패키지(그 패키지 안에서 `pubspec.yaml`이 있는 하위
+/// 디렉터리)의 파일은 이 패키지의 진입점이 아니므로 세지 않는다. 루트 밖을 가리키는
+/// 링크(디렉터리 자체 포함) 아래 파일도 세지 않는다 — 그 경로는 `symlink-escape`
+/// 한계가 따로 알리며, 같은 경로를 두 한계가 서로 다르게 말하지 않게 한다.
+Map<String, int> _unanalyzedEntryDirectoryCounts(
+  String root,
+  List<String> memberRelPaths,
+) {
+  final counts = <String, int>{};
+  for (final base in ['', ...memberRelPaths]) {
+    final packageRoot = base.isEmpty
+        ? root
+        : p.join(root, p.joinAll(p.posix.split(base)));
+    final packageRoots = <String, bool>{};
+    bool insideNestedPackage(String path) {
+      for (
+        var parent = p.dirname(path);
+        p.isWithin(packageRoot, parent);
+        parent = p.dirname(parent)
+      ) {
+        final nested = packageRoots.putIfAbsent(
+          parent,
+          () => File(p.join(parent, 'pubspec.yaml')).existsSync(),
+        );
+        if (nested) return true;
+      }
+      return false;
+    }
+
+    for (final name in _unanalyzedEntryDirectories) {
+      final directory = Directory(p.join(packageRoot, name));
+      if (!directory.existsSync()) continue;
+      final label = base.isEmpty ? '$name/' : '$base/$name/';
+      final escapes = <String>{};
+      final files = <String>[];
+      try {
+        if (FileSystemEntity.isLinkSync(directory.path) &&
+            !isPathWithinRoot(directory.resolveSymbolicLinksSync(), root)) {
+          continue;
+        }
+        for (final file in _projectFiles(
+          directory,
+          skipHiddenDirectories: true,
+          boundary: root,
+          linkEscapes: escapes,
+        )) {
+          if (file.path.endsWith('.dart') && !insideNestedPackage(file.path)) {
+            files.add(
+              p.posix.joinAll(p.split(p.relative(file.path, from: root))),
+            );
+          }
+        }
+      } on FileSystemException {
+        // 진단용 수다. 읽을 수 없는 디렉터리가 분석을 실패시키지 않게 하는
+        // 입력 열거(_scanAnalysisInputs)와 같은 수습으로 그 디렉터리를 뺀다.
+        // 장치·FIFO 링크(NonRegularFileException)는 그 열거처럼 그대로 실패한다.
+        continue;
+      }
+      final count = files
+          .where(
+            (file) => !escapes.any(
+              (escape) => file == escape || file.startsWith('$escape/'),
+            ),
+          )
+          .length;
+      if (count > 0) counts[label] = count;
+    }
+  }
+  return {
+    for (final label in counts.keys.toList()..sort()) label: counts[label]!,
+  };
 }
 
 final class _UnresolvedInvocationVisitor extends RecursiveAstVisitor<void> {
@@ -3754,11 +3868,17 @@ RetentionReason? _retentionReason(
   if (_isGenerated(packageSource)) {
     return RetentionReason.generatedCode;
   }
+  // `@override`는 다른 annotation을 다 본 뒤에 판정한다. 같은 멤버에 붙은
+  // pragma·binding·visibleForTesting은 컨테이너 타입과 무관한 보존 근거라,
+  // annotation 순서 때문에 재정의 계약으로 덮이면 `--report-override-only`가
+  // 그 멤버를 조건부 루트로 잘못 다룬다.
+  var annotatedOverride = false;
   for (final annotation in node.metadata) {
     final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
     if (name == 'override' && annotationLibrary == 'dart:core') {
-      return RetentionReason.overrideContract;
+      annotatedOverride = true;
+      continue;
     }
     if (name == 'visibleForTesting' &&
         annotationLibrary == 'package:meta/meta.dart') {
@@ -3802,7 +3922,7 @@ RetentionReason? _retentionReason(
       }
     }
   }
-  if (_overridesInheritedMember(element)) {
+  if (annotatedOverride || _overridesInheritedMember(element)) {
     return RetentionReason.overrideContract;
   }
   return null;
@@ -4029,6 +4149,22 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
       _add(owner, _idOf(target), EdgeKind.call);
     }
     super.visitInstanceCreationExpression(node);
+  }
+
+  /// 리다이렉트 factory(`factory S() = C;`)는 대상 생성자를 호출해 인스턴스를
+  /// 만든다. 대상은 InstanceCreationExpression이 아니라 [ConstructorName]으로만
+  /// 나타나고 그 타입 이름은 구조적 위치라 [visitNamedType]이 간선을 만들지 않는다.
+  /// 생성자는 소속 클래스로 모델링하므로(README 한계) 리다이렉트하는 클래스에서
+  /// 대상 클래스로 call 간선을 둔다. 없으면 리다이렉트로만 만들어지는 구현
+  /// 클래스가 미도달로 보고된다.
+  @override
+  void visitConstructorDeclaration(ConstructorDeclaration node) {
+    final owner = _owner;
+    final target = node.redirectedConstructor?.element?.enclosingElement;
+    if (owner != null && target != null && _isGraphElement(target)) {
+      _add(owner, _idOf(target.baseElement), EdgeKind.call);
+    }
+    super.visitConstructorDeclaration(node);
   }
 
   @override

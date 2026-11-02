@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import '../core/graph_edge.dart';
 import '../core/graph_snapshot.dart';
+import '../core/member_containers.dart';
 import '../core/retention_reason.dart';
 import '../core/test_source.dart';
 
@@ -409,14 +410,10 @@ final class ReachabilityAnalyzer {
     final rootsChecked = sortedRoots.keys.where(nodeIds.contains).toList();
     final reachableContainers = <String>{};
     for (final id in paths.keys) {
-      final symbolSeparator = id.indexOf('::');
-      if (symbolSeparator < 0) continue;
-      var memberSeparator = id.lastIndexOf('.');
-      while (memberSeparator > symbolSeparator + 1) {
-        final candidate = id.substring(0, memberSeparator);
-        if (nodeIds.contains(candidate)) reachableContainers.add(candidate);
-        memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
-      }
+      visitMemberContainers(id, nodeIds, (container) {
+        reachableContainers.add(container);
+        return true;
+      });
     }
     // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
     // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다. 메모는 이
@@ -642,6 +639,190 @@ final class ReachabilityAnalyzer {
       );
     }
     return findings;
+  }
+
+  /// 재정의 멤버 루트만이 살리는 선언을 info 발견으로 반환한다.
+  ///
+  /// 기본 dead는 `overrideContract` 루트를 무조건 보존한다. 상위 타입을 거친
+  /// 디스패치·프레임워크 호출은 그래프 간선으로 보이지 않기 때문이다. 하지만
+  /// 재정의 멤버는 그 타입(또는 하위 타입)의 인스턴스가 있어야 호출된다. 이
+  /// 리포트는 RTA(Rapid Type Analysis)처럼 재정의 루트를 **가장 가까운 컨테이너
+  /// 선언이 다른 근거로 살아 있을 때만** 루트로 켠다. 켜진 루트가 새 타입을
+  /// 살리면 그 타입의 재정의 루트도 켜지도록 고정점까지 다시 계산한다. "살아
+  /// 있음"은 [analyze]의 발견 제외 기준(직접 도달·도달 멤버의 컨테이너·도달
+  /// enum의 상수·도달 sealed의 서브타입)과 같다.
+  ///
+  /// 기본 루트로는 살아 있지만 조건부 재정의 루트로는 미도달인 선언을 고른다.
+  /// 삭제 권고가 아니라 "재정의 계약만이 보존 근거"라는 관측이다. 리플렉션·
+  /// 외부 코드만 인스턴스를 만드는 타입은 그래프에 없으므로 여기 보고될 수 있다.
+  /// 근거는 기본 분석에서 그 선언에 실제로 도달한 재정의 루트 하나다.
+  /// 파일 발견은 만들지 않는다(`--report-test-only`와 같은 선언 단위 질문).
+  List<DeadFinding> overrideOnlyDeclarations(
+    GraphSnapshot graph, {
+    required Map<String, RetentionReason> roots,
+    List<String> limitations = const [],
+  }) {
+    final nodeIds = graph.nodes.map((node) => node.id).toSet();
+    final active = <String, RetentionReason>{};
+    // 조건부 루트 → 그 루트를 켜는 컨테이너 선언. 컨테이너가 그래프에 없는
+    // 재정의 루트(합성 입력)는 조건을 판정할 수 없으므로 보수적으로 켜 둔다.
+    final pending = SplayTreeMap<String, String>();
+    for (final entry in roots.entries) {
+      final container = entry.value == RetentionReason.overrideContract
+          ? nearestMemberContainer(entry.key, nodeIds)
+          : null;
+      if (container == null) {
+        active[entry.key] = entry.value;
+      } else {
+        pending[entry.key] = container;
+      }
+    }
+    final withOverrides = analyze(
+      graph,
+      roots: roots,
+      limitations: limitations,
+    );
+    _enableReachedOverrideRoots(graph, nodeIds, roots, active, pending);
+    final conditional = analyze(graph, roots: active, limitations: limitations);
+    final deadWithOverrides = {
+      for (final finding in withOverrides.deadDeclarations) finding.id,
+    };
+    final unmetRoots = pending.keys.where(nodeIds.contains).toList();
+    final findings = <DeadFinding>[];
+    for (final finding in conditional.deadDeclarations) {
+      // 모든 루트에서도 죽었으면 일반 dead 발견이다.
+      if (deadWithOverrides.contains(finding.id)) continue;
+      // 이 선언을 살린 실제 재정의 루트를 근거로 쓴다. 조건부 분석에서 켜진
+      // 루트는 이 선언에 닿지 못하므로 path.first는 켜지지 않은 루트다.
+      final explanation = withOverrides.explain(finding.id);
+      final reachingRoot = explanation.reachable && explanation.path.isNotEmpty
+          ? explanation.path.first
+          : null;
+      findings.add(
+        DeadFinding(
+          id: finding.id,
+          kind: 'declaration',
+          source: finding.source,
+          line: finding.line,
+          column: finding.column,
+          reason:
+              'retained only by override members of otherwise unreached types',
+          retentionRootsChecked: reachingRoot != null
+              ? [reachingRoot]
+              : unmetRoots,
+          limitations: finding.limitations,
+        ),
+      );
+    }
+    findings.sort((a, b) => a.id.compareTo(b.id));
+    return findings;
+  }
+
+  /// [pending]의 조건부 재정의 루트 중 컨테이너가 살아 있게 되는 것을 [active]로
+  /// 옮긴다. 남는 것이 켜지지 않은 루트다.
+  ///
+  /// "켤 수 있는 루트를 모두 켜고 [analyze]를 다시 돌린다"를 변화가 없을 때까지
+  /// 반복한 최소 고정점과 같은 결과를, 도달 집합과 큐를 유지한 한 번의 순회로
+  /// 구한다(반복은 깊이 × (정점+간선)이다). "살아 있음"은 [analyze]의 발견 제외
+  /// 기준을 그대로 따른다: 직접 도달, 도달한 정점의 점 접두 컨테이너, 직접 도달
+  /// 또는 그런 컨테이너인 enum의 상수, 직접 도달한 sealed 타입(과 그 sealed
+  /// 서브타입)의 서브타입. 정점이 살아나는 순간 그 정점이 켜는 루트를 큐에 넣는다.
+  void _enableReachedOverrideRoots(
+    GraphSnapshot graph,
+    Set<String> nodeIds,
+    Map<String, RetentionReason> roots,
+    Map<String, RetentionReason> active,
+    SplayTreeMap<String, String> pending,
+  ) {
+    final outgoing = <String, List<GraphEdge>>{};
+    final subtypesByParent = <String, List<String>>{};
+    for (final edge in graph.edges) {
+      if (edge.kind.impliesUsage) {
+        outgoing.putIfAbsent(edge.sourceId, () => []).add(edge);
+      }
+      switch (edge.kind) {
+        case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
+          if (edge.sourceId != edge.targetId && edge.sourceId.contains('::')) {
+            subtypesByParent
+                .putIfAbsent(edge.targetId, () => [])
+                .add(edge.sourceId);
+          }
+        default:
+      }
+    }
+    final sealed = <String>{
+      for (final node in graph.nodes)
+        if (node.isSealed) node.id,
+    };
+    // [analyze]와 같이 enum 상수의 컨테이너는 마지막 점 앞 전체다.
+    final enumConstants = <String, List<String>>{};
+    for (final node in graph.nodes) {
+      if (!node.isEnumConstant) continue;
+      final separator = node.id.lastIndexOf('.');
+      if (separator < 0) continue;
+      enumConstants
+          .putIfAbsent(node.id.substring(0, separator), () => [])
+          .add(node.id);
+    }
+    final rootsByContainer = <String, List<String>>{};
+    for (final MapEntry(key: root, value: container) in pending.entries) {
+      rootsByContainer.putIfAbsent(container, () => []).add(root);
+    }
+
+    final reached = <String>{};
+    final queue = Queue<String>();
+    final alive = <String>{};
+    final containers = <String>{};
+    final sealedSubtypes = <String>{};
+    void reach(String id) {
+      if (nodeIds.contains(id) && reached.add(id)) queue.add(id);
+    }
+
+    void markAlive(String id) {
+      if (!alive.add(id)) return;
+      for (final root in rootsByContainer.remove(id) ?? const <String>[]) {
+        pending.remove(root);
+        active[root] = roots[root]!;
+        reach(root);
+      }
+    }
+
+    // 직접 도달했거나 컨테이너로 살아난 enum이면 상수도 산다.
+    void reviveConstants(String container) {
+      for (final constant in enumConstants[container] ?? const <String>[]) {
+        markAlive(constant);
+      }
+    }
+
+    void reviveSealedSubtypes(String parent) {
+      final parents = [parent];
+      for (var index = 0; index < parents.length; index++) {
+        for (final subtype
+            in subtypesByParent[parents[index]] ?? const <String>[]) {
+          if (!sealedSubtypes.add(subtype)) continue;
+          markAlive(subtype);
+          if (sealed.contains(subtype)) parents.add(subtype);
+        }
+      }
+    }
+
+    active.keys.toList().forEach(reach);
+    while (queue.isNotEmpty) {
+      final id = queue.removeFirst();
+      markAlive(id);
+      reviveConstants(id);
+      if (sealed.contains(id)) reviveSealedSubtypes(id);
+      visitMemberContainers(id, nodeIds, (container) {
+        if (containers.add(container)) {
+          markAlive(container);
+          reviveConstants(container);
+        }
+        return true;
+      });
+      for (final edge in outgoing[id] ?? const <GraphEdge>[]) {
+        reach(edge.targetId);
+      }
+    }
   }
 
   /// Periphery `redundant public accessibility`와 같은 질문이다. 살아 있는

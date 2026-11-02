@@ -243,6 +243,33 @@ final class LayerRuleEvaluator {
     return List.unmodifiable(result);
   }
 
+  /// 규칙이 있는 레이어에서 어느 레이어에도 배치되지 않은 정점으로 가는 사용
+  /// 간선을 limitation 문구로 요약한다. 없으면 null이다.
+  ///
+  /// [evaluate]는 양끝이 모두 배치된 간선만 검사하므로 `allow` 규칙도 미배정
+  /// 코드로의 의존은 잡지 못한다. 미배정을 가상 레이어로 다룰지는 정책 결정이라
+  /// 판정은 바꾸지 않고, 검사하지 않은 간선과 대상 정점의 수만 알린다. 규칙이
+  /// 없는 레이어와 미배정 출발점은 원래 검사 대상이 아니므로 세지 않는다.
+  String? unassignedTargetsLimitation(GraphSnapshot graph) {
+    final ruled = {for (final rule in ruleSet.rules) rule.from};
+    final assignments = <String, String?>{
+      for (final node in graph.nodes) node.id: _layer(node),
+    };
+    var edges = 0;
+    final targets = <String>{};
+    for (final edge in graph.edges.where((edge) => edge.kind.impliesUsage)) {
+      final from = assignments[edge.sourceId];
+      if (from == null || !ruled.contains(from)) continue;
+      if (assignments[edge.targetId] != null) continue;
+      edges++;
+      targets.add(edge.targetId);
+    }
+    if (edges == 0) return null;
+    return 'unassigned-layer-targets: $edges usage edge(s) from layers with '
+        'rules reach ${targets.length} node(s) outside every layer; layer '
+        'rules do not check them';
+  }
+
   /// [id]의 레이어 배치와 매치 근거, 그 레이어에서 출발하는 규칙을 답한다.
   ///
   /// 정점이 그래프에 없으면 `known: false`다. 있으면 어떤 레이어에도 매치되지

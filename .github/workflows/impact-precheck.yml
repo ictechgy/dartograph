@@ -37,6 +37,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          # 이후 단계는 push·fetch하지 않는다. PR 댓글은 gh가 GH_TOKEN으로 쓴다.
+          persist-credentials: false
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
         with:
           sdk: '3.13.3'

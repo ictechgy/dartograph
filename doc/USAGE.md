@@ -37,6 +37,7 @@ dartograph dead --format <text|json|markdown|codeowners|github-actions|sarif> [-
 dartograph dead --explain <symbol-id> --format json [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph dead --report-override-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -58,8 +59,8 @@ dartograph bridges --events --format json [--project <shared-root>] <package-roo
 dartograph schema --format json [--project <shared-root>] <package-root>
 dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
 dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
-dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
-dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph cycles [--format <text|json|sarif>] [--level <file|type|symbol>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+dartograph cycles --explain <symbol-id> [--level <file|type|symbol>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
 dartograph metrics [--format <text|json|sarif>] [--strict] [--include-tests] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -236,8 +237,8 @@ Codex 전역 설정 경로는 `CODEX_HOME` 환경 변수로 바꿀 수 있다.
 `dead`는 보존 루트에서 도달할 수 없는 선언과 파일을 보고하지만 삭제 판정을 하지 않는다.
 `--format`은 `text`(기본)·`json`·`markdown`·`github-actions`·`sarif`다 — 사람은 `text`·
 `markdown`, CI는 `github-actions`·`sarif`, 자동화는 `json`을 쓴다. `markdown`은 `dead`·
-`dead --report-test-only`·`dead --report-redundant-public` 모두에서 표와 limitation
-목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
+`dead --report-test-only`·`dead --report-redundant-public`·`dead --report-override-only`
+모두에서 표와 limitation 목록을 낸다. `codeowners`는 `--codeowners <file>`로 준 CODEOWNERS 파일로 각 finding의 소스 경로 소유자를 찾아 소유자별로 묶는다(마지막 일치 규칙이 이기고 `*`/`**`, `/` 고정을 지원하는 CODEOWNERS 표현의 부분집합). 규칙에 없는 finding은 `(unowned)`에 모인다. `--format codeowners`에는 `--codeowners`가 필수이고 다른 형식에는 붙일 수 없다.
 `--explain`은 도달 경로나 미도달 근거를 JSON으로 낸다. `baseline`은 현재 finding을 기록하고,
 `--since`는 전체 그래프를 만든 뒤 Git 기준 ref 이후 바뀐 파일로 보고 범위를 좁힌다.
 Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 안의 git, 부분 클론의 promisor
@@ -266,6 +267,17 @@ Git 조회는 저장소 설정의 명령(filter·fsmonitor·훅, 서브모듈 �
 finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된다 — 모드를
 다르게 한 baseline은 finding 지문이 어긋나 억제가 적용되지 않는다.
 
+분석 대상은 패키지 루트의 표준 소스 디렉터리(`lib`·`bin`·`example`·`integration_test`·
+`test`)이고 `main` 진입점은 `lib`·`bin`·`example`에서만 보존한다. 그래서 `web/main.dart`
+(Dart 웹 앱), `tool/`(빌드·생성 스크립트), `hook/`(native assets 훅), `benchmark/`,
+`test_driver/`(flutter_driver 진입점)에서만 쓰는 `lib/` 선언은 미도달로 보고된다. 이 다섯
+디렉터리에 그 패키지의 `.dart` 파일이 있으면(숨김 디렉터리, `pubspec.yaml`이 있는 중첩 패키지,
+루트 밖을 가리키는 링크 아래 파일 제외 — 마지막은 `symlink-escape` 한계가 알린다) 분석 명령은
+`unanalyzed-directories: Dart files under tool/ (2), web/ (1) are not analyzed; …` limitation으로
+디렉터리별 파일 수를 알린다. `--workspace`에서는 각 멤버의 같은 디렉터리도
+`pkgs/a/web/`처럼 루트 기준 경로로 센다. 분석 범위와 보고 대상은 바뀌지 않는다. 그런 선언은
+`dartograph.yaml`의 `retained_names`·`retained_files`로 보존한다.
+
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
 것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"
@@ -283,6 +295,21 @@ barrel·플러그인 등 외부·도구가 유지를 선언한 선언), enum 상
 override, `<unnamed-extension@…>` 마커는 보수적으로 제외한다. 단일 패키지 분석이라
 외부 소비자는 보이지 않는다 — **게시된 패키지의 공개 API는 이 관측으로 좁히지 말 것**.
 `--report-test-only`와의 동시 사용, `--explain`·`--baseline`과의 결합은 usage(64)다.
+
+`dead --report-override-only`도 다른 질문을 답한다. 기본 `dead`는 `@override`가 붙었거나
+상속 멤버를 재정의한 멤버를 모두 보존 루트(`overrideContract`)로 둔다 — 상위 타입을 거친
+디스패치와 프레임워크 호출은 그래프 간선으로 보이지 않기 때문이다. 그래서 `build()`를
+재정의한 위젯이나 `toString()`만 재정의한 클래스는 아무도 만들지 않아도 dead로 보고되지
+않는다. 이 리포트는 재정의 루트를 **가장 가까운 컨테이너 타입이 다른 근거로 살아 있을
+때만**(인스턴스화·타입 참조·살아 있는 하위 타입의 상속·다른 루트 멤버) 켜고, 켜진 루트가
+새 타입을 살리면 고정점까지 다시 계산한다(RTA 방식). 기본 루트로는 살아 있지만 이 조건부
+루트로는 미도달인 **선언**을 `info` 심각도로 보고하고 **finding이 있어도 종료 코드 0**이다.
+파일은 보고하지 않는다. 근거(`retentionRootsChecked`)는 기본 분석에서 그 선언에 도달한 재정의
+루트 하나다. 같은 멤버에 붙은 `@pragma('vm:entry-point')`·JS/FFI binding·`@visibleForTesting`
+annotation은 `@override`보다 우선하는 보존 근거라 조건 없이 루트로 남는다. 리플렉션이나
+외부 코드만 인스턴스를 만드는 타입은 그래프에 보이지 않으므로 이 리포트에 나올 수 있다 —
+삭제 권고가 아니라 검토 목록이다. `--closed-app`과 결합할 수 있고, 다른 리포트와의 동시 사용,
+`--explain`·`--baseline`과의 결합은 usage(64)다.
 
 `deps`는 pubspec 선언과 소스의 `package:` import/export 관측을 대조하는 의존성 위생
 감사다. finding은 네 종류다: `unused-dependency`(선언됐는데 어느 소스도 import하지
@@ -656,6 +683,12 @@ Dart SDK가 필요하다.
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
 `rules`는 `name`·`from`(출발 레이어)·`allow` 또는 `deny`(정확히 하나, 대상 레이어 목록)를
 가진다. 알려지지 않은 키나 `allow`/`deny`가 둘 다 있거나 둘 다 없으면 분석 실패(종료 코드 2)다.
+규칙은 양끝이 모두 레이어에 배치된 사용 간선만 검사한다. 그래서 `allow` 규칙도 어느 레이어에도
+매치되지 않는 코드로의 의존은 위반으로 보지 않는다. 규칙이 있는 레이어에서 그런 정점으로 가는
+간선이 있으면 `unassigned-layer-targets: <n> usage edge(s) from layers with rules reach <m> node(s)
+outside every layer; layer rules do not check them` limitation이 그 수를 알린다(위반·종료 코드는
+그대로다). 검사하려면 그 코드를 매치하는 레이어를 추가한다. 위반 위치(`line`·`column`)는
+참조한 줄이 아니라 출발 정점(참조를 담은 선언이나 라이브러리)의 선언 위치다.
 
 ```yaml
 # layers.yaml
@@ -669,6 +702,29 @@ rules:
     from: ui
     deny: [data]
 ```
+
+`cycles --level <file|type|symbol>`은 `graph --level`과 같은 사영 위에서 순환을 찾는다.
+기본값 `symbol`은 선언 사이의 모든 강결합 요소를 보고하므로 같은 파일의 상호 재귀
+(`isEven` ↔ `isOdd`)나 같은 클래스 메서드끼리의 재귀도 순환이 된다. 생성자는 소속 클래스로
+모델링하므로 factory 본문(`factory S() => C()`)이나 리다이렉트(`factory S() = C;`, `= C.named`)로
+하위 타입을 만드는 클래스는 그 하위 타입으로 가는 간선을 갖는다. 하위 타입에서 그 클래스로 가는
+상속 경로(`extends`·`implements`·`with`·mixin `on` 절) 중 하나라도 그래프 안에 있으면, 곧
+dartograph가 분석하는 파일(의존 패키지나 `analysis_options.yaml`에서 제외된 파일이 아닌 곳)의
+선언으로만 이어지면 그 하위 타입과 `symbol`·`type` 해상도의 순환이 되고 `cycles --strict` 게이트도
+그 순환으로 1로 끝난다. freezed·built_value처럼 이름 없는 생성자로 리다이렉트하는 factory 위에
+만든 생성 코드는 생성한 클래스마다 이런 순환을 만든다. 모든 경로가 의존 패키지나 분석에서 제외된
+파일의 선언을 거치면 `symbol` 해상도에는 순환이 생기지 않는다. 다만 `type` 해상도에서는 하위
+타입의 멤버에서 그 클래스의 멤버로 가는 재정의 간선이 접혀 순환이 될 수 있다. 리다이렉트하는
+라이브러리는 이미 import·export로 대상의 라이브러리에 닿으므로 `--level file`의 라이브러리 순환
+구성원은 이 간선으로 바뀌지 않는다. 다만 대표 경로가 새 간선을 타서 그 단계가 `import` 대신
+`call`로 나오고 `breakCandidate`가 함께 바뀌거나, 대상을 다시 export하기만 하는 라이브러리가
+`path`에서 빠질 수 있다. `file`은 선언을 소속
+라이브러리로 접어 라이브러리 사이의 순환만, `type`은 멤버를 최상위 선언으로 접어 타입·최상위
+선언 사이의 순환만 보고한다 — 접힌 단위 안의 관계는 자기 간선으로 버린다. 아키텍처 게이트로
+`cycles --strict`를 걸 때 정상적인 재귀를 실패로 다루지 않으려면 `--level file`을 쓴다.
+`--explain`도 그 해상도의 ID를 받는다(`file`이면 라이브러리 ID). 끊을 후보
+(`breakCandidate`)는 대표 경로의 첫 간선이며 순환을 가장 많이 줄이는 간선이라는 뜻은 아니다.
+대표 경로는 강결합 요소에서 정렬했을 때 가장 앞선 ID에서 시작한다.
 
 `cycles --explain <symbol-id>`는 한 정점이 강결합 요소로 참여하는 순환과 각각의
 `breakCandidate`(끊을 후보 간선)를 JSON으로 낸다. 한 정점은 최대 하나의 강결합 요소에
@@ -801,8 +857,8 @@ plugins:
 
 | 코드 | 뜻 |
 |---:|---|
-| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`(info)는 finding이 있어도 성공 |
-| 1 | `dead`·`deps` finding(`--report-test-only`·`--report-redundant-public` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
+| 0 | 명령 성공. 일반 보고 모드와 `dead --report-test-only`·`dead --report-redundant-public`·`dead --report-override-only`(info)는 finding이 있어도 성공 |
+| 1 | `dead`·`deps` finding(`--report-test-only`·`--report-redundant-public`·`--report-override-only` 제외), `dead --explain`의 미도달 대상, 또는 `--strict` 분석 명령의 finding |
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함, `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다), 또는 `history`가 원장을 읽지 못함 |
 | 64 | 잘못된 명령·인자(`--record`·`history`의 옵션 오류 포함), 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 

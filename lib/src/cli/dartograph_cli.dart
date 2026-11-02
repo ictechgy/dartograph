@@ -572,6 +572,7 @@ const _ledgerSwitches = {
   'closed-app',
   'incremental-user-cache',
   'no-verify',
+  'report-override-only',
   'report-redundant-public',
   'report-test-only',
   'strict',
@@ -1261,6 +1262,7 @@ Future<int> _runCycles(
   var strict = false;
   String? explainId;
   String? formatName;
+  GraphLevel? level;
   String? root;
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
@@ -1276,6 +1278,25 @@ Future<int> _runCycles(
         return ExitStatus.usage.code;
       }
       formatName = arguments[index];
+    } else if (argument == '--level' && level == null) {
+      // graph --level과 같은 해상도다. 기본(symbol)은 기존 출력과 같다.
+      if (++index >= arguments.length) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      final value = arguments[index];
+      level = switch (value) {
+        'file' => GraphLevel.file,
+        'type' => GraphLevel.type,
+        'symbol' => GraphLevel.symbol,
+        _ => null,
+      };
+      if (level == null) {
+        error.writeln(
+          'Unknown cycles level: $value (expected file, type, or symbol).',
+        );
+        return ExitStatus.usage.code;
+      }
     } else if (argument == '--explain') {
       // 값은 경로가 아니라 심볼 ID다. dead --explain과 같이 대시 가드를 적용하지
       // 않는다. 값이 빠진 오타는 뒤따르는 위치 인자가 남아 usage(64)로 떨어진다.
@@ -1309,7 +1330,12 @@ Future<int> _runCycles(
   try {
     final indexed = await indexPackage(root);
     final limitations = _limitations(indexed);
-    final snapshot = indexed.graph.snapshot();
+    // file·type 해상도는 같은 라이브러리·타입 안의 재귀를 접힘 자기 간선으로
+    // 버린다(GraphProjection 계약). 기본 symbol은 스냅샷을 그대로 쓴다.
+    final snapshot = GraphProjection.atLevel(
+      indexed.graph.snapshot(),
+      level ?? GraphLevel.symbol,
+    );
     if (explainId != null) {
       final explanation = CycleDetector().explain(snapshot, explainId);
       output.write(
@@ -1433,9 +1459,11 @@ Future<int> _runRules(
           ? ExitStatus.success.code
           : ExitStatus.usage.code;
     }
-    final violations = LayerRuleEvaluator(
-      ruleSet,
-    ).evaluate(indexed.graph.snapshot());
+    final evaluator = LayerRuleEvaluator(ruleSet);
+    final snapshot = indexed.graph.snapshot();
+    final violations = evaluator.evaluate(snapshot);
+    final unassigned = evaluator.unassignedTargetsLimitation(snapshot);
+    if (unassigned != null) limitations.add(unassigned);
     output.write(
       AnalysisReporter.rules(
         violations,
@@ -2724,6 +2752,7 @@ Future<int> _runDead(
   String? rootPath;
   var reportTestOnly = false;
   var reportRedundantPublic = false;
+  var reportOverrideOnly = false;
   var codeownersFormat = false;
   var closedApp = false;
   for (var index = 0; index < arguments.length; index++) {
@@ -2817,6 +2846,12 @@ Future<int> _runDead(
         return ExitStatus.usage.code;
       }
       reportRedundantPublic = true;
+    } else if (argument == '--report-override-only') {
+      if (reportOverrideOnly) {
+        error.write(_help);
+        return ExitStatus.usage.code;
+      }
+      reportOverrideOnly = true;
     } else if (argument == '--closed-app') {
       if (closedApp) {
         error.write(_help);
@@ -2830,16 +2865,22 @@ Future<int> _runDead(
       return ExitStatus.usage.code;
     }
   }
-  // --report-test-only·--report-redundant-public는 각각 다른 질문을 info로
-  // 답한다. 단일 대상을 묻는 --explain, dead finding을 억제하는 --baseline, 두
-  // 리포트의 동시 사용과는 결합하지 않는다(--since는 보고 위치만 좁히므로 허용).
-  // --closed-app은 공개 API 보존을 거는 분석이므로, 그 보존을 전제로 답하는
-  // --report-redundant-public과는 전제가 모순되어 결합하지 않는다.
+  // --report-test-only·--report-redundant-public·--report-override-only는 각각
+  // 다른 질문을 info로 답한다. 단일 대상을 묻는 --explain, dead finding을
+  // 억제하는 --baseline, 리포트끼리의 동시 사용과는 결합하지 않는다(--since는
+  // 보고 위치만 좁히므로 허용). --closed-app은 공개 API 보존을 거는 분석이므로,
+  // 그 보존을 전제로 답하는 --report-redundant-public과는 전제가 모순되어
+  // 결합하지 않는다.
+  final infoReports = [
+    reportTestOnly,
+    reportRedundantPublic,
+    reportOverrideOnly,
+  ].where((selected) => selected).length;
   if (rootPath == null ||
       (reportFormat == null && !codeownersFormat) ||
       (codeownersFormat && codeownersPath == null) ||
       (!codeownersFormat && codeownersPath != null) ||
-      (reportTestOnly && reportRedundantPublic) ||
+      infoReports > 1 ||
       (closedApp && reportRedundantPublic) ||
       (explainId != null &&
           (codeownersFormat ||
@@ -2847,9 +2888,8 @@ Future<int> _runDead(
               baselinePath != null ||
               since != null ||
               kinds != null ||
-              reportTestOnly ||
-              reportRedundantPublic)) ||
-      ((reportTestOnly || reportRedundantPublic) && baselinePath != null)) {
+              infoReports > 0)) ||
+      (infoReports > 0 && baselinePath != null)) {
     error.write(_help);
     return ExitStatus.usage.code;
   }
@@ -2898,12 +2938,14 @@ Future<int> _runDead(
           ? ExitStatus.success.code
           : ExitStatus.findings.code;
     }
-    // 두 info 리포트는 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지
+    // info 리포트는 죽은 코드가 아니므로 finding이 있어도 빌드를 실패시키지
     // 않는다.
     final report = reportTestOnly
         ? DeadReport.testOnly
         : reportRedundantPublic
         ? DeadReport.redundantPublic
+        : reportOverrideOnly
+        ? DeadReport.overrideOnly
         : DeadReport.dead;
     final List<DeadFinding> findings;
     if (reportTestOnly) {
@@ -2914,6 +2956,12 @@ Future<int> _runDead(
       );
     } else if (reportRedundantPublic) {
       findings = analyzer.redundantPublicDeclarations(
+        snapshot,
+        roots: roots,
+        limitations: limitations,
+      );
+    } else if (reportOverrideOnly) {
+      findings = analyzer.overrideOnlyDeclarations(
         snapshot,
         roots: roots,
         limitations: limitations,
@@ -3010,7 +3058,7 @@ Future<int> _runDead(
       );
     }
     failedItems.addAll([for (final finding in reported) finding.id]);
-    if (reportTestOnly || reportRedundantPublic) {
+    if (infoReports > 0) {
       return ExitStatus.success.code;
     }
     return reported.isEmpty
@@ -4102,6 +4150,7 @@ Usage: dartograph [--help] [--version]
        dartograph dead [--explain <symbol-id>] --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--baseline <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dead --report-test-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dead --report-redundant-public --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph dead --report-override-only --format <text|json|markdown|codeowners|github-actions|sarif> [--codeowners <file>] [--since <ref>] [--kinds <csv>] [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph deps [--format <text|json|markdown|github-actions|sarif>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph dup [--format <text|json|markdown|github-actions|sarif>] [--min-tokens <n>] [--kinds <csv>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph baseline --write <file> [--closed-app] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -4124,8 +4173,8 @@ Usage: dartograph [--help] [--version]
        dartograph schema --format json [--project <shared-root>] <package-root>
        dartograph routes --role client [--format json] [--wrappers <http-wrappers.json>] [--include-tests] [--service <name>] [--project <shared-root>] <package-root>
        dartograph impact --format language-traversal [--direction <dependents|dependencies>] [--roots-from <file|->] [--revision <rev>] [--generated-at <instant>] [--project <shared-root>] [--incremental <dir> | --incremental-user-cache] [--workspace] <package-root> [<root-usr>...]
-       dartograph cycles [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
-       dartograph cycles --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph cycles [--format <text|json|sarif>] [--level <file|type|symbol>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
+       dartograph cycles --explain <symbol-id> [--level <file|type|symbol>] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> [--format <text|json|sarif>] [--strict] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph rules --config <yaml-file> --explain <symbol-id> [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
        dartograph metrics [--format <text|json|sarif>] [--strict] [--include-tests] [--incremental <dir> | --incremental-user-cache] [--workspace] [--record <dir>] <package-root>
@@ -4174,13 +4223,18 @@ declarations reached only from test code) at info severity, so it never fails
 the build and does not combine with --explain or --baseline. dead
 --report-redundant-public likewise answers at info severity (public
 declarations whose observed references all come from their own library) with
-the same combination rules. dead --closed-app stops retaining the public API
-surface: only actual entry points (main functions, tests, annotations, and
-configured entry_points) keep code alive. Use it for standalone applications,
-not published libraries — the report is still a review list, not a deletion
-instruction. Pass the same --closed-app to baseline --write so the recorded
-fingerprints match. --closed-app does not combine with
---report-redundant-public, whose premise is public-API retention.
+the same combination rules. dead --report-override-only also answers at info
+severity with those rules: override members stay retention roots in dead, and
+this report lists declarations kept alive only by override members whose
+enclosing type is not otherwise reached (no instance, subtype, or other
+reference), such as unused widgets that override build(). A type that only
+reflection or external code instantiates can appear in it. dead --closed-app
+stops retaining the public API surface: only actual entry points (main
+functions, tests, annotations, and configured entry_points) keep code alive.
+Use it for standalone applications, not published libraries — the report is
+still a review list, not a deletion instruction. Pass the same --closed-app to
+baseline --write so the recorded fingerprints match. --closed-app does not
+combine with --report-redundant-public, whose premise is public-API retention.
 
 dartograph.yaml also accepts include/exclude globs that narrow which sources
 produce dead, deps, and dup findings (matched against the source path without
@@ -4210,6 +4264,13 @@ lists.
 cycles/rules
 --explain answer for one symbol and do not combine with --strict; an id absent
 from the graph is reported as known:false with exit 64.
+
+cycles --level file|type|symbol detects cycles on the same projection as
+graph --level. The default, symbol, reports every strongly connected set of
+declarations, including mutual recursion inside one library or one class.
+file reports only cycles between libraries and type folds members into their
+top-level declaration, so recursion inside the folded unit is not a cycle.
+--explain then takes an id at that level (a library id for file).
 
 affected answers for a git revision (commit, branch, tag, HEAD~1, ...): the
 libraries changed since that revision plus the libraries that transitively

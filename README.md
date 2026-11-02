@@ -248,7 +248,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   kinds. `metrics` also reports function-level cyclomatic complexity and
   hot-spot rankings.
 - `cycles`, `rules`, and `metrics` only report by default; findings become exit
-  code 1 with `--strict`. Metrics are per-library Ca, Ce, instability,
+  code 1 with `--strict`. `cycles --level file` reports only cycles between
+  libraries, leaving out recursion inside one file (the default `symbol` level
+  reports it). Metrics are per-library Ca, Ce, instability,
   abstractness, and distance from the main sequence — each entry also carries
   its zone (`main-sequence`, `zone-of-pain`, `zone-of-uselessness`, or
   `isolated` for entries with no couplings at all) at the reported tolerance.
@@ -301,6 +303,12 @@ Limitations:
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
   functions of those files (a template can be generated with `dartograph init`).
+- Only `lib/`, `bin/`, `example/`, `integration_test/`, and `test/` are
+  analyzed. Code used only from `web/`, `tool/`, `hook/`, `benchmark/`, or
+  `test_driver/` is reported as unreachable; when those directories hold Dart
+  files of the package (or of a `--workspace` member), an
+  `unanalyzed-directories:` limitation counts them. Keep such code
+  with `retained_names` or `retained_files`.
 - Local path dependencies are opt-in graph inputs through `source_packages` in
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
@@ -310,9 +318,17 @@ Limitations:
   to `Parser`, and uses inside constructor bodies are attributed to the class.
   Querying a constructor ID reports `notFound`, unused constructors are not
   reported by `dead`, and `impact` works at class granularity for constructor
-  changes.
+  changes. For the same reason a redirecting factory (`factory S() = C;`) is a
+  `call` edge from `S` to `C`, like the `C()` in a factory body, so `C` stays
+  reachable whenever `S` is reached at all, even when `S` is only used as a
+  type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
+- Members that override an inherited member (with or without `@override`) are
+  retained as roots, because calls dispatched through a supertype or a framework
+  are not graph edges. A class kept alive only by such members, such as an
+  unused widget that overrides `build()`, is not reported by `dead`;
+  `dead --report-override-only` lists these declarations at info severity.
 - Dynamic calls and native behavior cannot be fully proven by a static graph.
 - Symbolic links inside the project are followed like the analyzer does, but a
   directory reached through links is read only once. When several link paths

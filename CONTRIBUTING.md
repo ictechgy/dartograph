@@ -50,7 +50,7 @@ CPU 경쟁을 줄입니다. 100개 이상의 wrapper 호출을 포함한 설치 
 비용을 고려해 8분 제한을 사용하며, 전체 CLI 검증 항목과 90% 커버리지 기준을 유지합니다.
 따라서 CI에 별도 `dart test`와 `verify-global-activation.sh` 실행을 중복 추가하지 않습니다.
 컴파일된 native executable 검증은 `verify-cli-contract.sh`로 별도 유지합니다.
-`check-analyzer-boundary.sh`는 ripgrep(`rg`)을 필요로 합니다 — 로컬에 없으면 exit 2로 실패하며 CI는 설치돼 있습니다.
+`check-analyzer-boundary.sh`는 checkout의 `git grep`으로 검사합니다 — 별도 도구 설치가 필요 없고, git이 없거나 저장소 루트가 Git 작업 트리의 최상위가 아니면 exit 2로 실패합니다. pathspec 해석 환경 변수(`GIT_*_PATHSPECS`)는 무시합니다.
 자기 분석 findings 0도 전체 테스트에 포함됩니다. 실패한 검사를 생략하거나 임계값을 낮추지 않습니다.
 
 ## 선택 검증과 릴리스
