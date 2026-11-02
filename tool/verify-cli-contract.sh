@@ -52,6 +52,9 @@ expect_status 1 "cycles trailing strict" cycles fixtures/phase5_contract --stric
   expect_status 0 "cycles format sarif" cycles --format sarif fixtures/phase5_contract
   expect_status 1 "cycles format sarif strict" cycles --format sarif --strict fixtures/phase5_contract
   expect_status 64 "cycles unknown format" cycles --format xml fixtures/phase5_contract
+  expect_status 1 "cycles strict file level" cycles --strict --level file fixtures/phase5_contract
+  expect_status 0 "cycles explain file level" cycles --level file --explain project:lib/a.dart fixtures/phase5_contract
+  expect_status 64 "cycles unknown level" cycles --level module fixtures/phase5_contract
   expect_status 64 "cycles explain with sarif" cycles --explain project:lib/a.dart::a --format sarif fixtures/phase5_contract
   expect_status 0 "rules format text" rules --config fixtures/phase5_contract/layers.yaml --format text fixtures/phase5_contract
   expect_status 0 "rules format sarif" rules --config fixtures/phase5_contract/layers.yaml --format sarif fixtures/phase5_contract
@@ -140,6 +143,11 @@ expect_status 0 "language traversal" impact --format language-traversal fixtures
   expect_status 64 "dead redundant-public with test-only" dead --report-redundant-public --report-test-only --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with explain" dead --report-test-only --explain project:lib/prod.dart::onlyReachedByTest --format json fixtures/test_only_corpus
   expect_status 64 "dead report-test-only with baseline" dead --report-test-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/test_only_corpus
+  expect_status 0 "dead override-only corpus has no dead finding" dead --format json fixtures/override_only_corpus
+  expect_status 0 "dead report-override-only is info" dead --report-override-only --format json fixtures/override_only_corpus
+  expect_status 0 "dead report-override-only closed-app sarif" dead --report-override-only --closed-app --format sarif fixtures/override_only_corpus
+  expect_status 64 "dead override-only with test-only" dead --report-override-only --report-test-only --format json fixtures/override_only_corpus
+  expect_status 64 "dead override-only with baseline" dead --report-override-only --baseline "$TEMPORARY_DIRECTORY/baseline.json" --format json fixtures/override_only_corpus
   expect_status 1 "dead closed-app findings" dead --format json --closed-app fixtures/closed_app
   expect_status 0 "baseline write closed-app" baseline --write "$TEMPORARY_DIRECTORY/baseline-closed.json" --closed-app fixtures/closed_app
   expect_status 0 "dead closed-app with baseline" dead --format json --closed-app --baseline "$TEMPORARY_DIRECTORY/baseline-closed.json" fixtures/closed_app

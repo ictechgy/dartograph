@@ -133,7 +133,7 @@ dartograph mcp
 - `skill`은 바로 붙여넣을 수 있는 스킬을 출력하거나 `--install <dir>`로 디렉터리에 설치한다 — 코딩 에이전트가 근거 기반 답을 위해 dartograph를 어떻게 다루는지 가르치는 스킬이다.
 - `setup`은 `claude`(기본)·`cursor`·`codex`·`opencode`용 에이전트 MCP 연동을 출력하거나 `--install [<root>]`로 설치한다(`--target <agent>`). Claude는 Dart 편집 뒤 영향 사전 점검을 돌리는 PostToolUse 훅(MCP 호출 불필요)과 그래프 질문을 dartograph 명령으로 안내하는 관리 `CLAUDE.md`/`AGENTS.md` 블록도 함께 쓴다. 기존 설정은 덮어쓰지 않고 병합하며, `--uninstall`은 dartograph 항목만 되돌린다.
 - `dup`은 중복 코드 블록을 토큰 구조 기준 검토 후보로 보고하고, `dead`/`deps`/`dup`은 `--kinds <csv>`로 보고할 finding 종류를 좁힌다. `metrics`는 함수 수준 순환 복잡도와 핫스폿 순위도 산출한다.
-- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
+- `cycles`, `rules`, `metrics`는 기본적으로 보고만 하고, `--strict`일 때 finding이 종료 코드 1이 된다. `cycles --level file`은 라이브러리 사이의 순환만 보고하고 한 파일 안의 재귀는 뺀다(기본 `symbol` 해상도는 보고한다). 지표는 라이브러리별 Ca, Ce, 불안정도, 추상도, 주계열(main sequence) 거리다 — 각 항목은 보고된 허용 오차 기준 영역(`main-sequence`·`zone-of-pain`·`zone-of-uselessness`, 결합이 전혀 없으면 `isolated`)도 함께 싣는다.
 - `init`은 프로젝트 루트에 주석 달린 `dartograph.yaml` 설정 파일 템플릿을 생성한다(기존 설정이 있으면 `--force`로 덮어쓴다).
 - `deps`는 pubspec 위생을 감사한다 — 선언됐는데 어느 소스도 import하지 않는 의존성, `lib/`에서 쓰이거나 한 번도 import되지 않는 dev 의존성, 선언 없이 참조되는 `package:` import. `executables`·`build.yaml` 빌더·`analysis_options` include/plugin 같은 도구 계약 의존은 사용으로 치고, 런타임 로딩·생성 코드·에셋 참조는 명시적 한계로 남긴다. finding은 삭제 지시가 아니라 검토 목록이다.
 - `dead --closed-app`은 독립 실행 앱(Flutter 앱·CLI 실행 파일)에서 공개 API 보존을 끈다 — `lib/<package>.dart`가 export해도 `main`에서 도달하지 못하는 선언은 보고된다. `baseline --write --closed-app`과 짝을 이루며, 게시 라이브러리에는 쓰지 않는다.
@@ -152,9 +152,11 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - route table과 연결되지 않은 문자열 route는 한계로 보고되며 삭제 근거로 쓰이지 않는다.
 - 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다.
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
+- 분석 대상은 `lib/`, `bin/`, `example/`, `integration_test/`, `test/`뿐이다. `web/`, `tool/`, `hook/`, `benchmark/`, `test_driver/`에서만 쓰는 코드는 미도달로 보고되며, 이 디렉터리에 패키지(또는 `--workspace` 멤버)의 Dart 파일이 있으면 `unanalyzed-directories:` 한계가 그 수를 알린다. 그런 코드는 `retained_names`나 `retained_files`로 보존한다.
 - 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.
-- 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다.
+- 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다. 같은 이유로 리다이렉트 factory(`factory S() = C;`)는 factory 본문의 `C()`처럼 `S`에서 `C`로 가는 `call` 간선이다. 그래서 `S`가 타입으로만 쓰이고 그 factory를 아무도 부르지 않아도 `S`에 닿기만 하면 `C`도 도달한 것으로 본다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
+- 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.

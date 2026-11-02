@@ -1,6 +1,7 @@
 import '../core/graph_edge.dart';
 import '../core/graph_node.dart';
 import '../core/graph_snapshot.dart';
+import '../core/member_containers.dart';
 
 /// 그래프를 그릴 해상도다.
 ///
@@ -111,17 +112,8 @@ abstract final class GraphProjection {
     }
   }
 
-  static String _nearestContainer(String id, Set<String> nodeIds) {
-    final symbolSeparator = id.indexOf('::');
-    if (symbolSeparator < 0) return id;
-    var memberSeparator = id.lastIndexOf('.');
-    while (memberSeparator > symbolSeparator + 1) {
-      final candidate = id.substring(0, memberSeparator);
-      if (nodeIds.contains(candidate)) return candidate;
-      memberSeparator = id.lastIndexOf('.', memberSeparator - 1);
-    }
-    return id;
-  }
+  static String _nearestContainer(String id, Set<String> nodeIds) =>
+      nearestMemberContainer(id, nodeIds) ?? id;
 
   static GraphSnapshot _project(
     GraphSnapshot graph,

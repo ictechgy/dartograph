@@ -11,4 +11,4 @@
   test-only·배치 질의를 재고 산출물 sha256으로 최적화 전후의 출력 동등성을 고정한다.
   절대 시간은 SLA가 아니며 상대 비교만 의미 있다(첫 run은 JIT 워밍업 — 최소/중앙값 사용).
 - verify_bridge_query.dart는 명시된 isthmus 경로를 받아 합성 왕복을 검증한다. 의존 도구를 임의 설치하지 않는다.
-- Bash/POSIX, rg·dart 등 필요한 실행 환경은 로컬과 CI 양쪽에서 확인한다.
+- Bash/POSIX, git·dart 등 필요한 실행 환경은 로컬과 CI 양쪽에서 확인한다.

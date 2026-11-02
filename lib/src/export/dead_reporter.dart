@@ -33,7 +33,12 @@ enum DeadReport {
   /// 공개 접근성이 남아도 — `info`라 빌드를 실패시키지 않는다. 죽은 코드가
   /// 아니라 "지금 관측으로는 라이브러리 비공개로 좁혀도 되는 공개 선언"이라는
   /// 관측이다(Periphery `redundant public accessibility` 패리티).
-  redundantPublic;
+  redundantPublic,
+
+  /// 재정의 멤버 루트만이 보존 — `info`라 빌드를 실패시키지 않는다. 죽은 코드
+  /// 판정이 아니라 "다른 근거로 도달하지 않는 타입의 재정의 계약만이 보존
+  /// 근거"라는 관측이다.
+  overrideOnly;
 
   /// 사람 텍스트의 심각도 단어다.
   String get severity => this == DeadReport.dead ? 'warning' : 'info';
@@ -43,6 +48,7 @@ enum DeadReport {
     DeadReport.dead => 'dead',
     DeadReport.testOnly => 'test-only',
     DeadReport.redundantPublic => 'redundant-public',
+    DeadReport.overrideOnly => 'override-only',
   };
 
   /// GitHub Actions workflow command다(info는 `notice`).
@@ -273,8 +279,9 @@ abstract final class DeadReporter {
           'tool': {
             'driver': {
               'name': 'dartograph',
-              // testOnly·redundantPublic은 선언 finding만 생성한다(reachability의
-              // testOnlyDeclarations·redundantPublicDeclarations — 파일은 보고하지
+              // testOnly·redundantPublic·overrideOnly는 선언 finding만 생성한다
+              // (reachability의 testOnlyDeclarations·redundantPublicDeclarations·
+              // overrideOnlyDeclarations — 파일은 보고하지
               // 않음)라 '<label>-file' ruleId는 CLI에서 도달 불가. 라이브러리
               // 호출자가 file finding을 넣는 조합만 rules 미선언이 되므로 그
               // 불변식을 여기에 기록한다.
