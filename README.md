@@ -318,7 +318,10 @@ Limitations:
   to `Parser`, and uses inside constructor bodies are attributed to the class.
   Querying a constructor ID reports `notFound`, unused constructors are not
   reported by `dead`, and `impact` works at class granularity for constructor
-  changes.
+  changes. For the same reason a redirecting factory (`factory S() = C;`) is a
+  `call` edge from `S` to `C`, like the `C()` in a factory body, so `C` stays
+  reachable whenever `S` is reached at all, even when `S` is only used as a
+  type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
 - Members that override an inherited member (with or without `@override`) are

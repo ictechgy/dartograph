@@ -154,7 +154,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
 - 분석 대상은 `lib/`, `bin/`, `example/`, `integration_test/`, `test/`뿐이다. `web/`, `tool/`, `hook/`, `benchmark/`, `test_driver/`에서만 쓰는 코드는 미도달로 보고되며, 이 디렉터리에 패키지(또는 `--workspace` 멤버)의 Dart 파일이 있으면 `unanalyzed-directories:` 한계가 그 수를 알린다. 그런 코드는 `retained_names`나 `retained_files`로 보존한다.
 - 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.
-- 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다.
+- 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다. 같은 이유로 리다이렉트 factory(`factory S() = C;`)는 factory 본문의 `C()`처럼 `S`에서 `C`로 가는 `call` 간선이다. 그래서 `S`가 타입으로만 쓰이고 그 factory를 아무도 부르지 않아도 `S`에 닿기만 하면 `C`도 도달한 것으로 본다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
 - 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
