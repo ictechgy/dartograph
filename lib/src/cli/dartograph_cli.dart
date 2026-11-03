@@ -47,7 +47,7 @@ import '../index/dependency_tools.dart';
 import '../index/incremental_cache.dart';
 import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
-import '../runtime/runtime_scanner.dart';
+import '../index/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
 import 'agent_setup.dart';
 import 'agent_skill.dart';

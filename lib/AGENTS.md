@@ -5,10 +5,14 @@
 ## 모듈 소유권
 
 - src/core/: 그래프·ID·불변 snapshot·캐시 인터페이스. 다른 제품 모듈과 analyzer에 의존하지 않는다.
-- src/index/: analyzer 타입을 core 사실로 변환하는 유일한 어댑터. [세부 규칙](src/index/AGENTS.md)을 따른다.
+- src/runtime/: 런타임 입력 사실 모델과 그 검증·실행(`runtime` 명령). 다른 제품 모듈에 의존하지 않는다.
+  analyzer 기반 정적 스캐너는 src/index/runtime_scanner.dart가 소유하고 이 사실 모델을 채운다.
+- src/index/: analyzer 타입을 core·runtime 사실로 변환하는 유일한 어댑터. [세부 규칙](src/index/AGENTS.md)을 따른다.
 - src/analysis/: core 사실만 질의한다. analyzer·소스·Git을 직접 읽지 않는다.
   baseline 파일 입출력은 기존 BaselineStore 경계에 두며 분석 알고리즘과 섞지 않는다.
-- src/export/: 결과를 직렬화한다. 새로운 보존·미도달 판정을 만들지 않는다.
+- src/export/: 결과를 직렬화한다(analysis·core·runtime에만 의존). 새로운 보존·미도달 판정을 만들지 않는다.
+- 이 의존 방향은 tool/module_layers.yaml 규칙으로 자기 분석이 검사한다. 모듈을 더하거나 방향을 바꾸면 둘을 함께 고친다.
+  같은 모듈 안의 상호 참조는 허용하지만 모듈을 가로지르는 라이브러리 순환은 허용하지 않는다.
 - src/cli/: 인자·입출력·실패 분류·종료 코드. 분석 의미는 하위 모듈에 둔다.
 - dartograph.dart: 지원할 라이브러리 API만 공개한다. analyzer 내부 타입은 노출하지 않는다.
 
