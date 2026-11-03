@@ -110,6 +110,35 @@ void main() {
     expect(result.explain('app::circleHelper').witness, 'app::Circle');
   });
 
+  test('declarations retained structurally keep their own explanation', () {
+    // Env는 멤버(Env.label)만 도달한 컨테이너라 구조적으로 살아 있고, 그 상수
+    // Env.dev도 그래서 보존된다. 사전순으로 먼저 처리되는 컨테이너 AHolder가
+    // Env.dev로 가는 간선을 갖는다. 간선 따라가기를 구조 규칙의 닫힘 뒤로 미루지
+    // 않으면 Env.dev가 기존 설명 대신 AHolder에서 시작하는 구조 경로로 설명된다.
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: root))
+      ..addNode(GraphNode(id: 'app::AHolder', isTypeDeclaration: true))
+      ..addNode(GraphNode(id: 'app::AHolder.value'))
+      ..addNode(GraphNode(id: 'app::Env', isTypeDeclaration: true))
+      ..addNode(GraphNode(id: 'app::Env.dev', isEnumConstant: true))
+      ..addNode(GraphNode(id: 'app::Env.label'))
+      ..addEdge(use(root, 'app::AHolder.value'))
+      ..addEdge(use(root, 'app::Env.label'))
+      ..addEdge(member('app::AHolder', 'app::AHolder.value'))
+      ..addEdge(member('app::Env', 'app::Env.dev'))
+      ..addEdge(member('app::Env', 'app::Env.label'))
+      ..addEdge(use('app::AHolder', 'app::Env.dev'));
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: roots,
+    );
+    expect(result.deadDeclarations, isEmpty);
+    final constant = result.explain('app::Env.dev');
+    expect(constant.reason, 'retained by its reachable enum');
+    expect(constant.witness, 'app::Env');
+    expect(result.isReachable('app::Env.dev'), isFalse);
+  });
+
   test('override-only analysis uses the same structural closure', () {
     // 구조적으로 살아난 상수에서 닿는 타입의 재정의 루트도 켜져야 한다. 켜지지
     // 않으면 같은 입력에서 dead와 override-only가 상반된 결론을 낸다.

@@ -1055,7 +1055,14 @@ final class _StructuralRetention {
   final Set<String> _alive = {};
   final Queue<String> _queue = Queue();
 
+  /// 구조 규칙의 닫힘이 끝난 뒤 사용 간선을 따라갈 구조적 보존 선언이다.
+  final Queue<String> _pendingFollow = Queue();
+
   /// 루트 도달 선언에서 시작해 살아 있는 집합이 늘지 않을 때까지 넓힌다.
+  ///
+  /// 간선 따라가기는 구조 규칙(컨테이너·enum 상수·sealed 서브타입)의 닫힘이
+  /// 끝난 뒤로 미룬다. 먼저 따라가면 아직 처리되지 않은 enum이 곧 보존할 상수가
+  /// 다른 선언에서 시작하는 구조 경로로 기록되어, 기존 보존 설명이 바뀐다.
   void run() {
     final constantsByEnum = _enumConstantsByContainer();
     final subtypesByParent = _subtypesByParent();
@@ -1064,7 +1071,11 @@ final class _StructuralRetention {
         if (node.isSealed) node.id,
     };
     _rootPaths.keys.forEach(_live);
-    while (_queue.isNotEmpty) {
+    while (_queue.isNotEmpty || _pendingFollow.isNotEmpty) {
+      if (_queue.isEmpty) {
+        _follow(_pendingFollow.removeFirst());
+        continue;
+      }
       final id = _queue.removeFirst();
       visitMemberContainers(id, _nodeIds, (container) {
         if (containers.add(container)) _live(container);
@@ -1075,7 +1086,7 @@ final class _StructuralRetention {
       }
       if (sealed.contains(id)) _retainSubtypes(id, subtypesByParent[id]);
       // 루트 도달 선언의 간선은 루트 BFS가 이미 따라갔다.
-      if (!_rootPaths.containsKey(id)) _follow(id);
+      if (!_rootPaths.containsKey(id)) _pendingFollow.add(id);
     }
   }
 
