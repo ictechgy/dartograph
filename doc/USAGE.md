@@ -795,7 +795,7 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   표시한다. risk가 high인 대상만 경고다.
 - `dartograph.runOnSave`를 켜면 Dart 파일 저장 직후 디바운스된 재분석이 돈다.
   기본 `dartograph.args`는 `--incremental-user-cache`로, 증분 사실 캐시를 작업
-  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.16.2 이하 CLI는 이 스위치를
+  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.17.0 이전 CLI는 이 스위치를
   몰라 usage(64)로 끝나므로 CLI를 올리거나 그동안 `dartograph.args`를 `[]`로 둔다.
   `dartograph.minTokens`도 설정으로 조정된다.
 - `dartograph.executable`은 machine 범위 설정이라 사용자(원격) 설정에서만 정한다. 작업
