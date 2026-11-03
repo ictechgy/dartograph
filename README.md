@@ -219,8 +219,10 @@ Full arguments, output formats, exit codes, and CI examples live in
   append-only ledger of run inputs, versions, and results.
 - A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
   GitHub Actions: it activates a published release (or a checked-out source
-  path), analyzes a package, and writes one report file. See the pinned example
-  workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
+  path), analyzes a package, and writes one report file (snippet below).
+  [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)
+  is a fuller example that runs the CLI directly instead of the action: a PR
+  comment, SARIF upload, and a `--fail-on high` gate on default-branch pushes.
   Pin both the action and the CLI release: the commit SHA (of the release tag)
   fixes the action itself, and `version` fixes the dartograph release it
   installs. With an empty `version`, every run installs the latest release on
