@@ -495,6 +495,30 @@ compare가 그 근거를 답하고, 다른 보존 이유가 함께 있어도 사
 baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일 finding은 주석으로
 억제되지 않는다). 멤버는 따라 억제되지 않는다.
 
+`dead --explain`의 `retentionReason`은 경로가 시작한 보존 루트의 이유, `query`의
+`reachability.reason`은 그 선언 자신이 보존 루트일 때의 이유(아니면 null)이며 다음 값
+중 하나다. 그래프 밖 실행 계약이나 사용자 지시로 보존한 근거이지 사용 증명이나 삭제
+판정이 아니다.
+
+| 값 | 보존한 근거 |
+|---|---|
+| `mainEntryPoint` | `lib/`·`bin/`·`example/`의 `main`(설정한 `entry_points`가 있으면 그 파일의 `main`) |
+| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버(`--closed-app`이면 쓰지 않음) |
+| `overrideContract` | 상속 멤버를 재정의한 멤버와 상위 getter·setter를 구현하는 인스턴스 필드 |
+| `visibleForTesting` | 테스트 디렉터리의 선언과 `@visibleForTesting` 선언 |
+| `generatedCode` | 생성 파일(접미사 목록은 README "Analysis limitations")의 선언 |
+| `vmEntryPoint` | `@pragma('vm:entry-point'[, 옵션])` — 두 번째 인자가 리터럴 `false`면 아님 |
+| `pluginEntryPoint` | pubspec `flutter.plugin`이 이름으로 가리키는 클래스와 그 `registerWith` |
+| `inlineIgnore` | `// dartograph:ignore` 주석 |
+| `externalBinding` | JS 인터롭·FFI binding annotation(`@JS`·`@Native` 등)과 그런 타입의 멤버 |
+| `buildRunner` | `build.yaml`이 선언한 builder factory |
+| `configuredRetention` | `dartograph.yaml`의 `retained_names`·`retained_files` |
+| `conditionalConfiguration` | analyzer가 선택하지 않은 조건부 import/export 라이브러리와 그 import 폐쇄 |
+
+구조적으로 보존된 선언(도달한 멤버의 클래스, 도달한 enum의 상수, 도달한 sealed 타입의
+서브타입)은 루트가 아니라 `witness`로 설명된다. 그런 선언에서만 사용 간선으로 닿은 선언은
+`reachable from a structurally retained declaration`이고 `path`가 그 witness에서 시작한다.
+
 `query --depth <n>`(기본 1)은 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 따라가며, 각
 이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 간선 종류는 모두
 모아 `edges`에 싣고, 같은 이웃이 여러 경로로 닿으면 최단 깊이 한 번만 보고한다.
