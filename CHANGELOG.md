@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Flutter plugin entry points are read from the `flutter.plugin` section of `pubspec.yaml` as YAML instead of with a line pattern. A quoted class name or a trailing comment (`dartPluginClass: 'FooWindows' # desktop`) no longer hides the class, so it and its `registerWith` stay retained. `pluginClass: none` and native `pluginClass` values (Kotlin, Swift, C++) without a Dart class of the same name no longer add the `a declared plugin entry point was not found in the graph` limitation; a missing `dartPluginClass`, or a missing web `pluginClass`, still does. A Dart class that has the same name as a native `pluginClass` is still retained, as before. The analysis cache identity is bumped.
+
 - Generated files are recognized by one shared suffix list, which adds chopper (`.chopper.dart`), auto_route (`.gr.dart`), mockito (`.mocks.dart`), dart_mappable (`.mapper.dart`), and flutter_gen (`.gen.dart`) outputs to the existing `.g.dart`, `.freezed.dart`, and protobuf suffixes. The graph, `routes`, and `graph --format anon` each had their own copy, and only `routes` knew `.chopper.dart`. Declarations in these files are now `generatedCode` retention roots, their nodes are synthesized, `dup` skips them, and `anon` keeps these suffixes. Suffixes that hand-written files also use, such as injectable's `.config.dart`, are not added; keep those outputs with `retained_files`. `dead` findings can only disappear. The analysis cache identity is bumped.
 
 - `dead` no longer reports these live declarations, each reproduced with the real analyzer:

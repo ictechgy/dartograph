@@ -2319,11 +2319,13 @@ const _cacheSchemaVersion = 8;
 // 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
 // 생성 파일 접미사를 route 사실과 공유하고 chopper·auto_route·mockito·
 // dart_mappable·flutter_gen 출력을 더해(v29) 같은 소스의 보존 루트가 바뀐다.
+// pubspec plugin 진입점을 YAML로 읽어(v30) 따옴표 값이 보존되고 네이티브
+// pluginClass의 미해석 한계가 빠진다.
 // 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
 // typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
 // 미도달로 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v29-shared-generated-suffixes';
+    'dartograph-analysis-$toolVersion-cache-v30-yaml-plugin-entries';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -4086,18 +4088,17 @@ Set<AnalyzerLimitation> _addPluginRoots(
   String? pubspecContent,
 ) {
   if (pubspecContent == null) return const {};
-  final matches = RegExp(
-    r'^\s*(?:pluginClass|dartPluginClass):\s*([A-Za-z_$][\w$]*)\s*$',
-    multiLine: true,
-  ).allMatches(pubspecContent);
-  final classNames = <String>{for (final match in matches) match.group(1)!};
+  final entries = _pluginEntries(pubspecContent);
   final limitations = <AnalyzerLimitation>{};
-  for (final className in classNames) {
+  for (final MapEntry(key: className, value: dartSide) in entries.entries) {
     final candidates =
         graph.nodes.keys.where((id) => id.endsWith('::$className')).toList()
           ..sort();
     if (candidates.isEmpty) {
-      limitations.add(AnalyzerLimitation.unresolvedPluginEntryPoint);
+      // 네이티브 pluginClass(Kotlin·Swift 등)는 Dart 그래프에 없는 것이 정상이다.
+      if (dartSide) {
+        limitations.add(AnalyzerLimitation.unresolvedPluginEntryPoint);
+      }
       continue;
     }
     if (candidates.length > 1) {
@@ -4114,6 +4115,37 @@ Set<AnalyzerLimitation> _addPluginRoots(
     }
   }
   return limitations;
+}
+
+/// pubspec `flutter.plugin`이 선언한 진입점 클래스 이름 → Dart 쪽 클래스인지다.
+///
+/// 예전 정규식은 따옴표 값(`dartPluginClass: 'FooWeb'`)과 행 끝 주석을 놓쳐
+/// `registerWith`가 미도달로 보고됐고, 네이티브 `pluginClass`와 `none`까지 Dart
+/// 클래스로 찾아 매번 미해석 한계를 냈다. YAML로 읽되 보존 대상은 줄이지 않는다 —
+/// 네이티브 이름과 같은 Dart 클래스가 있으면 예전처럼 보존한다. Dart 쪽 진입점은
+/// 모든 플랫폼의 `dartPluginClass`와 web의 `pluginClass`(web은 Dart 구현이다)다.
+/// 옛 형식의 `flutter.plugin.pluginClass`는 네이티브다.
+Map<String, bool> _pluginEntries(String pubspecContent) {
+  final entries = <String, bool>{};
+  void add(Object? value, {required bool dartSide}) {
+    if (value is! String || value == 'none') return;
+    if (!RegExp(r'^[A-Za-z_$][\w$]*$').hasMatch(value)) return;
+    entries[value] = (entries[value] ?? false) || dartSide;
+  }
+
+  final document = loadYaml(pubspecContent);
+  final flutter = document is YamlMap ? document['flutter'] : null;
+  final plugin = flutter is YamlMap ? flutter['plugin'] : null;
+  if (plugin is! YamlMap) return entries;
+  add(plugin['pluginClass'], dartSide: false);
+  final platforms = plugin['platforms'];
+  if (platforms is! YamlMap) return entries;
+  for (final MapEntry(:key, :value) in platforms.entries) {
+    if (value is! YamlMap) continue;
+    add(value['dartPluginClass'], dartSide: true);
+    add(value['pluginClass'], dartSide: key == 'web');
+  }
+  return entries;
 }
 
 final class _RelationshipCollector extends GeneralizingAstVisitor<void> {

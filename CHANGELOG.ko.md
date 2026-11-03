@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Flutter plugin 진입점을 줄 패턴 대신 `pubspec.yaml`의 `flutter.plugin` 절을 YAML로 읽는다. 따옴표 클래스 이름이나 행 끝 주석(`dartPluginClass: 'FooWindows' # desktop`)이 더 이상 클래스를 가리지 않으므로 그 클래스와 `registerWith`가 보존된다. `pluginClass: none`과 같은 이름의 Dart 클래스가 없는 네이티브 `pluginClass`(Kotlin·Swift·C++) 값은 더 이상 `a declared plugin entry point was not found in the graph` 한계를 더하지 않는다. 없는 `dartPluginClass`와 없는 web `pluginClass`는 여전히 더한다. 네이티브 `pluginClass`와 이름이 같은 Dart 클래스는 이전처럼 보존된다. 분석 캐시 신원을 올렸다.
+
 - 생성 파일을 공유 접미사 목록 하나로 인식한다. 기존 `.g.dart`·`.freezed.dart`·protobuf 접미사에 chopper(`.chopper.dart`)·auto_route(`.gr.dart`)·mockito(`.mocks.dart`)·dart_mappable(`.mapper.dart`)·flutter_gen(`.gen.dart`) 출력을 더한다. 그래프·`routes`·`graph --format anon`이 각자 사본을 두었고 `.chopper.dart`는 `routes`만 알았다. 이 파일의 선언은 이제 `generatedCode` 보존 루트이고 정점은 synthesized이며 `dup`은 건너뛰고 `anon`은 이 접미사를 보존한다. injectable의 `.config.dart`처럼 사람이 쓴 파일도 쓰는 접미사는 더하지 않으므로 그런 출력은 `retained_files`로 보존한다. `dead` finding은 사라지기만 한다. 분석 캐시 신원을 올렸다.
 
 - `dead`는 실제 analyzer로 재현한 다음 살아 있는 선언을 더 이상 보고하지 않는다.
