@@ -1576,6 +1576,13 @@ AnalyzerGraphResult _assembleResult({
         member.relPath,
     ],
   );
+  final publicLibraries = _publicLibrariesLimitation(
+    pubspecContent,
+    sources,
+    facts,
+    retentionRoots,
+  );
+  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -2320,7 +2327,8 @@ const _cacheSchemaVersion = 8;
 // 생성 파일 접미사를 route 사실과 공유하고 chopper·auto_route·mockito·
 // dart_mappable·flutter_gen 출력을 더해(v29) 같은 소스의 보존 루트가 바뀐다.
 // pubspec plugin 진입점을 YAML로 읽어(v30) 따옴표 값이 보존되고 네이티브
-// pluginClass의 미해석 한계가 빠진다.
+// pluginClass의 미해석 한계가 빠진다. 대표 라이브러리 밖 공개 라이브러리를 세는
+// public-libraries 한계(같은 v30)가 더해진다.
 // 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
 // typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
 // 미도달로 남기므로 폐기한다.
@@ -2935,6 +2943,58 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
           name! as String,
       ],
     );
+
+/// 대표 라이브러리 밖 공개 라이브러리를 세는 `public-libraries:` 한계다.
+///
+/// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
+/// 패키지의 다른 최상위 `lib/*.dart`(예: `lib/testing.dart`)도 소비자가 import하는
+/// 공개 라이브러리인데, 그 선언을 소비자만 쓰면 아무 표시 없이 미도달로 보고됐다.
+/// 대표 라이브러리가 다시 export해 이미 publicApi로 보존된 선언만 있는 파일은
+/// 세지 않는다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다.
+/// 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이
+/// 가려진다. 알릴 것이 없으면 null이다.
+String? _publicLibrariesLimitation(
+  String? pubspecContent,
+  List<String> sources,
+  Map<String, _UnitFacts> facts,
+  Map<String, RetentionReason> retentionRoots,
+) {
+  if (pubspecContent == null) return null;
+  final document = loadYaml(pubspecContent);
+  if (document is! YamlMap || document['publish_to'] == 'none') return null;
+  final name = document['name'];
+  if (name is! String) return null;
+  final entry = 'lib/$name.dart';
+  final unretained = <String>[
+    for (final source in sources)
+      if (source != entry &&
+          RegExp(r'^lib/[^/]+\.dart$').hasMatch(source) &&
+          facts[source]!.nodes.any(
+            (node) =>
+                _isPublicTopLevel(node.id) &&
+                retentionRoots[node.id] != RetentionReason.publicApi,
+          ))
+        source,
+  ]..sort();
+  if (unretained.isEmpty) return null;
+  const shown = 3;
+  final listed = unretained.take(shown).join(', ');
+  final more = unretained.length > shown
+      ? ' and ${unretained.length - shown} more'
+      : '';
+  return 'public-libraries: $listed$more are public libraries outside $entry; '
+      'their declarations are not retained as public API, so ones used only '
+      'by package consumers are reported as unreachable (export them from '
+      '$entry or retain them with retained_files)';
+}
+
+/// 라이브러리의 비공개가 아닌 최상위 선언 ID인지 본다(`lib::Name`).
+bool _isPublicTopLevel(String id) {
+  final separator = id.indexOf('::');
+  if (separator < 0) return false;
+  final name = id.substring(separator + 2);
+  return name.isNotEmpty && !name.contains('.') && !name.startsWith('_');
+}
 
 List<String> _agentLimitations(
   String root,

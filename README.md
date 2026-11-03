@@ -340,7 +340,10 @@ Limitations:
   reachable whenever `S` is reached at all, even when `S` is only used as a
   type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
-  are retained as the external consumer API.
+  are retained as the external consumer API. Other top-level `lib/*.dart`
+  libraries of a package that can be published (no `publish_to: none`), such
+  as `lib/testing.dart`, are counted by a `public-libraries:` limitation when
+  some of their public declarations are not exported from the entry library.
 - Typedefs are not graph nodes. A use of a typedef references the declarations
   in its aliased type, so `typedef Models = List<Model>` keeps `Model`
   reachable wherever `Models` is used. Querying a typedef reports `notFound`,

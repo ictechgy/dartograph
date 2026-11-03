@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 게시할 수 있는 패키지(pubspec에 `publish_to: none`이 없음)에 `lib/<package-name>.dart`가 export하지 않는 공개 선언을 가진 다른 최상위 `lib/*.dart` 라이브러리(예: `lib/testing.dart`)가 있으면 분석 명령이 `public-libraries:` 한계를 더한다. 대표 라이브러리의 export만 공개 API로 보존하므로, 그런 라이브러리의 소비자만 쓰는 선언이 이유 없이 미도달로 보고됐다. 대표 라이브러리가 다시 export하는 라이브러리, `lib/src/`, 앱은 세지 않는다. 공개 API 보존과 finding은 바뀌지 않는다.
+
 - `deps`는 pubspec에 Flutter `fonts`·`assets`를 담은 의존을 더 이상 `unused-dependency`로 보고하지 않는다. 이런 패키지는 실행 시 패키지 이름으로 찾으므로(Flutter의 `CupertinoIcons`는 `fontPackage`로 `cupertino_icons` 폰트를 읽는다) 어느 소스도 import하지 않는다. 그래서 모든 `flutter create` 앱의 템플릿 의존 `cupertino_icons`가 보고됐다. 이제 `executables`·builder처럼 도구 계약 사용으로 센다. USAGE가 도구 계약 근거가 `evidence` 필드나 `tool-usage:` 한계에 실린다고 적었지만 둘 다 없어 그 문장을 고쳤다.
 
 - Flutter plugin 진입점을 줄 패턴 대신 `pubspec.yaml`의 `flutter.plugin` 절을 YAML로 읽는다. 따옴표 클래스 이름이나 행 끝 주석(`dartPluginClass: 'FooWindows' # desktop`)이 더 이상 클래스를 가리지 않으므로 그 클래스와 `registerWith`가 보존된다. `pluginClass: none`과 같은 이름의 Dart 클래스가 없는 네이티브 `pluginClass`(Kotlin·Swift·C++) 값은 더 이상 `a declared plugin entry point was not found in the graph` 한계를 더하지 않는다. 없는 `dartPluginClass`와 없는 web `pluginClass`는 여전히 더한다. 네이티브 `pluginClass`와 이름이 같은 Dart 클래스는 이전처럼 보존된다. 분석 캐시 신원을 올렸다.
