@@ -22,7 +22,7 @@ pubspec.lock
 *.g.dart.bak
 *.iml
 *.vsix
-editors/vscode/icon-drafts/
+editors/
 *.key
 *.pem
 *-service-account*.json

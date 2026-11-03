@@ -47,6 +47,13 @@ inputs:
       this repository's own checkout). Takes precedence over version.
     required: false
     default: ''
+  sdk:
+    description: >-
+      Dart SDK passed to dart-lang/setup-dart, such as 3.13.3. The default,
+      stable, installs whatever stable SDK is current when the job runs, so pin
+      it together with version and the action commit SHA for repeatable runs.
+    required: false
+    default: stable
   pub-get:
     description: Run `dart pub get` in package-root first so imports resolve.
     required: false
@@ -72,7 +79,7 @@ runs:
     - name: Set up Dart
       uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
       with:
-        sdk: stable
+        sdk: ${{ inputs.sdk }}
     - name: Install dartograph
       shell: bash
       # Inputs reach the script through env only: interpolating ${{ }} inside

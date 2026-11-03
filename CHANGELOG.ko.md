@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 합성 액션이 `dart-lang/setup-dart`에 넘길 `sdk` 입력을 받는다. 기본값 `stable`은 실행 시점의 stable SDK를 설치하는 기존 동작 그대로다. 반복 가능한 실행에는 `version`·액션 커밋 SHA와 함께 고정한다(예: `sdk: 3.13.3`). 게시 패키지에 `editors/` 소스(따로 배포하는 VS Code 확장과 analysis server 플러그인)를 더 이상 넣지 않는다.
+
 - 게시할 수 있는 패키지(pubspec에 `publish_to: none`이 없음)에 `lib/<package-name>.dart`가 export하지 않는 공개 선언을 가진 다른 최상위 `lib/*.dart` 라이브러리(예: `lib/testing.dart`)가 있으면 분석 명령이 `public-libraries:` 한계를 더한다. 대표 라이브러리의 export만 공개 API로 보존하므로, 그런 라이브러리의 소비자만 쓰는 선언이 이유 없이 미도달로 보고됐다. 대표 라이브러리가 다시 export하는 라이브러리, `lib/src/`, 앱은 세지 않는다. 공개 API 보존과 finding은 바뀌지 않는다.
 
 - `deps`는 pubspec에 Flutter `fonts`·`assets`를 담은 의존을 더 이상 `unused-dependency`로 보고하지 않는다. 이런 패키지는 실행 시 패키지 이름으로 찾으므로(Flutter의 `CupertinoIcons`는 `fontPackage`로 `cupertino_icons` 폰트를 읽는다) 어느 소스도 import하지 않는다. 그래서 모든 `flutter create` 앱의 템플릿 의존 `cupertino_icons`가 보고됐다. 이제 `executables`·builder처럼 도구 계약 사용으로 센다. USAGE가 도구 계약 근거가 `evidence` 필드나 `tool-usage:` 한계에 실린다고 적었지만 둘 다 없어 그 문장을 고쳤다.

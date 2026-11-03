@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- The composite action takes an `sdk` input that is passed to `dart-lang/setup-dart`. Its default, `stable`, keeps the current behavior of installing the stable SDK that is current when the job runs; pin it (for example `sdk: 3.13.3`) together with `version` and the action commit SHA for repeatable runs. The published package no longer includes the `editors/` sources (the VS Code extension and the analysis server plugin, which ship separately).
+
 - Analysis commands add a `public-libraries:` limitation when a package that can be published (its pubspec has no `publish_to: none`) has other top-level `lib/*.dart` libraries, such as `lib/testing.dart`, with public declarations that `lib/<package-name>.dart` does not export. Only the entry library's exports are retained as public API, so a declaration used only by consumers of such a library was reported as unreachable with no hint why. Libraries that the entry library re-exports, `lib/src/`, and applications are not counted. Public API retention and findings are unchanged.
 
 - `deps` no longer reports a dependency whose pubspec ships Flutter `fonts` or `assets` as `unused-dependency`. Such packages are found by package name at run time (Flutter's `CupertinoIcons` reads the `cupertino_icons` font through `fontPackage`), so no source imports them; the template dependency `cupertino_icons` of every `flutter create` app was reported. They now count as tool-contract uses, like `executables` and builders. USAGE no longer claims that tool-contract evidence appears in an `evidence` field or a `tool-usage:` limitation; neither exists.

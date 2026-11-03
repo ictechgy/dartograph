@@ -973,8 +973,10 @@ steps:
 
 - `<commit-sha>`에는 고정할 릴리스 태그가 가리키는 커밋을 쓴다. 커밋 SHA는 액션 자체(설치
   단계·인자 파서·리포트 처리)를, `version`은 pub이 설치할 dartograph 릴리스를 고정한다.
-  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석되고, Dart SDK는
-  `dart-lang/setup-dart`의 `stable`을 따른다.
+  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석된다. Dart SDK는
+  `sdk` 입력(기본 `stable`)이 정한다 — 기본값은 실행 시점의 최신 stable이므로 반복 가능한
+  실행에는 `sdk: 3.13.3`처럼 고정한다. 프로젝트가 요구하는 SDK 하한보다 낮게 고정하면
+  `dart pub get`이 실패한다.
 - `version`과 `source-path`가 모두 비어 최신 릴리스를 설치하면, 설치 단계가 `::notice`
   워크플로 명령으로 알림(annotation) 하나를 남긴다. pub이 보고한 설치 버전이 일반 릴리스 버전
   꼴이면 그 값을 함께 싣는다. 설치 동작은 그대로다 — 빈 `version`은 계속 최신 릴리스를 설치한다.
