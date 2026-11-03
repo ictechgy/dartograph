@@ -261,7 +261,9 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `deps` audits pubspec hygiene: dependencies declared but never imported,
   dev dependencies used from `lib/` or never imported, and `package:` imports
   with no declaration. Tool-contract dependencies — `executables`,
-  `build.yaml` builders, `analysis_options` includes/plugins — count as used,
+  `build.yaml` builders, `analysis_options` includes/plugins, and packages
+  whose pubspec ships Flutter `fonts` or `assets` (such as `cupertino_icons`) —
+  count as used,
   and runtime/generated/asset references stay explicit limitations. Findings
   are a review list, never a deletion instruction.
 - `dead --closed-app` turns off public-API retention for standalone apps

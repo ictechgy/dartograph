@@ -331,8 +331,10 @@ Actions의 `file=`과 SARIF의 artifact URI는 해당 pubspec을 가리킨다.
 사용은 **관측**으로만 판정한다 — `package:` 지시문이 없어도 도구 계약이 요구하는
 의존은 사용으로 친다: pubspec `executables`에 노출된 실행 파일, `build.yaml`의
 `builders`·`post_process_builders`, `analysis_options.yaml`이 include하거나
-analyzer plugin으로 올린 패키지. 이 근거는 finding의 `evidence`와 보고서의
-`tool-usage:` limitation에 실린다. 런타임 로딩(`Isolate.spawnUri` 등), 생성 코드가
+analyzer plugin으로 올린 패키지, pubspec에 Flutter `fonts`·`assets`를 선언한 자산
+제공 패키지(`cupertino_icons`처럼 Flutter가 패키지 이름으로 폰트를 찾아 import가
+없다). 이렇게 사용이 확인된 의존은 finding을 내지 않으며 근거를 따로 출력하지
+않는다. 런타임 로딩(`Isolate.spawnUri` 등), 생성 코드가
 import하는 패키지, 에셋 경로만의 참조는 이 감사에 보이지 않으며 그 사실이 limitation으로
 남는다. `dependency_overrides`는 사용 관측을 만들지 않으므로 미사용으로 보고하지
 않는다. finding이 있으면 종료 코드 1이다 — 삭제 지시가 아니라 검토 목록이다.

@@ -4247,7 +4247,8 @@ deps audits pubspec hygiene: declared dependencies no source imports
 (unused-dependency, unused-dev-dependency), dev_dependencies referenced from
 lib/ (dev-dependency-in-lib), and package: imports nothing declares
 (undeclared-dependency). Packages with a confirmed tool contract — executables,
-build.yaml builders, analysis_options include/plugins — count as used.
+build.yaml builders, analysis_options include/plugins, or Flutter fonts/assets
+in their pubspec — count as used.
 Findings are review candidates with evidence, not deletion instructions.
 
 --kinds <csv> restricts which finding kinds dead, deps, and dup report:
