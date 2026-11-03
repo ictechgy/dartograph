@@ -21,6 +21,7 @@ import 'package:path/path.dart' as p;
 import 'analyzer_graph_index.dart';
 import 'bridge_index.dart'
     show enclosingFactSymbol, rejectFactControlCharacters;
+import '../core/generated_files.dart';
 import 'http_wrappers.dart';
 import 'route_client_models.dart';
 import 'route_url_rules.dart';
@@ -88,19 +89,6 @@ Future<RouteCallIndexResult> indexRouteCalls(
     skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
   ]);
 }
-
-/// 생성 파일로 보는 접미사다. 그래프의 생성 파일 목록에 chopper 생성기의
-/// `.chopper.dart`를 더한다(route 사실 전용 — 그래프 의미는 바꾸지 않는다).
-const _generatedSuffixes = {
-  '.g.dart',
-  '.freezed.dart',
-  '.chopper.dart',
-  '.pb.dart',
-  '.pbenum.dart',
-  '.pbgrpc.dart',
-  '.pbjson.dart',
-  '.pbserver.dart',
-};
 
 /// 패키지 해석 실패를 세는 HTTP 클라이언트 패키지다.
 const _clientPackages = {'http', 'dio', 'retrofit', 'chopper'};
@@ -363,7 +351,8 @@ final class _RouteScan {
   }
 }
 
-bool _isGenerated(String path) => _generatedSuffixes.any(path.endsWith);
+/// 생성 파일은 그래프와 같은 목록([generatedDartSuffixes])으로 판정한다.
+bool _isGenerated(String path) => isGeneratedDartPath(path);
 
 int _sum(Map<String, int> counts) => counts.values.fold(0, (a, b) => a + b);
 

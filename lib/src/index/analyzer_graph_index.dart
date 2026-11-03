@@ -25,6 +25,7 @@ import '../core/test_source.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'bounded_resource_provider.dart';
+import '../core/generated_files.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
@@ -111,7 +112,7 @@ final class AnalyzerGraphResult {
 
   /// `dup` 중복 탐지의 입력이 되는 정규화 토큰 세그먼트다.
   ///
-  /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
+  /// 생성 파일([generatedDartSuffixes])의 세그먼트는 비교 대상에서 빠진다 —
   /// 기계 산출물의 반복은 검토 신호가 아니다. 색인기가
   /// `includeTokenSegments: true`로 만들어졌을 때만 채워지고, 아니면 비어 있다.
   final List<TokenSegment> tokenSegments;
@@ -2316,11 +2317,13 @@ const _cacheSchemaVersion = 8;
 // 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
 // 한계 문구는 다르다.
 // 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
+// 생성 파일 접미사를 route 사실과 공유하고 chopper·auto_route·mockito·
+// dart_mappable·flutter_gen 출력을 더해(v29) 같은 소스의 보존 루트가 바뀐다.
 // 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
 // typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
 // 미도달로 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v28-field-setter-alias-usage';
+    'dartograph-analysis-$toolVersion-cache-v29-shared-generated-suffixes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -4860,14 +4863,4 @@ AnalysisContext _contextIncluding(
   }
 }
 
-bool _isGenerated(String path) => _generatedDartSuffixes.any(path.endsWith);
-
-const _generatedDartSuffixes = {
-  '.g.dart',
-  '.freezed.dart',
-  '.pb.dart',
-  '.pbenum.dart',
-  '.pbgrpc.dart',
-  '.pbjson.dart',
-  '.pbserver.dart',
-};
+bool _isGenerated(String path) => isGeneratedDartPath(path);

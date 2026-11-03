@@ -151,7 +151,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 조건부 import/export: analyzer는 한 구성만 해석한다. 다른 구성의 라이브러리와 그것이 import하는 모든 라이브러리는 `conditionalConfiguration` 루트로 보존되므로, 선택되지 않은 분기에서만 닿는 코드는 보고되지 않는다. 그런 분기가 import하는 라이브러리의 무관한 선언도 함께 보존된다.
 - 문서 주석의 식별자(`/// Replaces [LegacyParser].`)는 참조로 센다. 문서 주석에서만 언급되는 선언은 보고되지 않으며, 그 언급은 `impact`·`query`·`cycles`에도 나타난다.
 - route table과 연결되지 않은 문자열 route는 한계로 보고되며 삭제 근거로 쓰이지 않는다.
-- 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다. 생성 선언이 루트이므로 그것이 쓰는 손으로 쓴 선언도 보존된다. 예를 들어 생성된 `_$UserFromJson`이 만드는 모델 클래스는 다른 곳에서 쓰이지 않아도 보존된다.
+- 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다. 생성 선언이 루트이므로 그것이 쓰는 손으로 쓴 선언도 보존된다. 예를 들어 생성된 `_$UserFromJson`이 만드는 모델 클래스는 다른 곳에서 쓰이지 않아도 보존된다. 생성 파일은 접미사로 인식한다: `.g.dart`·`.freezed.dart`·`.chopper.dart`·`.gr.dart`·`.mocks.dart`·`.mapper.dart`·`.gen.dart`와 protobuf `.pb*.dart`. injectable의 `.config.dart`처럼 사람이 쓴 파일도 쓰는 접미사는 추측하지 않으므로 그런 출력은 `retained_files`로 보존한다.
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
 - 분석 대상은 `lib/`, `bin/`, `example/`, `integration_test/`, `test/`뿐이다. `web/`, `tool/`, `hook/`, `benchmark/`, `test_driver/`에서만 쓰는 코드는 미도달로 보고되며, 이 디렉터리에 패키지(또는 `--workspace` 멤버)의 Dart 파일이 있으면 `unanalyzed-directories:` 한계가 그 수를 알린다. 그런 코드는 `retained_names`나 `retained_files`로 보존한다.
 - 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.

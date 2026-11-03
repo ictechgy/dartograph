@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 생성 파일을 공유 접미사 목록 하나로 인식한다. 기존 `.g.dart`·`.freezed.dart`·protobuf 접미사에 chopper(`.chopper.dart`)·auto_route(`.gr.dart`)·mockito(`.mocks.dart`)·dart_mappable(`.mapper.dart`)·flutter_gen(`.gen.dart`) 출력을 더한다. 그래프·`routes`·`graph --format anon`이 각자 사본을 두었고 `.chopper.dart`는 `routes`만 알았다. 이 파일의 선언은 이제 `generatedCode` 보존 루트이고 정점은 synthesized이며 `dup`은 건너뛰고 `anon`은 이 접미사를 보존한다. injectable의 `.config.dart`처럼 사람이 쓴 파일도 쓰는 접미사는 더하지 않으므로 그런 출력은 `retained_files`로 보존한다. `dead` finding은 사라지기만 한다. 분석 캐시 신원을 올렸다.
+
 - `dead`는 실제 analyzer로 재현한 다음 살아 있는 선언을 더 이상 보고하지 않는다.
   - 상위의 getter·setter를 구현하는 인스턴스 필드(상위 타입으로 읽는 `@override final String message;`). 이제 메서드처럼 재정의 보존 루트이고 `override` 간선을 가진다.
   - 선언에 annotation을 단 필드·최상위 변수(`@pragma('vm:entry-point') static int counter`, `@visibleForTesting`, JS/FFI binding). 감싼 필드·변수 선언의 annotation을 읽는다.

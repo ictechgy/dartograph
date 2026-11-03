@@ -4,6 +4,8 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- Generated files are recognized by one shared suffix list, which adds chopper (`.chopper.dart`), auto_route (`.gr.dart`), mockito (`.mocks.dart`), dart_mappable (`.mapper.dart`), and flutter_gen (`.gen.dart`) outputs to the existing `.g.dart`, `.freezed.dart`, and protobuf suffixes. The graph, `routes`, and `graph --format anon` each had their own copy, and only `routes` knew `.chopper.dart`. Declarations in these files are now `generatedCode` retention roots, their nodes are synthesized, `dup` skips them, and `anon` keeps these suffixes. Suffixes that hand-written files also use, such as injectable's `.config.dart`, are not added; keep those outputs with `retained_files`. `dead` findings can only disappear. The analysis cache identity is bumped.
+
 - `dead` no longer reports these live declarations, each reproduced with the real analyzer:
   - instance fields that implement an inherited getter or setter (`@override final String message;` read through a supertype). Such fields are now override retention roots with `override` edges, as methods already were;
   - fields and top-level variables annotated on their declaration (`@pragma('vm:entry-point') static int counter`, `@visibleForTesting`, JS/FFI bindings). Annotations of the enclosing field or variable declaration are now read;

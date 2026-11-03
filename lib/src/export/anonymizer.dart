@@ -1,3 +1,4 @@
+import '../core/generated_files.dart';
 import '../core/graph_snapshot.dart';
 
 /// 익명화가 그대로 두는 구조·공용 어휘다.
@@ -27,21 +28,11 @@ final _schemePattern = RegExp(r'^(package:|project:|dart:|file:)');
 
 /// 세그먼트 끝에서 원문으로 남기는 확장자다(가장 긴 것이 이긴다).
 ///
-/// `.dart`와 생성 파일 접미다. 생성 접미는 index의 `_generatedDartSuffixes`와 같은
-/// 목록이다. 그 상수는 index 전용이고 export는 index에 의존하지 않으므로 여기에
-/// 고정해 둔다. 목록 밖의 점 구분 부분(`a.spec.dart`의 `spec`, `com.acme.internal`,
+/// `.dart`와 생성 파일 접미다. 생성 접미는 그래프·route 사실과 같은 core의
+/// [generatedDartSuffixes]다 — 사본을 두면 생성기가 한쪽에만 더해진다. 목록 밖의 점 구분 부분(`a.spec.dart`의 `spec`, `com.acme.internal`,
 /// `.yaml` 같은 다른 확장자)은 식별 문자열일 수 있어 부분마다 치환한다. 목록의
 /// 조각(`g`·`pb` 등)은 토큰(`sN`)·관용 어휘와 겹치지 않아 치환이 단사로 남는다.
-const _preservedExtensions = [
-  '.dart',
-  '.g.dart',
-  '.freezed.dart',
-  '.pb.dart',
-  '.pbenum.dart',
-  '.pbgrpc.dart',
-  '.pbjson.dart',
-  '.pbserver.dart',
-];
+const _preservedExtensions = ['.dart', ...generatedDartSuffixes];
 
 /// 그래프 정체성을 결정적으로 익명화한다(dependency-cruiser `anon` 리포터 패리티).
 ///

@@ -309,7 +309,11 @@ Limitations:
   declarations themselves are conservatively retained. Because they are roots,
   the hand-written declarations they use are retained too, such as a model
   class that a generated `_$UserFromJson` constructs even when nothing else
-  uses that model.
+  uses that model. Generated files are recognized by suffix: `.g.dart`,
+  `.freezed.dart`, `.chopper.dart`, `.gr.dart`, `.mocks.dart`, `.mapper.dart`,
+  `.gen.dart`, and protobuf `.pb*.dart`. Suffixes that hand-written files also
+  use, such as injectable's `.config.dart`, are not guessed; keep such outputs
+  with `retained_files`.
 - A package can contain several `main` functions. By default every `main` under
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
