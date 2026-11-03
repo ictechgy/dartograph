@@ -121,6 +121,15 @@ final class SymbolQuerySession {
       'retainedByMember' => _analysis.explain(reachableMember!).path,
       _ => null,
     };
+    // 구조적 보존 선언(enum 상수·컨테이너·sealed 서브타입)에서 사용 간선으로 닿은
+    // 선언의 path는 루트가 아니라 그 보존 선언에서 시작한다. 그 시작점을 witness로
+    // 함께 실어 path.first를 루트로 오독하지 않게 한다. 루트에서 닿은 선언에는
+    // explanation.witness가 없으므로 기존 출력은 바뀌지 않는다.
+    final witness = state == 'retainedByMember'
+        ? reachableMember
+        : state == 'reachable' && _analysis.isReachable(node.id)
+        ? explanation.witness
+        : null;
     final usedBy = _usage(node.id, incoming: true, depth: depth, limit: limit);
     final dependsOn = _usage(
       node.id,
@@ -141,7 +150,7 @@ final class SymbolQuerySession {
       result: {
         'subject': _subject(node),
         'reachability': {
-          if (state == 'retainedByMember') 'witness': reachableMember,
+          'witness': ?witness,
           'state': state,
           'reason': roots[node.id]?.name,
           'path': path,

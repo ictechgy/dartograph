@@ -103,6 +103,9 @@ final class ReachabilityExplanation {
   final List<String> rootsChecked;
 
   /// 루트부터 대상까지의 결정적 최단 경로다.
+  ///
+  /// 구조적 보존 선언에서 닿은 선언이면 그 보존 선언([witness])에서 시작한다.
+  /// 멤버·enum·sealed 보존 설명이면 [witness]까지의 경로라 대상에서 끝나지 않는다.
   final List<String> path;
 
   /// 경로를 구성한 간선이다.
@@ -161,6 +164,7 @@ final class ReachabilityResult {
     required this.deadDeclarations,
     required this.deadFiles,
     required Map<String, _PathStep> paths,
+    required Map<String, _PathStep> structuralPaths,
     required Map<String, _PathStep> libraryPaths,
     required Map<String, String> libraryWitnesses,
     required Set<String> nodeIds,
@@ -169,6 +173,7 @@ final class ReachabilityResult {
     required Map<String, RetentionReason> roots,
     required this.limitations,
   }) : _paths = paths,
+       _structuralPaths = structuralPaths,
        _libraryPaths = libraryPaths,
        _libraryWitnesses = libraryWitnesses,
        _nodeIds = nodeIds,
@@ -177,6 +182,10 @@ final class ReachabilityResult {
        _roots = roots;
 
   /// 정렬된 도달 선언 ID다.
+  ///
+  /// 보존 루트에서, 또는 구조적으로 보존된 선언에서 사용 간선으로 닿은 선언이다.
+  /// 구조적 보존 선언 자체(컨테이너·enum 상수·sealed 서브타입)는 사용 간선 없이
+  /// 살아 있으므로 담지 않는다 — [isStructurallyRetained]가 그 질문을 답한다.
   final List<String> reachableIds;
 
   /// 정렬된 미도달 선언 발견이다.
@@ -186,6 +195,12 @@ final class ReachabilityResult {
   final List<DeadFinding> deadFiles;
 
   final Map<String, _PathStep> _paths;
+
+  /// 구조적으로 보존된 선언(도달 멤버의 컨테이너·도달 enum의 상수·도달 sealed의
+  /// 서브타입)에서 사용 간선으로 닿은 선언의 한 걸음이다. 사슬은 구조적 보존 선언
+  /// 하나(witness)에서 끝난다. 루트에서 시작하는 [_paths]와 섞지 않아 기존 설명의
+  /// 경로·근거가 바뀌지 않는다.
+  final Map<String, _PathStep> _structuralPaths;
   final Map<String, _PathStep> _libraryPaths;
   final Map<String, String> _libraryWitnesses;
   final Set<String> _nodeIds;
@@ -206,7 +221,7 @@ final class ReachabilityResult {
   /// 수 × 루트 수가 된다. 설명끼리 공유하므로 불변이다.
   List<String>? _rootsChecked;
 
-  /// [id]의 직접 도달 여부다(O(1)).
+  /// [id]가 사용 간선으로 도달했는지다(O(1)). [reachableIds]와 같은 집합이다.
   ///
   /// [reachableIds]는 출력용 정렬 목록으로 남고, 반복 질의(배치·finding별
   /// explain)는 이 판정으로 선형 주사를 피한다(감사 P6).
@@ -227,8 +242,9 @@ final class ReachabilityResult {
   /// [reachableIds]가 정렬되어 있으므로 witness 선택은 결정적이다 — dot-접두
   /// 색인을 정렬 순서 putIfAbsent로 채워 `'$id.'` 접두의 firstOrNull 선형 주사와
   /// 같은 결과를 돌려준다(감사 P3: test-only는 finding마다 explain을 호출한다).
-  /// 또한 그 값은 `_paths`의 키이므로 돌려준 witness는 반드시 직접 도달 경로를
-  /// 갖는다. [explain]이 witness로 한 단계만 재귀하고 끝나는 근거다.
+  /// 또한 그 값은 `_paths` 또는 `_structuralPaths`의 키이므로 돌려준 witness는
+  /// 반드시 사용 간선 경로를 갖는다. 두 경우 모두 [explain]이 더 재귀하지 않는
+  /// 분기라 witness로 한 단계만 재귀하고 끝난다.
   ///
   /// 라이브러리 ID에는 선언이 `::`로 붙으므로 `'$id.'` 접두는 걸리지 않는다.
   /// 라이브러리는 항상 null이 되어 기존 라이브러리 분기 판정을 바꾸지 않는다.
@@ -291,6 +307,10 @@ final class ReachabilityResult {
       );
     }
     if (!_paths.containsKey(id)) {
+      // 구조적 보존 선언에서 사용 간선으로 닿은 선언은 그 사슬을 그대로 준다.
+      // witness 분기들보다 먼저 본다 — 이 분기는 다른 선언으로 재귀하지 않으므로
+      // 컨테이너↔enum 상수 사이의 witness 재귀가 돌지 않는다.
+      if (_structuralPaths.containsKey(id)) return _explainStructural(id);
       // 도달 가능한 멤버가 있으면 컨테이너는 보존된다. deadDeclarations도 같은
       // 근거로 제외하므로, 여기서 미도달로 답하면 한 실행에서 상반된 결론이 된다.
       // path·evidence는 witness까지의 실제 체인이라 `path.last == witness`다.
@@ -376,6 +396,35 @@ final class ReachabilityResult {
       limitations: limitations,
     );
   }
+
+  /// 구조적 보존 선언(witness)에서 [id]까지의 사용 간선 사슬을 설명한다.
+  ///
+  /// `path.first`가 witness이고 `evidence`는 그 뒤의 실제 간선이다. witness가
+  /// 왜 살아 있는지는 그 witness의 [explain]이 답한다 — 존재하지 않는 간선을
+  /// 지어내 루트까지 잇지 않는다.
+  ReachabilityExplanation _explainStructural(String id) {
+    final ids = <String>[];
+    final edges = <GraphEdge>[];
+    String? current = id;
+    while (current != null) {
+      ids.add(current);
+      final step = _structuralPaths[current];
+      if (step == null) break;
+      edges.add(step.edge!);
+      current = step.previous;
+    }
+    return ReachabilityExplanation(
+      id: id,
+      reachable: true,
+      reason: 'reachable from a structurally retained declaration',
+      rootsChecked: const [],
+      path: ids.reversed.toList(),
+      evidence: edges.reversed.toList(),
+      retentionReason: null,
+      limitations: limitations,
+      witness: ids.last,
+    );
+  }
 }
 
 /// `EdgeKind.impliesUsage`만으로 전역 도달성을 계산한다.
@@ -408,13 +457,6 @@ final class ReachabilityAnalyzer {
     }
 
     final rootsChecked = sortedRoots.keys.where(nodeIds.contains).toList();
-    final reachableContainers = <String>{};
-    for (final id in paths.keys) {
-      visitMemberContainers(id, nodeIds, (container) {
-        reachableContainers.add(container);
-        return true;
-      });
-    }
     // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
     // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다. 메모는 이
     // 메서드 안에서만 유효하다(limitations 인자가 바뀌면 결과도 바뀐다) —
@@ -425,57 +467,16 @@ final class ReachabilityAnalyzer {
       source,
       () => limitationIndex.forSource(source),
     );
-    // enum이 도달 가능하면 그 상수도 보존한다. `.values`·switch·직렬화는 상수를
-    // 직접 참조하지 않아 usage 간선이 없으므로, 보존하지 않으면 enum 상수가
-    // 미도달로 잘못 보고된다(컨테이너 구제는 멤버→컨테이너 단방향이라 상수를 못 살린다).
-    final reachableEnumConstants = <String>{};
-    for (final node in graph.nodes) {
-      if (!node.isEnumConstant) continue;
-      final separator = node.id.lastIndexOf('.');
-      if (separator < 0) continue;
-      final container = node.id.substring(0, separator);
-      if (paths.containsKey(container) ||
-          reachableContainers.contains(container)) {
-        reachableEnumConstants.add(node.id);
-      }
-    }
-    // sealed 타입이 도달 가능하면 직접 서브타입도 보존한다. sealed는 같은
-    // 라이브러리의 서브타입만 허용하므로 도달 가능한 sealed 타입으로 들어오는
-    // inheritance·implements·mixin 간선의 source가 곧 디스패치 대상이다 —
-    // switch의 exhaustive 매칭처럼 사용 참조 없이 런타임에 호출된다(undead의
-    // sealed 계층 보존과 같은 계약). 서브타입이 다시 sealed면 전이한다.
-    final nodesById = {for (final node in graph.nodes) node.id: node};
-    // 상속 간선을 target 기준으로 한 번만 모은다 — 큐 항목마다 간선 전체를
-    // 다시 스캔하면 O(도달 sealed 수 × 간선 수)가 된다.
-    final subtypesByParent = <String, List<GraphEdge>>{};
-    for (final edge in graph.edges) {
-      switch (edge.kind) {
-        case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
-          if (edge.sourceId != edge.targetId && edge.sourceId.contains('::')) {
-            subtypesByParent.putIfAbsent(edge.targetId, () => []).add(edge);
-          }
-        default:
-      }
-    }
-    final sealedSubtypeParents = <String, String>{};
-    final sealedQueue = <String>[
-      for (final node in graph.nodes)
-        if (node.isSealed && paths.containsKey(node.id)) node.id,
-    ];
-    for (var index = 0; index < sealedQueue.length; index++) {
-      final parent = sealedQueue[index];
-      for (final edge in subtypesByParent[parent] ?? const <GraphEdge>[]) {
-        if (sealedSubtypeParents.containsKey(edge.sourceId)) continue;
-        sealedSubtypeParents[edge.sourceId] = parent;
-        final subtype = nodesById[edge.sourceId];
-        if (subtype != null && subtype.isSealed) {
-          sealedQueue.add(edge.sourceId);
-        }
-      }
-    }
+    final structural = _StructuralRetention(graph, nodeIds, outgoing, paths)
+      ..run();
+    final reachableContainers = structural.containers;
+    final reachableEnumConstants = structural.enumConstants;
+    final sealedSubtypeParents = structural.sealedSubtypeParents;
+    final structuralPaths = structural.paths;
     final declarations = graph.nodes
         .where((node) => node.id.contains('::'))
         .where((node) => !paths.containsKey(node.id))
+        .where((node) => !structuralPaths.containsKey(node.id))
         .where((node) => !reachableContainers.contains(node.id))
         .where((node) => !reachableEnumConstants.contains(node.id))
         .where((node) => !sealedSubtypeParents.containsKey(node.id))
@@ -496,7 +497,7 @@ final class ReachabilityAnalyzer {
 
     final libraryPaths = <String, _PathStep>{};
     final libraryWitnesses = <String, String>{};
-    final reachableIds = paths.keys.toList()..sort();
+    final reachableIds = [...paths.keys, ...structuralPaths.keys]..sort();
     for (final id in reachableIds.where(
       (id) =>
           !id.contains('::') &&
@@ -554,6 +555,7 @@ final class ReachabilityAnalyzer {
       deadDeclarations: declarations,
       deadFiles: files,
       paths: paths,
+      structuralPaths: structuralPaths,
       libraryPaths: libraryPaths,
       libraryWitnesses: libraryWitnesses,
       nodeIds: nodeIds,
@@ -724,9 +726,10 @@ final class ReachabilityAnalyzer {
   /// "켤 수 있는 루트를 모두 켜고 [analyze]를 다시 돌린다"를 변화가 없을 때까지
   /// 반복한 최소 고정점과 같은 결과를, 도달 집합과 큐를 유지한 한 번의 순회로
   /// 구한다(반복은 깊이 × (정점+간선)이다). "살아 있음"은 [analyze]의 발견 제외
-  /// 기준을 그대로 따른다: 직접 도달, 도달한 정점의 점 접두 컨테이너, 직접 도달
-  /// 또는 그런 컨테이너인 enum의 상수, 직접 도달한 sealed 타입(과 그 sealed
-  /// 서브타입)의 서브타입. 정점이 살아나는 순간 그 정점이 켜는 루트를 큐에 넣는다.
+  /// 기준([_StructuralRetention])을 그대로 따른다: 도달한 정점, 살아 있는 정점의
+  /// 점 접두 컨테이너, 살아 있는 enum의 상수, 살아 있는 sealed 타입(과 그 sealed
+  /// 서브타입)의 서브타입, 그리고 이 구조적 보존 정점에서 다시 사용 간선으로 닿은
+  /// 정점. 정점이 살아나는 순간 그 정점이 켜는 루트를 큐에 넣는다.
   void _enableReachedOverrideRoots(
     GraphSnapshot graph,
     Set<String> nodeIds,
@@ -787,10 +790,12 @@ final class ReachabilityAnalyzer {
       }
     }
 
-    // 직접 도달했거나 컨테이너로 살아난 enum이면 상수도 산다.
+    // 직접 도달했거나 컨테이너로 살아난 enum이면 상수도 산다. 구조적으로 살아난
+    // 선언도 [reach]로 자기 사용 간선을 따라간다([_StructuralRetention]과 같은 정의).
     void reviveConstants(String container) {
       for (final constant in enumConstants[container] ?? const <String>[]) {
         markAlive(constant);
+        reach(constant);
       }
     }
 
@@ -801,6 +806,7 @@ final class ReachabilityAnalyzer {
             in subtypesByParent[parents[index]] ?? const <String>[]) {
           if (!sealedSubtypes.add(subtype)) continue;
           markAlive(subtype);
+          reach(subtype);
           if (sealed.contains(subtype)) parents.add(subtype);
         }
       }
@@ -816,6 +822,7 @@ final class ReachabilityAnalyzer {
         if (containers.add(container)) {
           markAlive(container);
           reviveConstants(container);
+          reach(container);
         }
         return true;
       });
@@ -1008,6 +1015,124 @@ final class _PathStep {
 
   final String? previous;
   final GraphEdge? edge;
+}
+
+/// [ReachabilityAnalyzer.analyze]의 구조적 보존을 고정점까지 계산한다.
+///
+/// 살아 있는 선언은 루트에서 사용 간선으로 도달한 선언, 그 점 접두 컨테이너,
+/// 살아 있는 enum의 상수, 살아 있는 sealed 타입의 직접 서브타입(서브타입이 다시
+/// sealed면 전이), 그리고 이들에서 다시 사용 간선으로 닿은 선언이다.
+/// 구조적으로만 살아난 선언도 자기 사용 간선을 따라가야 한다 — enum 상수의 인자
+/// (`dev(_devUrl)`)는 그 상수 정점이 소유하므로, 상수만 보존하고 간선을 멈추면
+/// 인자로만 쓰는 선언이 미도달로 보고된다. `.values`·switch·직렬화는 상수를 직접
+/// 참조하지 않고, sealed 서브타입은 exhaustive 매칭처럼 참조 없이 디스패치된다.
+/// `_enableReachedOverrideRoots`가 같은 정의를 따른다.
+final class _StructuralRetention {
+  _StructuralRetention(
+    this._graph,
+    this._nodeIds,
+    this._outgoing,
+    this._rootPaths,
+  );
+
+  final GraphSnapshot _graph;
+  final Set<String> _nodeIds;
+  final Map<String, List<GraphEdge>> _outgoing;
+  final Map<String, _PathStep> _rootPaths;
+
+  /// 살아 있는 선언의 컨테이너다.
+  final Set<String> containers = {};
+
+  /// 살아 있는 enum의 상수다.
+  final Set<String> enumConstants = {};
+
+  /// 살아 있는 sealed 상위로 보존된 서브타입 → 그 상위(사전순 최소)다.
+  final Map<String, String> sealedSubtypeParents = {};
+
+  /// 구조적 보존 선언에서 사용 간선으로 처음 닿은 한 걸음이다.
+  final Map<String, _PathStep> paths = {};
+
+  final Set<String> _alive = {};
+  final Queue<String> _queue = Queue();
+
+  /// 루트 도달 선언에서 시작해 살아 있는 집합이 늘지 않을 때까지 넓힌다.
+  void run() {
+    final constantsByEnum = _enumConstantsByContainer();
+    final subtypesByParent = _subtypesByParent();
+    final sealed = {
+      for (final node in _graph.nodes)
+        if (node.isSealed) node.id,
+    };
+    _rootPaths.keys.forEach(_live);
+    while (_queue.isNotEmpty) {
+      final id = _queue.removeFirst();
+      visitMemberContainers(id, _nodeIds, (container) {
+        if (containers.add(container)) _live(container);
+        return true;
+      });
+      for (final constant in constantsByEnum[id] ?? const <String>[]) {
+        if (enumConstants.add(constant)) _live(constant);
+      }
+      if (sealed.contains(id)) _retainSubtypes(id, subtypesByParent[id]);
+      // 루트 도달 선언의 간선은 루트 BFS가 이미 따라갔다.
+      if (!_rootPaths.containsKey(id)) _follow(id);
+    }
+  }
+
+  void _live(String id) {
+    if (_alive.add(id)) _queue.add(id);
+  }
+
+  void _retainSubtypes(String parent, List<String>? subtypes) {
+    for (final subtype in subtypes ?? const <String>[]) {
+      final current = sealedSubtypeParents[subtype];
+      if (current == null || parent.compareTo(current) < 0) {
+        sealedSubtypeParents[subtype] = parent;
+      }
+      _live(subtype);
+    }
+  }
+
+  /// 구조적으로 살아 있는 [source]의 사용 간선을 따라간다. 이미 살아 있는 대상에는
+  /// 걸음을 새로 기록하지 않는다 — 기존 구조적 보존 선언의 설명이 바뀌지 않는다.
+  void _follow(String source) {
+    for (final edge in _outgoing[source] ?? const <GraphEdge>[]) {
+      final target = edge.targetId;
+      if (_alive.contains(target)) continue;
+      paths[target] = _PathStep(source, edge);
+      _live(target);
+    }
+  }
+
+  /// enum 컨테이너 ID → 상수 ID다. 컨테이너는 마지막 점 앞 전체다.
+  Map<String, List<String>> _enumConstantsByContainer() {
+    final constants = <String, List<String>>{};
+    for (final node in _graph.nodes) {
+      if (!node.isEnumConstant) continue;
+      final separator = node.id.lastIndexOf('.');
+      if (separator < 0) continue;
+      constants
+          .putIfAbsent(node.id.substring(0, separator), () => [])
+          .add(node.id);
+    }
+    return constants;
+  }
+
+  /// 상위 타입 ID → 상속·구현·mixin으로 그것을 잇는 선언 ID다. 큐 항목마다 간선
+  /// 전체를 다시 훑으면 O(도달 sealed 수 × 간선 수)가 되므로 한 번만 모은다.
+  Map<String, List<String>> _subtypesByParent() {
+    final subtypes = <String, List<String>>{};
+    for (final edge in _graph.edges) {
+      switch (edge.kind) {
+        case EdgeKind.inheritance || EdgeKind.implements || EdgeKind.mixin:
+          if (edge.sourceId != edge.targetId && edge.sourceId.contains('::')) {
+            subtypes.putIfAbsent(edge.targetId, () => []).add(edge.sourceId);
+          }
+        default:
+      }
+    }
+    return subtypes;
+  }
 }
 
 const _maximumReportedRetentionRoots = 20;
