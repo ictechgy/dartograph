@@ -58,13 +58,13 @@ agent-queryable MCP surface in one tool.
 
 ## Install
 
-Verified on 2026-11-01: pub.dev publishes **0.16.1**; this checkout prepares **0.17.0**, which is unreleased. The feature descriptions below include source changes. Use a checkout to validate candidate behavior; a source version does not prove publication.
+This checkout targets **0.17.0**. Confirm the matching package on [pub.dev](https://pub.dev/packages/dartograph). See the [changelog](CHANGELOG.md) for redirecting-factory cycle changes and the `cycles --strict --level file` option for library-level gates.
 
 dartograph is a pure Dart CLI and does not require the Flutter SDK. It runs on
 Dart SDK 3.11 or later.
 
 ```bash
-dart pub global activate dartograph 0.16.1
+dart pub global activate dartograph 0.17.0
 # or, on Dart 3.11+, an AOT-compiled install:
 dart install dartograph
 dartograph --version

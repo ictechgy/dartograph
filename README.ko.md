@@ -41,12 +41,12 @@ dartograph는 그 공백을 메운다: **상업적 사용을 포함해 영구 �
 
 ## 설치
 
-2026-11-01 확인: pub.dev 발행본은 **0.16.1**이며 이 checkout의 **0.17.0**은 미발행 후보이다. 아래 기능 설명에는 소스 변경이 포함된다. 후보 동작은 checkout에서 검증하며 소스 버전으로 배포를 추론하지 않는다.
+이 checkout의 대상은 **0.17.0**이다. 같은 버전의 패키지는 [pub.dev](https://pub.dev/packages/dartograph)에서 확인한다. 리다이렉트 factory의 순환 결과 변화와 라이브러리 순환 게이트 `cycles --strict --level file`은 [변경 이력](CHANGELOG.ko.md)을 참고한다.
 
 dartograph는 순수 Dart CLI라 Flutter SDK를 필요로 하지 않는다. Dart SDK 3.11 이상에서 동작한다.
 
 ```bash
-dart pub global activate dartograph 0.16.1
+dart pub global activate dartograph 0.17.0
 # 또는 Dart 3.11+에서는 AOT 컴파일 설치:
 dart install dartograph
 dartograph --version
