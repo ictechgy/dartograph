@@ -43,6 +43,17 @@ dartograph는 순수 Dart 의존성 그래프·근거 질의 CLI다. Flutter SDK
 
 bin/은 얇은 진입점, experiments/는 역사적 검증 자료다. 자매 저장소 checkout이 있다고 가정하지 않는다.
 
+계열 도구는 같은 출력 철학(`state`·`limitations`·삭제 판정 없음)을 공유한다:
+[cartograph](https://github.com/ictechgy/cartograph)(Swift) ·
+[kartograph](https://github.com/ictechgy/kartograph)(Kotlin) · dartograph(Dart) ·
+[gartograph](https://github.com/ictechgy/gartograph)(Go) ·
+[rustograph](https://github.com/ictechgy/rustograph)(Rust) ·
+[pythograph](https://github.com/ictechgy/pythograph)(Python) ·
+[tsograph](https://github.com/ictechgy/tsograph)(TypeScript) ·
+[schemagraph](https://github.com/ictechgy/schemagraph)(DB) ·
+[isthmus](https://github.com/ictechgy/isthmus)(언어 경계 조인, 교환 계약과 적합성 벡터의 정본).
+query 문서·스킬 문장이나 교환 사실을 바꾸면 영향받는 자매 저장소에 알린다.
+
 ## 검증·리뷰·배포
 
 검증 명령과 변경별 선택은 [CONTRIBUTING.md](CONTRIBUTING.md)의 정본을 따른다.

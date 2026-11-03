@@ -1,66 +1,41 @@
 # Handoff
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-11-03_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
-[HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다. 과거 Next Steps·미릴리스 표기는 당시 기록이다.
+[HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(2026-10-11 원문은 그 파일 끝 절).
 
 ## Current Status
 
-- **0.16.2 릴리스 준비**다. 기준 구현 커밋은 `3e521a573d7764bd12331d6a56980ae0e74cfdf6`이며,
-  MCP 프레이밍 무결성과 analyzer 14.5 재검증을 포함한다. pub.dev·태그·GitHub Release를
-  아직 발행하지 않았다. 2026-10-11 pub.dev API 조회 기준 최신은 0.16.1이고 0.16.2는 없다.
-- 기준 구현의 Dart 3.13.3 일반 테스트 782개·격리 설치 테스트 1개·native CLI 계약 218개,
-  제품 라인 커버리지 91.78%를 확인했다. Dart 3.11.0은 analyze·관련 테스트 51개만 검증했다.
-  이후 기준 구현 PR146의 [CI](https://github.com/ictechgy/dartograph/actions/runs/38158056797)는
-  Dart 3.11.0·3.13.3 두 전체 검증 작업 모두 통과했다. 실제 Flutter 코퍼스는 다시 실행하지 않았다.
-  상세 로컬 검증 범위는 `doc/DECISION-analyzer.md`에 있다.
-- 릴리스 브랜치는 버전·문서·버전 assertion만 변경한다. 기능 PR 병합 뒤 병합 커밋에
-  릴리스 변경을 다시 적용하고, 그 최종 커밋의 CI·버전 계약·publish dry-run을 확인한다.
-- 게시 순서는 CONTRIBUTING의 기존 절차를 유지한다: 게시 권한이 있는 환경에서
-  `dart pub publish` 성공을 확인한 뒤 같은 커밋에 `v0.16.2` 태그와 GitHub Release를
-  연결하고, 공개 패키지를 새 캐시에 설치해 `--version`을 확인한다. 기존 버전을 덮어쓰지 않는다.
-- 현재 준비 환경에서는 게시에 쓸 인증 경로가 확인되지 않아 pub.dev 게시·태그·Release
-  작업은 진행하지 않았다. 새 자격 증명이나 자동 게시 워크플로도 만들지 않았다.
-
-## Earlier Verified Status
-
-아래 0.15.0 기록은 과거 발행 근거다. 현재 릴리스 준비나 최신 레지스트리 버전으로 읽지 않는다.
-
-- 자매 후속의 timestamp 계약을 [GRAPH-EXCHANGE](doc/GRAPH-EXCHANGE.md)에 반영했다.
-  generatedAt은 문서 추출 시각이며 optional sourceModifiedAt은 별도 source mtime이다.
-  dartograph는 mtime을 측정하지 않아 생략하며 기존 추출 시각 구현을 유지한다.
-  이번 변경은 문서만이고 새 CLI·확장 버전을 발행하지 않았다.
-- isthmus의 [실제 Flutter3.47.2 macOS·Android 앱 검사와 공개 RN 컴파일 retention](https://github.com/ictechgy/isthmus/blob/main/experiments/real-corpus/README.md)은
-  자매 개발 소스의 별도 검증이다. dartograph의 RN 생산자 지원을 추가했다는 뜻은 아니다.
-
-- dartograph **0.15.0**은 [pub.dev](https://pub.dev/packages/dartograph/versions/0.15.0)와
-  [GitHub](https://github.com/ictechgy/dartograph/releases/tag/v0.15.0)에 발행됐다.
-  릴리스 [PR #129](https://github.com/ictechgy/dartograph/pull/129)와 tag `v0.15.0`의 소스는 `b124839`다.
-- archive SHA256 `4fc7a7958d2af6652ca7532fea3c73366ec16269d7783596d491a53f8170e38c`를 registry와 대조했고,
-  별도 PUB_CACHE activation·CLI 버전을 확인했다. 릴리스 검사에는 format/analyze,
-  coverage 90.71%, corpus·analyzer 경계·CLI 계약·publish dry-run 경고 0이 포함됐다.
-- 0.14.0 이후 workspace·MCP 통합·setup·query source·보고 형식·test-list·브리지 계약 누적분은
-  모두 0.15.0에 포함된다. PR #119~#124·#127의 옛 미커밋/미발행 표기를 현재 작업으로 읽지 않는다.
-- RN v2 전역 이벤트·필수 컴파일러 ID·원본 caller 유지의 자매 계약은
-  [GRAPH-EXCHANGE](doc/GRAPH-EXCHANGE.md)에 있다. dartograph가 RN JS·네이티브 소스를 추출한다는 뜻은 아니다.
-  자매 발행/왕복 검증은 [isthmus HANDOFF](https://github.com/ictechgy/isthmus/blob/main/HANDOFF.md)를 따른다.
-- `HANDOFF-PROGRESS.md`와 `editors/vscode/icon-drafts/`는 기존 사용자 미추적 파일이다.
-  VS Code/analysis plugin은 이번 CLI 릴리스로 재발행하지 않았다.
+- 발행본은 **0.17.0**이다. pub.dev 버전 목록은 0.16.1 다음이 0.17.0이며, 준비했던 0.16.2는
+  게시하지 않고 0.17.0에 포함했다(CHANGELOG 0.16.2 절에 표기). GitHub Release `v0.17.0`과
+  analysis server 플러그인 `dartograph_analysis_plugin` 0.1.1도 발행됐다.
+- `main` 위의 `[Unreleased]` 변경(브랜치 `ccr-37904670-hxdjsx`, 리뷰·머지 대상):
+  - 오탐 수정(실제 analyzer fixture로 재현 후 수정): 필드 재정의, 감싼 선언의 annotation,
+    두 인자 `vm:entry-point` pragma, 명시적 setter, typedef 사용, 구조적 보존 선언의 사용 간선
+    고정점(enum 상수 인자 등), 공유 생성 파일 접미사, YAML plugin 진입점, 폰트·자산 의존.
+  - 한계: `public-libraries:`(게시 패키지의 대표 밖 공개 라이브러리).
+  - 적합성 벡터를 isthmus `c76e105`로 다시 벤더링하고 `sql-relations` 14케이스를 실행한다.
+  - CI: analyzer 하한(14.3)·상한 밖 신규 마이너 감지 예약 잡, impact-precheck 예시의 push 게이트.
+  - 자기 분석: `tool/module_layers.yaml` 모듈 의존 방향 `rules --strict`, 모듈 간 순환 없음.
+- 분석 캐시 신원은 `v30`이다. 발행 전이라 toolVersion은 0.17.0 그대로다.
 
 ## Next Steps
 
-우선 0.16.2의 최종 병합 커밋 검증과 승인된 게시 경로를 확보한다. 아래 항목은 이전 후속 후보이며 이번 릴리스의 선행 조건이 아니다.
-
-- pub.dev verified publisher 설정과 README 데모(asciinema).
-- VS Code 확장 아이콘 선택. 기존 시안과 사용자 결정을 보존한다.
-- adoption 대조 실험의 모델·과제 확대, 변경 범위 질의/설치 표면 정리는 필요할 때 범위를 선택한다.
+- 위 브랜치의 리뷰·CI·머지 후 다음 릴리스(0.18.0 후보)는 CONTRIBUTING의 절차를 따른다.
+- 이번 범위에서 일부러 뺀 후속(보존을 좁히거나 계약을 바꾸는 변경이라 근거·결정이 필요):
+  - 문서 주석 참조(`/// [Foo]`)를 사용 간선에서 빼기, 조건부 구성의 import 폐쇄 축소,
+    생성 코드 루트의 조건부화 — 보존을 좁히므로 반대 방향 코퍼스와 실제 프로젝트 델타가 먼저다.
+  - typedef 정점화(미사용 typedef 보고·`query` 지원) — 새 판정을 낳는다.
+  - `generated_files` 설정 키 — 단위 사실 캐시 키 설계가 필요하다.
+  - 0.15.0~0.16.1 게시본은 analyzer `<15.0.0`이라 새 설치가 미검증 14.6·14.7로 해석될 수
+    있다. 현재 `lib`은 14.7.0에서 정적 분석 오류가 없음을 확인했으나, 옛 게시본의 컴파일과
+    retract 여부는 게시 권한이 있는 환경에서 판단한다.
 - 측정으로 기각한 프레임워크 보존 추가나 P7 최적화를 새 근거 없이 재개하지 않는다.
 
 ## Resume Prompt
 
-HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 0.16.2는 릴리스 준비이며
-게시됐다고 가정하지 마. 기능 PR 병합 뒤 릴리스 변경을 최종 커밋에 적용하고 CI·버전 계약·
-publish dry-run을 확인해야 해. 게시 인증 경로가 준비되면 CONTRIBUTING의 순서대로 pub.dev,
-같은 커밋의 태그·GitHub Release, 새 캐시 공개 설치 검증을 진행해. 과거 검증 범위를 확대해서
-표현하지 말고 기존 사용자 파일과 분석 한계를 보존해.
+HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고
+`[Unreleased]` 변경은 위 브랜치의 PR로 리뷰·머지 중이야. 머지 전이면 CI와 리뷰 지적을
+확인하고, 머지 뒤 릴리스는 CONTRIBUTING 절차를 따라. Next Steps의 제외 항목은 보존을
+좁히거나 계약을 바꾸므로 근거 없이 착수하지 마.
