@@ -9,6 +9,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/type.dart';
 import 'package:path/path.dart' as p;
 import 'package:crypto/crypto.dart';
 import 'package:yaml/yaml.dart';
@@ -2315,8 +2316,11 @@ const _cacheSchemaVersion = 8;
 // 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
 // 한계 문구는 다르다.
 // 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
+// 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
+// typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
+// 미도달로 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v27-unanalyzed-escapes';
+    'dartograph-analysis-$toolVersion-cache-v28-field-setter-alias-usage';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3873,7 +3877,7 @@ RetentionReason? _retentionReason(
   // annotation 순서 때문에 재정의 계약으로 덮이면 `--report-override-only`가
   // 그 멤버를 조건부 루트로 잘못 다룬다.
   var annotatedOverride = false;
-  for (final annotation in node.metadata) {
+  for (final annotation in _declarationMetadata(node)) {
     final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
     if (name == 'override' && annotationLibrary == 'dart:core') {
@@ -3887,12 +3891,9 @@ RetentionReason? _retentionReason(
     if (_isExternalBinding(name, annotationLibrary)) {
       return RetentionReason.externalBinding;
     }
-    final arguments = annotation.arguments?.arguments;
     if (name == 'pragma' &&
         annotationLibrary == 'dart:core' &&
-        arguments?.length == 1 &&
-        arguments!.single is SimpleStringLiteral &&
-        (arguments.single as SimpleStringLiteral).value == 'vm:entry-point') {
+        _isVmEntryPointPragma(annotation.arguments?.arguments)) {
       return RetentionReason.vmEntryPoint;
     }
   }
@@ -3926,6 +3927,41 @@ RetentionReason? _retentionReason(
     return RetentionReason.overrideContract;
   }
   return null;
+}
+
+/// [node] 자신과, 변수·필드라면 그것을 감싼 선언의 annotation이다.
+///
+/// 변수·필드는 `VariableDeclaration`이 정점을 만들지만 annotation은 감싸는
+/// `FieldDeclaration`·`TopLevelVariableDeclaration`에 붙는다([_hasIgnoreClaim]과
+/// 같은 14.3.0 실측 구조). 자기 metadata만 보면 `@override final x`·
+/// `@pragma('vm:entry-point') static int y` 같은 보존 근거를 놓친다.
+/// `int a = 1, b = 2;`의 annotation은 두 변수 모두에 적용된다.
+Iterable<Annotation> _declarationMetadata(Declaration node) sync* {
+  yield* node.metadata;
+  if (node is! VariableDeclaration) return;
+  final enclosing =
+      node.thisOrAncestorOfType<FieldDeclaration>() ??
+      node.thisOrAncestorOfType<TopLevelVariableDeclaration>();
+  if (enclosing != null) yield* enclosing.metadata;
+}
+
+/// `@pragma('vm:entry-point'[, 옵션])` 인자인지 판정한다.
+///
+/// VM 계약의 두 번째 인자(`true`·`'get'`·`'set'`·`'call'`, 또는 상수 bool 식)는
+/// 진입점의 종류를 좁힐 뿐 진입점이 아니라는 뜻이 아니다. 리터럴 `false`만이
+/// 진입점이 아니라고 선언하므로 그때만 제외한다. 상수 식은 값을 계산하지 않고
+/// 보존 쪽으로 판정한다.
+bool _isVmEntryPointPragma(List<Argument>? arguments) {
+  if (arguments == null || arguments.isEmpty || arguments.length > 2) {
+    return false;
+  }
+  final name = arguments.first;
+  if (name is! SimpleStringLiteral || name.value != 'vm:entry-point') {
+    return false;
+  }
+  if (arguments.length == 1) return true;
+  final option = arguments[1];
+  return option is! BooleanLiteral || option.value;
 }
 
 /// 외부 런타임이 이름으로 호출하는 binding annotation인지 판정한다.
@@ -4016,8 +4052,13 @@ Map<String, List<String>> _publicMembersByDeclaration(CodeGraph graph) {
   return membersByDeclaration;
 }
 
+/// [element]가 상위 타입에서 물려받은 같은 이름의 멤버를 재정의하는지 본다.
+///
+/// 인스턴스 필드도 암묵 getter·setter로 상위의 getter·setter를 구현한다
+/// (`@override final String message`). 실행 가능 요소만 보면 이런 필드가 상위
+/// 타입을 거친 읽기로만 쓰일 때 미도달로 보고된다. 정적 멤버는 재정의하지 않는다.
 bool _overridesInheritedMember(Element element) {
-  if (element is! ExecutableElement) return false;
+  if (!_canOverride(element)) return false;
   final enclosing = element.enclosingElement;
   final name = element.name;
   return enclosing is InterfaceElement &&
@@ -4026,6 +4067,14 @@ bool _overridesInheritedMember(Element element) {
         (candidate) => candidate.name == name,
       );
 }
+
+/// 재정의 관계를 가질 수 있는 선언인지 본다 — 실행 가능 요소와 인스턴스 필드다.
+///
+/// 실행 가능 요소는 기존 판정을 그대로 둔다. 정적 필드와 enum 상수는 인스턴스
+/// 인터페이스에 속하지 않아 상위 멤버를 재정의하지 않는다.
+bool _canOverride(Element element) =>
+    element is ExecutableElement ||
+    (element is FieldElement && !element.isStatic && !element.isEnumConstant);
 
 Set<AnalyzerLimitation> _addPluginRoots(
   String root,
@@ -4109,7 +4158,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
           _add(_owner!, _idOf(type.element), EdgeKind.mixin);
         }
       }
-      if (element is ExecutableElement && enclosing is InterfaceElement) {
+      if (_canOverride(element) && enclosing is InterfaceElement) {
         final name = element.name;
         if (name != null) {
           for (final overridden in enclosing.inheritedMembers.values.where(
@@ -4261,6 +4310,24 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
         }
       }
     }
+    _addExplicitSetterUse(node.writeElement);
+  }
+
+  /// 명시적으로 선언한 setter(`set count(int v) {...}`)에 쓰기 간선을 더한다.
+  ///
+  /// [_graphTarget]은 getter·setter를 변수로 접어 필드·getter 정점(`A.count`)과
+  /// 맞춘다. 명시적 setter의 정점 ID는 `lookupName`(`A.count=`)이라 그 간선만으로는
+  /// 대입으로만 쓰는 setter와 setter 본문이 호출하는 선언이 미도달로 보고됐다.
+  /// 변수 쪽 간선은 그대로 두어 보존을 좁히지 않는다. 필드의 암묵 setter는 변수
+  /// 정점이 곧 선언이므로 더할 것이 없다.
+  void _addExplicitSetterUse(Element? writeElement) {
+    final owner = _owner;
+    final setter = writeElement?.baseElement;
+    if (owner != null &&
+        setter is SetterElement &&
+        setter.isOriginDeclaration) {
+      _add(owner, _idOf(setter), EdgeKind.reference);
+    }
   }
 
   /// 연산자 호출은 식별자가 아니라 토큰이라 [visitSimpleIdentifier] 경로를
@@ -4291,7 +4358,27 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
         _isGraphElement(element)) {
       _add(owner, _idOf(element), EdgeKind.reference);
     }
+    if (owner != null && !isStructural && element is TypeAliasElement) {
+      _addAliasedTypeReferences(owner, element.aliasedType);
+    }
     super.visitNamedType(node);
+  }
+
+  /// typedef를 쓰는 선언이 별칭 본문의 타입을 참조하게 한다.
+  ///
+  /// typedef는 그래프 정점이 아니고 최상위 typedef 본문에는 소유 선언이 없어,
+  /// `typedef Models = List<Model>`만 거쳐 쓰는 `Model`이 미도달로 보고됐다.
+  /// 사용 지점에서 별칭이 가리키는 타입을 펼치면 의존이 실제 사용자에게 귀속되고
+  /// 사실이 그 파일(과 import 폐쇄)의 함수로 남는다. 쓰이지 않는 typedef의 본문은
+  /// 여전히 아무에게도 귀속되지 않는다(README 한계).
+  void _addAliasedTypeReferences(String owner, DartType aliasedType) {
+    final targets = <Element>{};
+    _collectTypeElements(aliasedType, targets);
+    for (final target in targets) {
+      if (_isGraphElement(target)) {
+        _add(owner, _idOf(target), EdgeKind.reference);
+      }
+    }
   }
 
   Element? _callTarget(SimpleIdentifier node, Element element) {
@@ -4321,6 +4408,35 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
 /// 아니거나 식별자 경로가 이미 수집하므로 거른다.
 MethodElement? _asMethod(Element? element) =>
     element is MethodElement ? element : null;
+
+/// [type]이 구조적으로 가리키는 선언 element를 [into]에 모은다.
+///
+/// 인터페이스 타입과 그 타입 인자, 함수 타입의 반환·매개변수, 레코드 필드를
+/// 따라간다. 중첩 typedef는 analyzer가 이미 펼친 구조로 들어온다. 타입 매개변수의
+/// bound는 그 타입의 사용이 아니므로 따라가지 않는다. Dart 타입은 유한한 트리라
+/// 재귀가 끝난다.
+void _collectTypeElements(DartType type, Set<Element> into) {
+  switch (type) {
+    case InterfaceType():
+      into.add(type.element);
+      for (final argument in type.typeArguments) {
+        _collectTypeElements(argument, into);
+      }
+    case FunctionType():
+      _collectTypeElements(type.returnType, into);
+      for (final parameter in type.formalParameters) {
+        _collectTypeElements(parameter.type, into);
+      }
+    case RecordType():
+      for (final field in type.positionalFields) {
+        _collectTypeElements(field.type, into);
+      }
+      for (final field in type.namedFields) {
+        _collectTypeElements(field.type, into);
+      }
+    default:
+  }
+}
 
 Element? _graphTarget(Element? element) {
   final base = element?.baseElement;

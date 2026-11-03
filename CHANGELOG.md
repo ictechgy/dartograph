@@ -4,6 +4,15 @@ A Korean version of this changelog is kept in [CHANGELOG.ko.md](CHANGELOG.ko.md)
 
 ## Unreleased
 
+- `dead` no longer reports these live declarations, each reproduced with the real analyzer:
+  - instance fields that implement an inherited getter or setter (`@override final String message;` read through a supertype). Such fields are now override retention roots with `override` edges, as methods already were;
+  - fields and top-level variables annotated on their declaration (`@pragma('vm:entry-point') static int counter`, `@visibleForTesting`, JS/FFI bindings). Annotations of the enclosing field or variable declaration are now read;
+  - functions annotated with the two-argument VM form `@pragma('vm:entry-point', 'call')` (also `'get'`, `'set'`, `true`, or a constant expression). Only a literal `false` second argument means "not an entry point";
+  - explicit setters (`set count(int v) {...}`) that are only assigned, and what their bodies use. An assignment now adds a `reference` edge to the setter declaration (`Counter.count=`) next to the existing edge to the property;
+  - declarations used only through a typedef (`Model` in `typedef Models = List<Model>`). A use of a typedef now references the declarations of its aliased type; typedefs themselves are still not graph nodes.
+
+  The new edges also appear in `graph`, `impact`, `query`, and `cycles`, so `cycles --strict` can report a cycle through a setter or typedef use. The analysis cache identity is bumped. The README now also documents behavior that is unchanged: doc comment references count as uses, unselected conditional configurations retain the libraries they import, and generated declarations retain the hand-written declarations they use.
+
 - `dead` no longer reports declarations used only from a structurally retained declaration. The constants of a reached enum, the class of a reached member, and the subtypes of a reached sealed type were kept alive without following their own usage edges, so a constant passed only as an enum constant argument (`dev(_devUrl)` consumed through `Env.values.byName(...)`), and anything used only from such declarations, was reported as unreachable. Reachability now follows the usage edges of these declarations until nothing changes, and `dead --report-override-only` uses the same closure. `dead --explain` gives such a declaration the reason `reachable from a structurally retained declaration`, a `path` that starts at the retaining declaration, and that declaration as `witness`; `query` reports state `reachable` with the same `path` and adds `witness` (only in this case), so `path.first` is not mistaken for a root. Findings can only disappear, and explanations of declarations that were already reachable are unchanged.
 
 ## 0.17.0 - 2026-11-03

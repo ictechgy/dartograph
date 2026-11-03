@@ -148,15 +148,17 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 
 한계:
 
-- 조건부 import/export: analyzer가 고른 단일 구성만 관측된다.
+- 조건부 import/export: analyzer는 한 구성만 해석한다. 다른 구성의 라이브러리와 그것이 import하는 모든 라이브러리는 `conditionalConfiguration` 루트로 보존되므로, 선택되지 않은 분기에서만 닿는 코드는 보고되지 않는다. 그런 분기가 import하는 라이브러리의 무관한 선언도 함께 보존된다.
+- 문서 주석의 식별자(`/// Replaces [LegacyParser].`)는 참조로 센다. 문서 주석에서만 언급되는 선언은 보고되지 않으며, 그 언급은 `impact`·`query`·`cycles`에도 나타난다.
 - route table과 연결되지 않은 문자열 route는 한계로 보고되며 삭제 근거로 쓰이지 않는다.
-- 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다.
+- 소스보다 오래된 생성 코드는 한계로 보고된다; 생성 선언 자체는 보수적으로 보존된다. 생성 선언이 루트이므로 그것이 쓰는 손으로 쓴 선언도 보존된다. 예를 들어 생성된 `_$UserFromJson`이 만드는 모델 클래스는 다른 곳에서 쓰이지 않아도 보존된다.
 - 한 패키지에는 `main` 함수가 여러 개일 수 있다. 기본적으로 `lib/`, `bin/`, `example/` 아래의 모든 `main`이 보존된다. 실제 빌드 대상을 `dartograph.yaml`의 `entry_points`로 선언하면 그 파일들의 `main` 함수로 보존을 좁힌다(템플릿은 `dartograph init`으로 생성할 수 있다).
 - 분석 대상은 `lib/`, `bin/`, `example/`, `integration_test/`, `test/`뿐이다. `web/`, `tool/`, `hook/`, `benchmark/`, `test_driver/`에서만 쓰는 코드는 미도달로 보고되며, 이 디렉터리에 패키지(또는 `--workspace` 멤버)의 Dart 파일이 있으면 `unanalyzed-directories:` 한계가 그 수를 알린다. 그런 코드는 `retained_names`나 `retained_files`로 보존한다.
 - 로컬 path dependency는 `dartograph.yaml`의 `source_packages`에 package root를 명시해야 그래프에 포함되는 opt-in 입력이다. 각 root는 프로젝트 안에 있고 `pubspec.yaml`과 `lib/`를 가져야 한다. 전체 pub cache를 순회하지 않고도 프로젝트에 vendor된 생성 Pigeon/Dart 소스를 포함시키는 데 유용하다.
 - 생성자(기본·named·factory)는 별도 정점이 아니라 소속 클래스로 모델링된다. `Parser.fromJson(...)` 호출은 `Parser`로 가는 `call` 간선이고, 생성자 본문 안의 사용도 클래스에 귀속된다. 생성자 ID로 질의하면 `notFound`이고, 쓰이지 않는 생성자는 `dead`가 보고하지 않으며, 생성자 변경의 `impact`는 클래스 단위로 계산된다. 같은 이유로 리다이렉트 factory(`factory S() = C;`)는 factory 본문의 `C()`처럼 `S`에서 `C`로 가는 `call` 간선이다. 그래서 `S`가 타입으로만 쓰이고 그 factory를 아무도 부르지 않아도 `S`에 닿기만 하면 `C`도 도달한 것으로 본다.
 - `lib/<package-name>.dart`가 export하는 공개 선언·공개 멤버는 외부 소비자 API로 보존된다.
-- 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
+- typedef는 그래프 정점이 아니다. typedef를 쓰는 곳은 별칭이 가리키는 타입의 선언을 참조하므로, `typedef Models = List<Model>`을 쓰는 곳이 있으면 `Model`이 도달한다. typedef로 질의하면 `notFound`이고, 쓰이지 않는 typedef는 보고되지 않으며, 쓰이지 않는 typedef 본문에서만 참조되는 선언은 미도달로 보고된다.
+- 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 상위의 getter·setter를 구현하는 인스턴스 필드(`@override final String message;`)를 포함해 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.

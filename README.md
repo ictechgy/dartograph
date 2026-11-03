@@ -293,12 +293,21 @@ library-local `unused_element`.
 
 Limitations:
 
-- Conditional imports/exports: only the single configuration the analyzer picks
-  is observed.
+- Conditional imports/exports: the analyzer resolves one configuration. The
+  libraries of the other configurations, and every library they import, are
+  retained as `conditionalConfiguration` roots, so code reachable only from an
+  unselected branch is not reported. This also keeps unrelated declarations of
+  a library that such a branch imports.
+- Identifiers in documentation comments (`/// Replaces [LegacyParser].`) count
+  as references. A declaration mentioned only in doc comments is not reported,
+  and the mention appears in `impact`, `query`, and `cycles`.
 - String routes not connected to a route table are reported as limitations and
   never used as deletion evidence.
 - Generated code older than its source is reported as a limitation; generated
-  declarations themselves are conservatively retained.
+  declarations themselves are conservatively retained. Because they are roots,
+  the hand-written declarations they use are retained too, such as a model
+  class that a generated `_$UserFromJson` constructs even when nothing else
+  uses that model.
 - A package can contain several `main` functions. By default every `main` under
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
@@ -324,8 +333,14 @@ Limitations:
   type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
   are retained as the external consumer API.
-- Members that override an inherited member (with or without `@override`) are
-  retained as roots, because calls dispatched through a supertype or a framework
+- Typedefs are not graph nodes. A use of a typedef references the declarations
+  in its aliased type, so `typedef Models = List<Model>` keeps `Model`
+  reachable wherever `Models` is used. Querying a typedef reports `notFound`,
+  unused typedefs are not reported, and a declaration referenced only from the
+  body of an unused typedef is reported as unreachable.
+- Members that override an inherited member (with or without `@override`),
+  including instance fields that implement an inherited getter or setter
+  (`@override final String message;`), are retained as roots, because calls dispatched through a supertype or a framework
   are not graph edges. A class kept alive only by such members, such as an
   unused widget that overrides `build()`, is not reported by `dead`;
   `dead --report-override-only` lists these declarations at info severity.

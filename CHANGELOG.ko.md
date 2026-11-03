@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- `dead`는 실제 analyzer로 재현한 다음 살아 있는 선언을 더 이상 보고하지 않는다.
+  - 상위의 getter·setter를 구현하는 인스턴스 필드(상위 타입으로 읽는 `@override final String message;`). 이제 메서드처럼 재정의 보존 루트이고 `override` 간선을 가진다.
+  - 선언에 annotation을 단 필드·최상위 변수(`@pragma('vm:entry-point') static int counter`, `@visibleForTesting`, JS/FFI binding). 감싼 필드·변수 선언의 annotation을 읽는다.
+  - 두 인자 VM 형식 `@pragma('vm:entry-point', 'call')`(`'get'`·`'set'`·`true`·상수 식도 같다)을 단 함수. 두 번째 인자가 리터럴 `false`일 때만 진입점이 아니다.
+  - 대입으로만 쓰는 명시적 setter(`set count(int v) {...}`)와 그 본문이 쓰는 선언. 대입은 기존 property 간선 옆에 setter 선언(`Counter.count=`)으로 가는 `reference` 간선을 더한다.
+  - typedef로만 쓰는 선언(`typedef Models = List<Model>`의 `Model`). typedef를 쓰는 곳은 별칭 타입의 선언을 참조한다. typedef 자체는 여전히 그래프 정점이 아니다.
+
+  새 간선은 `graph`·`impact`·`query`·`cycles`에도 나타나므로 `cycles --strict`가 setter나 typedef 사용을 거치는 순환을 보고할 수 있다. 분석 캐시 신원을 올렸다. 바뀌지 않은 동작도 README에 적었다: 문서 주석 참조는 사용으로 세고, 선택되지 않은 조건부 구성은 그것이 import하는 라이브러리를 보존하며, 생성 선언은 자신이 쓰는 손으로 쓴 선언을 보존한다.
+
 - `dead`는 구조적으로 보존된 선언에서만 쓰이는 선언을 더 이상 보고하지 않는다. 도달한 enum의 상수, 도달한 멤버의 클래스, 도달한 sealed 타입의 서브타입은 자기 사용 간선을 따라가지 않은 채 보존됐다. 그래서 enum 상수 인자로만 넘기는 상수(`Env.values.byName(...)`으로 쓰는 `dev(_devUrl)`)와 그런 선언에서만 쓰이는 선언이 미도달로 보고됐다. 이제 도달성은 이 선언들의 사용 간선을 더 늘지 않을 때까지 따라가며, `dead --report-override-only`도 같은 폐쇄를 쓴다. `dead --explain`은 이런 선언을 `reachable from a structurally retained declaration` 이유, 보존하는 선언에서 시작하는 `path`, 그 선언을 `witness`로 설명한다. `query`는 state `reachable`과 같은 `path`를 내고 이 경우에만 `witness`를 더해 `path.first`를 루트로 오독하지 않게 한다. finding은 사라지기만 하며, 이미 도달하던 선언의 설명은 바뀌지 않는다.
 
 ## 0.17.0 - 2026-11-03
