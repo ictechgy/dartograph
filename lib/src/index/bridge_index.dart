@@ -192,6 +192,8 @@ BridgeIndexResult indexBridges(
           'contents contribute bridge facts',
     if (linkedDirectories.skipped.isNotEmpty)
       skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
+    if (linkedDirectories.unreadable.isNotEmpty)
+      unreadableDirectoriesLimitation(linkedDirectories.unreadable.length),
     if (facts.any(
       (fact) =>
           (fact['kind'] == 'method-invoke' ||

@@ -82,11 +82,18 @@ Future<RouteCallIndexResult> indexRouteCalls(
     scan.scanUnit(unit);
   }
   final result = scan.result();
-  if (linkedDirectories.skipped.isEmpty) return result;
+  if (linkedDirectories.skipped.isEmpty &&
+      linkedDirectories.unreadable.isEmpty) {
+    return result;
+  }
   // 건너뛴 링크 경로의 호출은 사실이 아니다(같은 소스가 남은 경로에서 사실이 된다).
+  // 읽지 못한 디렉터리 안의 호출은 관측하지 못했다.
   return RouteCallIndexResult(result.facts, [
     ...result.limitations,
-    skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
+    if (linkedDirectories.skipped.isNotEmpty)
+      skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
+    if (linkedDirectories.unreadable.isNotEmpty)
+      unreadableDirectoriesLimitation(linkedDirectories.unreadable.length),
   ]);
 }
 

@@ -70,6 +70,18 @@ final class LinkedDirectoryVisits {
   List<({String path, String canonical})> get skipped =>
       List.unmodifiable(_skipped);
 
+  final _unreadable = <String>{};
+
+  /// 분석 범위 안에서 목록을 읽지 못해 건너뛴 디렉터리 경로다(권한 거부 등).
+  ///
+  /// 그 아래 소스는 그래프에 없다. 호출자는 [unreadableDirectoriesLimitation]으로
+  /// 수를 싣는다 — 조용히 건너뛰면 빈 결과가 "소스 없음"과 구분되지 않는다(#160).
+  Set<String> get unreadable => Set.unmodifiable(_unreadable);
+
+  /// [directory]의 목록을 읽지 못해 건너뛰었다고 남긴다.
+  void recordUnreadable(String directory) =>
+      _unreadable.add(p.normalize(directory));
+
   /// [path] 디렉터리를 열지 정한다. 열지 않을 경로가 중복이면 [skipped]에 남긴다.
   ///
   /// [canonical]은 [path]의 정규 경로이고, [ancestors]는 지금 경로에서 이미 연
@@ -90,6 +102,15 @@ final class LinkedDirectoryVisits {
     return false;
   }
 }
+
+/// [count]개 디렉터리를 읽지 못해 건너뛰었다는 limitation 문구다.
+///
+/// 경로는 싣지 않는다. 같은 원인(권한·마운트)이 하위 디렉터리마다 반복되면 출력이
+/// 커지고, 사용자 디렉터리 이름을 반향하지 않는 실패 진단과 같은 경계를 지킨다.
+String unreadableDirectoriesLimitation(int count) =>
+    'unreadable-directories: $count directory path(s) could not be listed '
+    '(for example, permission denied) and were skipped; files under them were '
+    'not analyzed';
 
 /// [count]개 디렉터리 경로를 중복으로 건너뛰었다는 limitation 문구다.
 ///
@@ -141,6 +162,7 @@ Iterable<File> indexProjectFiles(
     directory.path,
     directory.resolveSymbolicLinksSync(),
     throughLink: false,
+    start: true,
   );
 }
 
@@ -166,13 +188,26 @@ final class _ProjectFileWalk {
   /// [directory](정규 경로 [canonical]) 아래 파일이다. 링크 자체의 경로로 재귀해
   /// analyzer가 사용하는 경로와 같은 모양을 유지한다. [throughLink]는
   /// [LinkedDirectoryVisits.admits]의 같은 이름이다.
+  ///
+  /// 하위 디렉터리의 목록을 읽지 못하면(권한 거부 등) 그 디렉터리를 건너뛰고
+  /// [LinkedDirectoryVisits.recordUnreadable]로 남긴다 — 디렉터리 하나로 순회 전체가
+  /// 실패하지 않는다(#160). 순회를 시작한 디렉터리([start])를 읽지 못하면 호출자의
+  /// 기존 실패 그대로 던진다.
   Iterable<File> filesIn(
     String directory,
     String canonical, {
     required bool throughLink,
+    bool start = false,
   }) sync* {
-    final entities = Directory(directory).listSync(followLinks: false)
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final List<FileSystemEntity> entities;
+    try {
+      entities = Directory(directory).listSync(followLinks: false)
+        ..sort((a, b) => a.path.compareTo(b.path));
+    } on FileSystemException {
+      if (start) rethrow;
+      _visits.recordUnreadable(directory);
+      return;
+    }
     for (final entity in entities) {
       if (entity is Directory) {
         if (_isSkippedDirectory(entity.path, skipHiddenDirectories)) continue;

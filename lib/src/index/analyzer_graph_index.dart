@@ -26,14 +26,17 @@ import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'bounded_resource_provider.dart';
 import '../core/generated_files.dart';
+import 'dart_sdk_locator.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
+export 'dart_sdk_locator.dart' show DartSdkNotFoundException;
 export 'project_files.dart'
     show
         LinkedDirectoryVisits,
         isPathWithinRoot,
-        skippedLinkedDirectoriesLimitation;
+        skippedLinkedDirectoriesLimitation,
+        unreadableDirectoriesLimitation;
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -305,6 +308,9 @@ final class AnalyzerGraphIndex {
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+    // SDK는 캐시보다 먼저 찾는다. 찾지 못하면 캐시 유무와 상관없이 같은 실패다 —
+    // 데워진 캐시가 SDK 부재를 가리면 같은 입력이 실행마다 다르게 끝난다(#160).
+    final sdk = _analyzerSdk();
     final sourcePackages = _readSourcePackages(root);
     // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
     // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
@@ -319,7 +325,12 @@ final class AnalyzerGraphIndex {
     final linkEscapes = <String>{};
     final initialCacheKey = cache == null
         ? null
-        : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
+        : await _tryAnalysisCacheKey(
+            root,
+            sdk.identity,
+            linkEscapes,
+            _aggregateWorkspace,
+          );
     if (cache == null) {
       // 캐시 키를 계산하지 않는 경로(무캐시·증분)는 키 열거가 analyzer보다 먼저
       // 돌지 않는다. 여기서 열거해 탈출 링크를 기록하고 비정규 입력을 거부한다.
@@ -332,12 +343,17 @@ final class AnalyzerGraphIndex {
         includeTokenSegments: _includeTokenSegments,
       );
       if (cached != null &&
-          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+          await _tryAnalysisCacheKey(
+                root,
+                sdk.identity,
+                null,
+                _aggregateWorkspace,
+              ) ==
               initialCacheKey) {
         return cached;
       }
     }
-    final collection = await _openCollection(root);
+    final collection = await _openCollection(root, sdk.path);
     try {
       final result = await _analyze(
         root,
@@ -345,10 +361,16 @@ final class AnalyzerGraphIndex {
         sourcePackages,
         incremental: incremental,
         linkEscapes: linkEscapes,
+        sdkIdentity: sdk.identity,
       );
       if (cache != null &&
           initialCacheKey != null &&
-          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+          await _tryAnalysisCacheKey(
+                root,
+                sdk.identity,
+                null,
+                _aggregateWorkspace,
+              ) ==
               initialCacheKey) {
         await _writeCachedAnalysis(cache, initialCacheKey, result);
       }
@@ -379,6 +401,7 @@ final class AnalyzerGraphIndex {
     AnalysisContextCollection collection,
     List<Directory> sourcePackages, {
     required IncrementalCache? incremental,
+    required String sdkIdentity,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -406,6 +429,7 @@ final class AnalyzerGraphIndex {
       linkedDirectories,
     );
     final skippedLinkedDirectories = linkedDirectories.skipped.length;
+    final unreadableDirectories = linkedDirectories.unreadable.length;
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
@@ -440,6 +464,7 @@ final class AnalyzerGraphIndex {
         scope: scope,
         linkEscapes: linkEscapes,
         skippedLinkedDirectories: skippedLinkedDirectories,
+        unreadableDirectories: unreadableDirectories,
         workspace: workspace,
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
@@ -460,6 +485,8 @@ final class AnalyzerGraphIndex {
       scope: scope,
       linkEscapes: linkEscapes,
       skippedLinkedDirectories: skippedLinkedDirectories,
+      unreadableDirectories: unreadableDirectories,
+      sdkIdentity: sdkIdentity,
       workspace: workspace,
     );
   }
@@ -480,6 +507,8 @@ final class AnalyzerGraphIndex {
     required _ScopeConfig scope,
     required _WorkspaceSpec? workspace,
     required int skippedLinkedDirectories,
+    required int unreadableDirectories,
+    required String sdkIdentity,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -493,7 +522,7 @@ final class AnalyzerGraphIndex {
     );
     final resolutionKey = IncrementalCache.resolutionKey(
       toolVersion: toolVersion,
-      sdkVersion: Platform.version,
+      sdkVersion: sdkIdentity,
       configFingerprint: inputs.configFingerprint,
     );
     final currentKeys = <String, String>{
@@ -632,6 +661,7 @@ final class AnalyzerGraphIndex {
       scope: scope,
       linkEscapes: linkEscapes,
       skippedLinkedDirectories: skippedLinkedDirectories,
+      unreadableDirectories: unreadableDirectories,
       workspace: workspace,
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
@@ -1469,6 +1499,7 @@ AnalyzerGraphResult _assembleResult({
   _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
   int skippedLinkedDirectories = 0,
+  int unreadableDirectories = 0,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1665,6 +1696,14 @@ AnalyzerGraphResult _assembleResult({
     // 그래프에 없으므로 그 경로를 묻는 질의가 '미발견'인 이유를 출력에 남긴다.
     limitationDetails.add(
       skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
+    );
+  }
+  if (unreadableDirectories > 0) {
+    // 분석 범위 안에서 목록을 읽지 못한 디렉터리의 소스는 그래프에 없다. 건너뛰지
+    // 않으면 디렉터리 하나로 색인 전체가 실패하고(#160), 조용히 건너뛰면 빈 결과가
+    // "소스 없음"과 구분되지 않는다.
+    limitationDetails.add(
+      unreadableDirectoriesLimitation(unreadableDirectories),
     );
   }
   if (workspace == null) {
@@ -2359,13 +2398,15 @@ Future<void> _scanAnalysisInputs(String root, Set<String>? linkEscapes) async {
 }
 
 Future<String?> _tryAnalysisCacheKey(
-  String root, [
+  String root,
+  String sdkIdentity, [
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 ]) async {
   try {
     return await _analysisCacheKey(
       root,
+      sdkIdentity: sdkIdentity,
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
     );
@@ -2381,6 +2422,7 @@ Future<String?> _tryAnalysisCacheKey(
 
 Future<String> _analysisCacheKey(
   String root, {
+  required String sdkIdentity,
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
@@ -2397,7 +2439,7 @@ Future<String> _analysisCacheKey(
   final bytes = sha256.startChunkedConversion(digestSink);
   bytes.add(
     utf8.encode(
-      '$_cacheIdentity\u0000${Platform.version}\u0000'
+      '$_cacheIdentity\u0000$sdkIdentity\u0000'
       '${aggregateWorkspace ? 'w1' : 'w0'}\u0000',
     ),
   );
@@ -3226,35 +3268,37 @@ const _namedNavigationMethods = {
   'restorablePushReplacementNamed',
 };
 
-String? _dartSdkPath() {
-  final resolved = File(Platform.resolvedExecutable);
-  final candidates = <File>[resolved];
-  final path = Platform.environment['PATH'];
-  if (path != null) {
-    for (final directory in path.split(Platform.isWindows ? ';' : ':')) {
-      candidates.add(
-        File(p.join(directory, Platform.isWindows ? 'dart.exe' : 'dart')),
-      );
-    }
+/// 색인이 analyzer에 넘기는 Dart SDK다.
+///
+/// [identity]는 캐시 키에 넣는 SDK 신원이다. AOT 바이너리의 [Platform.version]은
+/// 컴파일 당시 런타임 버전이라 실제로 해석에 쓰는 SDK와 다를 수 있으므로, 찾은
+/// SDK의 `version` 파일 내용을 함께 넣는다. 그래야 SDK를 바꾸면 낡은 결과를
+/// 재사용하지 않는다.
+typedef _AnalyzerSdk = ({String path, String identity});
+
+/// 색인에 쓸 SDK를 찾는다. 찾지 못하면 [DartSdkNotFoundException]이다.
+_AnalyzerSdk _analyzerSdk() {
+  final path = _requireDartSdkPath();
+  return (
+    path: path,
+    identity: '${Platform.version}\u0000${_sdkVersionText(path)}',
+  );
+}
+
+/// analyzer에 넘길 SDK 디렉터리다. 찾지 못하면 [DartSdkNotFoundException]이다.
+///
+/// analyzer 기본값(실행 파일 두 단계 위)에 맡기지 않는다. AOT 바이너리에서는 그
+/// 위치가 SDK가 아니라서 원인을 알 수 없는 색인 실패가 된다(#160).
+String _requireDartSdkPath() =>
+    locateDartSdk() ?? (throw const DartSdkNotFoundException());
+
+/// [sdk]의 `version` 파일 내용이다. 읽지 못하면 빈 문자열이다(신원의 보조 성분).
+String _sdkVersionText(String sdk) {
+  try {
+    return File(p.join(sdk, 'version')).readAsStringSync().trim();
+  } on FileSystemException {
+    return '';
   }
-  for (final candidate in candidates) {
-    if (!candidate.existsSync()) continue;
-    final executable = File(candidate.resolveSymbolicLinksSync());
-    final sdk = executable.parent.parent;
-    if (File(
-      p.join(
-        sdk.path,
-        'lib',
-        '_internal',
-        'sdk_library_metadata',
-        'lib',
-        'libraries.dart',
-      ),
-    ).existsSync()) {
-      return sdk.path;
-    }
-  }
-  return null;
 }
 
 final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
@@ -4716,12 +4760,16 @@ List<String> _dartFilesUnder(
       ),
     );
   }
-  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리는
-  // 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터 결과에서 빠졌으므로 결과는
-  // 같고, build 산출물·git 객체를 분석마다 열거하거나 그 안의 읽을 수 없는
-  // 디렉터리 하나로 색인 전체가 실패하지 않는다.
+  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리와 분석
+  // 범위가 닿지 않는 디렉터리는 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터
+  // 결과에서 빠졌으므로 결과는 같고, build 산출물·git 객체·플랫폼 디렉터리를 분석마다
+  // 열거하거나 그 안의 읽을 수 없는 디렉터리 하나로 색인 전체가 실패하지 않는다.
   paths.addAll(
-    _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
+    _filePathsUnder(
+      Directory(root),
+      mayHoldUnits,
+      linkedDirectories,
+    ).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
 }
@@ -4795,7 +4843,9 @@ Iterable<String> _analyzedFilesIn(
     children = Directory(directory).listSync()
       ..sort((a, b) => a.path.compareTo(b.path));
   } on FileSystemException {
-    // analyzer도 읽을 수 없는 디렉터리는 조용히 건너뛴다.
+    // analyzer도 읽을 수 없는 디렉터리는 건너뛴다. 그 아래 소스가 그래프에서
+    // 빠지므로 조용히 넘기지 않고 [visits]에 남겨 호출자가 한계로 센다.
+    visits.recordUnreadable(directory);
     return;
   }
   for (final child in children) {
@@ -4810,7 +4860,9 @@ Iterable<String> _analyzedFilesIn(
     try {
       childCanonical = child.resolveSymbolicLinksSync();
     } on FileSystemException {
-      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛴다.
+      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛰고
+      // 읽지 못한 디렉터리로 남긴다.
+      visits.recordUnreadable(path);
       continue;
     }
     // 목록은 링크를 따라가 받으므로 링크인지는 정규 경로로 안다. 링크가 아닌 하위
@@ -4840,19 +4892,63 @@ Iterable<String> _analyzedFilesIn(
   }
 }
 
-/// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
+/// [root] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
 ///
 /// [indexExcludedDirectories] 이름의 디렉터리에는 내려가지 않는다. 링크는 파일을
 /// 가리켜도 `Link`로 나와 제외된다 — `listSync(recursive: true,
-/// followLinks: false)`에서 `File`만 고르던 규칙과 같다.
-Iterable<String> _filePathsUnder(Directory directory) sync* {
-  for (final entity in directory.listSync(followLinks: false)) {
-    if (entity is Directory) {
-      if (indexExcludedDirectories.contains(p.basename(entity.path))) continue;
-      yield* _filePathsUnder(entity);
-    } else if (entity is File) {
-      yield entity.path;
+/// followLinks: false)`에서 `File`만 고르던 규칙과 같다. [mayHoldUnits]가 거짓인
+/// 하위 디렉터리에도 내려가지 않는다. 그 아래 파일은 호출자의 분석 범위 밖이라
+/// 결과가 같고, 플랫폼 빌드 산출물(`ios/Pods`·`android/.gradle`)을 매번 열거하거나
+/// 그 안의 읽을 수 없는 디렉터리 하나로 색인 전체가 실패하지 않는다(#160). 범위
+/// 안의 하위 디렉터리를 읽지 못하면 건너뛰고 [visits]에 남긴다. [root] 자체를
+/// 읽지 못하면 그 실패를 그대로 던진다.
+List<String> _filePathsUnder(
+  Directory root,
+  bool Function(String directory) mayHoldUnits,
+  LinkedDirectoryVisits visits,
+) {
+  final paths = <String>[];
+  _addFilePaths(root.listSync(followLinks: false), mayHoldUnits, visits, paths);
+  return paths;
+}
+
+/// [entities]의 파일을 [paths]에 더하고, 내려갈 디렉터리는 재귀한다.
+void _addFilePaths(
+  List<FileSystemEntity> entities,
+  bool Function(String directory) mayHoldUnits,
+  LinkedDirectoryVisits visits,
+  List<String> paths,
+) {
+  for (final entity in entities) {
+    if (entity is File) {
+      paths.add(entity.path);
+    } else if (entity is Directory && _descendsInto(entity, mayHoldUnits)) {
+      final children = _listOrRecord(entity, visits);
+      if (children != null) {
+        _addFilePaths(children, mayHoldUnits, visits, paths);
+      }
     }
+  }
+}
+
+/// [directory]에 내려가 파일을 찾을지다.
+bool _descendsInto(
+  Directory directory,
+  bool Function(String directory) mayHoldUnits,
+) =>
+    !indexExcludedDirectories.contains(p.basename(directory.path)) &&
+    mayHoldUnits(directory.path);
+
+/// [directory]의 항목이다. 읽지 못하면 [visits]에 남기고 null이다.
+List<FileSystemEntity>? _listOrRecord(
+  Directory directory,
+  LinkedDirectoryVisits visits,
+) {
+  try {
+    return directory.listSync(followLinks: false);
+  } on FileSystemException {
+    visits.recordUnreadable(directory.path);
+    return null;
   }
 }
 
@@ -4883,15 +4979,20 @@ final _readBoundaries = Expando<BoundedResourceProvider>('readBoundary');
 /// analyzer는 모음을 만들며 pubspec·analysis_options·package_config를 읽는다.
 /// 경계가 그중 하나를 거부했으면 모음을 닫고 그 거부를 던진다. analyzer가
 /// 거부를 수습하지 않고 예외로 내보낸 경우(루트 pubspec 등)도 원인은 같은
-/// 거부다.
-Future<AnalysisContextCollection> _openCollection(String root) async {
+/// 거부다. [sdkPath]를 주지 않으면 여기서 SDK를 찾고, 찾지 못하면
+/// [DartSdkNotFoundException]이다.
+Future<AnalysisContextCollection> _openCollection(
+  String root, [
+  String? sdkPath,
+]) async {
+  final sdk = sdkPath ?? _requireDartSdkPath();
   final boundary = BoundedResourceProvider();
   final AnalysisContextCollection collection;
   try {
     collection = AnalysisContextCollection(
       includedPaths: [root],
       resourceProvider: boundary,
-      sdkPath: _dartSdkPath(),
+      sdkPath: sdk,
     );
   } on Object {
     boundary.throwIfRejected();
