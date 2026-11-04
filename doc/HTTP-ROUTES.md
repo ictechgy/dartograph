@@ -104,6 +104,7 @@ Dart SDK `Uri` 동작(3.13.3 실행 확인): `Uri.parse`는 점 세그먼트를 
 | `http-wrapper-undeclared:` | 호출 측 | 선언되지 않은 래퍼 싱크 수 |
 | `generated-client-unscanned:` | 호출 측 | 서비스 선언(retrofit.dart·chopper) 없이 HTTP 호출을 담은 생성 파일 수 |
 | `symlink-duplicate-directories:` | 호출 측 | 이미 다른 경로로 읽은 디렉터리로 이어져 해석하지 않은 링크 경로 수(같은 소스의 호출은 남은 경로에서 사실이 된다) |
+| `unreadable-directories:` | 호출 측 | 목록을 읽지 못해(권한 거부 등) 건너뛴 디렉터리 경로 수(그 아래 호출은 관측하지 못했다) |
 | `missing-route-usrs:` | 체인 전용 | usr가 없는 사실 수 |
 
 증명할 수 있는 요청 범위가 있는 호출 측 한계가 없어 `limitationScopes`는 내지 않는다

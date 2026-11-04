@@ -70,6 +70,15 @@ dart install dartograph
 dartograph --version
 ```
 
+An AOT install (`dart install`, or a binary from `dart compile exe`) is not
+itself a Dart VM, so dartograph locates the Dart SDK that it analyzes with: the
+`DART_SDK` variable, then `$FLUTTER_ROOT/bin/cache/dart-sdk`, then the `dart` on
+`PATH`. Flutter's `bin/dart` is a wrapper script, so for it the SDK under
+`bin/cache/dart-sdk` is used. When no SDK is found, analysis commands exit 2
+with `Analysis failed: the Dart SDK could not be located.`; put the SDK's `bin`
+directory on `PATH` or set `DART_SDK`. A `dart pub global activate` install runs
+on the Dart VM and uses its SDK.
+
 Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
 [GitHub Releases](https://github.com/ictechgy/dartograph/releases). Release
@@ -364,6 +373,13 @@ Limitations:
   `bridges`, and `schema` count the skipped paths in a
   `symlink-duplicate-directories:` limitation, and declarations under those
   paths are not in the graph.
+- A directory that cannot be listed (for example, permission denied) is skipped
+  instead of failing the whole run. The same commands count the skipped paths in
+  an `unreadable-directories:` limitation, and files under them are not
+  analyzed. Directories that the analyzed source directories cannot reach
+  (`android/`, `ios/Pods`, and similar) are not visited for the graph at all. If
+  the package root itself cannot be listed, the run fails with
+  `Analysis failed: a file or directory could not be read (permission denied).`
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.

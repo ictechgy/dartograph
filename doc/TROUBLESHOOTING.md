@@ -106,6 +106,15 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   `Analysis failed: an analysis input exceeds the 64 MiB read limit.`
   정상 Dart 소스는 생성 파일도 수 MB라, 이 진단은 대개 큰 호스트 파일이나 가상 파일
   (`/proc/...`)을 가리키는 링크·import에서 나온다.
+- `Analysis failed: the Dart SDK could not be located.`는 AOT 설치본(`dart install`·
+  `dart compile exe`)이 분석에 쓸 SDK를 찾지 못했다는 뜻이다. Flutter만 설치했다면
+  `PATH`의 `flutter/bin`이 래퍼라 그 아래 `bin/cache/dart-sdk`를 쓰는데, 그 디렉터리가
+  아직 없으면(`flutter --version`을 한 번도 실행하지 않은 경우 등) 이 진단이 난다.
+  `DART_SDK`에 SDK 디렉터리를 지정하거나 SDK의 `bin`을 `PATH`에 둔다(#160).
+- `Analysis failed: a file or directory could not be read (permission denied).`는
+  패키지 루트나 명령이 받은 입력 파일을 권한 때문에 읽지 못했다는 뜻이다. 루트 아래
+  하위 디렉터리는 실패 대신 건너뛰고 `unreadable-directories: N …` 한계로 센다 — 그
+  아래 파일은 분석하지 않았으므로 '미발견'과 빈 결과를 완전성 근거로 쓰지 않는다.
 - 결과에 `symlink-duplicate-directories: N …` 한계가 있으면 링크 경로 N개가 이미 다른
   경로로 읽은 디렉터리로 이어져 열지 않았다는 뜻이다. 링크를 거쳐 닿는 디렉터리는
   이름순으로 처음 만난 경로 하나로만 분석한다(실제 위치와 링크 하나는 둘 다 분석한다).

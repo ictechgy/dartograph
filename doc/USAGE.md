@@ -23,8 +23,15 @@ dart install 'dartograph@{path: /absolute/path/to/dartograph}'
 `~/Library/Application Support/Dart/install/bin`(macOS 기준)에 놓는다.
 실측: 설치본 `dartograph --version` → `dartograph 0.10.0`, 소스
 체크아웃 대상 `dead --kinds file` → 발견 보고·종료 1 (2026-09,
-Dart 3.13.3/macOS arm64). `pub get`을 실행하지 않은 패키지 분석 등
-Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
+Dart 3.13.3/macOS arm64).
+
+AOT 설치본은 그 자체가 Dart VM이 아니므로 분석에 쓸 SDK를 다음 순서로 찾는다:
+`DART_SDK` 환경변수 → `$FLUTTER_ROOT/bin/cache/dart-sdk` → `PATH`의 `dart`(링크를
+해석한 두 단계 위, 또는 Flutter의 `bin/dart` 래퍼면 `bin/cache/dart-sdk`; Windows는
+`dart.exe`와 Flutter의 `dart.bat`) → 실행 파일 옆의 `dart-sdk`. 모두 실패하면 추측하지
+않고 `Analysis failed: the Dart SDK could not be located. …`와 종료 코드 2로 끝난다(#160).
+캐시가 있어도 같다. 찾은 SDK의 `version`은 분석 캐시 키에 들어가므로 SDK를 바꾸면
+캐시를 재사용하지 않는다.
 
 저장소 소스에서 실행할 때는 `dartograph` 대신 `dart run dartograph`를 쓴다.
 

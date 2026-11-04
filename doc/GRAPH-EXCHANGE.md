@@ -120,6 +120,7 @@ dartograph는 현재 이 값을 측정하지 않으므로 생략한다. 오래�
 | `flutter-services-provenance-unverified:` | package_config가 `package:flutter/services.dart` 출처를 검증하지 못했다 |
 | `flutter-services-reexports: N` | re-export로 들어온 services import N건 — 직접 import만 provenance로 쓴다 |
 | `symlink-duplicate-directories: N` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 N개 — 같은 소스의 사실은 남은 경로에서 난다 |
+| `unreadable-directories: N` | 목록을 읽지 못해(권한 거부 등) 건너뛴 디렉터리 경로 N개 — 그 아래 소스의 사실은 없다 |
 | `conditional-flutter-services-imports: N` | 조건부 지시문의 services import N건 |
 | `constant-imports-unresolved: N` | 상수 조회 중 검사하지 못한 import/export namespace N개 — 스캔한 선언 신원만 해석했다 |
 | `constant-name-conflicts: N` | 서로 양립할 수 없는 중복 최상위 선언 이름 N개 — 다른 이름의 해석은 계속한다 |
@@ -263,6 +264,7 @@ class CameraBridge {
 | `invalid-relation-names:` | 제어 문자가 있어 버린 이름 수 |
 | `unreadable-sources:`·`parse-errors:`·`symlink-escape:` | 파일 수준 관측 공백 |
 | `symlink-duplicate-directories:` | 이미 다른 경로로 읽은 디렉터리로 이어져 훑지 않은 링크 경로 수 — 같은 소스의 사실은 남은 경로에서 난다 |
+| `unreadable-directories:` | 목록을 읽지 못해(권한 거부 등) 건너뛴 디렉터리 경로 수 — 그 아래 소스의 사실은 없다 |
 
 ## http 문서 (`routes --role client`)
 

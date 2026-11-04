@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- AOT 설치본이 Dart SDK를 찾지 못하거나 디렉터리 목록을 읽지 못하면 `Analysis failed: unable to index the package.`만 남기던 실패를 고쳤다(#160). AOT 설치본(`dart install`, `dart compile exe`)은 Dart VM이 아니다. 0.17.0은 `PATH`의 진짜 `dart`로만 SDK를 찾았고, 그렇지 않으면 analyzer가 실행 파일 근처 디렉터리를 SDK로 추측했다가 `lib/_internal/allowed_experiments.json`을 읽지 못해 실패했다. `PATH`에 Flutter의 `bin/dart` 래퍼만 있을 때, `DART_SDK`만 설정했을 때, Windows에서 Flutter의 `dart.bat`만 있을 때 이렇게 됐다. 이제 SDK를 `DART_SDK`, `$FLUTTER_ROOT/bin/cache/dart-sdk`, `PATH`의 `dart`(링크 해석, Flutter 래퍼면 `bin/cache/dart-sdk`, Windows는 `dart.bat`), 마지막으로 analyzer가 보던 실행 파일 옆 `dart-sdk` 순서로 찾는다. 모두 실패하면 캐시를 읽기 전에 `Analysis failed: the Dart SDK could not be located. …`와 종료 코드 2로 끝난다. 그래서 데워진 캐시 때문에 같은 실행이 성공했다 실패했다 하지 않는다. 찾은 SDK의 `version`이 분석 캐시 키에 들어가므로 SDK를 바꾸면 결과를 재사용하지 않는다. 목록을 읽을 수 없는 디렉터리(권한 거부 등)는 건너뛰고, 분석 명령·`runtime`·`routes`·`bridges`·`schema`가 `unreadable-directories:` 한계로 센다. 그래프 순회는 분석 대상 소스 디렉터리가 닿지 않는 디렉터리를 더 이상 열지 않아, 잠긴 `android/.gradle` 하위 디렉터리는 영향이 없다. 그래도 실행을 멈추는 권한 실패(패키지 루트 자체, 입력 파일)는 `Analysis failed: a file or directory could not be read (permission denied). …`로 보고한다. 그 밖의 실패는 이전 문구를 유지하고, 어떤 문구도 경로를 반향하지 않는다.
+
 - 합성 액션이 `dart-lang/setup-dart`에 넘길 `sdk` 입력을 받는다. 기본값 `stable`은 실행 시점의 stable SDK를 설치하는 기존 동작 그대로다. 반복 가능한 실행에는 `version`·액션 커밋 SHA와 함께 고정한다(예: `sdk: 3.13.3`). 게시 패키지에 `editors/` 소스(따로 배포하는 VS Code 확장과 analysis server 플러그인)를 더 이상 넣지 않는다.
 
 - 게시할 수 있는 패키지(pubspec에 `publish_to: none`이 없음)에 `lib/<package-name>.dart`가 export하지 않는 공개 선언을 가진 다른 최상위 `lib/*.dart` 라이브러리(예: `lib/testing.dart`)가 있으면 분석 명령이 `public-libraries:` 한계를 더한다. 대표 라이브러리의 export만 공개 API로 보존하므로, 그런 라이브러리의 소비자만 쓰는 선언이 이유 없이 미도달로 보고됐다. 대표 라이브러리가 다시 export하는 라이브러리, `lib/src/`, 앱은 세지 않는다. 공개 API 보존과 finding은 바뀌지 않는다.
