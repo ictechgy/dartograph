@@ -85,6 +85,16 @@ _Last updated: 2026-11-09 (독립 리뷰 반영 후)_
   계수, `DART_SDK`·`FLUTTER_ROOT` 우선순위 변경, 실행 파일 기준 두 후보. SDK 버전이
   `environment.sdk` 하한보다 낮을 때의 한계(선택)는 넣지 않았다.
 
+## 검증 메모
+
+- `verify_global_activation_test`(11분 상한)는 이 세션의 작업 컨테이너에서 여러 번 시간
+  초과로 실패했다. 하지만 PR CI의 `4d1a8d5` verify(3.11.0)·verify(3.13.3)는 이 테스트를
+  포함해 전부 통과했다. 따라서 그 시간 초과는 컨테이너 특유의 현상이다(`pub global` 래퍼 경유
+  호출당 약 2.3초. `origin/main`과 현재 트리가 같은 속도라 변경 탓이 아니다). 상한 없이
+  직접 돌린 `tool/verify-global-activation.sh`는 238 ok로 통과했다.
+- 권한 테스트를 root에서 검증하려면 `setpriv --bounding-set -dac_override,-dac_read_search
+  --inh-caps=-all dart test …`로 돌린다.
+
 ## 리뷰 절차의 대체
 
 AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는 `packet-ask`가 없어
