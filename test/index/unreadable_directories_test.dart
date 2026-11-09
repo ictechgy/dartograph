@@ -155,6 +155,45 @@ void main() {
     expect(after.graph.nodes.keys, isNot(contains(contains('alphaGenerated'))));
   });
 
+  test('a link inside a hidden source directory is not followed for the '
+      'cache key', () async {
+    // 생성 파일 보충(_filePathsUnder)은 링크를 따라가지 않는다. 키도 따라가지 않아야
+    // 링크 대상(pub-cache·Flutter SDK)이 바뀌어도 키가 그대로다.
+    // 링크 대상은 패키지 루트 밖이다(루트 안이면 루트 순회가 직접 읽는다).
+    final outside = Directory.systemTemp.createTempSync('dartograph-link.');
+    addTearDown(() => outside.deleteSync(recursive: true));
+    File(p.join(outside.path, 'a.dart')).writeAsStringSync('int a() => 1;\n');
+    Directory(p.join(workspace.path, 'lib', '.links')).createSync();
+    Link(
+      p.join(workspace.path, 'lib', '.links', 'pkg'),
+    ).createSync(outside.path);
+    final cache = _MemoryCache();
+    await AnalyzerGraphIndex(cache: cache).index(workspace.path);
+    final keys = cache.keys;
+
+    File(p.join(outside.path, 'a.dart')).writeAsStringSync('int b() => 2;\n');
+    await AnalyzerGraphIndex(cache: cache).index(workspace.path);
+
+    expect(cache.keys, keys);
+  });
+
+  test('a non-regular file the graph does not read under a hidden source '
+      'directory does not fail the run', () async {
+    if (Platform.isWindows) {
+      markTestSkipped('FIFO');
+      return;
+    }
+    Directory(p.join(workspace.path, 'lib', '.x')).createSync();
+    final fifo = p.join(workspace.path, 'lib', '.x', 'pipe.dart');
+    expect(Process.runSync('mkfifo', [fifo]).exitCode, 0);
+
+    final result = await AnalyzerGraphIndex(
+      cache: _MemoryCache(),
+    ).index(workspace.path);
+
+    expect(result.graph.nodes.keys, contains(contains('lib/unread.dart')));
+  });
+
   group('shared project walk', () {
     test('records an unreadable subdirectory and keeps walking', () {
       write('lib/locked/hidden.dart', 'int hidden() => 2;\n');
@@ -234,4 +273,7 @@ final class _MemoryCache implements FactCache {
   @override
   Future<void> write(String key, String payload) async =>
       _entries[key] = payload;
+
+  /// 지금까지 쓴 키다. 키가 바뀌면 새 항목이 생긴다.
+  Set<String> get keys => {..._entries.keys};
 }

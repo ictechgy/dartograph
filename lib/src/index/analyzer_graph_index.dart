@@ -2629,37 +2629,60 @@ Future<List<File>> _analysisInputFiles(
   return result;
 }
 
-/// 표준 소스 디렉터리 안의 숨김 디렉터리 파일을 [addFile]에 더한다.
+/// 표준 소스 디렉터리 안 숨김 디렉터리의 생성 파일을 [addFile]에 더한다.
 ///
 /// 루트 순회는 `.fvm` 같은 거대 링크 트리를 피하려고 숨김 디렉터리를 가지치기한다.
 /// 그런데 그래프의 생성 파일 보충([_filePathsUnder])은 `lib/.x/` 같은 소스 디렉터리
-/// 안 숨김 디렉터리에도 내려간다. 키가 그곳을 보지 않으면 그 안의 생성 파일을 고치거나
-/// 그 디렉터리의 읽기 가능 여부가 바뀌어도 낡은 결과가 재사용된다. 그래서 소스
-/// 디렉터리마다 숨김 디렉터리까지 다시 훑는다. 같은 파일은 경로 키로 한 번만 들어간다.
-/// 링크 기록은 루트 순회의 것만 쓴다 — 여기서 따로 센 링크 경로가 출력의 탈출·중복
-/// 한계를 바꾸지 않게 한다. 읽지 못한 디렉터리만 [linkedDirectories]에 합친다.
+/// 안 숨김 디렉터리에도 내려가 생성 파일을 읽는다. 키가 그 파일을 보지 않으면 고쳐도
+/// 낡은 결과가 재사용된다. 그래서 그래프가 실제로 읽는 것만 키에 더한다.
+///
+/// - 숨김 디렉터리 아래의 생성 파일([_isGenerated])만 더한다. 숨김이 아닌 곳은 루트
+///   순회가 이미 덮는다. 생성 파일이 아닌 항목(FIFO 등)은 그래프가 읽지 않으므로 키도
+///   열지 않는다 — 그런 항목 하나로 키 계산이 실패하지 않는다.
+/// - [_filePathsUnder]처럼 링크를 따라가지 않는다. `example/ios/.symlinks/plugins/*`나
+///   SDK 링크를 따라가면 그래프와 무관한 파일을 매번 해시한다.
+/// - 목록을 읽지 못한 디렉터리는 [linkedDirectories]에 남겨 키에 넣는다.
 void _addHiddenSourceFiles(
   String root,
   LinkedDirectoryVisits? linkedDirectories,
   void Function(File file) addFile,
 ) {
   for (final name in _sourceDirectories) {
-    final directory = Directory(p.join(root, name));
-    if (!directory.existsSync()) continue;
-    final visits = LinkedDirectoryVisits();
-    try {
-      for (final file in _projectFiles(directory, linkedDirectories: visits)) {
-        if (file.path.endsWith('.dart') ||
-            p.basename(file.path) == 'analysis_options.yaml') {
-          addFile(file);
-        }
-      }
-    } on FileSystemException {
-      // 소스 디렉터리 자체를 읽지 못했다. 루트 순회가 이미 같은 경로를 남겼다.
-      visits.recordUnreadable(directory.path);
-    }
-    for (final path in visits.unreadable) {
-      linkedDirectories?.recordUnreadable(path);
+    _addHiddenGeneratedFiles(
+      Directory(p.join(root, name)),
+      underHidden: false,
+      visits: linkedDirectories,
+      addFile: addFile,
+    );
+  }
+}
+
+/// [directory] 아래, 숨김 디렉터리 안에 든 생성 파일을 링크를 따라가지 않고 더한다.
+void _addHiddenGeneratedFiles(
+  Directory directory, {
+  required bool underHidden,
+  required LinkedDirectoryVisits? visits,
+  required void Function(File file) addFile,
+}) {
+  final List<FileSystemEntity> entities;
+  try {
+    entities = directory.listSync(followLinks: false);
+  } on FileSystemException {
+    // 없는 소스 디렉터리는 조용히 넘긴다. 있는데 못 읽으면 남긴다.
+    if (directory.existsSync()) visits?.recordUnreadable(directory.path);
+    return;
+  }
+  for (final entity in entities) {
+    final name = p.basename(entity.path);
+    if (entity is Directory && !indexExcludedDirectories.contains(name)) {
+      _addHiddenGeneratedFiles(
+        entity,
+        underHidden: underHidden || name.startsWith('.'),
+        visits: visits,
+        addFile: addFile,
+      );
+    } else if (underHidden && entity is File && _isGenerated(entity.path)) {
+      addFile(entity);
     }
   }
 }
