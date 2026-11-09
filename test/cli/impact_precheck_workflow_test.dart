@@ -64,9 +64,9 @@ void main() {
   test('every impact step compares against the resolved base', () {
     final impactSteps = _impactSteps(steps);
     for (final step in impactSteps) {
-      expect(_optionValues(step, '--since'), [
-        '"\$IMPACT_BASE"',
-      ], reason: '${step['name']} picks its own comparison base');
+      final sinceValues = _optionValues(step, '--since');
+      final reason = '${step['name']} picks its own comparison base';
+      expect(sinceValues, _resolvedBaseOption, reason: reason);
     }
     final baseIndex = steps.indexWhere(
       (step) => step['name'] == 'Resolve the comparison base',
@@ -227,3 +227,6 @@ List<String> _paths(YamlMap step) => switch (step['with']) {
 String _shellToExpression(String shell) =>
     '$_runnerTempExpression'
     '${shell.substring(_runnerTempShell.length, shell.length - 1)}';
+
+/// impact 단계의 `--since`가 받아야 하는 값이다 — 앞 단계가 고른 비교 기준이다.
+const _resolvedBaseOption = ['"\$IMPACT_BASE"'];
