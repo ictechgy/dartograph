@@ -52,7 +52,7 @@ dart install dartograph
 dartograph --version
 ```
 
-AOT 설치본(`dart install`, `dart compile exe`로 만든 바이너리)은 그 자체가 Dart VM이 아니다. 그래서 분석에 쓸 Dart SDK를 `DART_SDK` 환경변수, `$FLUTTER_ROOT/bin/cache/dart-sdk`, `PATH`의 `dart` 순서로 찾는다. Flutter의 `bin/dart`는 래퍼 스크립트라 그 아래 `bin/cache/dart-sdk`를 쓴다. SDK를 찾지 못하면 분석 명령이 `Analysis failed: the Dart SDK could not be located.`와 함께 종료 코드 2로 끝난다. SDK의 `bin` 디렉터리를 `PATH`에 두거나 `DART_SDK`를 지정한다. `dart pub global activate` 설치본은 Dart VM 위에서 돌며 그 SDK를 쓴다.
+AOT 설치본(`dart install`, `dart compile exe`로 만든 바이너리)은 그 자체가 Dart VM이 아니다. 그래서 분석에 쓸 Dart SDK를 실행 파일 두 단계 위(Dart VM에서 실행할 때의 VM SDK), `DART_SDK` 환경변수, `$FLUTTER_ROOT/bin/cache/dart-sdk`, `PATH`의 `dart`, 실행 파일 옆 `dart-sdk`, 실행 파일 디렉터리 자체 순서로 찾는다. `DART_SDK`·`FLUTTER_ROOT`가 이제 `PATH`의 `dart`보다 우선한다(0.17.0은 `PATH`만 봤다). Flutter의 `bin/dart`는 래퍼 스크립트라 그 아래 `bin/cache/dart-sdk`를 쓴다. SDK를 찾지 못하면 분석 명령이 `Analysis failed: the Dart SDK could not be located.`와 함께 종료 코드 2로 끝난다. SDK의 `bin` 디렉터리를 `PATH`에 두거나 `DART_SDK`를 지정한다. `dart pub global activate` 설치본은 Dart VM 위에서 돌며 그 SDK를 쓴다.
 
 릴리스는 [pub.dev](https://pub.dev/packages/dartograph)와 [GitHub Releases](https://github.com/ictechgy/dartograph/releases)에 공개한다. 릴리스 검증에는 전체 테스트 스위트·라인 커버리지 게이트·패키지 dry-run이 포함된다. 이전 실제 프로젝트 dogfooding과 SDK·버전별 한계는 [analyzer 검증 기록](doc/DECISION-analyzer.md)에 보존하며, 모든 패치 릴리스에서 그 측정을 다시 수행한다는 뜻은 아니다.
 
@@ -163,7 +163,7 @@ dartograph는 무엇을 삭제해도 안전한지 판정하지 않고 코드를 
 - 상속 멤버를 재정의한 멤버(`@override` 유무와 무관)는 상위의 getter·setter를 구현하는 인스턴스 필드(`@override final String message;`)를 포함해 보존 루트다. 상위 타입이나 프레임워크를 거친 디스패치 호출은 그래프 간선이 아니기 때문이다. 그래서 `build()`를 재정의한 미사용 위젯처럼 이런 멤버만이 살리는 클래스는 `dead`가 보고하지 않는다. `dead --report-override-only`가 이런 선언을 info 심각도로 나열한다.
 - 동적 호출과 네이티브 동작은 정적 그래프로 완전히 증명할 수 없다.
 - 프로젝트 안 심볼릭 링크는 analyzer처럼 따라가지만, 링크를 거쳐 닿는 디렉터리는 한 번만 읽는다. 여러 링크 경로가 같은 디렉터리로 이어지면 이름순으로 첫 경로만 분석한다. 디렉터리의 실제 위치와 그것을 가리키는 링크 하나는 둘 다 분석하고, 링크 순환에는 들어가지 않는다. 분석 명령·`runtime`·`routes`·`bridges`·`schema`는 건너뛴 경로 수를 `symlink-duplicate-directories:` 한계로 알리고, 그 경로 아래 선언은 그래프에 없다.
-- 목록을 읽을 수 없는 디렉터리(권한 거부 등)는 실행 전체를 실패시키지 않고 건너뛴다. 같은 명령들이 건너뛴 경로 수를 `unreadable-directories:` 한계로 알리고, 그 아래 파일은 분석하지 않는다. 분석 대상 소스 디렉터리가 닿지 않는 디렉터리(`android/`·`ios/Pods` 등)는 그래프 색인에서 아예 열지 않는다. 패키지 루트 자체를 읽지 못하면 `Analysis failed: a file or directory could not be read (permission denied).`로 실패한다.
+- 목록을 읽을 수 없는 디렉터리(권한 거부 등)는 실행 전체를 실패시키지 않고 건너뛴다. 같은 명령들이 건너뛴 경로 수를 `unreadable-directories:` 한계로 알리고, 그 아래 파일은 분석하지 않는다. 수는 경로 기준이라, 링크 별칭으로도 닿는 디렉터리는 경로마다 한 번씩 센다. 그래프 명령은 분석 대상 소스 디렉터리가 닿지 않는 디렉터리(`android/`·`ios/Pods` 등)를 아예 열지 않는다. 다만 `bridges`·`schema`는 패키지 루트 전체를 훑으므로 그런 곳의 잠긴 디렉터리도 센다. 패키지 루트 자체를 읽지 못하면 `Analysis failed: a file or directory could not be read (permission denied).`로 실패한다.
 - `bridges`는 `package:flutter/services.dart`의 직접 import만 provenance로 인정한다. Flutter services를 다시 export하는 배럴 경유 사용은 사실에서 제외되고 `flutter-services-reexports` 한계로 보고된다.
 - `bridges --events`는 정적으로 식별한 EventChannel의 `receiveBroadcastStream()` 호출을 반환 스트림의 소비 여부와 무관하게 `stream-listen` 사실로 기록한다. 호출 실행·리스너 부착·활성 구독·이벤트 수신을 증명하지 않는다.
 - git 조회는 저장소가 설정한 명령을 실행하지 않으므로(보장 참고) git은 작업 트리 원본 내용을 읽고 stat 캐시를 새로 고치지 않는다. 그래서 `--since`와 `affected`는 시각만 바뀐 파일도 변경으로 세고, git-lfs처럼 filter가 정규화하던 파일도 git의 stat 캐시가 낡았으면 변경으로 센다. 신뢰하는 checkout이면 먼저 `git status`를 실행해 stat 캐시를 새로 고친다.

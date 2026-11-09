@@ -26,9 +26,10 @@ dart install 'dartograph@{path: /absolute/path/to/dartograph}'
 Dart 3.13.3/macOS arm64).
 
 AOT 설치본은 그 자체가 Dart VM이 아니므로 분석에 쓸 SDK를 다음 순서로 찾는다:
-`DART_SDK` 환경변수 → `$FLUTTER_ROOT/bin/cache/dart-sdk` → `PATH`의 `dart`(링크를
+실행 파일 두 단계 위(Dart VM에서 실행할 때의 VM SDK) → `DART_SDK` 환경변수 → `$FLUTTER_ROOT/bin/cache/dart-sdk` → `PATH`의 `dart`(링크를
 해석한 두 단계 위, 또는 Flutter의 `bin/dart` 래퍼면 `bin/cache/dart-sdk`; Windows는
-`dart.exe`와 Flutter의 `dart.bat`) → 실행 파일 옆의 `dart-sdk`. 모두 실패하면 추측하지
+`dart.exe`와 Flutter의 `dart.bat`) → 실행 파일 옆의 `dart-sdk` → 실행 파일 디렉터리 자체.
+`DART_SDK`·`FLUTTER_ROOT`는 0.17.0과 달리 `PATH`의 `dart`보다 우선한다. 모두 실패하면 추측하지
 않고 `Analysis failed: the Dart SDK could not be located. …`와 종료 코드 2로 끝난다(#160).
 캐시가 있어도 같다. 찾은 SDK의 `version`은 분석 캐시 키에 들어가므로 SDK를 바꾸면
 캐시를 재사용하지 않는다.

@@ -71,10 +71,14 @@ dartograph --version
 ```
 
 An AOT install (`dart install`, or a binary from `dart compile exe`) is not
-itself a Dart VM, so dartograph locates the Dart SDK that it analyzes with: the
-`DART_SDK` variable, then `$FLUTTER_ROOT/bin/cache/dart-sdk`, then the `dart` on
-`PATH`. Flutter's `bin/dart` is a wrapper script, so for it the SDK under
-`bin/cache/dart-sdk` is used. When no SDK is found, analysis commands exit 2
+itself a Dart VM, so dartograph locates the Dart SDK that it analyzes with, in
+this order: the SDK two levels above the running executable (the VM's own SDK
+when dartograph runs on the Dart VM), the `DART_SDK` variable,
+`$FLUTTER_ROOT/bin/cache/dart-sdk`, the `dart` on `PATH`, a `dart-sdk`
+directory next to the executable, and the executable's own directory. Flutter's
+`bin/dart` is a wrapper script, so for it the SDK under `bin/cache/dart-sdk` is
+used. `DART_SDK` and `FLUTTER_ROOT` now take precedence over the `dart` on
+`PATH`; 0.17.0 looked only at `PATH`. When no SDK is found, analysis commands exit 2
 with `Analysis failed: the Dart SDK could not be located.`; put the SDK's `bin`
 directory on `PATH` or set `DART_SDK`. A `dart pub global activate` install runs
 on the Dart VM and uses its SDK.
@@ -376,8 +380,11 @@ Limitations:
 - A directory that cannot be listed (for example, permission denied) is skipped
   instead of failing the whole run. The same commands count the skipped paths in
   an `unreadable-directories:` limitation, and files under them are not
-  analyzed. Directories that the analyzed source directories cannot reach
-  (`android/`, `ios/Pods`, and similar) are not visited for the graph at all. If
+  analyzed. The count is of paths: a directory reached through a link alias as
+  well as its real location counts once per path. The graph commands do not
+  visit directories that the analyzed source directories cannot reach
+  (`android/`, `ios/Pods`, and similar), but `bridges` and `schema` scan the
+  whole package root, so a locked directory there is still counted. If
   the package root itself cannot be listed, the run fails with
   `Analysis failed: a file or directory could not be read (permission denied).`
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
