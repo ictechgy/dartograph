@@ -9,7 +9,9 @@ import 'project_files.dart';
 
 /// 선언 패키지가 `package:` import 없이도 사용되는 도구 계약을 제공하는지 본다.
 ///
-/// 네 가지 근거를 확인한다 — 패키지 pubspec의 `executables`(CLI 도구),
+/// 다섯 가지 근거를 확인한다 — 패키지 pubspec의 `executables`(CLI 도구)와
+/// `flutter.fonts`·`flutter.assets`(자산 제공 패키지 — `cupertino_icons`처럼
+/// Flutter가 패키지 이름으로 폰트·자산을 찾아 앱 소스에 import가 없다),
 /// `build.yaml`의 `builders`·`post_process_builders`(build_runner 진입점),
 /// analysis_options의 `include: package:<name>/`(lint 세트)와
 /// `analyzer.plugins`(custom_lint 류 플러그인). 확인은 대상 저장소의
@@ -75,7 +77,8 @@ import 'project_files.dart';
       final document = loadYaml(readConfigurationSync(pubspec));
       if (document is YamlMap) {
         final executables = document['executables'];
-        if (executables is YamlMap && executables.isNotEmpty) {
+        if ((executables is YamlMap && executables.isNotEmpty) ||
+            _shipsFlutterAssets(document)) {
           toolLike.add(name);
           continue;
         }
@@ -101,6 +104,17 @@ import 'project_files.dart';
     }
   }
   return (toolLike: toolLike, limitations: limitations);
+}
+
+/// 패키지 pubspec이 Flutter 폰트나 자산을 선언하는지 본다.
+///
+/// 폰트·자산은 `fontPackage`·`package:` 인자나 자산 경로로 찾으므로 Dart import로
+/// 드러나지 않는다. 비어 있지 않은 목록일 때만 계약으로 본다.
+bool _shipsFlutterAssets(YamlMap pubspec) {
+  final flutter = pubspec['flutter'];
+  if (flutter is! YamlMap) return false;
+  bool nonEmptyList(Object? value) => value is YamlList && value.isNotEmpty;
+  return nonEmptyList(flutter['fonts']) || nonEmptyList(flutter['assets']);
 }
 
 /// analysis_options.yaml이 선언한 `package:` include와 analyzer plugin 이름이다.

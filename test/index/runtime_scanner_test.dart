@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dartograph/src/runtime/runtime_facts.dart';
-import 'package:dartograph/src/runtime/runtime_scanner.dart';
+import 'package:dartograph/src/index/runtime_scanner.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

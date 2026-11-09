@@ -311,6 +311,65 @@ DART
   expect_status 0 "init default directory" init
   popd >/dev/null
 
+# SDK 탐색(#160): 컴파일된 바이너리는 자기 자신이 dart VM이 아니므로 SDK를 PATH·
+# DART_SDK·FLUTTER_ROOT에서 찾는다. 찾지 못하면 analyzer 기본값으로 추측하지 않고
+# 실패(2)다. 이 스크립트가 직접 컴파일한 바이너리에만 적용한다 — 인자로 받은 설치본은
+# `dart pub global`의 셸 래퍼일 수 있어 PATH에 dart가 없으면 실행 자체가 안 된다.
+# 사용자 캐시는 [home]으로 고정한다. 데워진 캐시가 SDK 부재를 가리지 않는지도 계약이다.
+expect_status_in_environment() {
+  local expected="$1"
+  local description="$2"
+  local home="$3"
+  shift 3
+  local -a variables=()
+  while [[ "$1" != "--" ]]; do
+    variables+=("$1")
+    shift
+  done
+  shift
+  env -i HOME="$home" XDG_CACHE_HOME="$home/cache" "${variables[@]}" \
+    "$BINARY" "$@" >/dev/null 2>&1
+  local actual=$?
+  if [[ "$actual" -eq "$expected" ]]; then
+    printf '  ok    %-3s %s\n' "$actual" "$description"
+  else
+    printf '  FAIL  %-3s %s (expected %s)\n' "$actual" "$description" "$expected"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+if [[ $# -eq 0 ]]; then
+  EMPTY_PATH_DIR="$TEMPORARY_DIRECTORY/empty-path"
+  COLD_HOME="$TEMPORARY_DIRECTORY/sdk-cold-home"
+  WARM_HOME="$TEMPORARY_DIRECTORY/sdk-warm-home"
+  FLUTTER_HOME="$TEMPORARY_DIRECTORY/sdk-flutter-home"
+  mkdir -p "$EMPTY_PATH_DIR" "$COLD_HOME" "$WARM_HOME" "$FLUTTER_HOME"
+  SDK_FIXTURE="$PWD/fixtures/phase5_contract"
+  expect_status_in_environment 2 "no Dart SDK located" "$COLD_HOME" \
+    PATH="$EMPTY_PATH_DIR" -- cycles "$SDK_FIXTURE"
+  DART_ON_PATH="$(command -v dart || true)"
+  DART_SDK_DIR=""
+  if [[ -n "$DART_ON_PATH" ]]; then
+    DART_SDK_DIR="$(cd "$(dirname "$(readlink -f "$DART_ON_PATH")")/.." && pwd)"
+  fi
+  if [[ -f "$DART_SDK_DIR/lib/_internal/sdk_library_metadata/lib/libraries.dart" ]]; then
+    expect_status_in_environment 0 "Dart SDK from DART_SDK only" "$WARM_HOME" \
+      PATH="$EMPTY_PATH_DIR" DART_SDK="$DART_SDK_DIR" -- cycles "$SDK_FIXTURE"
+    expect_status_in_environment 2 "no Dart SDK after a warm cache" "$WARM_HOME" \
+      PATH="$EMPTY_PATH_DIR" -- cycles "$SDK_FIXTURE"
+    FLUTTER_LAYOUT="$TEMPORARY_DIRECTORY/flutter"
+    mkdir -p "$FLUTTER_LAYOUT/bin/cache"
+    ln -s "$DART_SDK_DIR" "$FLUTTER_LAYOUT/bin/cache/dart-sdk"
+    printf '#!/bin/sh\nexec "$(dirname "$0")/cache/dart-sdk/bin/dart" "$@"\n' \
+      >"$FLUTTER_LAYOUT/bin/dart"
+    chmod +x "$FLUTTER_LAYOUT/bin/dart"
+    expect_status_in_environment 0 "Dart SDK behind a Flutter bin/dart wrapper" \
+      "$FLUTTER_HOME" PATH="$FLUTTER_LAYOUT/bin" -- cycles "$SDK_FIXTURE"
+  else
+    echo "  skip      Dart SDK cases: the dart on PATH is not inside a Dart SDK"
+  fi
+fi
+
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "CLI contract failed: $FAILURES case(s)" >&2
   exit 1

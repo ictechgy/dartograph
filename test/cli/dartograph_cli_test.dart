@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:dartograph/src/cli/dartograph_cli.dart';
+import 'package:dartograph/src/index/analyzer_graph_index.dart'
+    show DartSdkNotFoundException;
 import 'package:test/test.dart';
 
 void main() {
@@ -70,6 +72,74 @@ void main() {
 
     expect(status, ExitStatus.failure.code);
     expect(error.toString(), 'Analysis failed: unable to index the package.\n');
+  });
+
+  group('index failures name a known cause without echoing paths (#160)', () {
+    const sdkMissing =
+        'Analysis failed: the Dart SDK could not be located. Put the Dart SDK '
+        'bin directory on PATH, or set DART_SDK to the SDK directory (with '
+        'Flutter, <flutter>/bin/cache/dart-sdk).\n';
+    const accessDenied =
+        'Analysis failed: a file or directory could not be read (permission '
+        'denied). Check the permissions of the package directory and of any '
+        'input files passed to the command.\n';
+    const secretPath = '/home/someone/private/app/android/.gradle';
+
+    /// [command]를 [failure]를 던지는 색인으로 실행한 종료 코드와 stderr다.
+    Future<(int, String)> run(List<String> command, Object failure) async {
+      final error = StringBuffer();
+      final status = await runDartograph(
+        command,
+        output: StringBuffer(),
+        error: error,
+        indexPackage: (_) async => throw failure,
+      );
+      return (status, error.toString());
+    }
+
+    for (final command in const [
+      ['cycles', '--strict', '.'],
+      ['dead', '--format', 'text', '.'],
+      ['graph', '--format', 'json', '.'],
+    ]) {
+      test(
+        '${command.first}: a missing Dart SDK is reported as such',
+        () async {
+          final (status, error) = await run(
+            command,
+            const DartSdkNotFoundException(),
+          );
+
+          expect(status, ExitStatus.failure.code);
+          expect(error, sdkMissing);
+        },
+      );
+
+      test('${command.first}: permission denied is reported as such', () async {
+        final (status, error) = await run(
+          command,
+          const PathAccessException(
+            secretPath,
+            OSError('Permission denied', 13),
+            'Directory listing failed',
+          ),
+        );
+
+        expect(status, ExitStatus.failure.code);
+        expect(error, accessDenied);
+        expect(error, isNot(contains('someone')));
+      });
+    }
+
+    test('other file system failures keep the generic diagnostic', () async {
+      final (status, error) = await run(const [
+        'cycles',
+        '.',
+      ], const PathNotFoundException(secretPath, OSError('No such file', 2)));
+
+      expect(status, ExitStatus.failure.code);
+      expect(error, 'Analysis failed: unable to index the package.\n');
+    });
   });
 
   test('internal contract probes are not public commands', () async {

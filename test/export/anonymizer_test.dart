@@ -193,6 +193,11 @@ void main() {
     );
     for (final suffix in const [
       '.freezed.dart',
+      '.chopper.dart',
+      '.gr.dart',
+      '.mocks.dart',
+      '.mapper.dart',
+      '.gen.dart',
       '.pb.dart',
       '.pbenum.dart',
       '.pbgrpc.dart',
@@ -207,7 +212,7 @@ void main() {
 
     // 목록 밖의 접미와 Dart가 아닌 확장자는 식별 문자열로 치환된다.
     expect(
-      anonymizer.anonymizeUri('project:lib/acme.mocks.dart'),
+      anonymizer.anonymizeUri('project:lib/acme.spec.dart'),
       matches(r'^project:lib/s\d+\.s\d+\.dart$'),
     );
     expect(

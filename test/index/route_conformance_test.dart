@@ -5,12 +5,14 @@ import 'package:crypto/crypto.dart';
 import 'package:dartograph/src/index/http_wrappers.dart';
 import 'package:dartograph/src/index/route_limitation_scopes.dart';
 import 'package:dartograph/src/index/route_url_rules.dart';
+import 'package:dartograph/src/index/sql_relations.dart';
 import 'package:test/test.dart';
 
 import 'route_location_probe.dart';
 
 /// isthmus 공유 적합성 벡터(`http-template`·`url-compose`·
-/// `http-limitation-scope`)의 생산자 케이스를 dartograph 규칙으로 실행한다.
+/// `http-limitation-scope`·`sql-relations`)의 생산자 케이스를 dartograph 규칙으로
+/// 실행한다.
 /// `http-dispatch`는 lock으로 대조만 하고 생산자 케이스(`dispatch.validate`)는
 /// 적용하지 않는다 — 아래 테스트가 그 분류를 고정한다.
 ///
@@ -45,6 +47,7 @@ void main() {
       'http-dispatch.json',
       'http-limitation-scope.json',
       'http-template.json',
+      'sql-relations.json',
       'url-compose.json',
     });
     for (final entry in files.entries) {
@@ -142,6 +145,33 @@ void main() {
       }
     }
     expect(cases, hasLength(18));
+  });
+
+  // `schema`의 relation-use 사실은 [sqlRelations]로 SQL 텍스트를 읽는다. 벡터의
+  // relations는 순서·중복을 보지 않는 집합이다. 세 규칙이 막은 자리는 미해석
+  // 피연산자도 아니므로 unresolved도 0이어야 한다.
+  test('sql-relations producer cases pass', () {
+    final cases = producerCases('sql-relations.json');
+    for (final testCase in cases) {
+      final id = testCase['id'];
+      switch (testCase['ruleId']) {
+        case 'relations.cte' ||
+            'relations.function-from' ||
+            'relations.distinct-from':
+          final input = testCase['input']! as Map<String, Object?>;
+          final expected = testCase['expect']! as Map<String, Object?>;
+          final result = sqlRelations(input['sql']! as String);
+          expect(
+            result.relations.map((relation) => relation.name).toSet(),
+            (expected['relations']! as List).toSet(),
+            reason: '$id',
+          );
+          expect(result.unresolved, 0, reason: '$id unresolved');
+        default:
+          fail('unknown producer rule ${testCase['ruleId']} in $id');
+      }
+    }
+    expect(cases, hasLength(14));
   });
 
   test('url-compose producer cases pass', () async {

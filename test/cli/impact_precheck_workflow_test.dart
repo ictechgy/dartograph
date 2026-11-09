@@ -61,6 +61,111 @@ void main() {
     expect(cacheSteps.single.containsKey('if'), isFalse);
   });
 
+  test('every impact step compares against the resolved base', () {
+    final impactSteps = _impactSteps(steps);
+    for (final step in impactSteps) {
+      final sinceValues = _optionValues(step, '--since');
+      final reason = '${step['name']} picks its own comparison base';
+      expect(sinceValues, _resolvedBaseOption, reason: reason);
+    }
+    final baseIndex = steps.indexWhere(
+      (step) => step['name'] == 'Resolve the comparison base',
+    );
+    expect(baseIndex, isNonNegative);
+    for (final step in impactSteps) {
+      expect(steps.indexOf(step), greaterThan(baseIndex));
+    }
+  });
+
+  // 기준 계산 셸을 실제 Git 저장소에서 이벤트별로 실행한다. push에서 origin/main을
+  // 쓰면 main을 자기 자신과 비교해 게이트가 빈 결과로 통과했다.
+  test('the comparison base follows the triggering event', () async {
+    final script =
+        steps.firstWhere(
+              (step) => step['name'] == 'Resolve the comparison base',
+            )['run']
+            as String;
+    final repository = await Directory.systemTemp.createTemp('impact-base.');
+    addTearDown(() => repository.delete(recursive: true));
+    Future<String> git(List<String> arguments) async {
+      final result = await Process.run('git', [
+        '-c',
+        'user.name=t',
+        '-c',
+        'user.email=t@example.invalid',
+        ...arguments,
+      ], workingDirectory: repository.path);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      return (result.stdout as String).trim();
+    }
+
+    await git(['init', '-q']);
+    await git(['commit', '-q', '--allow-empty', '-m', 'first']);
+    final first = await git(['rev-parse', 'HEAD']);
+    await git(['commit', '-q', '--allow-empty', '-m', 'second']);
+    await git(['update-ref', 'refs/remotes/origin/main', first]);
+
+    Future<(int, String)> resolve(Map<String, String> event) async {
+      final output = File('${repository.path}/github-env');
+      if (output.existsSync()) output.deleteSync();
+      final result = await Process.run(
+        'bash',
+        ['-e', '-c', script],
+        workingDirectory: repository.path,
+        environment: {
+          'EVENT_NAME': '',
+          'PR_BASE': '',
+          'PUSH_BEFORE': '',
+          ...event,
+          'GITHUB_ENV': output.path,
+        },
+      );
+      final written = output.existsSync() ? output.readAsStringSync() : '';
+      return (result.exitCode, written.trim());
+    }
+
+    expect(await resolve({'EVENT_NAME': 'pull_request', 'PR_BASE': 'main'}), (
+      0,
+      'IMPACT_BASE=origin/main',
+    ));
+    expect(await resolve({'EVENT_NAME': 'push', 'PUSH_BEFORE': first}), (
+      0,
+      'IMPACT_BASE=$first',
+    ));
+    expect(await resolve({'EVENT_NAME': 'push', 'PUSH_BEFORE': '0' * 40}), (
+      0,
+      'IMPACT_BASE=HEAD~1',
+    ));
+    expect(await resolve({'EVENT_NAME': 'workflow_dispatch'}), (
+      0,
+      'IMPACT_BASE=HEAD~1',
+    ));
+    // 체크아웃에 없는 기준은 빈 비교로 통과하지 않고 실패한다.
+    final (missingCode, missingBase) = await resolve({
+      'EVENT_NAME': 'push',
+      'PUSH_BEFORE': 'f' * 40,
+    });
+    expect(missingCode, isNot(0));
+    expect(missingBase, isEmpty);
+  });
+
+  test('the gate runs on default-branch pushes and forks skip commenting', () {
+    final document =
+        loadYaml(
+              File('.github/workflows/impact-precheck.yml').readAsStringSync(),
+            )
+            as YamlMap;
+    final push = (document['on'] as YamlMap)['push'] as YamlMap;
+    expect(push['branches'], ['main']);
+    final comment = steps.firstWhere(
+      (step) => step['name'] == 'Post or update the PR comment',
+    );
+    expect(
+      comment['if'] as String,
+      contains('github.event.pull_request.head.repo.full_name'),
+    );
+  });
+
   test('the ledger is recorded and uploaded outside the workspace', () {
     final directories = [
       for (final step in _impactSteps(steps))
@@ -122,3 +227,6 @@ List<String> _paths(YamlMap step) => switch (step['with']) {
 String _shellToExpression(String shell) =>
     '$_runnerTempExpression'
     '${shell.substring(_runnerTempShell.length, shell.length - 1)}';
+
+/// impact 단계의 `--since`가 받아야 하는 값이다 — 앞 단계가 고른 비교 기준이다.
+const _resolvedBaseOption = ['"\$IMPACT_BASE"'];

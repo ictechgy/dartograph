@@ -117,6 +117,7 @@ Future<SchemaIndexResult> indexSchema(
       context,
       linkEscapes,
       linkedDirectories.skipped.length,
+      linkedDirectories.unreadable.length,
     ),
   );
 }
@@ -195,6 +196,7 @@ List<String> _limitations(
   _ProjectContext context,
   Set<String> linkEscapes,
   int skippedLinkedDirectories,
+  int unreadableDirectories,
 ) {
   final missingSymbols = facts.where((f) => !f.containsKey('symbol')).length;
   final missingUsrs = facts.where((fact) {
@@ -207,6 +209,8 @@ List<String> _limitations(
           'contents contribute relation facts',
     if (skippedLinkedDirectories > 0)
       skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
+    if (unreadableDirectories > 0)
+      unreadableDirectoriesLimitation(unreadableDirectories),
     if (counts.dynamicRelations > 0)
       'dynamic-relation-names: ${counts.dynamicRelations} SQL argument(s) or '
           'relation operand(s) were not statically readable; they are emitted '

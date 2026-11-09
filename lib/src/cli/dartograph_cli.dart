@@ -47,7 +47,7 @@ import '../index/dependency_tools.dart';
 import '../index/incremental_cache.dart';
 import '../runtime/runtime_executor.dart';
 import '../runtime/runtime_facts.dart';
-import '../runtime/runtime_scanner.dart';
+import '../index/runtime_scanner.dart';
 import '../runtime/runtime_verifier.dart';
 import 'agent_setup.dart';
 import 'agent_skill.dart';
@@ -717,8 +717,8 @@ Future<int> _runHistory(
     final result = await ResultLedger(ledger).read(commit: commit);
     output.write(LedgerReporter.render(format ?? HistoryFormat.text, result));
     return ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on Object {
     return _reportAnalysisFailure(error);
   }
@@ -795,8 +795,8 @@ Future<int> _runAffected(
     return ExitStatus.success.code;
   } on ChangedFilesException catch (failure) {
     return _reportChangedFilesFailure(error, failure);
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -1060,8 +1060,8 @@ Future<int> _runImpact(
       'project-relative paths (maximum 1 MiB).',
     );
     return ExitStatus.usage.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -1361,8 +1361,8 @@ Future<int> _runCycles(
     return strict && cycles.isNotEmpty
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -1590,8 +1590,8 @@ Future<int> _runMetrics(
     return strict && (exceedsTolerance || exceedsComplexity)
         ? ExitStatus.findings.code
         : ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -3068,8 +3068,8 @@ Future<int> _runDead(
     return _reportInvalidBaseline(error);
   } on ChangedFilesException catch (failure) {
     return _reportChangedFilesFailure(error, failure);
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -3272,8 +3272,8 @@ Future<int> _runDeps(
     return findings.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -3466,8 +3466,8 @@ Future<int> _runDup(
     return findings.isEmpty
         ? ExitStatus.success.code
         : ExitStatus.findings.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -3676,8 +3676,8 @@ Future<int> _runGraph(
       _ => GraphExporter.mermaid(snapshot, limitations: limitations),
     });
     return ExitStatus.success.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -3922,6 +3922,8 @@ Future<int> _runRuntime(
               'contents are scanned as project sources',
         if (linkedDirectories.skipped.isNotEmpty)
           skippedLinkedDirectoriesLimitation(linkedDirectories.skipped.length),
+        if (linkedDirectories.unreadable.isNotEmpty)
+          unreadableDirectoriesLimitation(linkedDirectories.unreadable.length),
       ],
     );
     output.write(RuntimeReporter.render(format ?? RuntimeFormat.text, report));
@@ -3937,8 +3939,8 @@ Future<int> _runRuntime(
     // --execute의 dart 실행 파일을 띄우지 못했다.
     error.writeln('Analysis failed: unable to run the --execute entrypoint.');
     return ExitStatus.failure.code;
-  } on FileSystemException {
-    return _reportAnalysisFailure(error);
+  } on FileSystemException catch (exception) {
+    return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
     return _reportAnalysisFailure(error);
   } on StateError {
@@ -4014,18 +4016,42 @@ int _reportChangedFilesFailure(
 
 /// 색인·추출 실패를 정적 문구로 보고하고 종료 코드 2를 돌려준다.
 ///
-/// [cause]가 읽기 경계의 거부([InputRejectedException])면 원인과 해결 방향을
-/// 짚는다. 그 거부도 FormatException이라, 일반 문구나 명령별 형식 오류
-/// 문구(제어문자·변경 목록)로 보고하면 사용자가 엉뚱한 곳을 고친다. 그 밖의
-/// 원인은 경로·내부 상세를 반향하지 않는 일반 문구다.
+/// [cause]가 알려진 범주면 원인과 해결 방향을 짚는다([_analysisFailureDiagnostic]).
+/// 그 밖의 원인은 경로·내부 상세를 반향하지 않는 일반 문구다.
 int _reportAnalysisFailure(StringSink error, [Object? cause]) {
-  error.writeln(
-    cause is InputRejectedException
-        ? _inputRejectedDiagnostic(cause)
-        : 'Analysis failed: unable to index the package.',
-  );
+  error.writeln(_analysisFailureDiagnostic(cause));
   return ExitStatus.failure.code;
 }
+
+/// 색인 실패 원인 [cause]의 진단 문구다. 경로·내부 상세를 반향하지 않는다.
+///
+/// - 읽기 경계의 거부([InputRejectedException]). 그 거부도 FormatException이라,
+///   일반 문구나 명령별 형식 오류 문구(제어문자·변경 목록)로 보고하면 사용자가
+///   엉뚱한 곳을 고친다.
+/// - SDK 부재([DartSdkNotFoundException]). AOT 설치(`dart install`)를 Flutter의
+///   `bin/dart` 래퍼와 함께 쓰면 흔히 난다(#160).
+/// - 접근 거부([PathAccessException]). 패키지나 명령 입력 파일의 권한 문제다.
+String _analysisFailureDiagnostic(Object? cause) => switch (cause) {
+  InputRejectedException() => _inputRejectedDiagnostic(cause),
+  DartSdkNotFoundException() => _dartSdkNotFoundDiagnostic,
+  PathAccessException() => _accessDeniedDiagnostic,
+  _ => 'Analysis failed: unable to index the package.',
+};
+
+/// Dart SDK를 찾지 못했다는 진단이다. 탐색 순서와 해결 방향을 짚는다.
+const _dartSdkNotFoundDiagnostic =
+    'Analysis failed: the Dart SDK could not be located. Put the Dart SDK '
+    'bin directory on PATH, or set DART_SDK to the SDK directory (with '
+    'Flutter, <flutter>/bin/cache/dart-sdk).';
+
+/// 입력을 권한 때문에 읽지 못했다는 진단이다.
+///
+/// 이 실패는 패키지 안의 파일뿐 아니라 명령이 받은 입력 파일(변경 목록·관측 등)에서도
+/// 나므로 위치를 단정하지 않는다.
+const _accessDeniedDiagnostic =
+    'Analysis failed: a file or directory could not be read (permission '
+    'denied). Check the permissions of the package directory and of any input '
+    'files passed to the command.';
 
 /// 읽기 경계가 분석 입력을 거부했다는 진단이다.
 ///
@@ -4247,7 +4273,8 @@ deps audits pubspec hygiene: declared dependencies no source imports
 (unused-dependency, unused-dev-dependency), dev_dependencies referenced from
 lib/ (dev-dependency-in-lib), and package: imports nothing declares
 (undeclared-dependency). Packages with a confirmed tool contract — executables,
-build.yaml builders, analysis_options include/plugins — count as used.
+build.yaml builders, analysis_options include/plugins, or Flutter fonts/assets
+in their pubspec — count as used.
 Findings are review candidates with evidence, not deletion instructions.
 
 --kinds <csv> restricts which finding kinds dead, deps, and dup report:

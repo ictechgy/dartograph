@@ -209,7 +209,7 @@
 | P0 | 검증 원장(append-only JSONL) + `history` 조회 | 추적 가능성 요구 | 각 실행의 입력·버전·결과가 누적되고 덮어쓰기 불가 | 출시(0.10.0 — `--record <dir>`·`history --ledger`) |
 | P1 | 런타임 오탐 추가 축소 | 4.2 신호 대 잡음 | 합성 픽스처 오탐 0, 미판정 사유 표기 | 완료(PR #108 — AOT `--execute` 해석·동명 API 오탐 차단·미판정 사유 노출 + 회귀 테스트) |
 | P1 | MCP 스키마·예시 문서 강화 | Knip·Serena 선점 | 클라이언트 설정 예시 + 오류 코드 표 + 재현 호출 | 완료(doc/MCP.md에 도구 스키마·JSON-RPC 오류 코드 표·재현 호출 예시) |
-| P1 | MCP 입력 경계·연결 복구 | 에이전트 질의의 요청 무결성 | 초과·잘못된 UTF-8 요청 전체 거부, 후속 정상 요청 복구, 구독별 버퍼 격리 | 구현(0.16.2 릴리스 준비 — 프레이밍 회귀 11개, 전체 테스트·격리 설치·91.78% 커버리지 통과; 게시 전) |
+| P1 | MCP 입력 경계·연결 복구 | 에이전트 질의의 요청 무결성 | 초과·잘못된 UTF-8 요청 전체 거부, 후속 정상 요청 복구, 구독별 버퍼 격리 | 구현(0.17.0 — 프레이밍 회귀 11개. 준비한 0.16.2는 게시하지 않고 0.17.0에 포함) |
 | P1 | `deps` 의존성 위생 감사 | dallow `deps`·DCM `check-dependencies`·knip 미사용 deps — codebase intelligence 도구의 표준 기능 | 선언↔`package:` 관측 대조 4종 finding + 도구 계약(executables·build.yaml·analysis_options) 사용 인정 + limitation 보존 | 구현(0.11.0 — `deps` 명령·4종 finding·5형식·MCP `verify_run`, fixture·테스트 통과) |
 | P1 | `dead --closed-app` | undead `--mode=closed-app` — 앱 시장(라이브러리보다 큰 사용자층) | 공개 API 보존만 끄고 나머지 루트 유지, limitation 명시, baseline 짝 | 구현(0.11.0 — `dead`·`baseline --write`·`--report-test-only`에 적용, `--report-redundant-public` 결합 거부) |
 | P1 | MCP resources/prompts | Knip `knip://docs/`·`knip-configure`, dart_sentinel `sentinel://` 리소스 | `resources/list·read` + `prompts/list·get` + capabilities | 구현(0.11.0 — 정적 리소스 3종·프롬프트 3종, `-32002` 미지 URI) |

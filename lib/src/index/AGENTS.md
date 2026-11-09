@@ -12,7 +12,8 @@
   FormatException으로 실패시킨다. 존재하지만 main이 없는 진입점은 configured-entry-point-without-main 한계로 남긴다.
 - 테스트·실제 meta annotation·정확한 pragma·override·public barrel API·plugin entry point의 보존 근거를 유지한다.
   annotation은 prefix와 실제 library identity를 확인하며 이름만 같은 가짜 선언을 보존하지 않는다.
-- 생성 파일 목록은 _generatedDartSuffixes를 따른다. protobuf sibling도 synthesized/보존 대상이며 사용자 part와 구분한다.
+- 생성 파일 목록은 core/generated_files.dart의 generatedDartSuffixes 하나를 그래프·route 사실·anon이 함께 쓴다.
+  사람이 쓴 파일과 이름이 겹치기 쉬운 접미사는 넣지 않고 `retained_files`로 안내한다. protobuf sibling도 synthesized/보존 대상이며 사용자 part와 구분한다.
 - 제외 디렉터리·분석 대상 목록을 임의로 복제하지 않는다. analyzer와 구문 bridge scanner의 실제 범위 차이는 한계로 문서화한다.
 
 ## 캐시와 분석 한계

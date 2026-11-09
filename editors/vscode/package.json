@@ -72,7 +72,7 @@
           "default": [
             "--incremental-user-cache"
           ],
-          "description": "Extra arguments appended to every dartograph invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace, so re-runs stay fast without trusting cache files a repository could commit. It needs a dartograph CLI newer than 0.16.2."
+          "description": "Extra arguments appended to every dartograph invocation. The default keeps the incremental fact cache in dartograph's per-user cache directory, outside the workspace, so re-runs stay fast without trusting cache files a repository could commit. It needs dartograph CLI 0.17.0 or later."
         }
       }
     }

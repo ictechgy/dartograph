@@ -15,7 +15,7 @@ dart pub global activate dartograph
 
 The plugin runs the `dartograph` executable on PATH (override with the
 `DARTOGRAPH_EXECUTABLE` environment variable). It passes
-`--incremental-user-cache`, so it needs a dartograph CLI newer than 0.16.2;
+`--incremental-user-cache`, so it needs dartograph CLI 0.17.0 or later;
 with an older CLI both commands fail with a usage error and no diagnostics
 appear.
 

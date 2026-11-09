@@ -70,6 +70,19 @@ dart install dartograph
 dartograph --version
 ```
 
+An AOT install (`dart install`, or a binary from `dart compile exe`) is not
+itself a Dart VM, so dartograph locates the Dart SDK that it analyzes with, in
+this order: the SDK two levels above the running executable (the VM's own SDK
+when dartograph runs on the Dart VM), the `DART_SDK` variable,
+`$FLUTTER_ROOT/bin/cache/dart-sdk`, the `dart` on `PATH`, a `dart-sdk`
+directory next to the executable, and the executable's own directory. Flutter's
+`bin/dart` is a wrapper script, so for it the SDK under `bin/cache/dart-sdk` is
+used. `DART_SDK` and `FLUTTER_ROOT` now take precedence over the `dart` on
+`PATH`; 0.17.0 looked only at `PATH`. When no SDK is found, analysis commands exit 2
+with `Analysis failed: the Dart SDK could not be located.`; put the SDK's `bin`
+directory on `PATH` or set `DART_SDK`. A `dart pub global activate` install runs
+on the Dart VM and uses its SDK.
+
 Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
 [GitHub Releases](https://github.com/ictechgy/dartograph/releases). Release
@@ -219,8 +232,10 @@ Full arguments, output formats, exit codes, and CI examples live in
   append-only ledger of run inputs, versions, and results.
 - A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
   GitHub Actions: it activates a published release (or a checked-out source
-  path), analyzes a package, and writes one report file. See the pinned example
-  workflow [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml).
+  path), analyzes a package, and writes one report file (snippet below).
+  [`.github/workflows/impact-precheck.yml`](.github/workflows/impact-precheck.yml)
+  is a fuller example that runs the CLI directly instead of the action: a PR
+  comment, SARIF upload, and a `--fail-on high` gate on default-branch pushes.
   Pin both the action and the CLI release: the commit SHA (of the release tag)
   fixes the action itself, and `version` fixes the dartograph release it
   installs. With an empty `version`, every run installs the latest release on
@@ -259,7 +274,9 @@ Full arguments, output formats, exit codes, and CI examples live in
 - `deps` audits pubspec hygiene: dependencies declared but never imported,
   dev dependencies used from `lib/` or never imported, and `package:` imports
   with no declaration. Tool-contract dependencies — `executables`,
-  `build.yaml` builders, `analysis_options` includes/plugins — count as used,
+  `build.yaml` builders, `analysis_options` includes/plugins, and packages
+  whose pubspec ships Flutter `fonts` or `assets` (such as `cupertino_icons`) —
+  count as used,
   and runtime/generated/asset references stay explicit limitations. Findings
   are a review list, never a deletion instruction.
 - `dead --closed-app` turns off public-API retention for standalone apps
@@ -293,12 +310,25 @@ library-local `unused_element`.
 
 Limitations:
 
-- Conditional imports/exports: only the single configuration the analyzer picks
-  is observed.
+- Conditional imports/exports: the analyzer resolves one configuration. The
+  libraries of the other configurations, and every library they import, are
+  retained as `conditionalConfiguration` roots, so code reachable only from an
+  unselected branch is not reported. This also keeps unrelated declarations of
+  a library that such a branch imports.
+- Identifiers in documentation comments (`/// Replaces [LegacyParser].`) count
+  as references. A declaration mentioned only in doc comments is not reported,
+  and the mention appears in `impact`, `query`, and `cycles`.
 - String routes not connected to a route table are reported as limitations and
   never used as deletion evidence.
 - Generated code older than its source is reported as a limitation; generated
-  declarations themselves are conservatively retained.
+  declarations themselves are conservatively retained. Because they are roots,
+  the hand-written declarations they use are retained too, such as a model
+  class that a generated `_$UserFromJson` constructs even when nothing else
+  uses that model. Generated files are recognized by suffix: `.g.dart`,
+  `.freezed.dart`, `.chopper.dart`, `.gr.dart`, `.mocks.dart`, `.mapper.dart`,
+  `.gen.dart`, and protobuf `.pb*.dart`. Suffixes that hand-written files also
+  use, such as injectable's `.config.dart`, are not guessed; keep such outputs
+  with `retained_files`.
 - A package can contain several `main` functions. By default every `main` under
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
@@ -323,9 +353,18 @@ Limitations:
   reachable whenever `S` is reached at all, even when `S` is only used as a
   type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
-  are retained as the external consumer API.
-- Members that override an inherited member (with or without `@override`) are
-  retained as roots, because calls dispatched through a supertype or a framework
+  are retained as the external consumer API. Other top-level `lib/*.dart`
+  libraries of a package that can be published (no `publish_to: none`), such
+  as `lib/testing.dart`, are counted by a `public-libraries:` limitation when
+  some of their public declarations are not exported from the entry library.
+- Typedefs are not graph nodes. A use of a typedef references the declarations
+  in its aliased type, so `typedef Models = List<Model>` keeps `Model`
+  reachable wherever `Models` is used. Querying a typedef reports `notFound`,
+  unused typedefs are not reported, and a declaration referenced only from the
+  body of an unused typedef is reported as unreachable.
+- Members that override an inherited member (with or without `@override`),
+  including instance fields that implement an inherited getter or setter
+  (`@override final String message;`), are retained as roots, because calls dispatched through a supertype or a framework
   are not graph edges. A class kept alive only by such members, such as an
   unused widget that overrides `build()`, is not reported by `dead`;
   `dead --report-override-only` lists these declarations at info severity.
@@ -338,6 +377,16 @@ Limitations:
   `bridges`, and `schema` count the skipped paths in a
   `symlink-duplicate-directories:` limitation, and declarations under those
   paths are not in the graph.
+- A directory that cannot be listed (for example, permission denied) is skipped
+  instead of failing the whole run. The same commands count the skipped paths in
+  an `unreadable-directories:` limitation, and files under them are not
+  analyzed. The count is of paths: a directory reached through a link alias as
+  well as its real location counts once per path. The graph commands do not
+  visit directories that the analyzed source directories cannot reach
+  (`android/`, `ios/Pods`, and similar), but `bridges` and `schema` scan the
+  whole package root, so a locked directory there is still counted. If
+  the package root itself cannot be listed, the run fails with
+  `Analysis failed: a file or directory could not be read (permission denied).`
 - `bridges` accepts only direct imports of `package:flutter/services.dart` as
   provenance. Usage through barrels that re-export Flutter services is excluded
   from facts and reported as the `flutter-services-reexports` limitation.

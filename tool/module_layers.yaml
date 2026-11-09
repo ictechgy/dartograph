@@ -1,0 +1,32 @@
+# lib/AGENTS.md "모듈 소유권"의 의존 방향을 자기 분석 규칙으로 고정한다.
+# test/cli/self_analysis_test.dart가 `rules --strict`로 검사한다. 모듈을 더하거나
+# 의존 방향을 바꾸면 lib/AGENTS.md와 이 파일을 함께 고친다.
+layers:
+  - name: core
+    match: ["project:lib/src/core/**"]
+  - name: runtime
+    match: ["project:lib/src/runtime/**"]
+  - name: index
+    match: ["project:lib/src/index/**"]
+  - name: analysis
+    match: ["project:lib/src/analysis/**"]
+  - name: export
+    match: ["project:lib/src/export/**"]
+  - name: cli
+    match: ["project:lib/src/cli/**"]
+rules:
+  - name: core depends on no other product module
+    from: core
+    allow: [core]
+  - name: runtime depends on no other product module
+    from: runtime
+    allow: [runtime]
+  - name: index turns analyzer results into core and runtime facts
+    from: index
+    allow: [index, core, runtime]
+  - name: analysis queries core facts only
+    from: analysis
+    allow: [analysis, core]
+  - name: export serializes results without new judgments
+    from: export
+    allow: [export, analysis, core, runtime]

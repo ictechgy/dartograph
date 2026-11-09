@@ -9,6 +9,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/type.dart';
 import 'package:path/path.dart' as p;
 import 'package:crypto/crypto.dart';
 import 'package:yaml/yaml.dart';
@@ -24,14 +25,18 @@ import '../core/test_source.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
 import 'bounded_resource_provider.dart';
+import '../core/generated_files.dart';
+import 'dart_sdk_locator.dart';
 import 'incremental_cache.dart';
 import 'project_files.dart';
 
+export 'dart_sdk_locator.dart' show DartSdkNotFoundException;
 export 'project_files.dart'
     show
         LinkedDirectoryVisits,
         isPathWithinRoot,
-        skippedLinkedDirectoriesLimitation;
+        skippedLinkedDirectoriesLimitation,
+        unreadableDirectoriesLimitation;
 
 /// 공개 analyzer가 한 실행에서 조건부 구성 하나만 해석한다는 한계다.
 enum AnalyzerLimitation {
@@ -110,7 +115,7 @@ final class AnalyzerGraphResult {
 
   /// `dup` 중복 탐지의 입력이 되는 정규화 토큰 세그먼트다.
   ///
-  /// 생성 파일(`_generatedDartSuffixes`)의 세그먼트는 비교 대상에서 빠진다 —
+  /// 생성 파일([generatedDartSuffixes])의 세그먼트는 비교 대상에서 빠진다 —
   /// 기계 산출물의 반복은 검토 신호가 아니다. 색인기가
   /// `includeTokenSegments: true`로 만들어졌을 때만 채워지고, 아니면 비어 있다.
   final List<TokenSegment> tokenSegments;
@@ -303,6 +308,9 @@ final class AnalyzerGraphIndex {
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+    // SDK는 캐시보다 먼저 찾는다. 찾지 못하면 캐시 유무와 상관없이 같은 실패다 —
+    // 데워진 캐시가 SDK 부재를 가리면 같은 입력이 실행마다 다르게 끝난다(#160).
+    final sdk = _analyzerSdk();
     final sourcePackages = _readSourcePackages(root);
     // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
     // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
@@ -317,7 +325,12 @@ final class AnalyzerGraphIndex {
     final linkEscapes = <String>{};
     final initialCacheKey = cache == null
         ? null
-        : await _tryAnalysisCacheKey(root, linkEscapes, _aggregateWorkspace);
+        : await _tryAnalysisCacheKey(
+            root,
+            sdk.identity,
+            linkEscapes,
+            _aggregateWorkspace,
+          );
     if (cache == null) {
       // 캐시 키를 계산하지 않는 경로(무캐시·증분)는 키 열거가 analyzer보다 먼저
       // 돌지 않는다. 여기서 열거해 탈출 링크를 기록하고 비정규 입력을 거부한다.
@@ -330,12 +343,17 @@ final class AnalyzerGraphIndex {
         includeTokenSegments: _includeTokenSegments,
       );
       if (cached != null &&
-          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+          await _tryAnalysisCacheKey(
+                root,
+                sdk.identity,
+                null,
+                _aggregateWorkspace,
+              ) ==
               initialCacheKey) {
         return cached;
       }
     }
-    final collection = await _openCollection(root);
+    final collection = await _openCollection(root, sdk.path);
     try {
       final result = await _analyze(
         root,
@@ -343,10 +361,16 @@ final class AnalyzerGraphIndex {
         sourcePackages,
         incremental: incremental,
         linkEscapes: linkEscapes,
+        sdkIdentity: sdk.identity,
       );
       if (cache != null &&
           initialCacheKey != null &&
-          await _tryAnalysisCacheKey(root, null, _aggregateWorkspace) ==
+          await _tryAnalysisCacheKey(
+                root,
+                sdk.identity,
+                null,
+                _aggregateWorkspace,
+              ) ==
               initialCacheKey) {
         await _writeCachedAnalysis(cache, initialCacheKey, result);
       }
@@ -377,6 +401,7 @@ final class AnalyzerGraphIndex {
     AnalysisContextCollection collection,
     List<Directory> sourcePackages, {
     required IncrementalCache? incremental,
+    required String sdkIdentity,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -404,6 +429,7 @@ final class AnalyzerGraphIndex {
       linkedDirectories,
     );
     final skippedLinkedDirectories = linkedDirectories.skipped.length;
+    final unreadableDirectories = linkedDirectories.unreadable.length;
     final entryPoints = _readEntryPoints(root);
     final scope = _readScopeConfig(root);
     // pubspec 이름 검증은 두 경로가 같은 시점에 실패하도록 해석 전에 한다
@@ -438,6 +464,7 @@ final class AnalyzerGraphIndex {
         scope: scope,
         linkEscapes: linkEscapes,
         skippedLinkedDirectories: skippedLinkedDirectories,
+        unreadableDirectories: unreadableDirectories,
         workspace: workspace,
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
@@ -458,6 +485,8 @@ final class AnalyzerGraphIndex {
       scope: scope,
       linkEscapes: linkEscapes,
       skippedLinkedDirectories: skippedLinkedDirectories,
+      unreadableDirectories: unreadableDirectories,
+      sdkIdentity: sdkIdentity,
       workspace: workspace,
     );
   }
@@ -478,6 +507,8 @@ final class AnalyzerGraphIndex {
     required _ScopeConfig scope,
     required _WorkspaceSpec? workspace,
     required int skippedLinkedDirectories,
+    required int unreadableDirectories,
+    required String sdkIdentity,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -491,7 +522,7 @@ final class AnalyzerGraphIndex {
     );
     final resolutionKey = IncrementalCache.resolutionKey(
       toolVersion: toolVersion,
-      sdkVersion: Platform.version,
+      sdkVersion: sdkIdentity,
       configFingerprint: inputs.configFingerprint,
     );
     final currentKeys = <String, String>{
@@ -630,6 +661,7 @@ final class AnalyzerGraphIndex {
       scope: scope,
       linkEscapes: linkEscapes,
       skippedLinkedDirectories: skippedLinkedDirectories,
+      unreadableDirectories: unreadableDirectories,
       workspace: workspace,
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
@@ -1467,6 +1499,7 @@ AnalyzerGraphResult _assembleResult({
   _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
   int skippedLinkedDirectories = 0,
+  int unreadableDirectories = 0,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1574,6 +1607,13 @@ AnalyzerGraphResult _assembleResult({
         member.relPath,
     ],
   );
+  final publicLibraries = _publicLibrariesLimitation(
+    pubspecContent,
+    sources,
+    facts,
+    retentionRoots,
+  );
+  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -1656,6 +1696,14 @@ AnalyzerGraphResult _assembleResult({
     // 그래프에 없으므로 그 경로를 묻는 질의가 '미발견'인 이유를 출력에 남긴다.
     limitationDetails.add(
       skippedLinkedDirectoriesLimitation(skippedLinkedDirectories),
+    );
+  }
+  if (unreadableDirectories > 0) {
+    // 분석 범위 안에서 목록을 읽지 못한 디렉터리의 소스는 그래프에 없다. 건너뛰지
+    // 않으면 디렉터리 하나로 색인 전체가 실패하고(#160), 조용히 건너뛰면 빈 결과가
+    // "소스 없음"과 구분되지 않는다.
+    limitationDetails.add(
+      unreadableDirectoriesLimitation(unreadableDirectories),
     );
   }
   if (workspace == null) {
@@ -2315,8 +2363,16 @@ const _cacheSchemaVersion = 8;
 // 범위 밖 진입점 한계(v26)가 test_driver/·워크스페이스 멤버를 센다. 이전 캐시의
 // 한계 문구는 다르다.
 // 루트 밖 링크 아래 파일(v27)은 symlink-escape에 맡기고 세지 않는다.
+// 생성 파일 접미사를 route 사실과 공유하고 chopper·auto_route·mockito·
+// dart_mappable·flutter_gen 출력을 더해(v29) 같은 소스의 보존 루트가 바뀐다.
+// pubspec plugin 진입점을 YAML로 읽어(v30) 따옴표 값이 보존되고 네이티브
+// pluginClass의 미해석 한계가 빠진다. 대표 라이브러리 밖 공개 라이브러리를 세는
+// public-libraries 한계(같은 v30)가 더해진다.
+// 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
+// typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
+// 미도달로 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v27-unanalyzed-escapes';
+    'dartograph-analysis-$toolVersion-cache-v30-yaml-plugin-entries';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2342,13 +2398,15 @@ Future<void> _scanAnalysisInputs(String root, Set<String>? linkEscapes) async {
 }
 
 Future<String?> _tryAnalysisCacheKey(
-  String root, [
+  String root,
+  String sdkIdentity, [
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 ]) async {
   try {
     return await _analysisCacheKey(
       root,
+      sdkIdentity: sdkIdentity,
       linkEscapes: linkEscapes,
       aggregateWorkspace: aggregateWorkspace,
     );
@@ -2364,6 +2422,7 @@ Future<String?> _tryAnalysisCacheKey(
 
 Future<String> _analysisCacheKey(
   String root, {
+  required String sdkIdentity,
   Set<String>? linkEscapes,
   bool aggregateWorkspace = false,
 }) async {
@@ -2380,7 +2439,7 @@ Future<String> _analysisCacheKey(
   final bytes = sha256.startChunkedConversion(digestSink);
   bytes.add(
     utf8.encode(
-      '$_cacheIdentity\u0000${Platform.version}\u0000'
+      '$_cacheIdentity\u0000$sdkIdentity\u0000'
       '${aggregateWorkspace ? 'w1' : 'w0'}\u0000',
     ),
   );
@@ -2415,6 +2474,20 @@ Future<String> _analysisCacheKey(
       ..add(utf8.encode(p.relative(skipped.path, from: root)))
       ..add(const [0])
       ..add(utf8.encode(skipped.canonical))
+      ..add(const [0]);
+  }
+  // 읽지 못해 건너뛴 디렉터리는 파일 목록에서 빠지기만 해서, 잠그거나 풀어도 키가
+  // 그대로일 수 있다. 그러면 unreadable-directories: 한계가 데워진 캐시에서 사라지거나
+  // 풀린 뒤에도 남는다(0.17.0은 키 계산이 실패해 캐시를 쓰지 않았다). 경로를 키에 넣는다.
+  final unreadable = [
+    for (final directory in linkedDirectories.unreadable)
+      p.posix.joinAll(p.relative(directory, from: root).split(p.separator)),
+  ]..sort();
+  for (final directory in unreadable) {
+    bytes
+      ..add(utf8.encode('directory-unreadable'))
+      ..add(const [0])
+      ..add(utf8.encode(directory))
       ..add(const [0]);
   }
   bytes.close();
@@ -2545,6 +2618,7 @@ Future<List<File>> _analysisInputFiles(
       }
     }
   }
+  _addHiddenSourceFiles(root, linkedDirectories, addFile);
   await addPackage(Directory(root));
   final nestedPaths = nestedPackages.keys.toList()..sort();
   for (final path in nestedPaths) {
@@ -2553,6 +2627,64 @@ Future<List<File>> _analysisInputFiles(
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// 표준 소스 디렉터리 안 숨김 디렉터리의 생성 파일을 [addFile]에 더한다.
+///
+/// 루트 순회는 `.fvm` 같은 거대 링크 트리를 피하려고 숨김 디렉터리를 가지치기한다.
+/// 그런데 그래프의 생성 파일 보충([_filePathsUnder])은 `lib/.x/` 같은 소스 디렉터리
+/// 안 숨김 디렉터리에도 내려가 생성 파일을 읽는다. 키가 그 파일을 보지 않으면 고쳐도
+/// 낡은 결과가 재사용된다. 그래서 그래프가 실제로 읽는 것만 키에 더한다.
+///
+/// - 숨김 디렉터리 아래의 생성 파일([_isGenerated])만 더한다. 숨김이 아닌 곳은 루트
+///   순회가 이미 덮는다. 생성 파일이 아닌 항목(FIFO 등)은 그래프가 읽지 않으므로 키도
+///   열지 않는다 — 그런 항목 하나로 키 계산이 실패하지 않는다.
+/// - [_filePathsUnder]처럼 링크를 따라가지 않는다. `example/ios/.symlinks/plugins/*`나
+///   SDK 링크를 따라가면 그래프와 무관한 파일을 매번 해시한다.
+/// - 목록을 읽지 못한 디렉터리는 [linkedDirectories]에 남겨 키에 넣는다.
+void _addHiddenSourceFiles(
+  String root,
+  LinkedDirectoryVisits? linkedDirectories,
+  void Function(File file) addFile,
+) {
+  for (final name in _sourceDirectories) {
+    _addHiddenGeneratedFiles(
+      Directory(p.join(root, name)),
+      underHidden: false,
+      visits: linkedDirectories,
+      addFile: addFile,
+    );
+  }
+}
+
+/// [directory] 아래, 숨김 디렉터리 안에 든 생성 파일을 링크를 따라가지 않고 더한다.
+void _addHiddenGeneratedFiles(
+  Directory directory, {
+  required bool underHidden,
+  required LinkedDirectoryVisits? visits,
+  required void Function(File file) addFile,
+}) {
+  final List<FileSystemEntity> entities;
+  try {
+    entities = directory.listSync(followLinks: false);
+  } on FileSystemException {
+    // 없는 소스 디렉터리는 조용히 넘긴다. 있는데 못 읽으면 남긴다.
+    if (directory.existsSync()) visits?.recordUnreadable(directory.path);
+    return;
+  }
+  for (final entity in entities) {
+    final name = p.basename(entity.path);
+    if (entity is Directory && !indexExcludedDirectories.contains(name)) {
+      _addHiddenGeneratedFiles(
+        entity,
+        underHidden: underHidden || name.startsWith('.'),
+        visits: visits,
+        addFile: addFile,
+      );
+    } else if (underHidden && entity is File && _isGenerated(entity.path)) {
+      addFile(entity);
+    }
+  }
 }
 
 /// 캐시 키 열거가 읽는 package_config의 상한이다.
@@ -2927,6 +3059,58 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
       ],
     );
 
+/// 대표 라이브러리 밖 공개 라이브러리를 세는 `public-libraries:` 한계다.
+///
+/// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
+/// 패키지의 다른 최상위 `lib/*.dart`(예: `lib/testing.dart`)도 소비자가 import하는
+/// 공개 라이브러리인데, 그 선언을 소비자만 쓰면 아무 표시 없이 미도달로 보고됐다.
+/// 대표 라이브러리가 다시 export해 이미 publicApi로 보존된 선언만 있는 파일은
+/// 세지 않는다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다.
+/// 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이
+/// 가려진다. 알릴 것이 없으면 null이다.
+String? _publicLibrariesLimitation(
+  String? pubspecContent,
+  List<String> sources,
+  Map<String, _UnitFacts> facts,
+  Map<String, RetentionReason> retentionRoots,
+) {
+  if (pubspecContent == null) return null;
+  final document = loadYaml(pubspecContent);
+  if (document is! YamlMap || document['publish_to'] == 'none') return null;
+  final name = document['name'];
+  if (name is! String) return null;
+  final entry = 'lib/$name.dart';
+  final unretained = <String>[
+    for (final source in sources)
+      if (source != entry &&
+          RegExp(r'^lib/[^/]+\.dart$').hasMatch(source) &&
+          facts[source]!.nodes.any(
+            (node) =>
+                _isPublicTopLevel(node.id) &&
+                retentionRoots[node.id] != RetentionReason.publicApi,
+          ))
+        source,
+  ]..sort();
+  if (unretained.isEmpty) return null;
+  const shown = 3;
+  final listed = unretained.take(shown).join(', ');
+  final more = unretained.length > shown
+      ? ' and ${unretained.length - shown} more'
+      : '';
+  return 'public-libraries: $listed$more are public libraries outside $entry; '
+      'their declarations are not retained as public API, so ones used only '
+      'by package consumers are reported as unreachable (export them from '
+      '$entry or retain them with retained_files)';
+}
+
+/// 라이브러리의 비공개가 아닌 최상위 선언 ID인지 본다(`lib::Name`).
+bool _isPublicTopLevel(String id) {
+  final separator = id.indexOf('::');
+  if (separator < 0) return false;
+  final name = id.substring(separator + 2);
+  return name.isNotEmpty && !name.contains('.') && !name.startsWith('_');
+}
+
 List<String> _agentLimitations(
   String root,
   List<String> sources,
@@ -3157,35 +3341,37 @@ const _namedNavigationMethods = {
   'restorablePushReplacementNamed',
 };
 
-String? _dartSdkPath() {
-  final resolved = File(Platform.resolvedExecutable);
-  final candidates = <File>[resolved];
-  final path = Platform.environment['PATH'];
-  if (path != null) {
-    for (final directory in path.split(Platform.isWindows ? ';' : ':')) {
-      candidates.add(
-        File(p.join(directory, Platform.isWindows ? 'dart.exe' : 'dart')),
-      );
-    }
+/// 색인이 analyzer에 넘기는 Dart SDK다.
+///
+/// [identity]는 캐시 키에 넣는 SDK 신원이다. AOT 바이너리의 [Platform.version]은
+/// 컴파일 당시 런타임 버전이라 실제로 해석에 쓰는 SDK와 다를 수 있으므로, 찾은
+/// SDK의 `version` 파일 내용을 함께 넣는다. 그래야 SDK를 바꾸면 낡은 결과를
+/// 재사용하지 않는다.
+typedef _AnalyzerSdk = ({String path, String identity});
+
+/// 색인에 쓸 SDK를 찾는다. 찾지 못하면 [DartSdkNotFoundException]이다.
+_AnalyzerSdk _analyzerSdk() {
+  final path = _requireDartSdkPath();
+  return (
+    path: path,
+    identity: '${Platform.version}\u0000${_sdkVersionText(path)}',
+  );
+}
+
+/// analyzer에 넘길 SDK 디렉터리다. 찾지 못하면 [DartSdkNotFoundException]이다.
+///
+/// analyzer 기본값(실행 파일 두 단계 위)에 맡기지 않는다. AOT 바이너리에서는 그
+/// 위치가 SDK가 아니라서 원인을 알 수 없는 색인 실패가 된다(#160).
+String _requireDartSdkPath() =>
+    locateDartSdk() ?? (throw const DartSdkNotFoundException());
+
+/// [sdk]의 `version` 파일 내용이다. 읽지 못하면 빈 문자열이다(신원의 보조 성분).
+String _sdkVersionText(String sdk) {
+  try {
+    return File(p.join(sdk, 'version')).readAsStringSync().trim();
+  } on FileSystemException {
+    return '';
   }
-  for (final candidate in candidates) {
-    if (!candidate.existsSync()) continue;
-    final executable = File(candidate.resolveSymbolicLinksSync());
-    final sdk = executable.parent.parent;
-    if (File(
-      p.join(
-        sdk.path,
-        'lib',
-        '_internal',
-        'sdk_library_metadata',
-        'lib',
-        'libraries.dart',
-      ),
-    ).existsSync()) {
-      return sdk.path;
-    }
-  }
-  return null;
 }
 
 final class _DeclarationCollector extends GeneralizingAstVisitor<void> {
@@ -3873,7 +4059,7 @@ RetentionReason? _retentionReason(
   // annotation 순서 때문에 재정의 계약으로 덮이면 `--report-override-only`가
   // 그 멤버를 조건부 루트로 잘못 다룬다.
   var annotatedOverride = false;
-  for (final annotation in node.metadata) {
+  for (final annotation in _declarationMetadata(node)) {
     final name = annotation.name.name.split('.').last;
     final annotationLibrary = annotation.element?.library?.uri.toString();
     if (name == 'override' && annotationLibrary == 'dart:core') {
@@ -3887,12 +4073,9 @@ RetentionReason? _retentionReason(
     if (_isExternalBinding(name, annotationLibrary)) {
       return RetentionReason.externalBinding;
     }
-    final arguments = annotation.arguments?.arguments;
     if (name == 'pragma' &&
         annotationLibrary == 'dart:core' &&
-        arguments?.length == 1 &&
-        arguments!.single is SimpleStringLiteral &&
-        (arguments.single as SimpleStringLiteral).value == 'vm:entry-point') {
+        _isVmEntryPointPragma(annotation.arguments?.arguments)) {
       return RetentionReason.vmEntryPoint;
     }
   }
@@ -3926,6 +4109,41 @@ RetentionReason? _retentionReason(
     return RetentionReason.overrideContract;
   }
   return null;
+}
+
+/// [node] 자신과, 변수·필드라면 그것을 감싼 선언의 annotation이다.
+///
+/// 변수·필드는 `VariableDeclaration`이 정점을 만들지만 annotation은 감싸는
+/// `FieldDeclaration`·`TopLevelVariableDeclaration`에 붙는다([_hasIgnoreClaim]과
+/// 같은 14.3.0 실측 구조). 자기 metadata만 보면 `@override final x`·
+/// `@pragma('vm:entry-point') static int y` 같은 보존 근거를 놓친다.
+/// `int a = 1, b = 2;`의 annotation은 두 변수 모두에 적용된다.
+Iterable<Annotation> _declarationMetadata(Declaration node) sync* {
+  yield* node.metadata;
+  if (node is! VariableDeclaration) return;
+  final enclosing =
+      node.thisOrAncestorOfType<FieldDeclaration>() ??
+      node.thisOrAncestorOfType<TopLevelVariableDeclaration>();
+  if (enclosing != null) yield* enclosing.metadata;
+}
+
+/// `@pragma('vm:entry-point'[, 옵션])` 인자인지 판정한다.
+///
+/// VM 계약의 두 번째 인자(`true`·`'get'`·`'set'`·`'call'`, 또는 상수 bool 식)는
+/// 진입점의 종류를 좁힐 뿐 진입점이 아니라는 뜻이 아니다. 리터럴 `false`만이
+/// 진입점이 아니라고 선언하므로 그때만 제외한다. 상수 식은 값을 계산하지 않고
+/// 보존 쪽으로 판정한다.
+bool _isVmEntryPointPragma(List<Argument>? arguments) {
+  if (arguments == null || arguments.isEmpty || arguments.length > 2) {
+    return false;
+  }
+  final name = arguments.first;
+  if (name is! SimpleStringLiteral || name.value != 'vm:entry-point') {
+    return false;
+  }
+  if (arguments.length == 1) return true;
+  final option = arguments[1];
+  return option is! BooleanLiteral || option.value;
 }
 
 /// 외부 런타임이 이름으로 호출하는 binding annotation인지 판정한다.
@@ -4016,8 +4234,13 @@ Map<String, List<String>> _publicMembersByDeclaration(CodeGraph graph) {
   return membersByDeclaration;
 }
 
+/// [element]가 상위 타입에서 물려받은 같은 이름의 멤버를 재정의하는지 본다.
+///
+/// 인스턴스 필드도 암묵 getter·setter로 상위의 getter·setter를 구현한다
+/// (`@override final String message`). 실행 가능 요소만 보면 이런 필드가 상위
+/// 타입을 거친 읽기로만 쓰일 때 미도달로 보고된다. 정적 멤버는 재정의하지 않는다.
 bool _overridesInheritedMember(Element element) {
-  if (element is! ExecutableElement) return false;
+  if (!_canOverride(element)) return false;
   final enclosing = element.enclosingElement;
   final name = element.name;
   return enclosing is InterfaceElement &&
@@ -4027,6 +4250,14 @@ bool _overridesInheritedMember(Element element) {
       );
 }
 
+/// 재정의 관계를 가질 수 있는 선언인지 본다 — 실행 가능 요소와 인스턴스 필드다.
+///
+/// 실행 가능 요소는 기존 판정을 그대로 둔다. 정적 필드와 enum 상수는 인스턴스
+/// 인터페이스에 속하지 않아 상위 멤버를 재정의하지 않는다.
+bool _canOverride(Element element) =>
+    element is ExecutableElement ||
+    (element is FieldElement && !element.isStatic && !element.isEnumConstant);
+
 Set<AnalyzerLimitation> _addPluginRoots(
   String root,
   CodeGraph graph,
@@ -4034,18 +4265,17 @@ Set<AnalyzerLimitation> _addPluginRoots(
   String? pubspecContent,
 ) {
   if (pubspecContent == null) return const {};
-  final matches = RegExp(
-    r'^\s*(?:pluginClass|dartPluginClass):\s*([A-Za-z_$][\w$]*)\s*$',
-    multiLine: true,
-  ).allMatches(pubspecContent);
-  final classNames = <String>{for (final match in matches) match.group(1)!};
+  final entries = _pluginEntries(pubspecContent);
   final limitations = <AnalyzerLimitation>{};
-  for (final className in classNames) {
+  for (final MapEntry(key: className, value: dartSide) in entries.entries) {
     final candidates =
         graph.nodes.keys.where((id) => id.endsWith('::$className')).toList()
           ..sort();
     if (candidates.isEmpty) {
-      limitations.add(AnalyzerLimitation.unresolvedPluginEntryPoint);
+      // 네이티브 pluginClass(Kotlin·Swift 등)는 Dart 그래프에 없는 것이 정상이다.
+      if (dartSide) {
+        limitations.add(AnalyzerLimitation.unresolvedPluginEntryPoint);
+      }
       continue;
     }
     if (candidates.length > 1) {
@@ -4062,6 +4292,37 @@ Set<AnalyzerLimitation> _addPluginRoots(
     }
   }
   return limitations;
+}
+
+/// pubspec `flutter.plugin`이 선언한 진입점 클래스 이름 → Dart 쪽 클래스인지다.
+///
+/// 예전 정규식은 따옴표 값(`dartPluginClass: 'FooWeb'`)과 행 끝 주석을 놓쳐
+/// `registerWith`가 미도달로 보고됐고, 네이티브 `pluginClass`와 `none`까지 Dart
+/// 클래스로 찾아 매번 미해석 한계를 냈다. YAML로 읽되 보존 대상은 줄이지 않는다 —
+/// 네이티브 이름과 같은 Dart 클래스가 있으면 예전처럼 보존한다. Dart 쪽 진입점은
+/// 모든 플랫폼의 `dartPluginClass`와 web의 `pluginClass`(web은 Dart 구현이다)다.
+/// 옛 형식의 `flutter.plugin.pluginClass`는 네이티브다.
+Map<String, bool> _pluginEntries(String pubspecContent) {
+  final entries = <String, bool>{};
+  void add(Object? value, {required bool dartSide}) {
+    if (value is! String || value == 'none') return;
+    if (!RegExp(r'^[A-Za-z_$][\w$]*$').hasMatch(value)) return;
+    entries[value] = (entries[value] ?? false) || dartSide;
+  }
+
+  final document = loadYaml(pubspecContent);
+  final flutter = document is YamlMap ? document['flutter'] : null;
+  final plugin = flutter is YamlMap ? flutter['plugin'] : null;
+  if (plugin is! YamlMap) return entries;
+  add(plugin['pluginClass'], dartSide: false);
+  final platforms = plugin['platforms'];
+  if (platforms is! YamlMap) return entries;
+  for (final MapEntry(:key, :value) in platforms.entries) {
+    if (value is! YamlMap) continue;
+    add(value['dartPluginClass'], dartSide: true);
+    add(value['pluginClass'], dartSide: key == 'web');
+  }
+  return entries;
 }
 
 final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
@@ -4109,7 +4370,7 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
           _add(_owner!, _idOf(type.element), EdgeKind.mixin);
         }
       }
-      if (element is ExecutableElement && enclosing is InterfaceElement) {
+      if (_canOverride(element) && enclosing is InterfaceElement) {
         final name = element.name;
         if (name != null) {
           for (final overridden in enclosing.inheritedMembers.values.where(
@@ -4261,6 +4522,24 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
         }
       }
     }
+    _addExplicitSetterUse(node.writeElement);
+  }
+
+  /// 명시적으로 선언한 setter(`set count(int v) {...}`)에 쓰기 간선을 더한다.
+  ///
+  /// [_graphTarget]은 getter·setter를 변수로 접어 필드·getter 정점(`A.count`)과
+  /// 맞춘다. 명시적 setter의 정점 ID는 `lookupName`(`A.count=`)이라 그 간선만으로는
+  /// 대입으로만 쓰는 setter와 setter 본문이 호출하는 선언이 미도달로 보고됐다.
+  /// 변수 쪽 간선은 그대로 두어 보존을 좁히지 않는다. 필드의 암묵 setter는 변수
+  /// 정점이 곧 선언이므로 더할 것이 없다.
+  void _addExplicitSetterUse(Element? writeElement) {
+    final owner = _owner;
+    final setter = writeElement?.baseElement;
+    if (owner != null &&
+        setter is SetterElement &&
+        setter.isOriginDeclaration) {
+      _add(owner, _idOf(setter), EdgeKind.reference);
+    }
   }
 
   /// 연산자 호출은 식별자가 아니라 토큰이라 [visitSimpleIdentifier] 경로를
@@ -4291,7 +4570,27 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
         _isGraphElement(element)) {
       _add(owner, _idOf(element), EdgeKind.reference);
     }
+    if (owner != null && !isStructural && element is TypeAliasElement) {
+      _addAliasedTypeReferences(owner, element.aliasedType);
+    }
     super.visitNamedType(node);
+  }
+
+  /// typedef를 쓰는 선언이 별칭 본문의 타입을 참조하게 한다.
+  ///
+  /// typedef는 그래프 정점이 아니고 최상위 typedef 본문에는 소유 선언이 없어,
+  /// `typedef Models = List<Model>`만 거쳐 쓰는 `Model`이 미도달로 보고됐다.
+  /// 사용 지점에서 별칭이 가리키는 타입을 펼치면 의존이 실제 사용자에게 귀속되고
+  /// 사실이 그 파일(과 import 폐쇄)의 함수로 남는다. 쓰이지 않는 typedef의 본문은
+  /// 여전히 아무에게도 귀속되지 않는다(README 한계).
+  void _addAliasedTypeReferences(String owner, DartType aliasedType) {
+    final targets = <Element>{};
+    _collectTypeElements(aliasedType, targets);
+    for (final target in targets) {
+      if (_isGraphElement(target)) {
+        _add(owner, _idOf(target), EdgeKind.reference);
+      }
+    }
   }
 
   Element? _callTarget(SimpleIdentifier node, Element element) {
@@ -4321,6 +4620,35 @@ final class _RelationshipCollector extends GeneralizingAstVisitor<void> {
 /// 아니거나 식별자 경로가 이미 수집하므로 거른다.
 MethodElement? _asMethod(Element? element) =>
     element is MethodElement ? element : null;
+
+/// [type]이 구조적으로 가리키는 선언 element를 [into]에 모은다.
+///
+/// 인터페이스 타입과 그 타입 인자, 함수 타입의 반환·매개변수, 레코드 필드를
+/// 따라간다. 중첩 typedef는 analyzer가 이미 펼친 구조로 들어온다. 타입 매개변수의
+/// bound는 그 타입의 사용이 아니므로 따라가지 않는다. Dart 타입은 유한한 트리라
+/// 재귀가 끝난다.
+void _collectTypeElements(DartType type, Set<Element> into) {
+  switch (type) {
+    case InterfaceType():
+      into.add(type.element);
+      for (final argument in type.typeArguments) {
+        _collectTypeElements(argument, into);
+      }
+    case FunctionType():
+      _collectTypeElements(type.returnType, into);
+      for (final parameter in type.formalParameters) {
+        _collectTypeElements(parameter.type, into);
+      }
+    case RecordType():
+      for (final field in type.positionalFields) {
+        _collectTypeElements(field.type, into);
+      }
+      for (final field in type.namedFields) {
+        _collectTypeElements(field.type, into);
+      }
+    default:
+  }
+}
 
 Element? _graphTarget(Element? element) {
   final base = element?.baseElement;
@@ -4505,12 +4833,16 @@ List<String> _dartFilesUnder(
       ),
     );
   }
-  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리는
-  // 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터 결과에서 빠졌으므로 결과는
-  // 같고, build 산출물·git 객체를 분석마다 열거하거나 그 안의 읽을 수 없는
-  // 디렉터리 하나로 색인 전체가 실패하지 않는다.
+  // analysis_options가 제외한 생성 파일을 보충한다. 인덱스 제외 디렉터리와 분석
+  // 범위가 닿지 않는 디렉터리는 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터
+  // 결과에서 빠졌으므로 결과는 같고, build 산출물·git 객체·플랫폼 디렉터리를 분석마다
+  // 열거하거나 그 안의 읽을 수 없는 디렉터리 하나로 색인 전체가 실패하지 않는다.
   paths.addAll(
-    _filePathsUnder(Directory(root)).where(_isGenerated).where(inAnalysisScope),
+    _filePathsUnder(
+      Directory(root),
+      mayHoldUnits,
+      linkedDirectories,
+    ).where(_isGenerated).where(inAnalysisScope),
   );
   return paths.toList()..sort();
 }
@@ -4584,7 +4916,9 @@ Iterable<String> _analyzedFilesIn(
     children = Directory(directory).listSync()
       ..sort((a, b) => a.path.compareTo(b.path));
   } on FileSystemException {
-    // analyzer도 읽을 수 없는 디렉터리는 조용히 건너뛴다.
+    // analyzer도 읽을 수 없는 디렉터리는 건너뛴다. 그 아래 소스가 그래프에서
+    // 빠지므로 조용히 넘기지 않고 [visits]에 남겨 호출자가 한계로 센다.
+    visits.recordUnreadable(directory);
     return;
   }
   for (final child in children) {
@@ -4599,7 +4933,9 @@ Iterable<String> _analyzedFilesIn(
     try {
       childCanonical = child.resolveSymbolicLinksSync();
     } on FileSystemException {
-      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛴다.
+      // 목록을 읽은 뒤 사라졌거나 경로를 풀 권한이 없다. 그 디렉터리만 건너뛰고
+      // 읽지 못한 디렉터리로 남긴다.
+      visits.recordUnreadable(path);
       continue;
     }
     // 목록은 링크를 따라가 받으므로 링크인지는 정규 경로로 안다. 링크가 아닌 하위
@@ -4629,19 +4965,63 @@ Iterable<String> _analyzedFilesIn(
   }
 }
 
-/// [directory] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
+/// [root] 아래 파일 경로를 링크를 따라가지 않고 돌려준다.
 ///
 /// [indexExcludedDirectories] 이름의 디렉터리에는 내려가지 않는다. 링크는 파일을
 /// 가리켜도 `Link`로 나와 제외된다 — `listSync(recursive: true,
-/// followLinks: false)`에서 `File`만 고르던 규칙과 같다.
-Iterable<String> _filePathsUnder(Directory directory) sync* {
-  for (final entity in directory.listSync(followLinks: false)) {
-    if (entity is Directory) {
-      if (indexExcludedDirectories.contains(p.basename(entity.path))) continue;
-      yield* _filePathsUnder(entity);
-    } else if (entity is File) {
-      yield entity.path;
+/// followLinks: false)`에서 `File`만 고르던 규칙과 같다. [mayHoldUnits]가 거짓인
+/// 하위 디렉터리에도 내려가지 않는다. 그 아래 파일은 호출자의 분석 범위 밖이라
+/// 결과가 같고, 플랫폼 빌드 산출물(`ios/Pods`·`android/.gradle`)을 매번 열거하거나
+/// 그 안의 읽을 수 없는 디렉터리 하나로 색인 전체가 실패하지 않는다(#160). 범위
+/// 안의 하위 디렉터리를 읽지 못하면 건너뛰고 [visits]에 남긴다. [root] 자체를
+/// 읽지 못하면 그 실패를 그대로 던진다.
+List<String> _filePathsUnder(
+  Directory root,
+  bool Function(String directory) mayHoldUnits,
+  LinkedDirectoryVisits visits,
+) {
+  final paths = <String>[];
+  _addFilePaths(root.listSync(followLinks: false), mayHoldUnits, visits, paths);
+  return paths;
+}
+
+/// [entities]의 파일을 [paths]에 더하고, 내려갈 디렉터리는 재귀한다.
+void _addFilePaths(
+  List<FileSystemEntity> entities,
+  bool Function(String directory) mayHoldUnits,
+  LinkedDirectoryVisits visits,
+  List<String> paths,
+) {
+  for (final entity in entities) {
+    if (entity is File) {
+      paths.add(entity.path);
+    } else if (entity is Directory && _descendsInto(entity, mayHoldUnits)) {
+      final children = _listOrRecord(entity, visits);
+      if (children != null) {
+        _addFilePaths(children, mayHoldUnits, visits, paths);
+      }
     }
+  }
+}
+
+/// [directory]에 내려가 파일을 찾을지다.
+bool _descendsInto(
+  Directory directory,
+  bool Function(String directory) mayHoldUnits,
+) =>
+    !indexExcludedDirectories.contains(p.basename(directory.path)) &&
+    mayHoldUnits(directory.path);
+
+/// [directory]의 항목이다. 읽지 못하면 [visits]에 남기고 null이다.
+List<FileSystemEntity>? _listOrRecord(
+  Directory directory,
+  LinkedDirectoryVisits visits,
+) {
+  try {
+    return directory.listSync(followLinks: false);
+  } on FileSystemException {
+    visits.recordUnreadable(directory.path);
+    return null;
   }
 }
 
@@ -4672,15 +5052,20 @@ final _readBoundaries = Expando<BoundedResourceProvider>('readBoundary');
 /// analyzer는 모음을 만들며 pubspec·analysis_options·package_config를 읽는다.
 /// 경계가 그중 하나를 거부했으면 모음을 닫고 그 거부를 던진다. analyzer가
 /// 거부를 수습하지 않고 예외로 내보낸 경우(루트 pubspec 등)도 원인은 같은
-/// 거부다.
-Future<AnalysisContextCollection> _openCollection(String root) async {
+/// 거부다. [sdkPath]를 주지 않으면 여기서 SDK를 찾고, 찾지 못하면
+/// [DartSdkNotFoundException]이다.
+Future<AnalysisContextCollection> _openCollection(
+  String root, [
+  String? sdkPath,
+]) async {
+  final sdk = sdkPath ?? _requireDartSdkPath();
   final boundary = BoundedResourceProvider();
   final AnalysisContextCollection collection;
   try {
     collection = AnalysisContextCollection(
       includedPaths: [root],
       resourceProvider: boundary,
-      sdkPath: _dartSdkPath(),
+      sdkPath: sdk,
     );
   } on Object {
     boundary.throwIfRejected();
@@ -4744,14 +5129,4 @@ AnalysisContext _contextIncluding(
   }
 }
 
-bool _isGenerated(String path) => _generatedDartSuffixes.any(path.endsWith);
-
-const _generatedDartSuffixes = {
-  '.g.dart',
-  '.freezed.dart',
-  '.pb.dart',
-  '.pbenum.dart',
-  '.pbgrpc.dart',
-  '.pbjson.dart',
-  '.pbserver.dart',
-};
+bool _isGenerated(String path) => isGeneratedDartPath(path);

@@ -23,8 +23,16 @@ dart install 'dartograph@{path: /absolute/path/to/dartograph}'
 `~/Library/Application Support/Dart/install/bin`(macOS 기준)에 놓는다.
 실측: 설치본 `dartograph --version` → `dartograph 0.10.0`, 소스
 체크아웃 대상 `dead --kinds file` → 발견 보고·종료 1 (2026-09,
-Dart 3.13.3/macOS arm64). `pub get`을 실행하지 않은 패키지 분석 등
-Dart SDK가 필요한 경로는 AOT 설치본에서도 PATH의 SDK를 찾는다.
+Dart 3.13.3/macOS arm64).
+
+AOT 설치본은 그 자체가 Dart VM이 아니므로 분석에 쓸 SDK를 다음 순서로 찾는다:
+실행 파일 두 단계 위(Dart VM에서 실행할 때의 VM SDK) → `DART_SDK` 환경변수 → `$FLUTTER_ROOT/bin/cache/dart-sdk` → `PATH`의 `dart`(링크를
+해석한 두 단계 위, 또는 Flutter의 `bin/dart` 래퍼면 `bin/cache/dart-sdk`; Windows는
+`dart.exe`와 Flutter의 `dart.bat`) → 실행 파일 옆의 `dart-sdk` → 실행 파일 디렉터리 자체.
+`DART_SDK`·`FLUTTER_ROOT`는 0.17.0과 달리 `PATH`의 `dart`보다 우선한다. 모두 실패하면 추측하지
+않고 `Analysis failed: the Dart SDK could not be located. …`와 종료 코드 2로 끝난다(#160).
+캐시가 있어도 같다. 찾은 SDK의 `version`은 분석 캐시 키에 들어가므로 SDK를 바꾸면
+캐시를 재사용하지 않는다.
 
 저장소 소스에서 실행할 때는 `dartograph` 대신 `dart run dartograph`를 쓴다.
 
@@ -331,8 +339,10 @@ Actions의 `file=`과 SARIF의 artifact URI는 해당 pubspec을 가리킨다.
 사용은 **관측**으로만 판정한다 — `package:` 지시문이 없어도 도구 계약이 요구하는
 의존은 사용으로 친다: pubspec `executables`에 노출된 실행 파일, `build.yaml`의
 `builders`·`post_process_builders`, `analysis_options.yaml`이 include하거나
-analyzer plugin으로 올린 패키지. 이 근거는 finding의 `evidence`와 보고서의
-`tool-usage:` limitation에 실린다. 런타임 로딩(`Isolate.spawnUri` 등), 생성 코드가
+analyzer plugin으로 올린 패키지, pubspec에 Flutter `fonts`·`assets`를 선언한 자산
+제공 패키지(`cupertino_icons`처럼 Flutter가 패키지 이름으로 폰트를 찾아 import가
+없다). 이렇게 사용이 확인된 의존은 finding을 내지 않으며 근거를 따로 출력하지
+않는다. 런타임 로딩(`Isolate.spawnUri` 등), 생성 코드가
 import하는 패키지, 에셋 경로만의 참조는 이 감사에 보이지 않으며 그 사실이 limitation으로
 남는다. `dependency_overrides`는 사용 관측을 만들지 않으므로 미사용으로 보고하지
 않는다. finding이 있으면 종료 코드 1이다 — 삭제 지시가 아니라 검토 목록이다.
@@ -492,6 +502,30 @@ compare가 그 근거를 답하고, 다른 보존 이유가 함께 있어도 사
 함께 사라진다** — Periphery의 의도적 진입점과 같은 모델이며, 해당 finding만 억제하는
 baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일 finding은 주석으로
 억제되지 않는다). 멤버는 따라 억제되지 않는다.
+
+`dead --explain`의 `retentionReason`은 경로가 시작한 보존 루트의 이유, `query`의
+`reachability.reason`은 그 선언 자신이 보존 루트일 때의 이유(아니면 null)이며 다음 값
+중 하나다. 그래프 밖 실행 계약이나 사용자 지시로 보존한 근거이지 사용 증명이나 삭제
+판정이 아니다.
+
+| 값 | 보존한 근거 |
+|---|---|
+| `mainEntryPoint` | `lib/`·`bin/`·`example/`의 `main`(설정한 `entry_points`가 있으면 그 파일의 `main`) |
+| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버(`--closed-app`이면 쓰지 않음) |
+| `overrideContract` | 상속 멤버를 재정의한 멤버와 상위 getter·setter를 구현하는 인스턴스 필드 |
+| `visibleForTesting` | 테스트 디렉터리의 선언과 `@visibleForTesting` 선언 |
+| `generatedCode` | 생성 파일(접미사 목록은 README "Analysis limitations")의 선언 |
+| `vmEntryPoint` | `@pragma('vm:entry-point'[, 옵션])` — 두 번째 인자가 리터럴 `false`면 아님 |
+| `pluginEntryPoint` | pubspec `flutter.plugin`이 이름으로 가리키는 클래스와 그 `registerWith` |
+| `inlineIgnore` | `// dartograph:ignore` 주석 |
+| `externalBinding` | JS 인터롭·FFI binding annotation(`@JS`·`@Native` 등)과 그런 타입의 멤버 |
+| `buildRunner` | `build.yaml`이 선언한 builder factory |
+| `configuredRetention` | `dartograph.yaml`의 `retained_names`·`retained_files` |
+| `conditionalConfiguration` | analyzer가 선택하지 않은 조건부 import/export 라이브러리와 그 import 폐쇄 |
+
+구조적으로 보존된 선언(도달한 멤버의 클래스, 도달한 enum의 상수, 도달한 sealed 타입의
+서브타입)은 루트가 아니라 `witness`로 설명된다. 그런 선언에서만 사용 간선으로 닿은 선언은
+`reachable from a structurally retained declaration`이고 `path`가 그 witness에서 시작한다.
 
 `query --depth <n>`(기본 1)은 사용 관계(`usedBy`·`dependsOn`)를 n단계까지 따라가며, 각
 이웃의 `depth` 필드가 출발 심볼에서 몇 걸음인지 나타낸다. 한 이웃에 닿는 간선 종류는 모두
@@ -795,7 +829,7 @@ PATH에 있어야 한다. 확장은 설치된 실행 파일을 호출해 JSON �
   표시한다. risk가 high인 대상만 경고다.
 - `dartograph.runOnSave`를 켜면 Dart 파일 저장 직후 디바운스된 재분석이 돈다.
   기본 `dartograph.args`는 `--incremental-user-cache`로, 증분 사실 캐시를 작업
-  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.16.2 이하 CLI는 이 스위치를
+  공간 밖 사용자 캐시에 두어 재실행을 빠르게 유지한다. 0.17.0 이전 CLI는 이 스위치를
   몰라 usage(64)로 끝나므로 CLI를 올리거나 그동안 `dartograph.args`를 `[]`로 둔다.
   `dartograph.minTokens`도 설정으로 조정된다.
 - `dartograph.executable`은 machine 범위 설정이라 사용자(원격) 설정에서만 정한다. 작업
@@ -947,8 +981,10 @@ steps:
 
 - `<commit-sha>`에는 고정할 릴리스 태그가 가리키는 커밋을 쓴다. 커밋 SHA는 액션 자체(설치
   단계·인자 파서·리포트 처리)를, `version`은 pub이 설치할 dartograph 릴리스를 고정한다.
-  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석되고, Dart SDK는
-  `dart-lang/setup-dart`의 `stable`을 따른다.
+  dartograph의 의존 패키지는 설치할 때 그 릴리스가 선언한 범위 안에서 해석된다. Dart SDK는
+  `sdk` 입력(기본 `stable`)이 정한다 — 기본값은 실행 시점의 최신 stable이므로 반복 가능한
+  실행에는 `sdk: 3.13.3`처럼 고정한다. 프로젝트가 요구하는 SDK 하한보다 낮게 고정하면
+  `dart pub get`이 실패한다.
 - `version`과 `source-path`가 모두 비어 최신 릴리스를 설치하면, 설치 단계가 `::notice`
   워크플로 명령으로 알림(annotation) 하나를 남긴다. pub이 보고한 설치 버전이 일반 릴리스 버전
   꼴이면 그 값을 함께 싣는다. 설치 동작은 그대로다 — 빈 `version`은 계속 최신 릴리스를 설치한다.

@@ -18,7 +18,7 @@ dart pub global activate dartograph
 ```
 
 The default `dartograph.args` passes `--incremental-user-cache`, which needs a
-dartograph CLI newer than 0.16.2. With an older CLI every run fails with a usage
+dartograph CLI 0.17.0 or later. With an older CLI every run fails with a usage
 error in the *dartograph* output channel: upgrade the CLI, or set
 `dartograph.args` to `[]` until you can. Avoid pointing `--incremental` at a
 directory inside a workspace you do not trust; a repository can commit cache
