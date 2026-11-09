@@ -2476,6 +2476,20 @@ Future<String> _analysisCacheKey(
       ..add(utf8.encode(skipped.canonical))
       ..add(const [0]);
   }
+  // 읽지 못해 건너뛴 디렉터리는 파일 목록에서 빠지기만 해서, 잠그거나 풀어도 키가
+  // 그대로일 수 있다. 그러면 unreadable-directories: 한계가 데워진 캐시에서 사라지거나
+  // 풀린 뒤에도 남는다(0.17.0은 키 계산이 실패해 캐시를 쓰지 않았다). 경로를 키에 넣는다.
+  final unreadable = [
+    for (final directory in linkedDirectories.unreadable)
+      p.posix.joinAll(p.relative(directory, from: root).split(p.separator)),
+  ]..sort();
+  for (final directory in unreadable) {
+    bytes
+      ..add(utf8.encode('directory-unreadable'))
+      ..add(const [0])
+      ..add(utf8.encode(directory))
+      ..add(const [0]);
+  }
   bytes.close();
   return digest.toString();
 }
@@ -2604,6 +2618,7 @@ Future<List<File>> _analysisInputFiles(
       }
     }
   }
+  _addHiddenSourceFiles(root, linkedDirectories, addFile);
   await addPackage(Directory(root));
   final nestedPaths = nestedPackages.keys.toList()..sort();
   for (final path in nestedPaths) {
@@ -2612,6 +2627,41 @@ Future<List<File>> _analysisInputFiles(
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// 표준 소스 디렉터리 안의 숨김 디렉터리 파일을 [addFile]에 더한다.
+///
+/// 루트 순회는 `.fvm` 같은 거대 링크 트리를 피하려고 숨김 디렉터리를 가지치기한다.
+/// 그런데 그래프의 생성 파일 보충([_filePathsUnder])은 `lib/.x/` 같은 소스 디렉터리
+/// 안 숨김 디렉터리에도 내려간다. 키가 그곳을 보지 않으면 그 안의 생성 파일을 고치거나
+/// 그 디렉터리의 읽기 가능 여부가 바뀌어도 낡은 결과가 재사용된다. 그래서 소스
+/// 디렉터리마다 숨김 디렉터리까지 다시 훑는다. 같은 파일은 경로 키로 한 번만 들어간다.
+/// 링크 기록은 루트 순회의 것만 쓴다 — 여기서 따로 센 링크 경로가 출력의 탈출·중복
+/// 한계를 바꾸지 않게 한다. 읽지 못한 디렉터리만 [linkedDirectories]에 합친다.
+void _addHiddenSourceFiles(
+  String root,
+  LinkedDirectoryVisits? linkedDirectories,
+  void Function(File file) addFile,
+) {
+  for (final name in _sourceDirectories) {
+    final directory = Directory(p.join(root, name));
+    if (!directory.existsSync()) continue;
+    final visits = LinkedDirectoryVisits();
+    try {
+      for (final file in _projectFiles(directory, linkedDirectories: visits)) {
+        if (file.path.endsWith('.dart') ||
+            p.basename(file.path) == 'analysis_options.yaml') {
+          addFile(file);
+        }
+      }
+    } on FileSystemException {
+      // 소스 디렉터리 자체를 읽지 못했다. 루트 순회가 이미 같은 경로를 남겼다.
+      visits.recordUnreadable(directory.path);
+    }
+    for (final path in visits.unreadable) {
+      linkedDirectories?.recordUnreadable(path);
+    }
+  }
 }
 
 /// 캐시 키 열거가 읽는 package_config의 상한이다.
