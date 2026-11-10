@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-11-09 (독립 리뷰 반영 후)_
+_Last updated: 2026-11-10 (PR #161 머지 이후)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(2026-10-11 원문은 그 파일 끝 절).
@@ -9,10 +9,11 @@ _Last updated: 2026-11-09 (독립 리뷰 반영 후)_
 
 - 발행본은 **0.17.0**이다(pub.dev, GitHub Release `v0.17.0`, `dartograph_analysis_plugin` 0.1.1).
   준비했던 0.16.2는 게시하지 않고 0.17.0에 포함했다. CHANGELOG 0.16.2 절에 그렇게 표기돼 있다.
-- 브랜치 `ccr-37904670-hxdjsx`는 `[Unreleased]` 변경을 담은 PR
-  [#161](https://github.com/ictechgy/dartograph/pull/161)이다. 독립 리뷰는 "수정 후 머지 가능"
-  판정이었고, 지적한 S1·S2·N1–N5를 반영했다(아래 절). `1d89990`은 코디네이터가 두 테스트를
-  Dart 3.11·3.13 포매터가 같은 모양으로 두도록 다듬은 커밋이다. 포맷 검사는 두 SDK 모두로
+- `Unreleased` 변경을 담은 PR [#161](https://github.com/ictechgy/dartograph/pull/161)은
+  2026-11-09에 `main`으로 스쿼시 머지됐다(`4bd0370`). 아직 발행하지 않았다(CHANGELOG `Unreleased`).
+  아래 커밋 해시는 PR 브랜치의 것이며 `main`에는 `4bd0370` 하나로 합쳐졌다.
+  독립 리뷰는 "수정 후 머지 가능" 판정이었고, 지적한 S1·S2·N1–N5를 반영했다(아래 절).
+  `1d89990`은 코디네이터가 두 테스트를 Dart 3.11·3.13 포매터가 같은 모양으로 두도록 다듬은 커밋이다. 포맷 검사는 두 SDK 모두로
   돌린다(`dart format --output=none --set-exit-if-changed .`). toolVersion은
   0.17.0 그대로이고 분석 캐시 신원은 `v30`이다.
   - 오탐 수정(실제 analyzer fixture로 재현 후 수정): 필드 재정의, 감싼 선언의 annotation,
@@ -28,7 +29,7 @@ _Last updated: 2026-11-09 (독립 리뷰 반영 후)_
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
 - 제보에 환경 정보가 없어 제보자 환경과 일치하는지는 확인하지 못했다. 그래서 PR은
-  `Refs #160`이고 이슈를 닫지 않는다. 이슈에는 접수 댓글만 달았다.
+  `Refs #160`으로만 연결했고, 머지 뒤에도 이슈는 열려 있다(제보자 환경 미확인, 수정 미발행).
 - 발행본 0.17.0 바이너리를 차가운 캐시에서 실행해 같은 문구가 나는 원인 두 가지를 재현했다.
   1. **SDK 탐색**: AOT 설치본(`dart install`, `dart compile exe`)은 VM이 아니다. 0.17.0은
      `PATH`의 진짜 `dart`로만 SDK를 찾았다. 다음 세 경우에는 analyzer가 실행 파일 근처를
@@ -83,7 +84,7 @@ _Last updated: 2026-11-09 (독립 리뷰 반영 후)_
   dart test …`로 돌리면 건너뛰지 않는다. 새 테스트는 모두 돌연변이 실패를 확인했다.
 - N1–N4는 README·USAGE·CHANGELOG에 반영했다: 경로 기준 계수, `bridges`·`schema`의 루트 전체
   계수, `DART_SDK`·`FLUTTER_ROOT` 우선순위 변경, 실행 파일 기준 두 후보. SDK 버전이
-  `environment.sdk` 하한보다 낮을 때의 한계(선택)는 넣지 않았다.
+  `environment.sdk` 하한보다 낮을 때의 한계(선택)는 넣지 않았다(Next Steps의 선택 후속 항목).
 
 ## 검증 메모
 
@@ -98,15 +99,21 @@ _Last updated: 2026-11-09 (독립 리뷰 반영 후)_
 ## 리뷰 절차의 대체
 
 AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는 `packet-ask`가 없어
-같은 세션의 독립 Claude 리뷰 에이전트로 대체한다. PR 본문과 머지 기록에 이 사실을 남긴다.
-GLM 리뷰를 다시 받을 수 있는 환경이면 머지 뒤라도 이 PR의 delta를 후속 리뷰한다.
+같은 세션의 독립 Claude 리뷰 에이전트로 대체했고, PR #161은 GLM 리뷰 없이 머지됐다. PR 본문과
+머지 기록에 이 사실을 남겼다. GLM 리뷰를 다시 받을 수 있는 환경이면 이 PR의 delta를 후속 리뷰한다.
 
 ## Next Steps
 
-- 머지 전: PR CI(Dart 3.11.0·3.13.3), 독립 리뷰 지적 확인. #160 제보자에게 OS·설치 방법
-  (`dart install`/`pub global`)·`PATH`의 dart 위치를 묻는 후속 댓글은 사용자 승인 뒤에 단다.
-- 머지 뒤: 다음 릴리스(0.18.0 후보)는 CONTRIBUTING 절차를 따른다. 게시 전에 이슈 #160에
+- `main` `4bd0370`의 CI(2026-11-10 확인): verify(3.11.0·3.13.3)·lowest-analyzer·fresh-upgrade는
+  통과했다. 실패한 둘은 테스트 실패가 아니라 게이트 판정이다.
+  - `impact-precheck`의 push 게이트(`--fail-on high`)가 큰 머지 diff에 risk high(81/100)로 실패했다.
+  - `analyzer-freshness` 예약 잡의 `unvalidated-analyzer`가 최신 analyzer 14.7.0이 검증 범위
+    (`<14.6.0`) 밖이라 실패했다(호환 관찰은 success). 범위를 넓히려면 `doc/DECISION-analyzer.md` 절차로 검증한다.
+- 다음 릴리스(0.18.0 후보)는 CONTRIBUTING 절차를 따른다. 게시 전에 이슈 #160에
   수정 버전을 안내할지 사용자에게 확인한다.
+- #160 제보자에게 OS·설치 방법(`dart install`/`pub global`)·`PATH`의 dart 위치를 묻는 후속 댓글은
+  사용자 승인 뒤에 단다. 제보자 확인 전에는 이슈를 닫지 않는다.
+- 선택 후속 항목: 선택된 SDK 버전이 `environment.sdk` 하한보다 낮을 때의 한계(독립 리뷰가 선택 사항으로 제안).
 - 일부러 뺀 후속 항목. 보존을 좁히거나 계약을 바꾸는 변경이라 근거와 결정이 먼저 필요하다.
   - 다음 셋은 보존을 좁히므로, 반대 방향 코퍼스와 실제 프로젝트 델타가 먼저 있어야 한다.
     - 문서 주석 참조(`/// [Foo]`)를 사용 간선에서 빼기
@@ -123,7 +130,7 @@ GLM 리뷰를 다시 받을 수 있는 환경이면 머지 뒤라도 이 PR의 d
 ## Resume Prompt
 
 HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고,
-`[Unreleased]` 변경과 #160 수정은 브랜치 `ccr-37904670-hxdjsx`의 PR로 리뷰 중이야(GLM 대신
-독립 리뷰 에이전트를 쓴다). 머지 전이면 CI와 리뷰 지적을 확인하고, 머지 뒤 릴리스는
-CONTRIBUTING 절차를 따라. #160은 Refs로만 연결돼 있으니 제보자 확인 전에는 닫지 마.
+`Unreleased` 변경과 #160 수정은 PR #161로 `main`에 스쿼시 머지됐어(`4bd0370`, 미발행, GLM 대신
+독립 리뷰 에이전트로 리뷰). 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라.
+#160은 Refs로만 연결돼 있으니 제보자 확인 전에는 닫지 마.
 Next Steps의 제외 항목은 근거 없이 착수하지 마.
