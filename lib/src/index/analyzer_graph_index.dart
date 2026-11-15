@@ -362,6 +362,7 @@ final class AnalyzerGraphIndex {
         incremental: incremental,
         linkEscapes: linkEscapes,
         sdkIdentity: sdk.identity,
+        sdkVersion: sdk.version,
       );
       if (cache != null &&
           initialCacheKey != null &&
@@ -402,6 +403,7 @@ final class AnalyzerGraphIndex {
     List<Directory> sourcePackages, {
     required IncrementalCache? incremental,
     required String sdkIdentity,
+    required String sdkVersion,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -466,6 +468,7 @@ final class AnalyzerGraphIndex {
         skippedLinkedDirectories: skippedLinkedDirectories,
         unreadableDirectories: unreadableDirectories,
         workspace: workspace,
+        sdkVersion: sdkVersion,
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
       // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
@@ -487,6 +490,7 @@ final class AnalyzerGraphIndex {
       skippedLinkedDirectories: skippedLinkedDirectories,
       unreadableDirectories: unreadableDirectories,
       sdkIdentity: sdkIdentity,
+      sdkVersion: sdkVersion,
       workspace: workspace,
     );
   }
@@ -509,6 +513,7 @@ final class AnalyzerGraphIndex {
     required int skippedLinkedDirectories,
     required int unreadableDirectories,
     required String sdkIdentity,
+    required String sdkVersion,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -663,6 +668,7 @@ final class AnalyzerGraphIndex {
       skippedLinkedDirectories: skippedLinkedDirectories,
       unreadableDirectories: unreadableDirectories,
       workspace: workspace,
+      sdkVersion: sdkVersion,
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
     // 갱신 여부와 무관하게 출력에 드러나야 한다.
@@ -1500,6 +1506,7 @@ AnalyzerGraphResult _assembleResult({
   Set<String>? linkEscapes,
   int skippedLinkedDirectories = 0,
   int unreadableDirectories = 0,
+  String? sdkVersion,
 }) {
   final graph = CodeGraph();
   final retentionRoots = <String, RetentionReason>{};
@@ -1705,6 +1712,18 @@ AnalyzerGraphResult _assembleResult({
     limitationDetails.add(
       unreadableDirectoriesLimitation(unreadableDirectories),
     );
+  }
+  if (sdkVersion != null) {
+    // 분석한 패키지(루트와 집계한 워크스페이스 멤버)가 요구하는 SDK보다 오래된
+    // SDK로 해석했다. 오류로 만들지 않는다 — 그 SDK로도 대부분은 해석되며, 실제로
+    // 해석하지 못한 파일은 source-* 한계가 따로 센다. 이 SDK·pubspec은 둘 다 전체
+    // 결과 캐시 키 입력이라 캐시 적중이 이 한계를 가리거나 남기지 않는다.
+    final sdkBelowMinimum = sdkBelowMinimumLimitation(sdkVersion, {
+      'pubspec.yaml': pubspecContent,
+      for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+        '${member.relPath}/pubspec.yaml': member.pubspecContent,
+    });
+    if (sdkBelowMinimum != null) limitationDetails.add(sdkBelowMinimum);
   }
   if (workspace == null) {
     final workspaceMembers = _workspaceMemberPaths(pubspecContent);
@@ -2371,8 +2390,10 @@ const _cacheSchemaVersion = 8;
 // 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
 // typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
 // 미도달로 남기므로 폐기한다.
+// 분석 SDK가 environment.sdk 하한보다 낮다는 sdk-below-minimum 한계(v31)를 싣는다.
+// 이전 캐시에는 이 한계가 없다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v30-yaml-plugin-entries';
+    'dartograph-analysis-$toolVersion-cache-v31-sdk-below-minimum';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3346,15 +3367,18 @@ const _namedNavigationMethods = {
 /// [identity]는 캐시 키에 넣는 SDK 신원이다. AOT 바이너리의 [Platform.version]은
 /// 컴파일 당시 런타임 버전이라 실제로 해석에 쓰는 SDK와 다를 수 있으므로, 찾은
 /// SDK의 `version` 파일 내용을 함께 넣는다. 그래야 SDK를 바꾸면 낡은 결과를
-/// 재사용하지 않는다.
-typedef _AnalyzerSdk = ({String path, String identity});
+/// 재사용하지 않는다. [version]은 그 파일 내용이다(읽지 못하면 빈 문자열). 패키지의
+/// `environment.sdk` 하한과 비교한다([sdkBelowMinimumLimitation]).
+typedef _AnalyzerSdk = ({String path, String identity, String version});
 
 /// 색인에 쓸 SDK를 찾는다. 찾지 못하면 [DartSdkNotFoundException]이다.
 _AnalyzerSdk _analyzerSdk() {
   final path = _requireDartSdkPath();
+  final version = _sdkVersionText(path);
   return (
     path: path,
-    identity: '${Platform.version}\u0000${_sdkVersionText(path)}',
+    identity: '${Platform.version}\u0000$version',
+    version: version,
   );
 }
 

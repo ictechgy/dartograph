@@ -34,6 +34,22 @@ AOT 설치본은 그 자체가 Dart VM이 아니므로 분석에 쓸 SDK를 다�
 캐시가 있어도 같다. 찾은 SDK의 `version`은 분석 캐시 키에 들어가므로 SDK를 바꾸면
 캐시를 재사용하지 않는다.
 
+찾은 SDK의 `version`이 분석한 패키지 pubspec(`--workspace`면 각 멤버의 pubspec도)의
+`environment.sdk` 하한보다 낮아도 그 SDK로 분석한다. 그 SDK보다 새로운 `dart:` API와
+언어 기능은 해석되지 않을 수 있으므로 분석 명령이 다음 한계를 더한다(종료 코드와 finding은
+그대로다).
+
+```text
+sdk-below-minimum: Dart SDK 3.11.0 used for analysis is below the environment.sdk lower bound of 1 package(s): pubspec.yaml (>=3.13.0); SDK libraries and language features newer than 3.11.0 may not resolve, so reachability can be incomplete (analyze with a Dart SDK that satisfies environment.sdk)
+```
+
+패키지는 루트 상대 pubspec 경로순으로 앞의 셋을 싣고 나머지는 `and N more`로 센다. 하한은
+pubspec 원문이 아니라 pub과 같은 규칙으로 파싱한 값이다(`^3.13.0`·`>=3.13.0 <4.0.0`은
+`>=3.13.0`, 배타 하한은 `>3.13.0`). 사전 릴리스 SDK(`3.14.0-150.0.dev`)는 `^3.14.0`보다
+낮고 `>=3.14.0-0`은 충족한다. `environment.sdk`가 없거나 하한이 없는 제약(`any`·`<4.0.0`),
+만족할 수 없는 제약, 읽지 못한 SDK 버전·제약은 비교하지 않는다. `runtime`·`routes`·
+`bridges`·`schema`에는 싣지 않는다.
+
 저장소 소스에서 실행할 때는 `dartograph` 대신 `dart run dartograph`를 쓴다.
 
 ## 명령

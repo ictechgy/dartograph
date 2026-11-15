@@ -191,4 +191,104 @@ void main() {
       isNull,
     );
   });
+
+  /// 분석 SDK와 environment.sdk 하한의 비교다. 기대 하한 표기는 손으로 정했다.
+  group('sdkBelowMinimumLimitation', () {
+    String pubspec(String sdk) => 'name: app\nenvironment:\n  sdk: $sdk\n';
+
+    /// [sdkVersion]으로 루트 pubspec 하나를 비교해 센 하한 표기 목록이다.
+    String? boundOf(String sdkVersion, String? content) {
+      final line = sdkBelowMinimumLimitation(sdkVersion, {
+        'pubspec.yaml': content,
+      });
+      if (line == null) return null;
+      return RegExp(r'pubspec\.yaml \(([^)]*)\)').firstMatch(line)!.group(1);
+    }
+
+    test('a caret lower bound above the SDK is reported', () {
+      expect(boundOf('3.11.0', pubspec('^3.13.0')), '>=3.13.0');
+      expect(boundOf('3.12.9', pubspec("'>=3.13.0 <4.0.0'")), '>=3.13.0');
+      expect(boundOf('3.11.0', pubspec('3.13.0')), '>=3.13.0');
+    });
+
+    test('an SDK at or above an inclusive lower bound is not reported', () {
+      expect(boundOf('3.13.0', pubspec('^3.13.0')), isNull);
+      expect(boundOf('3.13.3', pubspec('^3.13.0')), isNull);
+      expect(boundOf('4.0.0', pubspec('^3.13.0')), isNull);
+    });
+
+    test('an exclusive lower bound excludes the SDK at the bound', () {
+      expect(boundOf('3.13.0', pubspec("'>3.13.0 <4.0.0'")), '>3.13.0');
+      expect(boundOf('3.13.1', pubspec("'>3.13.0 <4.0.0'")), isNull);
+    });
+
+    test('pre-release SDKs compare like pub', () {
+      // 사전 릴리스는 같은 번호의 정식 릴리스보다 낮다.
+      expect(boundOf('3.14.0-150.0.dev', pubspec('^3.14.0')), '>=3.14.0');
+      expect(
+        boundOf('3.14.0-150.0.dev', pubspec("'>=3.14.0-0 <4.0.0'")),
+        isNull,
+      );
+    });
+
+    test('constraints without a lower bound are not compared', () {
+      for (final constraint in [
+        'any',
+        "'<4.0.0'",
+        // 만족할 수 없는 제약은 하한이 아니다.
+        "'>3.0.0 <2.0.0'",
+        'not-a-version',
+        // 문자열이 아닌 값.
+        '3',
+        '[3.13.0]',
+      ]) {
+        expect(
+          boundOf('3.11.0', pubspec(constraint)),
+          isNull,
+          reason: constraint,
+        );
+      }
+    });
+
+    test('pubspecs without environment.sdk are not compared', () {
+      for (final content in [
+        null,
+        '',
+        'name: app\n',
+        'name: app\nenvironment: ^3.13.0\n',
+        'name: app\nenvironment:\n  flutter: ">=99.0.0"\n',
+        '- not\n- a map\n',
+        'name: app\nenvironment: {sdk: ^3.13.0\n',
+      ]) {
+        expect(boundOf('3.11.0', content), isNull, reason: content);
+      }
+    });
+
+    test('an unreadable SDK version is not compared', () {
+      for (final version in ['', 'unknown', '3.13']) {
+        expect(boundOf(version, pubspec('^99.0.0')), isNull, reason: version);
+      }
+    });
+
+    test('packages are listed in path order and counted beyond three', () {
+      final line = sdkBelowMinimumLimitation('3.11.0', {
+        'pubspec.yaml': pubspec('^3.12.0'),
+        'pkgs/d/pubspec.yaml': pubspec('^3.13.0'),
+        'pkgs/c/pubspec.yaml': pubspec('^3.13.0'),
+        'pkgs/b/pubspec.yaml': pubspec('^3.0.0'),
+        'pkgs/a/pubspec.yaml': pubspec("'>3.12.0 <4.0.0'"),
+        'pkgs/e/pubspec.yaml': null,
+      });
+
+      expect(
+        line,
+        'sdk-below-minimum: Dart SDK 3.11.0 used for analysis is below the '
+        'environment.sdk lower bound of 4 package(s): pkgs/a/pubspec.yaml '
+        '(>3.12.0), pkgs/c/pubspec.yaml (>=3.13.0), pkgs/d/pubspec.yaml '
+        '(>=3.13.0) and 1 more; SDK libraries and language features newer '
+        'than 3.11.0 may not resolve, so reachability can be incomplete '
+        '(analyze with a Dart SDK that satisfies environment.sdk)',
+      );
+    });
+  });
 }

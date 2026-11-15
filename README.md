@@ -81,7 +81,10 @@ used. `DART_SDK` and `FLUTTER_ROOT` now take precedence over the `dart` on
 `PATH`; 0.17.0 looked only at `PATH`. When no SDK is found, analysis commands exit 2
 with `Analysis failed: the Dart SDK could not be located.`; put the SDK's `bin`
 directory on `PATH` or set `DART_SDK`. A `dart pub global activate` install runs
-on the Dart VM and uses its SDK.
+on the Dart VM and uses its SDK. An SDK older than the analyzed package's
+`environment.sdk` lower bound is still used, and analysis commands report it as
+an `sdk-below-minimum:` limitation (see
+[Analysis limitations](#analysis-limitations-and-guarantees)).
 
 Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
@@ -346,6 +349,14 @@ Limitations:
   apply the same way with analyzer 14.6 or later (Dart 3.13 or later);
   analyzer 14.3–14.5 resolved them relative to the included file, so they
   excluded nothing.
+- `dart:` libraries are resolved from the Dart SDK that dartograph located (see
+  Install). When that SDK is older than the `environment.sdk` lower bound of the
+  analyzed package (or of a `--workspace` member), SDK libraries and language
+  features newer than it may not resolve, so reachability can be incomplete.
+  Analysis commands then add an `sdk-below-minimum:` limitation that counts
+  those packages and names each pubspec with its lower bound; findings and exit
+  codes are unchanged. A package without `environment.sdk`, or with a
+  constraint that has no lower bound, is not compared.
 - Local path dependencies are opt-in graph inputs through `source_packages` in
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart

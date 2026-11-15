@@ -310,6 +310,13 @@ DART
   pushd "$INIT_DEFAULT_DIR" >/dev/null
   expect_status 0 "init default directory" init
   popd >/dev/null
+  # 분석 SDK가 environment.sdk 하한보다 낮으면 sdk-below-minimum 한계만 더한다.
+  # 발견이 없으면 dead는 여전히 0이다(한계는 실패도 발견도 아니다).
+  SDK_FLOOR_DIR="$TEMPORARY_DIRECTORY/sdk-floor"
+  mkdir -p "$SDK_FLOOR_DIR/lib"
+  printf 'name: sdk_floor\nenvironment:\n  sdk: ^99.0.0\n' >"$SDK_FLOOR_DIR/pubspec.yaml"
+  printf 'class Floor {}\n' >"$SDK_FLOOR_DIR/lib/sdk_floor.dart"
+  expect_status 0 "dead with an SDK below environment.sdk" dead --format json "$SDK_FLOOR_DIR"
 
 # SDK 탐색(#160): 컴파일된 바이너리는 자기 자신이 dart VM이 아니므로 SDK를 PATH·
 # DART_SDK·FLUTTER_ROOT에서 찾는다. 찾지 못하면 analyzer 기본값으로 추측하지 않고
