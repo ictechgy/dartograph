@@ -339,6 +339,13 @@ Limitations:
   files of the package (or of a `--workspace` member), an
   `unanalyzed-directories:` limitation counts them. Keep such code
   with `retained_names` or `retained_files`.
+- Files that `analyzer: exclude:` in `analysis_options.yaml` excludes are not
+  analyzed, except generated files (recognized by suffix), which are analyzed
+  and retained anyway. A declaration used only from an excluded file is
+  reported as unreachable. Exclude patterns from an included options file
+  apply the same way with analyzer 14.6 or later (Dart 3.13 or later);
+  analyzer 14.3–14.5 resolved them relative to the included file, so they
+  excluded nothing.
 - Local path dependencies are opt-in graph inputs through `source_packages` in
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
