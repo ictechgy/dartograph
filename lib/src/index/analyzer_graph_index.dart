@@ -2675,6 +2675,7 @@ Future<List<File>> _analysisInputFiles(
     await addPackage(nestedPackages[path]!);
   }
   _addIncludedOptionsFiles(root, files.values.toList(), addFile);
+  _addInheritedOptionsFiles(root, [root, ...nestedPaths], addFile);
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
@@ -2701,6 +2702,32 @@ void _addIncludedOptionsFiles(
     includedOptionsFiles(
       options,
       packageConfig: configuration,
+    ).forEach(addFile);
+  }
+}
+
+/// 자기 `analysis_options.yaml`이 없는 [packageRoots]가 물려받는 루트 밖 옵션 파일과
+/// 그 include 체인을 [addFile]에 더한다.
+///
+/// analyzer는 컨텍스트 루트의 옵션 파일을 그 디렉터리부터 조상으로 올라가며 처음
+/// 만나는 `analysis_options.yaml`로 고른다(14.3–14.7의 `findAnalysisOptionsYamlFile`).
+/// 모노레포의 `packages/app`처럼 자기 옵션 파일이 없는 패키지는 루트 밖 상위 파일의
+/// exclude를 그대로 쓴다. 그 파일이 키에 없으면 고쳐도 데워진 캐시가 이전 결과를
+/// 돌려준다. 루트 안 파일은 루트 순회와 [_addIncludedOptionsFiles]가 이미 더한다.
+/// `package:` include는 그 패키지 루트에서 가장 가까운 package config로 푼다 —
+/// analyzer가 그 컨텍스트의 package config로 푸는 것과 같다.
+void _addInheritedOptionsFiles(
+  String root,
+  List<String> packageRoots,
+  void Function(File file) addFile,
+) {
+  for (final packageRoot in packageRoots) {
+    final inherited = nearestAnalysisOptionsFile(packageRoot);
+    if (inherited == null || isPathWithinRoot(inherited.path, root)) continue;
+    addFile(inherited);
+    includedOptionsFiles(
+      inherited,
+      packageConfig: nearestPackageConfigFile(packageRoot),
     ).forEach(addFile);
   }
 }
@@ -4954,10 +4981,9 @@ List<String> _dartFilesUnder(
 /// 제외해 분석하지 않는 비생성 `.dart` 파일이다.
 ///
 /// [analyzed]에 없고, 그 파일을 담는 가장 안쪽 컨텍스트([contexts])가 분석하지 않는
-/// 파일만 고른다. 그 컨텍스트 기준 숨김 경로와 `excludedPaths`(중첩 패키지 루트 등)
-/// 아래 파일은 analysis options 때문이 아니므로 뺀다. 남는 이유는 옵션의 exclude
-/// glob뿐이다 — 공개 API(`isAnalyzed`·`excludedPaths`)로만 판정한다. 생성 파일은
-/// 제외돼도 다시 더해 분석하므로 세지 않는다.
+/// 파일만 고른다([_excludedByOptions]). 공개 API(`isAnalyzed`·`excludedPaths`)로만
+/// 판정한다. 생성 파일은 제외돼도 호출자가 이미 [analyzed]에 다시 더했으므로 따로
+/// 거르지 않아도 세지 않는다.
 Iterable<String> _optionsExcludedFiles(
   List<String> scoped,
   Set<String> analyzed,
@@ -4970,8 +4996,7 @@ Iterable<String> _optionsExcludedFiles(
       ),
     );
   for (final path in scoped) {
-    if (!path.endsWith('.dart') || _isGenerated(path)) continue;
-    if (analyzed.contains(path)) continue;
+    if (!path.endsWith('.dart') || analyzed.contains(path)) continue;
     final context = innermostFirst
         .where((item) => isPathWithinRoot(path, item.contextRoot.root.path))
         .firstOrNull;
@@ -4982,6 +5007,15 @@ Iterable<String> _optionsExcludedFiles(
 }
 
 /// [contextRoot]가 [path]를 분석하지 않는 이유가 analysis options의 exclude glob인지다.
+///
+/// `isAnalyzed`가 거짓인 이유는 셋이다: 컨텍스트 루트 기준 숨김 경로, `excludedPaths`,
+/// 옵션의 exclude glob. 앞의 둘을 빼면 glob만 남는다.
+///
+/// `excludedPaths` 확인은 방어적이다. 지금 dartograph는 클라이언트 제외 경로를 넘기지
+/// 않고, `excludedPaths`에 오르는 중첩 컨텍스트 루트의 파일은 호출자가 그 중첩
+/// 컨텍스트를 가장 안쪽으로 먼저 고르므로 이 확인에 닿지 않는다. 그래도 컨텍스트 없이
+/// 제외 목록에만 오르는 폴더(클라이언트 제외 등)가 생기면 그 아래 파일을 옵션 제외로
+/// 잘못 세지 않도록 둔다.
 bool _excludedByOptions(ContextRoot contextRoot, String path) {
   if (contextRoot.isAnalyzed(path)) return false;
   final relative = p.split(p.relative(path, from: contextRoot.root.path));

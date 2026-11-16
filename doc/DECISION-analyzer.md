@@ -376,7 +376,11 @@ CLI 계약을 돌렸다(Dart 3.13.3, Linux x64, 4코어 공유 호스트).
   dartograph가 링크한 analyzer의 신원(Dart VM에서는 해석된 analyzer 패키지 버전과 경로, AOT에서는
   실행 파일의 경로·크기·수정 시각)을 키에 넣는다(`lib/src/index/analyzer_identity.dart`).
 - 같은 변경에서 include 체인의 옵션 파일(이름이 다르거나 루트 밖·`package:`로 닿는 파일)을
-  키에 넣는다. 키가 `analysis_options.yaml`이라는 이름의 파일만 해시해 include한 파일을 고쳐도
+  키에 넣는다. 자기 옵션 파일이 없는 패키지가 analyzer 규칙대로(14.3–14.7의
+  `findAnalysisOptionsYamlFile`: 자신과 조상 디렉터리에서 처음 만나는 `analysis_options.yaml`)
+  물려받는 루트 밖 파일과 그 include 체인도 넣는다(2026-11-16 델타 리뷰 S-a). 그 파일의
+  패턴은 모든 버전에서 그 파일의 디렉터리 기준이라 앵커 패턴(`lib/generated/**`)은 하위
+  패키지에 적용되지 않고 `**/` 패턴만 적용된다(14.5·14.7 실측 동일). 키가 `analysis_options.yaml`이라는 이름의 파일만 해시해 include한 파일을 고쳐도
   데워진 캐시가 이전 결과를 돌려줬다. 14.6부터 include한 패턴이 더 자주 적용되므로 더
   드러난다.
 - 넓힌 pubspec에서 같은 셸은 `newest analyzer 14.7.0, validated upper bound <14.8.0`으로

@@ -19,7 +19,7 @@ const _optionsParseLimit = 1024 * 1024;
 /// 결과의 입력이다. 그래서 전체 결과 캐시 키가 이 파일들을 해시해야 한다.
 ///
 /// - `include:`는 문자열 하나나 문자열 목록이다. 상대 경로는 include한 파일의
-///   디렉터리 기준이고 루트 밖 경로도 따라간다.
+///   디렉터리 기준이고 루트 밖 경로·절대 경로·`file:` URI도 따라간다.
 /// - `package:` URI는 [packageConfig]로 푼다(analyzer가 분석 컨텍스트의 package
 ///   config로 푸는 것과 같다). 없거나 그 패키지가 없으면 그 include는 건너뛴다 —
 ///   package config 자체가 키 입력이라 나중에 생기면 키가 바뀐다.
@@ -44,6 +44,21 @@ List<File> includedOptionsFiles(File options, {File? packageConfig}) {
     }
   }
   return found;
+}
+
+/// [directory]부터 조상으로 올라가며 처음 만나는 `analysis_options.yaml`이다. 없으면 null이다.
+///
+/// analyzer가 컨텍스트 루트의 옵션 파일을 고르는 규칙과 같다(14.3–14.7의
+/// `Folder.findAnalysisOptionsYamlFile`: 자신과 조상 디렉터리에서 그 이름의 파일).
+/// 존재하는 비정규 파일(장치·FIFO)은 열지 않고 [NonRegularFileException]으로 실패한다.
+File? nearestAnalysisOptionsFile(String directory) {
+  for (var current = p.normalize(p.absolute(directory)); ;) {
+    final file = File(p.join(current, 'analysis_options.yaml'));
+    if (regularFileExistsSync(file)) return file;
+    final parent = p.dirname(current);
+    if (parent == current) return null;
+    current = parent;
+  }
 }
 
 /// 옵션 파일 [file]의 `include:` 값들이다. 읽지 못하면 비어 있다.
@@ -71,6 +86,16 @@ List<String> _includeValues(File file) {
 
 /// include 값 [value]를 [from] 기준으로 푼 파일이다. 풀 수 없으면 null이다.
 File? _resolveInclude(String value, File from, Map<String, Uri> packages) {
+  if (value.startsWith('file:')) {
+    // analyzer는 include 값을 include한 파일의 URI로 푼다. `file:` URI는 그대로다.
+    try {
+      return File.fromUri(Uri.parse(value));
+    } on FormatException {
+      return null;
+    } on UnsupportedError {
+      return null;
+    }
+  }
   if (!value.startsWith('package:')) {
     return File(p.normalize(p.join(from.parent.absolute.path, value)));
   }

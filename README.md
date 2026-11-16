@@ -350,10 +350,13 @@ Limitations:
   `options-excluded-files:` limitation that lists the first three paths.
   Which patterns of an included file apply depends on the analyzer version.
   analyzer 14.6 and later (Dart 3.13 or later) apply all of them relative to
-  the package. analyzer 14.3–14.5 resolved them relative to the included file:
-  a file included from the same directory applied all of its patterns, one
-  from an ancestor directory applied only its `**/` patterns, and one from a
-  sibling or child directory or through `package:` applied none.
+  the `analysis_options.yaml` that includes them. analyzer 14.3–14.5 resolved
+  them relative to the included file: a file included from the same directory
+  applied all of its patterns, one from an ancestor directory applied only its
+  `**/` patterns, and one from a sibling or child directory or through
+  `package:` applied none. A package without its own `analysis_options.yaml`
+  uses the nearest one in a parent directory, whose patterns are relative to
+  that file's directory with every analyzer version.
 - `dart:` libraries are resolved from the Dart SDK that dartograph located (see
   Install). When that SDK is older than the `environment.sdk` lower bound of the
   analyzed package (or of a `--workspace` member), SDK libraries and language
@@ -438,9 +441,13 @@ Guarantees:
 - The analysis cache lives outside the analyzed project, in the OS user cache
   (`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) under
   `dartograph/<project-root-hash>`. It is invalidated automatically when project
-  or dependency contents, mtimes, package resolution, analysis options files
-  reached through `include:` (also outside the project), the Dart SDK, the
-  `analyzer` that dartograph runs with, or the analysis revision change. A missing or corrupted cache never changes results;
+  or dependency contents, mtimes, package resolution, the analysis options that
+  apply (each package's own `analysis_options.yaml` or, without one, the
+  nearest one in a parent directory, and every file they reach through
+  `include:`, also outside the project), the Dart SDK, the `analyzer` that
+  dartograph runs with, or the analysis revision change. Two inputs are not
+  keyed: the default options of Blaze workspaces, and `include:` lines
+  inside an options file larger than 1 MiB. A missing or corrupted cache never changes results;
   it only costs analysis time. `--incremental-user-cache` keeps the per-file
   fact cache in the same directory (`incremental/`, or
   `incremental-workspace/` with `--workspace`). An explicit

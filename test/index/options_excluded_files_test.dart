@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -42,10 +43,9 @@ void main() {
       'used only from them are reported as unreachable (retain them with '
       'retained_names or retained_files in dartograph.yaml)';
 
-  test(
-    'direct excludes count only non-generated files in source directories',
-    () async {
-      write('app/analysis_options.yaml', '''
+  /// 직접 쓴 exclude 네 개와 세지 않아야 할 파일들을 둔 패키지를 만든다.
+  void writeDirectExcludes() {
+    write('app/analysis_options.yaml', '''
 analyzer:
   exclude:
     - "lib/legacy/**"
@@ -53,28 +53,111 @@ analyzer:
     - "**/*.g.dart"
     - "tool/**"
 ''');
-      write('app/bin/main.dart', 'void main() {}\n');
-      write('app/lib/legacy/old.dart', 'void old() {}\n');
-      write('app/lib/legacy/older.dart', 'void older() {}\n');
-      write('app/lib/injection.config.dart', 'void init() {}\n');
-      write('app/test/fake.config.dart', 'void fake() {}\n');
-      write('app/lib/legacy/notes.txt', 'not Dart\n');
-      // 제외돼도 생성 파일은 다시 더해 분석한다.
-      write('app/lib/model.g.dart', 'void generated() {}\n');
-      // 표준 소스 디렉터리 밖·숨김 경로는 원래 분석 대상이 아니다.
-      write('app/tool/gen.dart', 'void main() {}\n');
-      write('app/lib/.cache/hidden.dart', 'void hidden() {}\n');
+    write('app/bin/main.dart', 'void main() {}\n');
+    write('app/lib/legacy/old.dart', 'void old() {}\n');
+    write('app/lib/legacy/older.dart', 'void older() {}\n');
+    write('app/lib/injection.config.dart', 'void init() {}\n');
+    write('app/test/fake.config.dart', 'void fake() {}\n');
+    write('app/lib/legacy/notes.txt', 'not Dart\n');
+    // 제외돼도 생성 파일은 다시 더해 분석한다.
+    write('app/lib/model.g.dart', 'void generated() {}\n');
+    // 표준 소스 디렉터리 밖·숨김 경로는 원래 분석 대상이 아니다.
+    write('app/tool/gen.dart', 'void main() {}\n');
+    write('app/lib/.cache/hidden.dart', 'void hidden() {}\n');
+  }
+
+  final directExcludes = limitation(
+    4,
+    'lib/injection.config.dart, lib/legacy/old.dart, '
+    'lib/legacy/older.dart and 1 more',
+  );
+
+  test(
+    'direct excludes count only non-generated files in source directories',
+    () async {
+      writeDirectExcludes();
+
+      final result = await index();
+
+      expect(excludedOf(result), [directExcludes]);
+      expect(result.graph.containsNode('project:lib/model.g.dart'), isTrue);
+    },
+  );
+
+  test('the incremental path counts them on full and reused runs', () async {
+    writeDirectExcludes();
+    final facts = Directory(p.join(workspace.path, 'facts'));
+    Future<AnalyzerGraphResult> incremental() => AnalyzerGraphIndex(
+      incremental: IncrementalCache(facts.path),
+    ).index(app);
+
+    final first = await incremental();
+    // 두 번째 실행은 모든 파일의 사실을 재사용하고 결과만 다시 조립한다.
+    final reused = await incremental();
+
+    expect(excludedOf(first), [directExcludes]);
+    expect(excludedOf(reused), [directExcludes]);
+  });
+
+  /// 바깥 옵션이 `**/*.config.dart`를, 중첩 패키지 example의 옵션이 자기
+  /// `lib/inner_excluded.dart`를 빼는 패키지를 만든다.
+  void writeNestedOptions() {
+    write(
+      'app/analysis_options.yaml',
+      'analyzer:\n  exclude:\n    - "**/*.config.dart"\n',
+    );
+    write('app/bin/main.dart', 'void main() {}\n');
+    write('app/lib/outer.config.dart', 'void outer() {}\n');
+    write('app/example/pubspec.yaml', 'name: example\n');
+    write(
+      'app/example/analysis_options.yaml',
+      'analyzer:\n  exclude:\n    - "lib/inner_excluded.dart"\n',
+    );
+    write('app/example/lib/inner.config.dart', 'void inner() {}\n');
+    write('app/example/lib/inner_excluded.dart', 'void excluded() {}\n');
+  }
+
+  test(
+    'a nested package with its own context uses only its own options',
+    () async {
+      // 자기 package config가 있는 중첩 패키지는 analyzer가 따로 컨텍스트를 만들고 자기
+      // 옵션만 적용한다. 바깥 **/*.config.dart가 빼지 않으므로 inner.config.dart는
+      // 분석돼 세지 않고, 중첩 패키지가 자기 옵션으로 뺀 파일은 센다.
+      writeNestedOptions();
+      write(
+        'app/example/.dart_tool/package_config.json',
+        '{"configVersion": 2, "packages": '
+            '[{"name": "example", "rootUri": "../", "packageUri": "lib/"}]}\n',
+      );
+
+      final result = await index();
+
+      expect(excludedOf(result), [
+        limitation(2, 'example/lib/inner_excluded.dart, lib/outer.config.dart'),
+      ]);
+      expect(
+        result.graph.containsNode('package:example/inner.config.dart'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'a nested folder in the outer context gets every options file',
+    () async {
+      // 자기 package config가 없으면 analyzer는 한 컨텍스트로 분석하고 두 옵션 파일의
+      // 패턴을 모두 적용한다(안쪽 옵션은 자기 디렉터리 아래에만). 실제로 빠진 파일을 센다.
+      writeNestedOptions();
 
       final result = await index();
 
       expect(excludedOf(result), [
         limitation(
-          4,
-          'lib/injection.config.dart, lib/legacy/old.dart, '
-          'lib/legacy/older.dart and 1 more',
+          3,
+          'example/lib/inner.config.dart, example/lib/inner_excluded.dart, '
+          'lib/outer.config.dart',
         ),
       ]);
-      expect(result.graph.containsNode('project:lib/model.g.dart'), isTrue);
     },
   );
 

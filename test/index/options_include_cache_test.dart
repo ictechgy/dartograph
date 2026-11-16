@@ -26,6 +26,8 @@ void main() {
 
   const excludeLegacy = 'analyzer:\n  exclude:\n    - "lib/legacy/**"\n';
   const excludeNothing = 'analyzer:\n  exclude: []\n';
+  // 조상 디렉터리의 옵션 파일 패턴은 그 파일의 디렉터리 기준이다(모든 analyzer).
+  const excludeLegacyAnywhere = 'analyzer:\n  exclude:\n    - "**/legacy/**"\n';
   const legacyLibrary = 'project:lib/legacy/old.dart';
 
   setUp(() {
@@ -132,6 +134,13 @@ void main() {
     },
   );
 
+  test('a file: URI include is keyed', () async {
+    final shared = p.join(workspace.path, 'shared', 'uri.yaml');
+    write('app/analysis_options.yaml', 'include: ${Uri.file(shared)}\n');
+
+    await edit('shared/uri.yaml', before: excludeLegacy, after: excludeNothing);
+  });
+
   test('a package: include is resolved through package_config', () async {
     // 공유 lint 패키지(루트 밖 path 의존)의 이름이 analysis_options.yaml이
     // 아닌 옵션 파일을 package_config로 찾는다. 그 파일이 다시 package:로 잇는
@@ -159,6 +168,60 @@ void main() {
       before: excludeNothing,
       after: excludeLegacy,
     );
+  });
+
+  // 패키지에 자기 analysis_options.yaml이 없으면 analyzer는 조상 디렉터리에서 가장
+  // 가까운 것을 쓴다(14.3–14.7의 `findAnalysisOptionsYamlFile`). 모노레포 루트의
+  // 옵션 파일이 그 예다. 그 파일과 그것의 include 체인이 루트 밖이어도 키다.
+  test(
+    'an inherited ancestor options file is keyed in both directions',
+    () async {
+      final lifted = await edit(
+        'analysis_options.yaml',
+        before: excludeLegacyAnywhere,
+        after: excludeNothing,
+      );
+      expect(analyzesLegacy(lifted), isTrue);
+
+      final excluded = await edit(
+        'analysis_options.yaml',
+        before: excludeNothing,
+        after: excludeLegacyAnywhere,
+      );
+      expect(analyzesLegacy(excluded), isFalse);
+    },
+  );
+
+  test('the include chain of an inherited options file is keyed', () async {
+    write('analysis_options.yaml', 'include: shared/monorepo.yaml\n');
+
+    final lifted = await edit(
+      'shared/monorepo.yaml',
+      before: excludeLegacyAnywhere,
+      after: excludeNothing,
+    );
+    expect(analyzesLegacy(lifted), isTrue);
+    await edit(
+      'shared/monorepo.yaml',
+      before: excludeNothing,
+      after: excludeLegacyAnywhere,
+    );
+  });
+
+  test('an ancestor options file the package overrides is not keyed', () async {
+    // 자기 옵션 파일이 있으면 analyzer는 조상을 보지 않는다. 키도 analyzer가 실제로
+    // 읽는 파일만 따른다.
+    write('app/analysis_options.yaml', excludeNothing);
+    write('analysis_options.yaml', excludeLegacyAnywhere);
+    final cache = _MemoryCache();
+    await index(cache);
+    final keys = cache.keys;
+
+    write('analysis_options.yaml', 'analyzer:\n  exclude:\n    - "bin/**"\n');
+    final warm = await index(cache);
+
+    expect(cache.keys, keys);
+    expect(analyzesLegacy(warm), isTrue);
   });
 }
 

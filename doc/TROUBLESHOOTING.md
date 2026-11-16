@@ -126,10 +126,16 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
 ## 8. 캐시
 
 - 분석 캐시는 루트 안 전체 `.dart`(숨김 디렉터리 제외)와 설정, `package_config`, 의존
-  패키지 `lib`, `include:`로 닿는 옵션 파일(루트 밖·`package:` include 포함), SDK 버전,
-  dartograph가 링크한 analyzer를 키로 한다. analyzer 신원은 Dart VM에서는 해석된 analyzer
+  패키지 `lib`, 적용되는 옵션 파일, SDK 버전, dartograph가 링크한 analyzer를 키로 한다.
+  옵션 파일은 analyzer가 고르는 대로 각 패키지 루트(루트·중첩 패키지)의 `analysis_options.yaml`,
+  없으면 상위 디렉터리에서 가장 가까운 것(루트 밖이어도)이고, 그것들이 `include:`로 닿는
+  모든 파일(루트 밖·`package:` include 포함)이다. analyzer 신원은 Dart VM에서는 해석된 analyzer
   패키지의 버전, AOT 바이너리에서는 실행 파일의 경로·크기·수정 시각이다. 도구 버전이
   바뀌어도 자동으로 무효화된다.
+- 키에 들어가지 않는 옵션 입력(경계): Blaze 워크스페이스의 기본 옵션
+  (`package:dart.analysis_options/default.yaml`), 1 MiB를 넘는 옵션 파일 안의 `include:`
+  (그 파일 자체는 키에 들어간다). 그런 배치에서 옵션을 고쳤는데 결과가 그대로면
+  사용자 캐시(위 위치)나 `--incremental` 디렉터리를 지우고 다시 돌린다.
 - 루트 **밖**을 가리키는 상대 import는 캐시 키에 들어가지 않는다(문서화된 경계다).
   밖의 파일만 고쳤는데 결과가 그대로면 이것을 의심한다.
 - `--incremental <dir>`는 호출자가 지정한 디렉터리에 파일별 사실 캐시를 둔다. 손상·
