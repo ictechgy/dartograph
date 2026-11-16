@@ -34,6 +34,22 @@ AOT 설치본은 그 자체가 Dart VM이 아니므로 분석에 쓸 SDK를 다�
 캐시가 있어도 같다. 찾은 SDK의 `version`은 분석 캐시 키에 들어가므로 SDK를 바꾸면
 캐시를 재사용하지 않는다.
 
+찾은 SDK의 `version`이 분석한 패키지 pubspec(`--workspace`면 각 멤버의 pubspec도)의
+`environment.sdk` 하한보다 낮아도 그 SDK로 분석한다. 그 SDK보다 새로운 `dart:` API와
+언어 기능은 해석되지 않을 수 있으므로 분석 명령이 다음 한계를 더한다(종료 코드와 finding은
+그대로다).
+
+```text
+sdk-below-minimum: Dart SDK 3.11.0 used for analysis is below the environment.sdk lower bound of 1 package(s): pubspec.yaml (>=3.13.0); SDK libraries and language features newer than 3.11.0 may not resolve, so reachability can be incomplete (analyze with a Dart SDK that satisfies environment.sdk)
+```
+
+패키지는 루트 상대 pubspec 경로순으로 앞의 셋을 싣고 나머지는 `and N more`로 센다. 하한은
+pubspec 원문이 아니라 pub과 같은 규칙으로 파싱한 값이다(`^3.13.0`·`>=3.13.0 <4.0.0`은
+`>=3.13.0`, 배타 하한은 `>3.13.0`). 사전 릴리스 SDK(`3.14.0-150.0.dev`)는 `^3.14.0`보다
+낮고 `>=3.14.0-0`은 충족한다. `environment.sdk`가 없거나 하한이 없는 제약(`any`·`<4.0.0`),
+만족할 수 없는 제약, 읽지 못한 SDK 버전·제약은 비교하지 않는다. `runtime`·`routes`·
+`bridges`·`schema`에는 싣지 않는다.
+
 저장소 소스에서 실행할 때는 `dartograph` 대신 `dart run dartograph`를 쓴다.
 
 ## 명령
@@ -285,6 +301,22 @@ finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된�
 디렉터리별 파일 수를 알린다. `--workspace`에서는 각 멤버의 같은 디렉터리도
 `pkgs/a/web/`처럼 루트 기준 경로로 센다. 분석 범위와 보고 대상은 바뀌지 않는다. 그런 선언은
 `dartograph.yaml`의 `retained_names`·`retained_files`로 보존한다.
+
+표준 소스 디렉터리 안이라도 analysis options의 `analyzer: exclude:`(`analysis_options.yaml`과
+그것이 `include:`로 잇는 파일)가 제외한 파일은 분석하지 않는다. 생성 파일(접미사로 인식)은
+제외돼도 다시 더해 분석·보존한다. 그 밖의 제외 파일이 있으면 분석 명령은
+`options-excluded-files: 2 Dart file(s) in analyzed source directories are excluded by analysis options (analysis_options.yaml or a file it includes) and were not analyzed: lib/generated/l10n.dart, lib/injection.config.dart; …`
+limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알린다(나머지는 `and N more`). 숨김
+경로와 링크로만 닿는 경로는 세지 않는다. 판정은 그 파일을 실제로 분석하는 컨텍스트 기준이다.
+자기 `.dart_tool/package_config.json`이 있는 중첩 패키지는 analyzer가 따로 컨텍스트를 만들고 자기
+옵션만 적용하므로, 바깥 옵션만 빼려는 파일은 분석돼 세지 않고 자기 옵션이 뺀 파일(예:
+`example/lib/inner_excluded.dart`)은 센다. 자기 package config가 없는 중첩 폴더는 바깥 컨텍스트에
+속해 두 옵션 파일이 모두 적용된다(안쪽 옵션은 자기 디렉터리 아래에만). 그 파일에서만 쓰는 선언은
+미도달로 보고되며 종료 코드와 finding은 이 한계로 바뀌지 않는다. include한 파일의 패턴은 analyzer
+14.6부터 include한 `analysis_options.yaml` 기준으로 모두 적용된다. 14.3–14.5는 include한 파일 기준이라
+같은 디렉터리 파일만 온전히, 조상 디렉터리 파일은 `**/` 패턴만 적용했다. 자기 옵션 파일이 없는
+패키지가 물려받는 조상 디렉터리의 `analysis_options.yaml` 패턴은 모든 버전에서 그 파일의 디렉터리
+기준이다.
 
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**

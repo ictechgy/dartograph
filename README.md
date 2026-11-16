@@ -81,7 +81,10 @@ used. `DART_SDK` and `FLUTTER_ROOT` now take precedence over the `dart` on
 `PATH`; 0.17.0 looked only at `PATH`. When no SDK is found, analysis commands exit 2
 with `Analysis failed: the Dart SDK could not be located.`; put the SDK's `bin`
 directory on `PATH` or set `DART_SDK`. A `dart pub global activate` install runs
-on the Dart VM and uses its SDK.
+on the Dart VM and uses its SDK. An SDK older than the analyzed package's
+`environment.sdk` lower bound is still used, and analysis commands report it as
+an `sdk-below-minimum:` limitation (see
+[Analysis limitations](#analysis-limitations-and-guarantees)).
 
 Releases are published on
 [pub.dev](https://pub.dev/packages/dartograph) and
@@ -339,6 +342,29 @@ Limitations:
   files of the package (or of a `--workspace` member), an
   `unanalyzed-directories:` limitation counts them. Keep such code
   with `retained_names` or `retained_files`.
+- Files that `analyzer: exclude:` in `analysis_options.yaml` (or in a file it
+  includes) excludes are not analyzed, except generated files (recognized by
+  suffix), which are analyzed and retained anyway. A declaration used only from
+  an excluded file is reported as unreachable, so analysis commands count the
+  excluded non-generated Dart files of the analyzed source directories in an
+  `options-excluded-files:` limitation that lists the first three paths.
+  Which patterns of an included file apply depends on the analyzer version.
+  analyzer 14.6 and later (Dart 3.13 or later) apply all of them relative to
+  the `analysis_options.yaml` that includes them. analyzer 14.3–14.5 resolved
+  them relative to the included file: a file included from the same directory
+  applied all of its patterns, one from an ancestor directory applied only its
+  `**/` patterns, and one from a sibling or child directory or through
+  `package:` applied none. A package without its own `analysis_options.yaml`
+  uses the nearest one in a parent directory, whose patterns are relative to
+  that file's directory with every analyzer version.
+- `dart:` libraries are resolved from the Dart SDK that dartograph located (see
+  Install). When that SDK is older than the `environment.sdk` lower bound of the
+  analyzed package (or of a `--workspace` member), SDK libraries and language
+  features newer than it may not resolve, so reachability can be incomplete.
+  Analysis commands then add an `sdk-below-minimum:` limitation that counts
+  those packages and names each pubspec with its lower bound; findings and exit
+  codes are unchanged. A package without `environment.sdk`, or with a
+  constraint that has no lower bound, is not compared.
 - Local path dependencies are opt-in graph inputs through `source_packages` in
   `dartograph.yaml`; each declared package root must be inside the project and
   contain `pubspec.yaml` and `lib/`. This is useful for generated Pigeon/Dart
@@ -415,8 +441,13 @@ Guarantees:
 - The analysis cache lives outside the analyzed project, in the OS user cache
   (`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) under
   `dartograph/<project-root-hash>`. It is invalidated automatically when project
-  or dependency contents, mtimes, package resolution, the Dart SDK, or the
-  analysis revision change. A missing or corrupted cache never changes results;
+  or dependency contents, mtimes, package resolution, the analysis options that
+  apply (each package's own `analysis_options.yaml` or, without one, the
+  nearest one in a parent directory, and every file they reach through
+  `include:`, also outside the project), the Dart SDK, the `analyzer` that
+  dartograph runs with, or the analysis revision change. Two inputs are not
+  keyed: the default options of Blaze workspaces, and `include:` lines
+  inside an options file larger than 1 MiB. A missing or corrupted cache never changes results;
   it only costs analysis time. `--incremental-user-cache` keeps the per-file
   fact cache in the same directory (`incremental/`, or
   `incremental-workspace/` with `--workspace`). An explicit

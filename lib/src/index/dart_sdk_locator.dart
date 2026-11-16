@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:pub_semver/pub_semver.dart';
+import 'package:yaml/yaml.dart';
 
 /// analyzer가 `dart:` 라이브러리를 읽을 Dart SDK 디렉터리를 찾지 못했다는 실패다.
 ///
@@ -142,6 +144,82 @@ String? _sdkForPathDirectory(
     if (sdk != null) return sdk;
   }
   return null;
+}
+
+/// 분석 SDK가 패키지 `environment.sdk` 하한보다 낮다는 limitation의 접두사다.
+const sdkBelowMinimumPrefix = 'sdk-below-minimum:';
+
+/// 분석에 쓰는 SDK 버전 [sdkVersion]이 `environment.sdk` 하한보다 낮은 패키지를
+/// 센 limitation 문구다. 그런 패키지가 없으면 null이다.
+///
+/// [pubspecs]는 분석한 패키지의 루트 상대 pubspec 경로 → 내용이다(내용이 없으면
+/// null). 경로순으로 앞의 세 개만 싣고 나머지는 개수로 적는다.
+///
+/// 오류가 아니라 관측이다. SDK의 `dart:` 라이브러리와 언어 기능이 패키지가 요구하는
+/// 것보다 오래돼 일부 참조가 해석되지 않을 수 있다는 뜻일 뿐, 실제로 해석이
+/// 실패했다는 증명이 아니다. 실제 실패는 기존 소스 단위 한계가 따로 센다.
+///
+/// 비교하지 않는 경우는 세지 않는다. SDK 버전이나 제약을 읽지 못한 경우,
+/// `environment.sdk`가 없는 경우, 하한이 없는 제약(`any`, `<4.0.0`)과 만족할 수
+/// 없는 제약이 그렇다. 하한 비교는 pub과 같은 `pub_semver` 의미를 쓴다 — 사전
+/// 릴리스 SDK(`3.14.0-1.0.dev`)는 `^3.14.0`보다 낮고 `>=3.14.0-0`은 충족한다.
+String? sdkBelowMinimumLimitation(
+  String sdkVersion,
+  Map<String, String?> pubspecs,
+) {
+  final Version sdk;
+  try {
+    sdk = Version.parse(sdkVersion.trim());
+  } on FormatException {
+    return null;
+  }
+  final below = [
+    for (final path in pubspecs.keys.toList()..sort())
+      if (_lowerBoundAbove(sdk, pubspecs[path]) case final bound?)
+        '$path ($bound)',
+  ];
+  if (below.isEmpty) return null;
+  const shown = 3;
+  final listed = below.take(shown).join(', ');
+  final more = below.length > shown ? ' and ${below.length - shown} more' : '';
+  return '$sdkBelowMinimumPrefix Dart SDK $sdk used for analysis is below the '
+      'environment.sdk lower bound of ${below.length} package(s): '
+      '$listed$more; SDK libraries and language features newer than $sdk may '
+      'not resolve, so reachability can be incomplete (analyze with a Dart SDK '
+      'that satisfies environment.sdk)';
+}
+
+/// pubspec [content]의 `environment.sdk` 하한이 [sdk]보다 높으면 그 하한 표기
+/// (`>=3.13.0`·`>3.13.0`)다. 하한이 없거나 읽지 못하면 null이다.
+///
+/// 표기는 원문이 아니라 파싱한 버전으로 만든다. 저장소가 쓴 문자열을 그대로
+/// 반향하지 않는다.
+String? _lowerBoundAbove(Version sdk, String? content) {
+  if (content == null) return null;
+  final Object? document;
+  try {
+    document = loadYaml(content);
+  } on YamlException {
+    return null;
+  }
+  if (document is! Map) return null;
+  final environment = document['environment'];
+  if (environment is! Map) return null;
+  final text = environment['sdk'];
+  if (text is! String) return null;
+  final VersionConstraint constraint;
+  try {
+    constraint = VersionConstraint.parse(text);
+  } on FormatException {
+    return null;
+  }
+  // 만족할 수 없는 제약(`VersionConstraint.empty`)은 범위가 아니다.
+  if (constraint is! VersionRange) return null;
+  final minimum = constraint.min;
+  if (minimum == null) return null;
+  final below = constraint.includeMin ? sdk < minimum : sdk <= minimum;
+  if (!below) return null;
+  return '${constraint.includeMin ? '>=' : '>'}$minimum';
 }
 
 /// dart:io로 [path]가 파일인지 본다. 권한 등 관측 실패는 없는 것으로 다룬다.

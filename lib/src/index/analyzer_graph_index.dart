@@ -24,6 +24,8 @@ import '../core/retention_reason.dart';
 import '../core/test_source.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
+import 'analysis_options_includes.dart';
+import 'analyzer_identity.dart';
 import 'bounded_resource_provider.dart';
 import '../core/generated_files.dart';
 import 'dart_sdk_locator.dart';
@@ -277,6 +279,10 @@ final class AnalyzerGraphIndex {
   /// 캐시 크기의 약 30%라, 두 캐시 모두 토큰을 따로 저장하고 이 값이 true인
   /// 색인만 읽는다. false여도 해석한 파일의 토큰은 뽑아 캐시에 둔다 — 다음 `dup`이
   /// 그 파일을 다시 해석하지 않게 한다.
+  ///
+  /// [analyzerIdentity]는 캐시 키에 섞는 analyzer 패키지 신원이다. null이면 이
+  /// 프로세스가 링크한 analyzer에서 읽는다([analyzerPackageIdentity]). 다른 analyzer로
+  /// 만든 캐시를 재사용하지 않는지 확인하는 테스트 주입점이다.
   AnalyzerGraphIndex({
     FactCache? cache,
     IncrementalCache? incremental,
@@ -284,12 +290,14 @@ final class AnalyzerGraphIndex {
     Map<String, String>? userCacheEnvironment,
     bool aggregateWorkspace = false,
     bool includeTokenSegments = false,
+    String? analyzerIdentity,
   }) : _cache = cache,
        _incremental = incremental,
        _incrementalInUserCache = incrementalInUserCache,
        _userCacheEnvironment = userCacheEnvironment,
        _aggregateWorkspace = aggregateWorkspace,
-       _includeTokenSegments = includeTokenSegments {
+       _includeTokenSegments = includeTokenSegments,
+       _analyzerIdentity = analyzerIdentity {
     if (incremental != null && incrementalInUserCache) {
       throw ArgumentError(
         'incremental and incrementalInUserCache choose different fact cache '
@@ -304,13 +312,14 @@ final class AnalyzerGraphIndex {
   final Map<String, String>? _userCacheEnvironment;
   final bool _aggregateWorkspace;
   final bool _includeTokenSegments;
+  final String? _analyzerIdentity;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     // SDK는 캐시보다 먼저 찾는다. 찾지 못하면 캐시 유무와 상관없이 같은 실패다 —
     // 데워진 캐시가 SDK 부재를 가리면 같은 입력이 실행마다 다르게 끝난다(#160).
-    final sdk = _analyzerSdk();
+    final sdk = _analyzerSdk(_analyzerIdentity ?? _processAnalyzerIdentity);
     final sourcePackages = _readSourcePackages(root);
     // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
     // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
@@ -362,6 +371,7 @@ final class AnalyzerGraphIndex {
         incremental: incremental,
         linkEscapes: linkEscapes,
         sdkIdentity: sdk.identity,
+        sdkVersion: sdk.version,
       );
       if (cache != null &&
           initialCacheKey != null &&
@@ -402,6 +412,7 @@ final class AnalyzerGraphIndex {
     List<Directory> sourcePackages, {
     required IncrementalCache? incremental,
     required String sdkIdentity,
+    required String sdkVersion,
     Set<String>? linkEscapes,
   }) async {
     final pubspecContent = _readPubspec(root);
@@ -420,6 +431,7 @@ final class AnalyzerGraphIndex {
         member.relPath,
     ]..sort((a, b) => b.length - a.length);
     final linkedDirectories = LinkedDirectoryVisits();
+    final optionsExcluded = <String>{};
     final unitPaths = _dartFilesUnder(
       root,
       collection,
@@ -427,7 +439,12 @@ final class AnalyzerGraphIndex {
       memberAbsPaths,
       workspace?.skippedAbsPaths ?? const [],
       linkedDirectories,
+      optionsExcluded: optionsExcluded,
     );
+    final optionsExcludedFiles = [
+      for (final path in optionsExcluded)
+        p.posix.joinAll(p.relative(path, from: root).split(p.separator)),
+    ]..sort();
     final skippedLinkedDirectories = linkedDirectories.skipped.length;
     final unreadableDirectories = linkedDirectories.unreadable.length;
     final entryPoints = _readEntryPoints(root);
@@ -466,6 +483,8 @@ final class AnalyzerGraphIndex {
         skippedLinkedDirectories: skippedLinkedDirectories,
         unreadableDirectories: unreadableDirectories,
         workspace: workspace,
+        sdkVersion: sdkVersion,
+        optionsExcludedFiles: optionsExcludedFiles,
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
       // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
@@ -487,6 +506,8 @@ final class AnalyzerGraphIndex {
       skippedLinkedDirectories: skippedLinkedDirectories,
       unreadableDirectories: unreadableDirectories,
       sdkIdentity: sdkIdentity,
+      sdkVersion: sdkVersion,
+      optionsExcludedFiles: optionsExcludedFiles,
       workspace: workspace,
     );
   }
@@ -509,6 +530,8 @@ final class AnalyzerGraphIndex {
     required int skippedLinkedDirectories,
     required int unreadableDirectories,
     required String sdkIdentity,
+    required String sdkVersion,
+    required List<String> optionsExcludedFiles,
     Set<String>? linkEscapes,
   }) async {
     final sourcesOf = <String, String>{
@@ -663,6 +686,8 @@ final class AnalyzerGraphIndex {
       skippedLinkedDirectories: skippedLinkedDirectories,
       unreadableDirectories: unreadableDirectories,
       workspace: workspace,
+      sdkVersion: sdkVersion,
+      optionsExcludedFiles: optionsExcludedFiles,
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
     // 갱신 여부와 무관하게 출력에 드러나야 한다.
@@ -1498,6 +1523,8 @@ AnalyzerGraphResult _assembleResult({
   required _ScopeConfig scope,
   _WorkspaceSpec? workspace,
   Set<String>? linkEscapes,
+  required String sdkVersion,
+  required List<String> optionsExcludedFiles,
   int skippedLinkedDirectories = 0,
   int unreadableDirectories = 0,
 }) {
@@ -1704,6 +1731,24 @@ AnalyzerGraphResult _assembleResult({
     // "소스 없음"과 구분되지 않는다.
     limitationDetails.add(
       unreadableDirectoriesLimitation(unreadableDirectories),
+    );
+  }
+  // 분석한 패키지(루트와 집계한 워크스페이스 멤버)가 요구하는 SDK보다 오래된
+  // SDK로 해석했다. 오류로 만들지 않는다 — 그 SDK로도 대부분은 해석되며, 실제로
+  // 해석하지 못한 파일은 source-* 한계가 따로 센다. 이 SDK·pubspec은 둘 다 전체
+  // 결과 캐시 키 입력이라 캐시 적중이 이 한계를 가리거나 남기지 않는다.
+  final sdkBelowMinimum = sdkBelowMinimumLimitation(sdkVersion, {
+    'pubspec.yaml': pubspecContent,
+    for (final member in workspace?.members ?? const <_WorkspaceMember>[])
+      '${member.relPath}/pubspec.yaml': member.pubspecContent,
+  });
+  if (sdkBelowMinimum != null) limitationDetails.add(sdkBelowMinimum);
+  // analysis options가 뺀 파일은 그래프에 없어 그 파일만 쓰는 선언이 미도달로
+  // 보고된다. 조용히 빼면 analyzer 14.6부터 include 체인 exclude로 생긴 보고와
+  // 이유가 출력에 드러나지 않는다.
+  if (optionsExcludedFiles.isNotEmpty) {
+    limitationDetails.add(
+      _optionsExcludedFilesLimitation(optionsExcludedFiles),
     );
   }
   if (workspace == null) {
@@ -2371,8 +2416,13 @@ const _cacheSchemaVersion = 8;
 // 필드 재정의·감싼 선언 annotation·pragma 두 번째 인자 보존 루트, 명시적 setter와
 // typedef 사용 지점의 간선(v28)이 더해진다. 이전 캐시는 그 근거 없이 같은 소스를
 // 미도달로 남기므로 폐기한다.
+// 분석 SDK가 environment.sdk 하한보다 낮다는 sdk-below-minimum 한계(v31)를 싣는다.
+// 이전 캐시에는 이 한계가 없다.
+// analysis options가 제외한 비생성 파일을 세는 options-excluded-files 한계(v32)를
+// 싣는다. 이전 캐시에는 이 한계가 없다. 같은 무렵 키에 더한 include 체인의 옵션
+// 파일과 analyzer 패키지 신원은 키 구성 자체가 바뀌므로 신원 변경이 필요 없었다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v30-yaml-plugin-entries';
+    'dartograph-analysis-$toolVersion-cache-v32-options-includes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -2624,9 +2674,62 @@ Future<List<File>> _analysisInputFiles(
   for (final path in nestedPaths) {
     await addPackage(nestedPackages[path]!);
   }
+  _addIncludedOptionsFiles(root, files.values.toList(), addFile);
+  _addInheritedOptionsFiles(root, [root, ...nestedPaths], addFile);
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// 루트 안 `analysis_options.yaml`이 `include:`로 닿는 옵션 파일을 [addFile]에 더한다.
+///
+/// analyzer는 include한 파일의 `analyzer: exclude:`도 적용한다. 그 파일은 이름이
+/// 다르거나(`shared_options.yaml`) 루트 밖(`../../analysis_options.yaml`)·lint 패키지
+/// 안에 있을 수 있어 위 열거가 놓친다. 키에 없으면 그 파일을 고쳐도 데워진 캐시가
+/// 이전 제외로 만든 결과를 돌려준다. `package:` include는 그 옵션 파일에서 가장
+/// 가까운 package config로 푼다([includedOptionsFiles]).
+void _addIncludedOptionsFiles(
+  String root,
+  List<File> inputs,
+  void Function(File file) addFile,
+) {
+  for (final options in inputs) {
+    if (p.basename(options.path) != 'analysis_options.yaml' ||
+        !isPathWithinRoot(options.path, root)) {
+      continue;
+    }
+    final configuration = nearestPackageConfigFile(options.parent.path);
+    includedOptionsFiles(
+      options,
+      packageConfig: configuration,
+    ).forEach(addFile);
+  }
+}
+
+/// 자기 `analysis_options.yaml`이 없는 [packageRoots]가 물려받는 루트 밖 옵션 파일과
+/// 그 include 체인을 [addFile]에 더한다.
+///
+/// analyzer는 컨텍스트 루트의 옵션 파일을 그 디렉터리부터 조상으로 올라가며 처음
+/// 만나는 `analysis_options.yaml`로 고른다(14.3–14.7의 `findAnalysisOptionsYamlFile`).
+/// 모노레포의 `packages/app`처럼 자기 옵션 파일이 없는 패키지는 루트 밖 상위 파일의
+/// exclude를 그대로 쓴다. 그 파일이 키에 없으면 고쳐도 데워진 캐시가 이전 결과를
+/// 돌려준다. 루트 안 파일은 루트 순회와 [_addIncludedOptionsFiles]가 이미 더한다.
+/// `package:` include는 그 패키지 루트에서 가장 가까운 package config로 푼다 —
+/// analyzer가 그 컨텍스트의 package config로 푸는 것과 같다.
+void _addInheritedOptionsFiles(
+  String root,
+  List<String> packageRoots,
+  void Function(File file) addFile,
+) {
+  for (final packageRoot in packageRoots) {
+    final inherited = nearestAnalysisOptionsFile(packageRoot);
+    if (inherited == null || isPathWithinRoot(inherited.path, root)) continue;
+    addFile(inherited);
+    includedOptionsFiles(
+      inherited,
+      packageConfig: nearestPackageConfigFile(packageRoot),
+    ).forEach(addFile);
+  }
 }
 
 /// 표준 소스 디렉터리 안 숨김 디렉터리의 생성 파일을 [addFile]에 더한다.
@@ -3103,6 +3206,23 @@ String? _publicLibrariesLimitation(
       '$entry or retain them with retained_files)';
 }
 
+/// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation
+/// 문구다. [files]는 루트 기준 POSIX 상대 경로이고 정렬돼 있다.
+///
+/// 앞의 세 경로만 싣고 나머지는 개수로 적는다(`public-libraries:`와 같은 규칙).
+/// 그 파일에서만 쓰는 선언이 미도달로 보고되는 이유를 출력에 남긴다.
+String _optionsExcludedFilesLimitation(List<String> files) {
+  const shown = 3;
+  final listed = files.take(shown).join(', ');
+  final more = files.length > shown ? ' and ${files.length - shown} more' : '';
+  return 'options-excluded-files: ${files.length} Dart file(s) in analyzed '
+      'source directories are excluded by analysis options '
+      '(analysis_options.yaml or a file it includes) and were not analyzed: '
+      '$listed$more; declarations used only from them are reported as '
+      'unreachable (retain them with retained_names or retained_files in '
+      'dartograph.yaml)';
+}
+
 /// 라이브러리의 비공개가 아닌 최상위 선언 ID인지 본다(`lib::Name`).
 bool _isPublicTopLevel(String id) {
   final separator = id.indexOf('::');
@@ -3346,15 +3466,23 @@ const _namedNavigationMethods = {
 /// [identity]는 캐시 키에 넣는 SDK 신원이다. AOT 바이너리의 [Platform.version]은
 /// 컴파일 당시 런타임 버전이라 실제로 해석에 쓰는 SDK와 다를 수 있으므로, 찾은
 /// SDK의 `version` 파일 내용을 함께 넣는다. 그래야 SDK를 바꾸면 낡은 결과를
-/// 재사용하지 않는다.
-typedef _AnalyzerSdk = ({String path, String identity});
+/// 재사용하지 않는다. [version]은 그 파일 내용이다(읽지 못하면 빈 문자열). 패키지의
+/// `environment.sdk` 하한과 비교한다([sdkBelowMinimumLimitation]). 신원에는 이
+/// 프로세스의 analyzer 패키지 신원도 넣는다 — 같은 도구 버전·SDK라도 analyzer
+/// 마이너가 다르면 결과가 다를 수 있다([analyzerPackageIdentity]).
+typedef _AnalyzerSdk = ({String path, String identity, String version});
+
+/// 이 프로세스의 analyzer 패키지 신원이다. 처음 쓸 때 한 번 읽는다.
+final _processAnalyzerIdentity = analyzerPackageIdentity();
 
 /// 색인에 쓸 SDK를 찾는다. 찾지 못하면 [DartSdkNotFoundException]이다.
-_AnalyzerSdk _analyzerSdk() {
+_AnalyzerSdk _analyzerSdk(String analyzerIdentity) {
   final path = _requireDartSdkPath();
+  final version = _sdkVersionText(path);
   return (
     path: path,
-    identity: '${Platform.version}\u0000${_sdkVersionText(path)}',
+    identity: '${Platform.version}\u0000$version\u0000$analyzerIdentity',
+    version: version,
   );
 }
 
@@ -4755,15 +4883,17 @@ String projectIdForPath(String path, String root, {p.Context? context}) {
 /// 후보는 [_analyzedFilesOf]로 열거하고 디렉터리는 [linkedDirectories]의 규칙으로
 /// 한 번만 연다. 건너뛴 경로는 [linkedDirectories]에 남아 호출자가 limitation으로
 /// 싣는다. 분석 단위가 들 수 없는 디렉터리(아래 범위 경계와 무관한 경로)에는
-/// 내려가지 않는다.
+/// 내려가지 않는다. [optionsExcluded]를 주면 analysis options가 제외해 분석하지 않은
+/// 비생성 Dart 파일을 그 집합에 더한다([_optionsExcludedFiles]).
 List<String> _dartFilesUnder(
   String root,
   AnalysisContextCollection collection,
   List<Directory> sourcePackages,
   List<String> memberAbsPaths,
   List<String> skippedMemberAbsPaths,
-  LinkedDirectoryVisits linkedDirectories,
-) {
+  LinkedDirectoryVisits linkedDirectories, {
+  Set<String>? optionsExcluded,
+}) {
   final paths = <String>{};
   bool inAnalysisScope(String path) {
     for (final member in memberAbsPaths) {
@@ -4837,14 +4967,62 @@ List<String> _dartFilesUnder(
   // 범위가 닿지 않는 디렉터리는 내려가기 전에 건너뛴다 — 그 아래 생성물은 원래부터
   // 결과에서 빠졌으므로 결과는 같고, build 산출물·git 객체·플랫폼 디렉터리를 분석마다
   // 열거하거나 그 안의 읽을 수 없는 디렉터리 하나로 색인 전체가 실패하지 않는다.
-  paths.addAll(
-    _filePathsUnder(
-      Directory(root),
-      mayHoldUnits,
-      linkedDirectories,
-    ).where(_isGenerated).where(inAnalysisScope),
-  );
+  final scoped = _filePathsUnder(
+    Directory(root),
+    mayHoldUnits,
+    linkedDirectories,
+  ).where(inAnalysisScope).toList();
+  paths.addAll(scoped.where(_isGenerated));
+  optionsExcluded?.addAll(_optionsExcludedFiles(scoped, paths, contexts));
   return paths.toList()..sort();
+}
+
+/// [scoped] 중 analysis options의 `analyzer: exclude:`(include한 파일의 패턴 포함)가
+/// 제외해 분석하지 않는 비생성 `.dart` 파일이다.
+///
+/// [analyzed]에 없고, 그 파일을 담는 가장 안쪽 컨텍스트([contexts])가 분석하지 않는
+/// 파일만 고른다([_excludedByOptions]). 공개 API(`isAnalyzed`·`excludedPaths`)로만
+/// 판정한다. 생성 파일은 제외돼도 호출자가 이미 [analyzed]에 다시 더했으므로 따로
+/// 거르지 않아도 세지 않는다.
+Iterable<String> _optionsExcludedFiles(
+  List<String> scoped,
+  Set<String> analyzed,
+  List<AnalysisContext> contexts,
+) sync* {
+  final innermostFirst = [...contexts]
+    ..sort(
+      (a, b) => b.contextRoot.root.path.length.compareTo(
+        a.contextRoot.root.path.length,
+      ),
+    );
+  for (final path in scoped) {
+    if (!path.endsWith('.dart') || analyzed.contains(path)) continue;
+    final context = innermostFirst
+        .where((item) => isPathWithinRoot(path, item.contextRoot.root.path))
+        .firstOrNull;
+    if (context != null && _excludedByOptions(context.contextRoot, path)) {
+      yield path;
+    }
+  }
+}
+
+/// [contextRoot]가 [path]를 분석하지 않는 이유가 analysis options의 exclude glob인지다.
+///
+/// `isAnalyzed`가 거짓인 이유는 셋이다: 컨텍스트 루트 기준 숨김 경로, `excludedPaths`,
+/// 옵션의 exclude glob. 앞의 둘을 빼면 glob만 남는다.
+///
+/// `excludedPaths` 확인은 방어적이다. 지금 dartograph는 클라이언트 제외 경로를 넘기지
+/// 않고, `excludedPaths`에 오르는 중첩 컨텍스트 루트의 파일은 호출자가 그 중첩
+/// 컨텍스트를 가장 안쪽으로 먼저 고르므로 이 확인에 닿지 않는다. 그래도 컨텍스트 없이
+/// 제외 목록에만 오르는 폴더(클라이언트 제외 등)가 생기면 그 아래 파일을 옵션 제외로
+/// 잘못 세지 않도록 둔다.
+bool _excludedByOptions(ContextRoot contextRoot, String path) {
+  if (contextRoot.isAnalyzed(path)) return false;
+  final relative = p.split(p.relative(path, from: contextRoot.root.path));
+  if (relative.any((segment) => segment.startsWith('.'))) return false;
+  return !contextRoot.excludedPaths.any(
+    (excluded) => isPathWithinRoot(path, excluded),
+  );
 }
 
 /// [contextRoot]가 분석하는 파일 경로를 analyzer의 `ContextRoot.analyzedFiles()`와

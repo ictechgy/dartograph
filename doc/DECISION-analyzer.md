@@ -253,3 +253,138 @@ JSON의 SHA-256이 일치했다.
 이번 호환 릴리스에서는 API 범위를 확장하지 않고 `>=14.3.0 <14.6.0`으로 고정한다.
 상한은 버전 계약 테스트의 최대 검증 마이너 다음 버전으로 계산한다. 새 마이너는 위
 재검증 절차와 CI를 통과한 뒤 제약과 집합을 함께 넓힌다.
+
+## 14.6.x·14.7.x 확장 (2026-11-15)
+
+- 상태: 채택. pubspec 제약을 `>=14.3.0 <14.8.0`으로 넓히고 버전 계약 테스트의 검증
+  마이너 집합을 `{3, 4, 5, 6, 7}`로 갱신한다. 상한은 위 절의 규칙대로 집합의 최대
+  마이너 다음 버전이다.
+- 이유: 예약 잡 `analyzer-freshness`의 `unvalidated-analyzer`가 최신 analyzer 14.7.0이
+  검증 범위(`<14.6.0`) 밖이라 실패했다. 먼저 같은 실패를 재현했다. 상한을 푼 해석
+  (`dependency_overrides: analyzer: any`)이 14.7.0을 고르고, 그 단계와 같은 셸이
+  `newest analyzer 14.7.0, validated upper bound <14.6.0`으로 종료 1이었으며, 버전 계약
+  테스트는 `14.7`이 집합 `{3, 4, 5}` 밖이라 실패했다.
+
+### 확인한 사실 (설치된 소스)
+
+- 5개 표면은 14.6.0·14.7.0에서 그대로다. 두 버전의 `lib/dart/element/element.dart`는 바이트
+  단위로 같고, `Element.enclosingElement`·`Element.firstFragment`·`Element.library`·
+  `Fragment.element`가 14.5.0과 같은 줄·시그니처다. `Identifier.element`(`sealed class
+  Identifier`)와 선언 노드의 `declaredFragment` getter도 `lib/src/dart/ast/ast.dart`에 있다.
+  14.5.0과의 차이는 생성자 선언 문법(`const new(...)`)과 내부 annotation 이름
+  (`ToBeDeprecated` → `V1Ast`)뿐이다.
+- 읽기 경계 표면도 그대로다. `file_system.dart`·`physical_file_system.dart`는 14.6.0·14.7.0이
+  바이트 단위로 같다. 14.5.0과의 차이는 생성자 선언 문법(`new(...)`)과
+  `io.Platform.isWindows` → analyzer 내부 `platform.isWindows`뿐이라 `ResourceProvider`·
+  `File`·`Folder`에 멤버가 늘지 않았다. `FileContentCache`도 생성자 문법만 바뀌었다.
+  `dart:io`를 직접 import하는 analyzer 라이브러리는 세 버전 모두 같은 7개다(물리 파일
+  시스템, instrumentation, byte store 둘, `platform_info_io`, `util/sdk.dart`, Blaze watcher).
+- `AnalysisContextCollection`은 14.6.0에서 `enabledExperiments` 인자만 더했다. dartograph는
+  넘기지 않는다.
+- 공개 API 표면은 그대로지만 내부 AST 구성이 크게 바뀌었다(2026-11-16 리뷰 지적으로 보충).
+  14.6.0부터 파서가 V2 선언 노드(`TopLevelFunctionDeclaration`·`MethodDeclaration2`·
+  `GetterDeclaration`·`SetterDeclaration`·`OperatorDeclaration`·`FieldsDeclaration`·`Field2`·
+  `TopLevelVariable2`·`LocalVariable` 등)를 만들고, 공개 V1 `FunctionDeclaration`·
+  `MethodDeclaration`·`VariableDeclarationList`·`VariableDeclaration`은 그 V2 노드를 비추는
+  읽기 전용 투영이 된다. `lib/src/dart/ast/ast.dart`에서 V2 원본에 위임한다고 표시한 멤버가
+  14.5.0 34개 → 14.6.0·14.7.0 87개로 늘었고, V2 클래스 13개가 V1 원본 인터페이스 4개
+  (`*V1OriginImpl`)를 구현한다. 식(expression) 노드의 V1 투영 20종은 14.5.0부터 있었다.
+  dartograph는 공개 V1 방문자 API만 쓰므로 컴파일·테스트로 확인했고, 독립 리뷰가 analyzer
+  14.5·14.6·14.7로 고정한 AOT 바이너리를 실제 패키지 7개(dio 5.11.1, built_value 8.13.0,
+  dart_style 3.1.14, chopper_generator, coverage, shelf, dartograph)에 돌려 `graph --level symbol`
+  JSON과 `dead` JSON이 바이트 단위로 같음을 확인했다(리뷰 기록, 이 세션에서 재실행하지 않음).
+- 14.6.0·14.7.0은 Dart `^3.13.0`을 요구한다(소스가 새 생성자 문법을 쓴다). 넓힌 제약으로도
+  Dart 3.11.0의 새 해석은 14.5.0을 고른다(실측). 그래서 CI의 verify(3.11.0)은 14.5,
+  verify(3.13.3)·fresh-upgrade는 14.7, lowest-analyzer는 14.3을 해석하고 14.6을 해석하는
+  CI 잡은 없다.
+
+### 변경 기록 검토 (analyzer CHANGELOG 14.6.0·14.7.0)
+
+- 미해석 이름 진단이 `*_read`·`*_write`로 바뀌었다. dartograph는 진단 이름을 보지 않고
+  심각도 `ERROR` 여부만 센다(`source-analysis-errors:`).
+- 14.7.0의 `InstanceElement.children`·element visitor가 타입 매개변수를 포함한다.
+  dartograph는 `children`도 element visitor도 쓰지 않는다.
+- 14.7.0은 실험 플래그와 `// @dart` 상한을 host SDK 언어 버전에 맞춘다. dartograph가 넘기는
+  SDK가 그 host SDK다.
+- **결과가 달라지는 변경 하나.** 14.6.0은 include한 옵션 파일(`include:`)의
+  `analyzer: exclude:` 패턴을 다시 include 체인을 시작한 `analysis_options.yaml` 기준으로
+  해석한다(analyzer 14.2–14.5의 회귀 수정, dart-lang/sdk#64549 — dartograph 검증 범위로는
+  14.3–14.5). 회귀 버전은 패턴을 include한 파일의 디렉터리 기준으로 해석했다. dartograph는
+  `ContextRoot.isAnalyzed`로 analyzer의 제외를 따르므로 include 형태에 따라 결과가 달라진다.
+
+  처음 기록(2026-11-15)은 "14.5까지는 아무것도 빼지 못했다"고 적었지만 형태별로 다시 재니
+  틀렸다(2026-11-16 정정). 같은 패키지(`bin/main.dart`가 injectable `lib/injection.config.dart`와
+  intl_utils `lib/generated/l10n.dart`를 거쳐 쓰는 코드)를 제외 패턴 `**/*.g.dart`·
+  `**/*.config.dart`·`lib/generated/**`로 include 형태만 바꿔 analyzer 14.5.0·14.7.0 고정 AOT
+  바이너리의 `dead` finding 수를 쟀다(Dart 3.13.3, Linux x64, 독립 리뷰의 바이너리·fixture).
+  14.6.0은 리뷰 측정에서 14.7.0과 같았다.
+
+  | include 형태 | 14.5.0 | 14.7.0 |
+  |---|---|---|
+  | 패턴을 `analysis_options.yaml`에 직접 | 3 (모두 적용) | 3 |
+  | 같은 디렉터리 `include: shared_options.yaml` | 3 (모두 적용) | 3 |
+  | 하위 디렉터리 `include: config/shared_options.yaml` | 0 (적용 없음) | 3 |
+  | 조상 `include: ../../analysis_options.yaml` | 1 (`**/` 패턴만) | 3 |
+  | 형제 디렉터리 `include: ../shared/options.yaml` | 0 (적용 없음) | 3 |
+  | `include: package:company_lints/analysis_options.yaml` | 0 (적용 없음) | 3 |
+
+  3개는 `ServiceLocator.register`·`defaultTitle`·`lib/strings.dart`이며 실제로 쓰이는 코드다.
+  14.7.0의 결과는 직접 쓴 `exclude:`의 기존 동작, 그리고 결정 7(프로젝트가 명시적으로 제외한
+  다른 파일은 되살리지 않는다)과 같다. 공유 lint 패키지가 흔히 빼는 생성 파일은 계속 다시
+  더해 보존한다(include한 파일이 `**/*.g.dart`를 빼도 생성 파일만 쓰는 선언은 두 버전 모두
+  보존). 보존 정책은 바꾸지 않는다. 대신 제외된 비생성 파일을 `options-excluded-files:`
+  한계로 세어(2026-11-16) 그 파일에서만 쓰는 선언이 보고되는 이유를 출력에 남긴다. 리뷰가
+  확인한 공개 lint 패키지 14종의 exclude는 생성 접미사·`generated_plugin_registrant.dart`·
+  `.test_coverage.dart`뿐이라 생성 접미사는 영향이 없고, very_good_analysis의 registrant
+  제외는 14.6부터 그 파일의 finding을 없애고, 대신 그 파일이 이 한계에 나타난다.
+
+### 실제 컴파일과 테스트
+
+`a179b19`에 제약·집합 변경만 더한 같은 트리를 네 가지로 해석해 각각 `dart analyze`와
+일반 테스트(`dart test --exclude-tags=global_activation`), 오탐 코퍼스, analyzer 경계 검사,
+CLI 계약을 돌렸다(Dart 3.13.3, Linux x64, 4코어 공유 호스트).
+
+| 해석 | 방법 | analyze | 일반 테스트 | 코퍼스·경계·CLI 계약 |
+|---|---|---|---|---|
+| 14.7.0 | 새 해석(`pub get`) | 깨끗 | 1,149 통과, 22 건너뜀 | 통과 |
+| 14.6.0 | `pubspec_overrides.yaml`로 고정 | 깨끗 | 1,147 통과, 22 건너뜀, 2 시간 초과(재실행 통과) | 통과 |
+| 14.3.0 | `dart pub downgrade analyzer`(lowest-analyzer 잡과 같은 절차) | 깨끗 | 1,140 통과, 22 건너뜀, 9 시간 초과(재실행 통과) | 통과 |
+
+건너뛴 22개는 이 환경 탓에 기존 테스트가 스스로 건너뛴 것이다. 13개는 호스트 git(2.43)이
+2.45보다 낮아서 부분 클론 테스트를, 나머지는 root 실행이라 권한 비트가 강제되지 않아 권한
+테스트를 건너뛴다. 자기 분석(제품 미도달 0, 모듈 규칙, 모듈 간 순환 없음)은 일반 테스트에
+포함된다.
+
+14.6.0·14.3.0의 실패는 모두 테스트 기본 시간 제한(30초) 초과였다. 같은 4코어 호스트의 다른
+작업으로 부하 평균이 20 안팎이던 때다. 그 파일들을 `-j 1`로 다시 돌려 통과를 확인했다.
+가장 자주 넘친 `build_config_cache_test`의 첫 사례는 같은 부하에서 14.5.0 27초·14.6.0 35초·
+14.7.0 24초로 버전과 무관하게 30초 언저리였다. 테스트를 건너뛰거나 저장소의 시간 제한을
+바꾸지 않았다.
+
+14.7.0 사본에서 `tool/run-http-route-oracle.sh`(실제 http·dio·retrofit·chopper 요청과 routes
+사실 대조)도 35개 시나리오 일치 32·dynamic 3·불일치 0으로 2026-09-29 기록과 같았고
+`recorded.json`이 바뀌지 않았다.
+
+### 캐시와 남은 공백
+
+- 처음 기록은 "analyzer 해석 경로를 담은 package config가 캐시 키 입력이라 마이너가 바뀌면
+  이전 캐시가 무효화된다"고 적었다. 이는 dartograph가 분석 대상의 의존(dev_dependency)이라
+  그 package config에 dartograph의 analyzer가 들어 있을 때만 맞다. 전역 설치·AOT 바이너리·
+  저장소 소스 실행에서는 분석 대상의 package config가 dartograph의 analyzer를 담지 않아,
+  analyzer 14.5·14.7 바이너리가 한 캐시를 나눠 쓰면 서로의 결과를 돌려줬다(독립 리뷰 재현,
+  2026-11-16 정정). 14.4·14.5 절의 같은 주장도 같은 조건에서만 맞는다. 그래서 이제
+  dartograph가 링크한 analyzer의 신원(Dart VM에서는 해석된 analyzer 패키지 버전과 경로, AOT에서는
+  실행 파일의 경로·크기·수정 시각)을 키에 넣는다(`lib/src/index/analyzer_identity.dart`).
+- 같은 변경에서 include 체인의 옵션 파일(이름이 다르거나 루트 밖·`package:`로 닿는 파일)을
+  키에 넣는다. 자기 옵션 파일이 없는 패키지가 analyzer 규칙대로(14.3–14.7의
+  `findAnalysisOptionsYamlFile`: 자신과 조상 디렉터리에서 처음 만나는 `analysis_options.yaml`)
+  물려받는 루트 밖 파일과 그 include 체인도 넣는다(2026-11-16 델타 리뷰 S-a). 그 파일의
+  패턴은 모든 버전에서 그 파일의 디렉터리 기준이라 앵커 패턴(`lib/generated/**`)은 하위
+  패키지에 적용되지 않고 `**/` 패턴만 적용된다(14.5·14.7 실측 동일). 키가 `analysis_options.yaml`이라는 이름의 파일만 해시해 include한 파일을 고쳐도
+  데워진 캐시가 이전 결과를 돌려줬다. 14.6부터 include한 패턴이 더 자주 적용되므로 더
+  드러난다.
+- 넓힌 pubspec에서 같은 셸은 `newest analyzer 14.7.0, validated upper bound <14.8.0`으로
+  종료 0이다. 예약 잡의 상한은 pubspec에서 읽으므로 워크플로에 범위 상수가 따로 없다.
+- `global_activation` 태그(격리 설치·설치본 CLI 계약)는 이 컨테이너에서 11분 상한을 넘는
+  것이 알려져 있어 돌리지 않았다. CI의 `tool/check-coverage.sh`가 돌린다. 실제 Flutter·대형
+  공개 코퍼스의 과거 측정을 새 버전의 측정으로 대체하거나 정확성 보장으로 확대하지 않는다.
