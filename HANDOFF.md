@@ -1,24 +1,27 @@
 # Handoff
 
-_Last updated: 2026-11-16 (PR #163 독립 리뷰 S1–S5·N1–N3 반영)_
+_Last updated: 2026-11-16 (PR #163 독립 리뷰·델타 리뷰 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(2026-10-11 원문은 그 파일 끝 절).
 
 ## Current Status
 
-- 브랜치 `ccr-37904670-hxdjsx`(`origin/main` `a179b19` 기준)는 `b5d0934`까지 푸시돼
-  PR [#163](https://github.com/ictechgy/dartograph/pull/163)으로 열렸고 CI가 통과했다.
-  독립 리뷰 판정은 "머지 가능, blocker 없음, should-fix 5건"이었다(아래 절). 2026-11-16에
-  그 반영 커밋을 같은 브랜치에 더했고 **아직 푸시하지 않았다**. PR 본문 초안은 세션
-  스크래치에 갱신했다.
+- 브랜치 `ccr-37904670-hxdjsx`(`origin/main` `a179b19` 기준)가 PR
+  [#163](https://github.com/ictechgy/dartograph/pull/163)이다. 어느 커밋까지 푸시됐는지와 CI
+  상태는 이 문서에 적지 않는다 — PR 페이지에서 확인한다(적어 두면 다음 푸시 때 낡는다).
+  첫 독립 리뷰는 "머지 가능, should-fix 5건", 그 반영분의 델타 리뷰는 "머지 가능, should-fix
+  1건과 nit 4건"이었고 모두 아래 커밋에 반영했다. PR 본문 초안은 세션 스크래치에 있다.
   - `3deac5d` build(deps): analyzer 14.6·14.7 검증, 제약 `>=14.3.0 <14.8.0`, 검증 집합 `{3..7}`.
   - `995bdd8` feat(index): `sdk-below-minimum:` 한계. `pub_semver` 직접 의존.
   - `b5d0934` docs: HANDOFF(2026-11-15).
   - `4452ec2` fix(index): include 체인 옵션 파일과 analyzer 신원을 캐시 키에 넣는다(S1·S3).
   - `9fad6e5` feat(index): `options-excluded-files:` 한계, 버전별 include exclude 문구 정정,
     `sdkVersion` 필수화와 증분 테스트(S2·S4·S5·N2). 분석 캐시 신원 `v32`.
-  - 이 HANDOFF 커밋(N3).
+  - `b8a4f2c` docs: HANDOFF(첫 리뷰 반영).
+  - `c3dc9ee` fix(index): 물려받는 조상 옵션 파일도 캐시 키에 넣고 options-excluded 판정
+    검증을 보강한다(델타 리뷰 S-a, N-1–N-3).
+  - 이 HANDOFF 커밋(델타 리뷰 N-4).
 - 발행본은 **0.17.0**이다(pub.dev, GitHub Release `v0.17.0`, `dartograph_analysis_plugin` 0.1.1).
   준비했던 0.16.2는 게시하지 않고 0.17.0에 포함했다. CHANGELOG 0.16.2 절에 그렇게 표기돼 있다.
 - `Unreleased` 변경을 담은 PR [#161](https://github.com/ictechgy/dartograph/pull/161)은
@@ -58,8 +61,8 @@ _Last updated: 2026-11-16 (PR #163 독립 리뷰 S1–S5·N1–N3 반영)_
   적용하지 않았다(결정 기록의 형태별 표). 14.6부터는 모두 적용돼 그 파일에서만 쓰는 선언을
   `dead`가 보고할 수 있다. 보존 정책은 그대로 두고 `options-excluded-files:` 한계로 알린다.
 - 넓힌 pubspec에서 같은 셸은 `<14.8.0`으로 종료 0이다. 예약 잡은 상한을 pubspec에서 읽으므로
-  워크플로에는 범위 상수가 없다(3.11.0이 14.5를 해석한다는 주석만 고쳤다). 실제 예약 잡의
-  통과는 푸시 뒤에 확인해야 한다.
+  워크플로에는 범위 상수가 없다(3.11.0이 14.5를 해석한다는 주석만 고쳤다). 예약 잡은 `main`
+  기준으로 돌므로 이 PR이 머지된 뒤의 실행에서 통과를 확인한다.
 
 ## PR #163 독립 리뷰 반영 (2026-11-16)
 
@@ -96,6 +99,31 @@ _Last updated: 2026-11-16 (PR #163 독립 리뷰 S1–S5·N1–N3 반영)_
   V1 원본 인터페이스 4개 구현)과 리뷰의 실제 패키지 7개 바이트 동일 결과를 적었다.
 - N4(source_packages·중첩 패키지의 `environment.sdk` 비교)는 문서와 일관돼 그대로 뒀다. N5는
   지적대로 문제없다.
+
+## PR #163 델타 리뷰 반영 (2026-11-16, `c3dc9ee`)
+
+델타 리뷰는 첫 반영분(S1–S5, N1–N3)을 실행으로 확인하고 "머지 가능"으로 판정하면서 하나를 더
+찾았다.
+
+- S-a 재현: 리뷰의 fixture `w1/K`(모노레포 루트 옵션이 `**/*.config.dart`를 빼고
+  `packages/app`에는 옵션 파일이 없음)에서 루트 옵션의 exclude를 비워도 데운 캐시가 1 finding과
+  `options-excluded-files:`를 그대로 돌려줬다(차가운 실행 0). analyzer는 컨텍스트 루트의 옵션
+  파일을 자신과 조상 디렉터리에서 처음 만나는 `analysis_options.yaml`로 고른다(14.3·14.5·14.7의
+  `findAnalysisOptionsYamlFile`을 소스로 확인). 루트와 중첩 패키지 루트마다 같은 규칙으로 찾아
+  루트 밖이면 그 파일과 include 체인을 키에 넣는다. 자기 옵션 파일이 있으면 조상은 넣지 않는다.
+  고친 뒤 같은 fixture가 1 → 0 → 1로 따라간다. 물려받은 파일의 패턴은 그 파일 디렉터리 기준이라
+  앵커 패턴은 하위 패키지에 적용되지 않는다(14.5·14.7 실측 동일).
+- 남는 경계(README·TROUBLESHOOTING §8): Blaze 워크스페이스의 기본 옵션, 1 MiB를 넘는 옵션 파일
+  안의 `include:`. include의 `file:` URI는 따라가게 했다.
+- N-1: 증분 호출에 `optionsExcludedFiles: const []`를 넘겨도 통과하던 변형(M2)을 증분 첫 실행·
+  재사용 단언으로 잡는다.
+- N-2: 생성 파일 거르기는 호출자가 이미 analyzed에 더해 동치(M6)라 지우고 불변식을 적었다.
+  `excludedPaths` 확인(M8)은 지금 구성에서 닿지 않는 방어로 주석을 달아 남겼다.
+- N-3: 중첩 패키지는 자기 `.dart_tool/package_config.json`이 있어 따로 컨텍스트가 될 때만 자기
+  옵션으로 판정된다(바깥 옵션만 빼는 파일은 분석, 자기 옵션이 뺀 `example/lib/inner_excluded.dart`는
+  계수). 없으면 바깥 컨텍스트에서 두 옵션 파일이 모두 적용된다. probe로 확인한 대로 테스트와
+  CHANGELOG·USAGE를 고쳤다.
+- N-4: HANDOFF와 PR 본문에서 푸시·CI 상태를 특정 커밋에 묶지 않게 바꿨다.
 
 ## `sdk-below-minimum:` 한계 (`995bdd8`)
 
@@ -196,6 +224,11 @@ _Last updated: 2026-11-16 (PR #163 독립 리뷰 S1–S5·N1–N3 반영)_
   시간 초과 하나(`options_include_cache_test`)는 사례마다 분석을 여섯 번 돌려, 다른 무거운
   테스트처럼 파일 단위 90초 제한을 줬다(시간 초과 뒤 계속 돈 본문이 다음 사례의 임시
   디렉터리를 건드려 `Expected: not Set`로도 보였다).
+- 델타 리뷰 반영 `c3dc9ee`의 새 클론 검증(2026-11-16): 포맷 두 SDK 변경 없음, `dart analyze
+  --fatal-infos` 깨끗. Dart 3.13.3(14.7.0)은 1,186 통과·22 건너뜀·1 시간 초과
+  (`build_config_cache_test`, 단독 재실행 통과), Dart 3.11.0(14.5.0)은 1,187 통과·22 건너뜀·
+  실패 0. 둘 다 CLI 계약 243 ok·오탐 코퍼스·경계 검사·dry-run(경고 0) 통과. 새·관련 테스트
+  30개는 14.3.0·14.6.0 사본에서도 통과했다.
 ## 리뷰 절차의 대체
 
 AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는 `packet-ask`가 없어
@@ -205,9 +238,9 @@ AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는
 
 ## Next Steps
 
-- 2026-11-16 리뷰 반영 커밋의 푸시는 사용자가 정한다. 푸시하면 PR #163의 두 SDK CI와
-  `analyzer-freshness`(workflow_dispatch)로 14.7.0 해석·하한 14.3 잡을 확인하고, CI에서만 도는
-  `global_activation` 태그와 커버리지 90% 게이트 결과를 본다.
+- 푸시는 사용자(코디네이터)가 한다. 푸시할 때마다 PR #163의 두 SDK CI를 확인하고, CI에서만
+  도는 `global_activation` 태그와 커버리지 90% 게이트 결과를 본다. `analyzer-freshness`
+  (workflow_dispatch)로 14.7.0 해석·하한 14.3 잡도 돌려 볼 수 있다.
 - `main` `4bd0370`의 CI(2026-11-10 확인): verify(3.11.0·3.13.3)·lowest-analyzer·fresh-upgrade는
   통과했다. 실패한 둘은 테스트 실패가 아니라 게이트 판정이다.
   - `impact-precheck`의 push 게이트(`--fail-on high`)가 큰 머지 diff에 risk high(81/100)로 실패했다.
@@ -237,7 +270,7 @@ AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는
 ## Resume Prompt
 
 HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고,
-PR #163(브랜치 `ccr-37904670-hxdjsx`)에 독립 리뷰 반영 커밋이 푸시되지 않은 채 있어.
+PR #163(브랜치 `ccr-37904670-hxdjsx`)의 머리 커밋·푸시 여부·CI는 GitHub에서 확인해줘.
 `Unreleased` 변경과 #160 수정은 PR #161로 `main`에 스쿼시 머지됐어(`4bd0370`, 미발행, GLM 대신
 독립 리뷰 에이전트로 리뷰). 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라.
 #160은 Refs로만 연결돼 있으니 제보자 확인 전에는 닫지 마.
