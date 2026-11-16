@@ -1,18 +1,24 @@
 # Handoff
 
-_Last updated: 2026-11-15 (analyzer 14.6·14.7 검증, `sdk-below-minimum:` 한계)_
+_Last updated: 2026-11-16 (PR #163 독립 리뷰 S1–S5·N1–N3 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(2026-10-11 원문은 그 파일 끝 절).
 
 ## Current Status
 
-- 이번 세션(2026-11-15)은 `origin/main` `a179b19`에서 만든 브랜치 `ccr-37904670-hxdjsx`에
-  커밋 세 개를 쌓았다. 푸시·PR·댓글은 하지 않았다(지시 범위 밖). PR 본문 초안은 세션
-  스크래치에 두었다.
+- 브랜치 `ccr-37904670-hxdjsx`(`origin/main` `a179b19` 기준)는 `b5d0934`까지 푸시돼
+  PR [#163](https://github.com/ictechgy/dartograph/pull/163)으로 열렸고 CI가 통과했다.
+  독립 리뷰 판정은 "머지 가능, blocker 없음, should-fix 5건"이었다(아래 절). 2026-11-16에
+  그 반영 커밋을 같은 브랜치에 더했고 **아직 푸시하지 않았다**. PR 본문 초안은 세션
+  스크래치에 갱신했다.
   - `3deac5d` build(deps): analyzer 14.6·14.7 검증, 제약 `>=14.3.0 <14.8.0`, 검증 집합 `{3..7}`.
-  - `995bdd8` feat(index): `sdk-below-minimum:` 한계. 분석 캐시 신원 `v31`, `pub_semver` 직접 의존.
-  - 이 HANDOFF 커밋.
+  - `995bdd8` feat(index): `sdk-below-minimum:` 한계. `pub_semver` 직접 의존.
+  - `b5d0934` docs: HANDOFF(2026-11-15).
+  - `4452ec2` fix(index): include 체인 옵션 파일과 analyzer 신원을 캐시 키에 넣는다(S1·S3).
+  - `9fad6e5` feat(index): `options-excluded-files:` 한계, 버전별 include exclude 문구 정정,
+    `sdkVersion` 필수화와 증분 테스트(S2·S4·S5·N2). 분석 캐시 신원 `v32`.
+  - 이 HANDOFF 커밋(N3).
 - 발행본은 **0.17.0**이다(pub.dev, GitHub Release `v0.17.0`, `dartograph_analysis_plugin` 0.1.1).
   준비했던 0.16.2는 게시하지 않고 0.17.0에 포함했다. CHANGELOG 0.16.2 절에 그렇게 표기돼 있다.
 - `Unreleased` 변경을 담은 PR [#161](https://github.com/ictechgy/dartograph/pull/161)은
@@ -46,13 +52,50 @@ _Last updated: 2026-11-15 (analyzer 14.6·14.7 검증, `sdk-below-minimum:` 한�
   - 14.6·14.7은 Dart `^3.13.0`을 요구한다. Dart 3.11.0은 넓힌 제약에서도 14.5.0을 고른다.
     그래서 CI에서 14.6을 해석하는 잡은 없다.
 - 결과가 달라지는 analyzer 변경이 하나 있다. 14.6.0은 include한 옵션 파일의
-  `analyzer: exclude:`를 다시 패키지 기준으로 해석한다(14.2–14.5 회귀 수정). 14.6부터 그
-  패턴이 파일을 실제로 빼서, 그 파일에서만 쓰는 선언을 `dead`가 보고할 수 있다. 직접 쓴
-  `exclude:`와 같은 결과이고 생성 파일은 계속 보존되므로 보정하지 않았다. 합성 패키지
-  실측과 함께 README·CHANGELOG에 버전별 차이로 적었다.
+  `analyzer: exclude:`를 다시 패키지 기준으로 해석한다(analyzer 14.2–14.5 회귀 수정). 처음
+  기록한 "14.5까지는 아무것도 빼지 못했다"는 틀렸다. 14.5는 같은 디렉터리 include는 모두,
+  조상 디렉터리 include는 `**/` 패턴만 적용했고, 형제·하위 디렉터리와 `package:` include는
+  적용하지 않았다(결정 기록의 형태별 표). 14.6부터는 모두 적용돼 그 파일에서만 쓰는 선언을
+  `dead`가 보고할 수 있다. 보존 정책은 그대로 두고 `options-excluded-files:` 한계로 알린다.
 - 넓힌 pubspec에서 같은 셸은 `<14.8.0`으로 종료 0이다. 예약 잡은 상한을 pubspec에서 읽으므로
   워크플로에는 범위 상수가 없다(3.11.0이 14.5를 해석한다는 주석만 고쳤다). 실제 예약 잡의
   통과는 푸시 뒤에 확인해야 한다.
+
+## PR #163 독립 리뷰 반영 (2026-11-16)
+
+리뷰 원문은 세션 스크래치(`reviews/dartograph-r2.md`)에 있다. 리뷰어의 바이너리·fixture로
+먼저 재현했다.
+
+- S1 재현: 14.7 바이너리에서 형제 디렉터리 include의 exclude를 `[]`로 고쳐도 데운 캐시가
+  3 finding을 그대로 돌려줬다(차가운 실행은 0). 고친 뒤 같은 절차가 0 → 다시 3으로 따라간다.
+  루트 안 `analysis_options.yaml`의 `include:`를 재귀로 따라가(문자열·목록, 루트 밖 경로,
+  `package:`는 가장 가까운 package config) 닿는 파일을 전체 결과 캐시 키와 증분 지문에 넣는다
+  (`lib/src/index/analysis_options_includes.dart`).
+- S2: `options-excluded-files:` 한계. 표준 소스 디렉터리의 비생성 `.dart` 중 그래프에 없고,
+  가장 안쪽 컨텍스트가 숨김 경로·`excludedPaths` 때문이 아니라 옵션 exclude 때문에 분석하지
+  않는 파일을 센다(공개 API만). 접두사는 기존 한계와 겹치지 않고, isthmus의 닫힌 접두사
+  목록은 http 문서에만 적용된다. 리뷰의 injectable·intl_utils 사내 lint 패키지 fixture와
+  very_good_analysis registrant 사례를 테스트로 고정했다(어느 analyzer든 실제 제외만 센다).
+- S3 재현: analyzer 14.5·14.7 바이너리가 한 캐시를 나눠 쓰면 서로의 결과(0·3)를 돌려줬다.
+  SDK 신원에 analyzer 패키지 신원을 더한다. Dart VM은 해석된 analyzer의 버전·경로, AOT는
+  (패키지 해석이 null임을 3.11·3.13 AOT에서 확인) 실행 파일의 경로·크기·수정 시각이다
+  (`lib/src/index/analyzer_identity.dart`). 결정 기록과 TROUBLESHOOTING의 틀린 문장을 고쳤다.
+- S4: README·README.ko·CHANGELOG·CHANGELOG.ko·결정 기록·PR 본문의 문구를 형태별 실측으로
+  바꾸고 범위 표기를 "analyzer 14.3–14.5"(검증 범위, 회귀 시작은 14.2)로 맞췄다.
+- S5 재현: 증분 경로 호출에서 `sdkVersion`을 지워도 새 테스트 32개가 통과했다.
+  `_assembleResult`의 `sdkVersion`·`optionsExcludedFiles`를 필수로 바꾸고 증분 경로 테스트를
+  더했다.
+- 새 테스트는 모두 수정 전 실패(S3은 주입점이 없어 컴파일 실패)를 확인했고, 변경을 하나씩
+  되돌린 변형(키에서 include 제외, 신원 누락, 증분 `sdkVersion` 빈 값, 숨김 경로 계수)이 각각
+  실패시킨다.
+- N1: `impact --format language-traversal`도 새 한계 두 개를 싣는다. isthmus는 그 limitations를
+  자유 문장으로 전달하고(`analysisLimitations` → `analysis-limitation`) `root-not-found:`만
+  해석하므로 교환 계약은 바뀌지 않는다. 그래서 isthmus에 알리지 않았다. isthmus가 graph
+  limitation 접두사 목록을 관리하기 시작하면 알린다.
+- N2: 결정 기록에 14.6의 V1→V2 선언 AST 투영(V2 원본 위임 멤버 34 → 87, V2 클래스 13개가
+  V1 원본 인터페이스 4개 구현)과 리뷰의 실제 패키지 7개 바이트 동일 결과를 적었다.
+- N4(source_packages·중첩 패키지의 `environment.sdk` 비교)는 문서와 일관돼 그대로 뒀다. N5는
+  지적대로 문제없다.
 
 ## `sdk-below-minimum:` 한계 (`995bdd8`)
 
@@ -145,6 +188,14 @@ _Last updated: 2026-11-15 (analyzer 14.6·14.7 검증, `sdk-below-minimum:` 한�
   CLI 계약·`pub publish --dry-run`(경고 0) 통과. Dart 3.11.0(14.5.0 해석)은 일반 테스트 1,167
   통과·22 건너뜀·실패 0과 나머지 게이트 통과. 건너뛴 22개 중 권한 테스트 9개는 위 `setpriv`로
   14.7.0에서 따로 돌려 통과했다. `global_activation` 태그와 커버리지 게이트는 돌리지 않았다.
+- 리뷰 반영 `9fad6e5`의 새 클론 검증(2026-11-16): 포맷은 두 SDK 모두 변경 없음, `dart analyze
+  --fatal-infos` 깨끗. Dart 3.13.3(14.7.0)은 1,175 통과·22 건너뜀·5 시간 초과(`-j 1` 재실행
+  9/9 통과), Dart 3.11.0(14.5.0)은 1,177 통과·22 건너뜀·3 시간 초과(재실행 28/28 통과). 둘 다
+  CLI 계약 243 ok·오탐 코퍼스·경계 검사·`pub publish --dry-run`(경고 0) 통과. 권한 테스트는
+  `setpriv`로 41개 통과·건너뜀 0, 새 테스트는 14.3.0·14.6.0 사본에서도 23개 통과했다.
+  시간 초과 하나(`options_include_cache_test`)는 사례마다 분석을 여섯 번 돌려, 다른 무거운
+  테스트처럼 파일 단위 90초 제한을 줬다(시간 초과 뒤 계속 돈 본문이 다음 사례의 임시
+  디렉터리를 건드려 `Expected: not Set`로도 보였다).
 ## 리뷰 절차의 대체
 
 AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는 `packet-ask`가 없어
@@ -154,7 +205,7 @@ AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는
 
 ## Next Steps
 
-- 브랜치 `ccr-37904670-hxdjsx`를 푸시하고 PR을 열지는 사용자가 정한다. 열면 두 SDK CI와
+- 2026-11-16 리뷰 반영 커밋의 푸시는 사용자가 정한다. 푸시하면 PR #163의 두 SDK CI와
   `analyzer-freshness`(workflow_dispatch)로 14.7.0 해석·하한 14.3 잡을 확인하고, CI에서만 도는
   `global_activation` 태그와 커버리지 90% 게이트 결과를 본다.
 - `main` `4bd0370`의 CI(2026-11-10 확인): verify(3.11.0·3.13.3)·lowest-analyzer·fresh-upgrade는
@@ -166,9 +217,9 @@ AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는
   수정 버전을 안내할지 사용자에게 확인한다.
 - #160 제보자에게 OS·설치 방법(`dart install`/`pub global`)·`PATH`의 dart 위치를 묻는 후속 댓글은
   사용자 승인 뒤에 단다. 제보자 확인 전에는 이슈를 닫지 않는다.
-- 후보(결정 필요): analyzer 14.6부터 include한 옵션 파일의 exclude도 적용되므로, 표준 소스
-  디렉터리 안에서 `analysis_options.yaml` 제외로 빠진 비생성 Dart 파일 수를 한계로 세는 안.
-  지금은 README에만 적었다. 출력이 바뀌는 새 한계라 이번 범위에서 뺐다.
+- 처음에는 analysis options 제외 파일을 세는 한계를 "출력이 바뀌는 새 한계"라며 뺐다.
+  같은 PR이 `sdk-below-minimum:`을 더한 것과 모순된다는 리뷰 지적으로 `options-excluded-files:`를
+  더했다(2026-11-16).
 - 일부러 뺀 후속 항목. 보존을 좁히거나 계약을 바꾸는 변경이라 근거와 결정이 먼저 필요하다.
   - 다음 셋은 보존을 좁히므로, 반대 방향 코퍼스와 실제 프로젝트 델타가 먼저 있어야 한다.
     - 문서 주석 참조(`/// [Foo]`)를 사용 간선에서 빼기
@@ -186,8 +237,8 @@ AGENTS.md는 PR마다 GLM 리뷰(`packet-ask`)를 요구한다. 이 세션에는
 ## Resume Prompt
 
 HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고,
+PR #163(브랜치 `ccr-37904670-hxdjsx`)에 독립 리뷰 반영 커밋이 푸시되지 않은 채 있어.
 `Unreleased` 변경과 #160 수정은 PR #161로 `main`에 스쿼시 머지됐어(`4bd0370`, 미발행, GLM 대신
-독립 리뷰 에이전트로 리뷰). 브랜치 `ccr-37904670-hxdjsx`에는 analyzer 14.6·14.7 검증과
-`sdk-below-minimum:` 한계 커밋이 있고 아직 푸시하지 않았어. 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라.
+독립 리뷰 에이전트로 리뷰). 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라.
 #160은 Refs로만 연결돼 있으니 제보자 확인 전에는 닫지 마.
 Next Steps의 제외 항목은 근거 없이 착수하지 마.
