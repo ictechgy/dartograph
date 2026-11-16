@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- `include:`로 닿는 옵션 파일이 바뀌거나, 캐시를 쓴 것과 다른 `analyzer`로 dartograph를 실행하면 분석 캐시를 재사용하지 않는다. 키는 프로젝트와 의존 루트의 `analysis_options.yaml`이라는 이름의 파일만 해시해서, 같은 디렉터리의 `shared_options.yaml`, 조상의 `../../analysis_options.yaml`, 형제 디렉터리 파일, `package:`로 닿는 lint 패키지 파일을 고쳐도 이전 결과를 돌려줬다. 키에 analyzer 버전도 없어서, 서로 다른 analyzer 마이너로 해석된 전역 설치·AOT 바이너리·저장소 체크아웃이 서로의 결과를 돌려줬다. 이제 키는 include 체인의 모든 파일(문자열·목록 형태, 재귀, package config로 푼 `package:`)과 analyzer 신원을 해시한다. analyzer 신원은 Dart VM에서는 해석된 analyzer 패키지 버전, AOT 바이너리에서는 실행 파일의 경로·크기·수정 시각이다. 분석 캐시 신원을 올린다.
+
 - 분석에 쓰는 Dart SDK가 분석한 패키지(`--workspace`면 각 멤버도)의 `environment.sdk` 하한보다 오래되면 분석 명령이 `sdk-below-minimum:` 한계를 더한다. 예를 들어 `sdk: ^3.13.0`을 선언한 패키지를 Dart 3.11.0으로 분석할 때다. 그 SDK보다 새로운 SDK 라이브러리와 언어 기능은 해석되지 않을 수 있어 도달성이 불완전할 수 있다. 한계는 해당 패키지 수를 세고 각 pubspec을 파싱한 하한과 함께 적는다(`pubspec.yaml (>=3.13.0)`, 경로순 앞의 셋). 오류가 아니므로 finding과 종료 코드는 바뀌지 않는다. `environment.sdk`가 없는 패키지, `any`처럼 하한이 없는 제약, SDK 버전이나 제약을 읽지 못한 경우는 알리지 않는다. 하한은 pub과 같은 방식으로 비교하므로 `3.14.0-150.0.dev` 같은 사전 릴리스 SDK는 `^3.14.0`보다 낮지만 `>=3.14.0-0`은 충족한다. 분석 캐시 신원을 올리고, `analyzer`가 이미 의존하는 `pub_semver`에 dartograph가 직접 의존한다.
 
 - 검증한 `analyzer` 의존 범위를 `>=14.3.0 <14.8.0`으로 넓혀 analyzer 14.6·14.7을 검증 집합(14.3–14.7)에 더한다. analyzer 14.6부터는 Dart 3.13을 요구하므로 Dart 3.11·3.12에서는 pub이 계속 analyzer 14.5를 고른다. analyzer 버전에 따라 결과가 하나 달라질 수 있다. analyzer 14.6은 include한 옵션 파일(`include: package:my_lints/options.yaml`이나 로컬 파일)에서 온 `analyzer: exclude:` 패턴을 다시 패키지 자신의 `analysis_options.yaml` 기준으로 해석한다. analyzer 14.2–14.5는 include한 파일 기준으로 해석해 아무것도 제외하지 못했다. analyzer 14.6 이상에서 그런 패턴은 직접 쓴 `exclude:`와 같다. 제외된 생성 파일(접미사로 인식)은 계속 분석·보존하지만 다른 제외 파일은 분석하지 않으므로, 그 파일에서만 쓰는 선언을 `dead`가 보고할 수 있다.

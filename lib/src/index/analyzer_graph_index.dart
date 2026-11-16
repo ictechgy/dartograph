@@ -24,6 +24,8 @@ import '../core/retention_reason.dart';
 import '../core/test_source.dart';
 import '../core/token_segment.dart';
 import '../core/tool_info.dart';
+import 'analysis_options_includes.dart';
+import 'analyzer_identity.dart';
 import 'bounded_resource_provider.dart';
 import '../core/generated_files.dart';
 import 'dart_sdk_locator.dart';
@@ -277,6 +279,10 @@ final class AnalyzerGraphIndex {
   /// 캐시 크기의 약 30%라, 두 캐시 모두 토큰을 따로 저장하고 이 값이 true인
   /// 색인만 읽는다. false여도 해석한 파일의 토큰은 뽑아 캐시에 둔다 — 다음 `dup`이
   /// 그 파일을 다시 해석하지 않게 한다.
+  ///
+  /// [analyzerIdentity]는 캐시 키에 섞는 analyzer 패키지 신원이다. null이면 이
+  /// 프로세스가 링크한 analyzer에서 읽는다([analyzerPackageIdentity]). 다른 analyzer로
+  /// 만든 캐시를 재사용하지 않는지 확인하는 테스트 주입점이다.
   AnalyzerGraphIndex({
     FactCache? cache,
     IncrementalCache? incremental,
@@ -284,12 +290,14 @@ final class AnalyzerGraphIndex {
     Map<String, String>? userCacheEnvironment,
     bool aggregateWorkspace = false,
     bool includeTokenSegments = false,
+    String? analyzerIdentity,
   }) : _cache = cache,
        _incremental = incremental,
        _incrementalInUserCache = incrementalInUserCache,
        _userCacheEnvironment = userCacheEnvironment,
        _aggregateWorkspace = aggregateWorkspace,
-       _includeTokenSegments = includeTokenSegments {
+       _includeTokenSegments = includeTokenSegments,
+       _analyzerIdentity = analyzerIdentity {
     if (incremental != null && incrementalInUserCache) {
       throw ArgumentError(
         'incremental and incrementalInUserCache choose different fact cache '
@@ -304,13 +312,14 @@ final class AnalyzerGraphIndex {
   final Map<String, String>? _userCacheEnvironment;
   final bool _aggregateWorkspace;
   final bool _includeTokenSegments;
+  final String? _analyzerIdentity;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
     final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
     // SDK는 캐시보다 먼저 찾는다. 찾지 못하면 캐시 유무와 상관없이 같은 실패다 —
     // 데워진 캐시가 SDK 부재를 가리면 같은 입력이 실행마다 다르게 끝난다(#160).
-    final sdk = _analyzerSdk();
+    final sdk = _analyzerSdk(_analyzerIdentity ?? _processAnalyzerIdentity);
     final sourcePackages = _readSourcePackages(root);
     // 사용자 캐시의 사실 디렉터리는 canonical root마다 고른다. compare처럼 한
     // 색인기로 두 루트를 색인해도 서로의 사실 파일을 덮어쓰지 않는다.
@@ -2645,9 +2654,35 @@ Future<List<File>> _analysisInputFiles(
   for (final path in nestedPaths) {
     await addPackage(nestedPackages[path]!);
   }
+  _addIncludedOptionsFiles(root, files.values.toList(), addFile);
   final result = files.values.toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   return result;
+}
+
+/// 루트 안 `analysis_options.yaml`이 `include:`로 닿는 옵션 파일을 [addFile]에 더한다.
+///
+/// analyzer는 include한 파일의 `analyzer: exclude:`도 적용한다. 그 파일은 이름이
+/// 다르거나(`shared_options.yaml`) 루트 밖(`../../analysis_options.yaml`)·lint 패키지
+/// 안에 있을 수 있어 위 열거가 놓친다. 키에 없으면 그 파일을 고쳐도 데워진 캐시가
+/// 이전 제외로 만든 결과를 돌려준다. `package:` include는 그 옵션 파일에서 가장
+/// 가까운 package config로 푼다([includedOptionsFiles]).
+void _addIncludedOptionsFiles(
+  String root,
+  List<File> inputs,
+  void Function(File file) addFile,
+) {
+  for (final options in inputs) {
+    if (p.basename(options.path) != 'analysis_options.yaml' ||
+        !isPathWithinRoot(options.path, root)) {
+      continue;
+    }
+    final configuration = nearestPackageConfigFile(options.parent.path);
+    includedOptionsFiles(
+      options,
+      packageConfig: configuration,
+    ).forEach(addFile);
+  }
 }
 
 /// 표준 소스 디렉터리 안 숨김 디렉터리의 생성 파일을 [addFile]에 더한다.
@@ -3368,16 +3403,21 @@ const _namedNavigationMethods = {
 /// 컴파일 당시 런타임 버전이라 실제로 해석에 쓰는 SDK와 다를 수 있으므로, 찾은
 /// SDK의 `version` 파일 내용을 함께 넣는다. 그래야 SDK를 바꾸면 낡은 결과를
 /// 재사용하지 않는다. [version]은 그 파일 내용이다(읽지 못하면 빈 문자열). 패키지의
-/// `environment.sdk` 하한과 비교한다([sdkBelowMinimumLimitation]).
+/// `environment.sdk` 하한과 비교한다([sdkBelowMinimumLimitation]). 신원에는 이
+/// 프로세스의 analyzer 패키지 신원도 넣는다 — 같은 도구 버전·SDK라도 analyzer
+/// 마이너가 다르면 결과가 다를 수 있다([analyzerPackageIdentity]).
 typedef _AnalyzerSdk = ({String path, String identity, String version});
 
+/// 이 프로세스의 analyzer 패키지 신원이다. 처음 쓸 때 한 번 읽는다.
+final _processAnalyzerIdentity = analyzerPackageIdentity();
+
 /// 색인에 쓸 SDK를 찾는다. 찾지 못하면 [DartSdkNotFoundException]이다.
-_AnalyzerSdk _analyzerSdk() {
+_AnalyzerSdk _analyzerSdk(String analyzerIdentity) {
   final path = _requireDartSdkPath();
   final version = _sdkVersionText(path);
   return (
     path: path,
-    identity: '${Platform.version}\u0000$version',
+    identity: '${Platform.version}\u0000$version\u0000$analyzerIdentity',
     version: version,
   );
 }

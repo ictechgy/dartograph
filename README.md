@@ -433,8 +433,9 @@ Guarantees:
 - The analysis cache lives outside the analyzed project, in the OS user cache
   (`~/Library/Caches`, `$XDG_CACHE_HOME`/`~/.cache`, `%LOCALAPPDATA%`) under
   `dartograph/<project-root-hash>`. It is invalidated automatically when project
-  or dependency contents, mtimes, package resolution, the Dart SDK, or the
-  analysis revision change. A missing or corrupted cache never changes results;
+  or dependency contents, mtimes, package resolution, analysis options files
+  reached through `include:` (also outside the project), the Dart SDK, the
+  `analyzer` that dartograph runs with, or the analysis revision change. A missing or corrupted cache never changes results;
   it only costs analysis time. `--incremental-user-cache` keeps the per-file
   fact cache in the same directory (`incremental/`, or
   `incremental-workspace/` with `--workspace`). An explicit

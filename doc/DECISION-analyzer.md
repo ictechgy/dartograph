@@ -340,8 +340,18 @@ CLI 계약을 돌렸다(Dart 3.13.3, Linux x64, 4코어 공유 호스트).
 
 ### 캐시와 남은 공백
 
-- 캐시 신원은 바꾸지 않는다. 이전 확장과 같이 analyzer 해석 경로를 담은 package config가
-  캐시 키 입력이라 마이너가 바뀌면 이전 캐시가 무효화된다.
+- 처음 기록은 "analyzer 해석 경로를 담은 package config가 캐시 키 입력이라 마이너가 바뀌면
+  이전 캐시가 무효화된다"고 적었다. 이는 dartograph가 분석 대상의 의존(dev_dependency)이라
+  그 package config에 dartograph의 analyzer가 들어 있을 때만 맞다. 전역 설치·AOT 바이너리·
+  저장소 소스 실행에서는 분석 대상의 package config가 dartograph의 analyzer를 담지 않아,
+  analyzer 14.5·14.7 바이너리가 한 캐시를 나눠 쓰면 서로의 결과를 돌려줬다(독립 리뷰 재현,
+  2026-11-16 정정). 14.4·14.5 절의 같은 주장도 같은 조건에서만 맞는다. 그래서 이제
+  dartograph가 링크한 analyzer의 신원(Dart VM에서는 해석된 analyzer 패키지 버전과 경로, AOT에서는
+  실행 파일의 경로·크기·수정 시각)을 키에 넣는다(`lib/src/index/analyzer_identity.dart`).
+- 같은 변경에서 include 체인의 옵션 파일(이름이 다르거나 루트 밖·`package:`로 닿는 파일)을
+  키에 넣는다. 키가 `analysis_options.yaml`이라는 이름의 파일만 해시해 include한 파일을 고쳐도
+  데워진 캐시가 이전 결과를 돌려줬다. 14.6부터 include한 패턴이 더 자주 적용되므로 더
+  드러난다.
 - 넓힌 pubspec에서 같은 셸은 `newest analyzer 14.7.0, validated upper bound <14.8.0`으로
   종료 0이다. 예약 잡의 상한은 pubspec에서 읽으므로 워크플로에 범위 상수가 따로 없다.
 - `global_activation` 태그(격리 설치·설치본 CLI 계약)는 이 컨테이너에서 11분 상한을 넘는
