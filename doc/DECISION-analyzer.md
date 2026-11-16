@@ -281,6 +281,18 @@ JSON의 SHA-256이 일치했다.
   시스템, instrumentation, byte store 둘, `platform_info_io`, `util/sdk.dart`, Blaze watcher).
 - `AnalysisContextCollection`은 14.6.0에서 `enabledExperiments` 인자만 더했다. dartograph는
   넘기지 않는다.
+- 공개 API 표면은 그대로지만 내부 AST 구성이 크게 바뀌었다(2026-11-16 리뷰 지적으로 보충).
+  14.6.0부터 파서가 V2 선언 노드(`TopLevelFunctionDeclaration`·`MethodDeclaration2`·
+  `GetterDeclaration`·`SetterDeclaration`·`OperatorDeclaration`·`FieldsDeclaration`·`Field2`·
+  `TopLevelVariable2`·`LocalVariable` 등)를 만들고, 공개 V1 `FunctionDeclaration`·
+  `MethodDeclaration`·`VariableDeclarationList`·`VariableDeclaration`은 그 V2 노드를 비추는
+  읽기 전용 투영이 된다. `lib/src/dart/ast/ast.dart`에서 V2 원본에 위임한다고 표시한 멤버가
+  14.5.0 34개 → 14.6.0·14.7.0 87개로 늘었고, V2 클래스 13개가 V1 원본 인터페이스 4개
+  (`*V1OriginImpl`)를 구현한다. 식(expression) 노드의 V1 투영 20종은 14.5.0부터 있었다.
+  dartograph는 공개 V1 방문자 API만 쓰므로 컴파일·테스트로 확인했고, 독립 리뷰가 analyzer
+  14.5·14.6·14.7로 고정한 AOT 바이너리를 실제 패키지 7개(dio 5.11.1, built_value 8.13.0,
+  dart_style 3.1.14, chopper_generator, coverage, shelf, dartograph)에 돌려 `graph --level symbol`
+  JSON과 `dead` JSON이 바이트 단위로 같음을 확인했다(리뷰 기록, 이 세션에서 재실행하지 않음).
 - 14.6.0·14.7.0은 Dart `^3.13.0`을 요구한다(소스가 새 생성자 문법을 쓴다). 넓힌 제약으로도
   Dart 3.11.0의 새 해석은 14.5.0을 고른다(실측). 그래서 CI의 verify(3.11.0)은 14.5,
   verify(3.13.3)·fresh-upgrade는 14.7, lowest-analyzer는 14.3을 해석하고 14.6을 해석하는
@@ -296,20 +308,35 @@ JSON의 SHA-256이 일치했다.
   SDK가 그 host SDK다.
 - **결과가 달라지는 변경 하나.** 14.6.0은 include한 옵션 파일(`include:`)의
   `analyzer: exclude:` 패턴을 다시 include 체인을 시작한 `analysis_options.yaml` 기준으로
-  해석한다(14.2–14.5 회귀 수정, dart-lang/sdk#64549). dartograph는
-  `ContextRoot.isAnalyzed`로 analyzer의 제외를 따르므로, 14.5까지는 아무것도 빼지 못하던
-  그런 패턴이 14.6부터 실제로 파일을 뺀다. 합성 패키지로 실측했다(Dart 3.13.3, Linux x64).
+  해석한다(analyzer 14.2–14.5의 회귀 수정, dart-lang/sdk#64549 — dartograph 검증 범위로는
+  14.3–14.5). 회귀 버전은 패턴을 include한 파일의 디렉터리 기준으로 해석했다. dartograph는
+  `ContextRoot.isAnalyzed`로 analyzer의 제외를 따르므로 include 형태에 따라 결과가 달라진다.
 
-  | 입력 | 14.5.0 | 14.6.0·14.7.0 |
+  처음 기록(2026-11-15)은 "14.5까지는 아무것도 빼지 못했다"고 적었지만 형태별로 다시 재니
+  틀렸다(2026-11-16 정정). 같은 패키지(`bin/main.dart`가 injectable `lib/injection.config.dart`와
+  intl_utils `lib/generated/l10n.dart`를 거쳐 쓰는 코드)를 제외 패턴 `**/*.g.dart`·
+  `**/*.config.dart`·`lib/generated/**`로 include 형태만 바꿔 analyzer 14.5.0·14.7.0 고정 AOT
+  바이너리의 `dead` finding 수를 쟀다(Dart 3.13.3, Linux x64, 독립 리뷰의 바이너리·fixture).
+  14.6.0은 리뷰 측정에서 14.7.0과 같았다.
+
+  | include 형태 | 14.5.0 | 14.7.0 |
   |---|---|---|
-  | include한 파일이 `lib/legacy/**`를 제외, `lib/legacy/old.dart`만 쓰는 선언 | 0 finding | 그 선언 1 finding |
-  | 같은 패턴을 `analysis_options.yaml`에 직접 | 1 finding | 1 finding |
-  | include한 파일이 `**/*.g.dart`를 제외, 생성 파일만 쓰는 선언 | 보존 | 보존 |
+  | 패턴을 `analysis_options.yaml`에 직접 | 3 (모두 적용) | 3 |
+  | 같은 디렉터리 `include: shared_options.yaml` | 3 (모두 적용) | 3 |
+  | 하위 디렉터리 `include: config/shared_options.yaml` | 0 (적용 없음) | 3 |
+  | 조상 `include: ../../analysis_options.yaml` | 1 (`**/` 패턴만) | 3 |
+  | 형제 디렉터리 `include: ../shared/options.yaml` | 0 (적용 없음) | 3 |
+  | `include: package:company_lints/analysis_options.yaml` | 0 (적용 없음) | 3 |
 
-  직접 쓴 `exclude:`의 기존 동작, 그리고 결정 7(프로젝트가 명시적으로 제외한 다른 파일은
-  되살리지 않는다)과 같은 결과다. 공유 lint 패키지가 흔히 빼는 생성 파일은 계속 다시 더해
-  보존한다. 보존 정책 자체는 바꾸지 않았으므로 보정하지 않고, README·CHANGELOG에 analyzer
-  버전별 차이로 적는다.
+  3개는 `ServiceLocator.register`·`defaultTitle`·`lib/strings.dart`이며 실제로 쓰이는 코드다.
+  14.7.0의 결과는 직접 쓴 `exclude:`의 기존 동작, 그리고 결정 7(프로젝트가 명시적으로 제외한
+  다른 파일은 되살리지 않는다)과 같다. 공유 lint 패키지가 흔히 빼는 생성 파일은 계속 다시
+  더해 보존한다(include한 파일이 `**/*.g.dart`를 빼도 생성 파일만 쓰는 선언은 두 버전 모두
+  보존). 보존 정책은 바꾸지 않는다. 대신 제외된 비생성 파일을 `options-excluded-files:`
+  한계로 세어(2026-11-16) 그 파일에서만 쓰는 선언이 보고되는 이유를 출력에 남긴다. 리뷰가
+  확인한 공개 lint 패키지 14종의 exclude는 생성 접미사·`generated_plugin_registrant.dart`·
+  `.test_coverage.dart`뿐이라 생성 접미사는 영향이 없고, very_good_analysis의 registrant
+  제외는 14.6부터 그 파일의 finding을 없애고, 대신 그 파일이 이 한계에 나타난다.
 
 ### 실제 컴파일과 테스트
 

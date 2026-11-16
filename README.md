@@ -342,13 +342,18 @@ Limitations:
   files of the package (or of a `--workspace` member), an
   `unanalyzed-directories:` limitation counts them. Keep such code
   with `retained_names` or `retained_files`.
-- Files that `analyzer: exclude:` in `analysis_options.yaml` excludes are not
-  analyzed, except generated files (recognized by suffix), which are analyzed
-  and retained anyway. A declaration used only from an excluded file is
-  reported as unreachable. Exclude patterns from an included options file
-  apply the same way with analyzer 14.6 or later (Dart 3.13 or later);
-  analyzer 14.3–14.5 resolved them relative to the included file, so they
-  excluded nothing.
+- Files that `analyzer: exclude:` in `analysis_options.yaml` (or in a file it
+  includes) excludes are not analyzed, except generated files (recognized by
+  suffix), which are analyzed and retained anyway. A declaration used only from
+  an excluded file is reported as unreachable, so analysis commands count the
+  excluded non-generated Dart files of the analyzed source directories in an
+  `options-excluded-files:` limitation that lists the first three paths.
+  Which patterns of an included file apply depends on the analyzer version.
+  analyzer 14.6 and later (Dart 3.13 or later) apply all of them relative to
+  the package. analyzer 14.3–14.5 resolved them relative to the included file:
+  a file included from the same directory applied all of its patterns, one
+  from an ancestor directory applied only its `**/` patterns, and one from a
+  sibling or child directory or through `package:` applied none.
 - `dart:` libraries are resolved from the Dart SDK that dartograph located (see
   Install). When that SDK is older than the `environment.sdk` lower bound of the
   analyzed package (or of a `--workspace` member), SDK libraries and language

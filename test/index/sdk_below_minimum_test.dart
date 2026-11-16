@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartograph/src/core/fact_cache.dart';
 import 'package:dartograph/src/index/analyzer_graph_index.dart';
+import 'package:dartograph/src/index/incremental_cache.dart';
 import 'package:test/test.dart';
 
 /// 분석에 쓰는 Dart SDK가 패키지 `environment.sdk` 하한보다 낮을 때 실제 analyzer
@@ -109,6 +110,25 @@ void main() {
 
     await package('environment:\n  sdk: ^3.0.0\n');
     expect(sdkFloor(await index(cache: cache)), isEmpty);
+  });
+
+  test('the incremental path counts it on full and reused runs', () async {
+    await package('environment:\n  sdk: ^99.0.0\n');
+    final facts = await Directory.systemTemp.createTemp(
+      'dartograph-floor-incr.',
+    );
+    addTearDown(() => facts.delete(recursive: true));
+    Future<AnalyzerGraphResult> incremental() => AnalyzerGraphIndex(
+      incremental: IncrementalCache(facts.path),
+    ).index(root.path);
+
+    final first = await incremental();
+    // 두 번째 실행은 모든 파일의 사실을 캐시에서 재사용하고 결과만 다시 조립한다.
+    final reused = await incremental();
+
+    for (final result in [first, reused]) {
+      expect(sdkFloor(result), [limitation(1, 'pubspec.yaml (>=99.0.0)')]);
+    }
   });
 
   test('workspace aggregation counts every analyzed package', () async {

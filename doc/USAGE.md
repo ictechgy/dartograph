@@ -302,6 +302,16 @@ finding을 기록하므로 `dead --closed-app --baseline <file>`과 짝이 된�
 `pkgs/a/web/`처럼 루트 기준 경로로 센다. 분석 범위와 보고 대상은 바뀌지 않는다. 그런 선언은
 `dartograph.yaml`의 `retained_names`·`retained_files`로 보존한다.
 
+표준 소스 디렉터리 안이라도 analysis options의 `analyzer: exclude:`(`analysis_options.yaml`과
+그것이 `include:`로 잇는 파일)가 제외한 파일은 분석하지 않는다. 생성 파일(접미사로 인식)은
+제외돼도 다시 더해 분석·보존한다. 그 밖의 제외 파일이 있으면 분석 명령은
+`options-excluded-files: 2 Dart file(s) in analyzed source directories are excluded by analysis options (analysis_options.yaml or a file it includes) and were not analyzed: lib/generated/l10n.dart, lib/injection.config.dart; …`
+limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알린다(나머지는 `and N more`). 숨김
+경로, 자기 `pubspec.yaml`을 가진 중첩 패키지, 링크로만 닿는 경로는 세지 않는다. 그 파일에서만
+쓰는 선언은 미도달로 보고되며 종료 코드와 finding은 이 한계로 바뀌지 않는다. include한 파일의
+패턴은 analyzer 14.6부터 패키지 기준으로 모두 적용된다. 14.3–14.5는 include한 파일 기준이라
+같은 디렉터리 파일만 온전히, 조상 디렉터리 파일은 `**/` 패턴만 적용했다.
+
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
 것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"
