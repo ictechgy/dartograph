@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-11-22 (4차: 대표 라이브러리 보존 루트·`public-libraries:` 한계·rules 설정 줄·열)_
+_Last updated: 2026-11-22 (4차: 대표 라이브러리 보존 루트·`public-libraries:` 한계·rules 설정 줄·열, PR #165 독립 리뷰 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(PR #164 시점 원문은 그 파일 끝 절).
@@ -12,8 +12,11 @@ _Last updated: 2026-11-22 (4차: 대표 라이브러리 보존 루트·`public-l
   패키지 루트 진단, Refs #160)가 있다. 아직 발행하지 않았다.
 - 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `7da8267`에서 다시 시작했다(이전 PR은 스쿼시 머지).
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
-  커밋은 아래 세 수정(대표 라이브러리 루트, `public-libraries:` 한계, rules 설정 줄·열)과 이 HANDOFF
-  커밋이다. 각 수정 커밋의 중간 상태도 포맷·`dart analyze --fatal-infos`가 깨끗했다.
+  코디네이터가 `65c3e43`까지를 PR [#165](https://github.com/ictechgy/dartograph/pull/165)로 올렸다.
+  - `6dd7ded` 대표 라이브러리 루트, `87674a8` `public-libraries:` 한계, `82d0e4c` rules 설정 줄·열,
+    `65c3e43` HANDOFF. 각 수정 커밋의 중간 상태도 포맷·`dart analyze --fatal-infos`가 깨끗했다.
+  - 그 위에 독립 리뷰(차단 2·nit 3) 반영 커밋 하나(아래 "PR #165 독립 리뷰 반영"). 이력을 다시 쓰지
+    않았다.
 
 ## 이번 브랜치의 변경
 
@@ -30,9 +33,11 @@ pub cache의 게시 패키지 65개 코퍼스를 비교했다(아래 "코퍼스 
   import·export하는 라이브러리"인데, 대표 라이브러리를 import하는 것은 패키지 밖 소비자라
   그래프에 없다.
 - 수정: `_assembleResult`가 공개 이름을 하나라도 export하는 대표 라이브러리(`publicApi` 후보가 있는
-  라이브러리, `--workspace` 멤버 포함) 자체를 `publicApi` 보존 루트로 더한다. 라이브러리 루트는
-  분석 계층이 이미 지원하던 형태다(`a library retention root is not also reported as dead` 테스트,
-  explain의 `retained as a root`). `--closed-app`은 publicApi 루트를 빼므로 이 루트도 빠진다.
+  라이브러리, `--workspace` 멤버 포함) 자체를 `publicApi` 보존 루트로 더한다. 처음에는 "분석 계층이
+  이미 지원하던 라이브러리 루트"라고 적었는데, 그 근거(`a library retention root is not also reported
+  as dead`)는 간선 없는 정점 하나의 테스트였다. 실제로는 선언 도달 BFS가 루트 라이브러리의
+  import·export를 따라가 그 대상을 '선언을 담은 라이브러리'로 시드해 explain·query 근거가 틀렸다.
+  리뷰 반영에서 고쳤다(아래). `--closed-app`은 publicApi 루트를 빼므로 이 루트도 빠진다.
   publish_to로 가르지 않았다. 앱도 export한 선언을 이미 publicApi로 보존해 왔고, 그 전제를 걷어내는
   옵션이 `--closed-app`이다. 공개 이름을 export하지 않는 대표 라이브러리(`hide`로 모두 숨김,
   `library;`만)는 근거가 없으므로 전처럼 보고한다. 캐시 신원 v33.
@@ -52,7 +57,10 @@ pub cache의 게시 패키지 65개 코퍼스를 비교했다(아래 "코퍼스 
     주석이 참이 되도록 세 실행에 `--closed-app`을 줬다.
   - `incremental_cli_test`는 배럴의 dead 파일 finding으로 종료 1을 만들던 fixture라, 아무도 import하지
     않는 `lib/legacy.dart`를 더해 같은 단언(종료 1, package:/project: ID)을 유지했다.
-  - README 데모(`tool/record_demo.py`)는 `dead --closed-app`이라 출력이 바뀌지 않는다.
+  - README 데모(`tool/record_demo.py`)의 `dead --closed-app` finding은 바뀌지 않는다. 같은 데모의
+    `impact`·`query`는 `--closed-app` 없이 돌아 `fixtures/closed_app`의 `public-libraries:` 줄
+    (`lib/used.dart`)이 복수형에서 단수형으로 바뀐다(구·신 바이너리로 확인). 기록된 cast(2026-09)는
+    이 한계가 생기기 전 녹화라 그 줄이 아예 없다. 다시 녹화할지는 별도 판단이다.
 
 ### 2. `public-libraries:` 한계가 보존된 선언도 셌다
 
@@ -64,6 +72,8 @@ pub cache의 게시 패키지 65개 코퍼스를 비교했다(아래 "코퍼스 
   build.yaml·설정 보존 루트보다 앞에 있었다.
 - 수정: 모든 루트가 정해진 뒤(설정 보존 다음)에 세고, 술어를 "어떤 루트도 아님"으로 바꿨다.
   라이브러리가 하나면 `… is a public library outside …; its declarations …`로 적는다(단수 문법).
+  이 술어는 최상위 선언만 봐서, 멤버를 보존하지 않는 루트(pragma 등)의 클래스 멤버가 보고되는데도
+  한계를 뺐다. 리뷰 반영에서 공개 멤버까지 보게 고쳤다(아래).
 - 테스트: `public_libraries_test`에 2개(builder·pragma·`main`·`retained_files`로 보존된 파일은 빼고
   단수 문구, 보존 선언과 미보존 선언이 섞인 파일은 센다). builder 사례는 package config을 둔다.
   package config이 없으면 builder ID(`package:widgets/builder.dart::…`)를 찾지 못해 실제로
@@ -121,6 +131,100 @@ pub cache의 게시 패키지 65개(이전 세션의 51개 + 14개)에 package c
   변화 0이고, `source_gen`은 `lib/builder.dart`에 보존 루트가 아닌 공개 클래스(`CombiningBuilder`)가
   있어 계속 센다. 수정 2의 효과는 코퍼스가 아니라 위 재현(builder·annotation·`retained_files`만 있는
   파일)으로 확인했다.
+
+## PR #165 독립 리뷰 반영
+
+리뷰는 차단 2·should-fix 0·nit 3을 냈다. 리뷰어의 fixture는 지워져 설명대로 다시 만들었고, 각 항목을
+`origin/main`(`7da8267`)·`65c3e43`·수정본 네이티브 바이너리로 비교했다.
+
+### 차단 1: 대표 라이브러리가 import·export하는 파일의 explain·query 근거
+
+- 원인: 선언 도달 BFS가 루트가 된 대표 라이브러리의 import·export 간선을 따라가 그 대상 라이브러리를
+  선언 도달 집합에 넣었다. 파일 도달성은 그 집합의 라이브러리 ID를 '도달한 선언을 담은 라이브러리'로
+  선언 witness보다 먼저 시드했으므로, export한 파일은 witness를 잃고 import만 한 파일은
+  `contains a reachable declaration`(거짓, 같은 실행이 그 파일의 유일한 선언을 보고한다)과 경로
+  `[파일]`을 받았다. `query`의 `reachability.path`도 루트에서 시작하지 않았다.
+- 수정(`reachability_analyzer.dart`): 선언 BFS는 보존 루트인 라이브러리(`::` 없는 `package:`·
+  `project:` ID)의 간선을 펼치지 않는다. 그 import·export는 라이브러리 BFS가 실제 `(previous, edge)`로
+  따라간다. 시드는 선언 witness를 먼저, 라이브러리 ID를 `putIfAbsent`로 나중에 한다. 경로가 자기 선언
+  없는 루트 라이브러리에서 시작하면 이유는 `reachable from a retained library`다. 재정의 루트 증분
+  고정점(`_enableReachedOverrideRoots`)도 같은 규칙을 쓴다.
+  - 처음에는 라이브러리 ID 모양이면 모두 펼치지 않게 했다가 `override_only_differential_test`가
+    실패했다. 그 무작위 그래프는 라이브러리 정점에도 아무 종류의 간선을 붙이는데, 증분 고정점은 그
+    정점을 펼치고 기준 구현(`analyze`)은 펼치지 않아 어긋났다. 실제 그래프의 라이브러리 정점에는
+    import·export 간선만 있고(이 저장소 그래프 10,960개 간선으로 확인) 루트가 아닌 라이브러리는 선언
+    BFS에 들어오지 않으므로, 루트만 건너뛰는 규칙이 실제 그래프에서 같은 결과를 내면서 합성 그래프의
+    기존 의미를 지킨다. 결과적으로 루트가 아닌 라이브러리는 `origin/main`처럼 선언 도달 집합에 없어
+    `query`의 상태·witness도 `origin/main`과 같다.
+- 전후(`dead --explain`):
+
+  | 대상 | `origin/main` | `65c3e43` | 수정 후 |
+  |---|---|---|---|
+  | `p11_ownimp`의 import만 한 `src/unused_imported.dart` | `[entry, file]`, import 간선, witness `Own` | `[file]`, 간선 없음, `contains a reachable declaration` | `origin/main`과 같음 |
+  | `p1`의 export된 `src/a.dart`, 이 저장소의 `src/core/code_graph.dart` | witness `a`·`CodeGraph` | witness 없음 | witness 복원 |
+  | 순수 배럴 `p7`이 import만 한 `src/helper.dart` | 미도달 | `[file]`, `contains a reachable declaration` | `[p7.dart, helper.dart]`, import 간선, `reachable from a retained library` |
+
+  `query`의 path도 같다(`[entry, file]`). export 사슬·조건부 export·part를 가진 대표 라이브러리·`bin/`에서
+  닿는 사슬 7개 파일을 비교해 `origin/main`에서 도달하던 파일은 모두 `origin/main`과 같은 답이었다.
+  finding은 `65c3e43`과 같다.
+- 테스트: `entry_library_cli_test`에 3개(export한 파일의 witness, import만 한 파일의 explain·query,
+  자기 선언이 있는 대표 라이브러리가 import한 파일의 witness·query), `reachability_analyzer_test`에
+  1개(라이브러리 루트의 import·export). 넷 다 `65c3e43`에서 실패한다. 변형 셋(BFS 건너뛰기 제거, 시드
+  순서 되돌림, 새 이유 제거)이 각각 실패시킨다. 재정의 고정점 쪽 건너뛰기는 실제 그래프에서 관측
+  차이가 없어(라이브러리 정점의 간선은 import·export뿐) 따로 고정하지 않았다.
+
+### 차단 2: 멤버가 보고되는데 `public-libraries:`가 빠짐
+
+- 원인: 술어가 최상위 선언만 보고 아무 루트나 받았다. publicApi는 공개 멤버까지 루트로 삼지만
+  pragma·`dartograph:ignore`·`retained_names`·`@visibleForTesting`·builder·plugin 루트는 멤버를
+  보존하지 않는다.
+- 수정: 공개 최상위 선언과 공개 멤버(이름의 어느 마디도 `_`로 시작하지 않음, 익명 extension 표식은
+  한 마디)가 모두 루트일 때만 뺀다. enum 상수는 enum으로 구조 보존되므로 보지 않는다.
+  `retained_files`는 멤버까지 루트로 삼으므로 따로 다루지 않는다. 캐시 신원 v34.
+- 전후(`origin/main` → `65c3e43` → 수정 후): `p10_pragma`(pragma 클래스의 `now`)·`p10_ignore`
+  (`dartograph:ignore` 클래스와 extension)·`p10_names`(`retained_names: [FakeClock]`)는 finding이 셋
+  다 그대로인 채 한계가 있음 → 없음 → 있음(단수). `retained_files`·builder factory만·pragma 함수만·
+  pragma enum은 있음 → 없음 → 없음. 비공개 멤버만 있는 pragma 클래스(`Hook._internal` 보고)는 있음 →
+  없음 → 없음(소비자가 쓸 수 없는 멤버다).
+- 테스트: `public_libraries_test`에 1개(pragma 클래스·ignore extension·`retained_names` 클래스를 센다,
+  `65c3e43`에서 실패), 기존 '세지 않음' 테스트에 `retained_files` 클래스 멤버·pragma enum·비공개
+  멤버만 있는 pragma 클래스를 더했다. 변형 둘(최상위만 보기, enum 상수 포함)이 각각 실패시킨다.
+- 문서: CHANGELOG(.ko)의 "None of those declarations is reported as unreachable"와 README(.ko)의
+  "retained by nothing"을 실제 규칙으로 고쳤다.
+
+### nit
+
+1. 열 단위: `describeConfigurationError`의 열은 UTF-16 코드 단위다(`abc`·`😀😀` 키에서 11·12열,
+   `dartograph.yaml` 진단과 같다). 닫히지 않은 따옴표 문자열은 yaml 파서가 멈춘 파일 끝(마지막 줄 다음
+   줄 1열)을 짚는다(`dartograph.yaml`도 같다). USAGE·TROUBLESHOOTING·CHANGELOG(.ko)·함수 주석에 적었다.
+2. 데모: 위 1절의 문장을 고쳤다(`impact`·`query`의 `public-libraries:` 줄이 단수형으로 바뀐다).
+3. `--workspace`의 `public-libraries:`는 루트 pubspec만 본다. 루트가 `publish_to: none`이고 게시할 수
+   있는 멤버의 `lib/wb_other.dart`(`p9_ws`)는 세지 않는다(`origin/main`·수정본 같음, 멤버를 따로
+   분석하면 센다). 범위 밖이라 Next Steps에 남겼다.
+
+### 리뷰 반영 검증
+
+- 실행 환경: 테스트·바이너리 실행은 `HOME`을 스크래치로 두고(`PUB_CACHE=/root/.pub-cache`) 돌려 실제
+  `~/.cache/dartograph`를 건드리지 않았다(실행 전후 항목 수 2,350 그대로).
+- Dart 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 테스트(`-j 2`,
+  `--exclude-tags=global_activation`) 1,230 통과·22 건너뜀·실패 0(`self_analysis_test` 포함), 이 실행만의
+  제품 라인 커버리지 12,585/13,413(93.83%). 첫 실행에서 `override_only_differential_test`가 실패해
+  차단 1의 규칙을 루트 라이브러리로 좁혔다(위). 오탐 코퍼스·analyzer 경계 통과, CLI 계약 243 ok.
+  `global_activation`은 `65c3e43`에서 상한 없이 통과한 뒤 설치 경로가 바뀌지 않아 다시 돌리지 않았다.
+- Dart 3.11.0(analyzer 14.5.0) worktree: 포맷·analyze 깨끗, 관련 테스트 136개 통과.
+- 새 테스트 다섯(`entry_library` 3, `reachability_analyzer` 1, `public_libraries` 1)은 `65c3e43` 코드에서
+  모두 실패한다. 변형 다섯(BFS 건너뛰기 제거, 시드 순서 되돌림, 새 이유 제거, 최상위만 보기, enum 상수
+  포함)이 각각 하나 이상을 실패시킨다.
+- 코퍼스(65개, `dead` 65·`--closed-app` 51, 큰 두 패키지를 뺀 63개 패키지의 라이브러리 2,429개에 대한
+  `query --batch`):
+  - `65c3e43` → 수정본: finding·종료 코드·limitation 변화 0. `query` 경로 21개가 바뀌었다. 모두
+    `65c3e43`이 `[파일]`로 잘못 시드하던 라이브러리이고 이제 실제 간선 경로다(예: `test_api`의
+    `hooks.dart` `[hooks.dart]` → `[test_api.dart, hooks.dart]`, `file`의 `interface.dart` →
+    `[common.dart, interface.dart]`).
+  - `origin/main` → 수정본: 빠진 finding 6·종료 1 → 0 두 패키지(처음 보고와 같음), limitation은 단수
+    문구만. `query` 2,429개 중 2,363개는 `origin/main`과 같다. 57개는 대표 라이브러리가 `retained`
+    (`publicApi`, 경로 `[entry]`)가 됐고, 3개는 대표 라이브러리를 거치던 경로가 그 루트에서 시작하게
+    짧아졌고, 6개는 이번에 빠진 finding의 파일이 실제 경로로 도달했다.
 
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
@@ -200,6 +304,10 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
     캐시" 규칙과 맞지 않으므로 테스트 쪽 후속이다.
   - `build_config_cache_test`가 시간 초과하면 teardown 뒤에도 본문이 돌아 증분 캐시 디렉터리를 다시
     만든다(`/tmp/dartograph-build-incremental.*`가 남는다).
+  - `--workspace`에서 `public-libraries:`는 루트 pubspec의 `publish_to`·이름만 본다. 게시할 수 있는
+    멤버의 다른 최상위 라이브러리는 세지 않는다(PR #165 리뷰 nit 3, 기존 동작).
+  - README 데모 cast는 `public-libraries:` 한계가 생기기 전 녹화다. 다시 녹화하면 `impact`·`query`
+    출력에 그 줄이 생긴다.
 - 일부러 뺀 후속 항목. 보존을 좁히거나 계약을 바꾸는 변경이라 근거와 결정이 먼저 필요하다.
   - 다음 셋은 보존을 좁히므로, 반대 방향 코퍼스와 실제 프로젝트 델타가 먼저 있어야 한다.
     - 문서 주석 참조(`/// [Foo]`)를 사용 간선에서 빼기
@@ -219,6 +327,7 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
 
 HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고 `main`
 `7da8267`까지의 `Unreleased`는 미발행이야. 브랜치 `ccr-37904670-hxdjsx`의 4차 수정(대표 라이브러리
-보존 루트, `public-libraries:` 한계, rules 설정 줄·열)이 PR로 올라갔는지와 CI는 GitHub에서 확인해줘.
+보존 루트, `public-libraries:` 한계, rules 설정 줄·열)과 PR #165 리뷰 반영 커밋이 푸시됐는지와 CI는
+GitHub에서 확인해줘.
 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라. #160은 Refs로만 연결돼 있으니 제보자 확인 전에는
 닫지 말고, 새 댓글은 승인 뒤에만 달아. Next Steps의 제외 항목은 근거 없이 착수하지 마.

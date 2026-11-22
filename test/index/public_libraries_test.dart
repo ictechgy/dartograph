@@ -82,14 +82,19 @@ environment:
     // 수정 전에는 publicApi가 아닌 보존 근거를 모두 '미보존'으로 셌고, 설정
     // 보존(retained_files)과 build.yaml builder 보존보다 먼저 셌다. 그래서 이
     // 한계가 권하는 retained_files를 따른 kept.dart와 builder factory만 있는
-    // builder.dart도 '미도달로 보고된다'고 알렸다. 어느 파일의 선언도 dead로
-    // 보고되지 않는다.
+    // builder.dart도 '미도달로 보고된다'고 알렸다. 아래 파일에는 소비자만 써서
+    // 미도달로 보고될 공개 선언이 없다. retained_files는 멤버(Kept.run)까지
+    // 보존하고, pragma enum의 상수는 enum으로 보존되며, Hook에는 비공개 멤버만
+    // 있다(소비자가 쓸 수 없다).
     final limitations = await publicLibrariesFor(
       {
         'widgets.dart': 'class Widget {}',
         'builder.dart': 'Object widgetBuilder(Object options) => options;',
-        'hooks.dart': "@pragma('vm:entry-point')\nvoid nativeHook() {}",
-        'kept.dart': 'class Kept {}',
+        'hooks.dart':
+            "@pragma('vm:entry-point')\nvoid nativeHook() {}\n"
+            "@pragma('vm:entry-point')\nclass Hook { void _internal() {} }",
+        'kept.dart': 'class Kept { void run() {} }',
+        'levels.dart': "@pragma('vm:entry-point')\nenum Level { low, high }",
         'tool.dart': 'void main() {}',
         'testing.dart': 'class FakeWidget {}',
       },
@@ -139,6 +144,34 @@ builders:
       ]);
     },
   );
+
+  test('a class retained without its members is still counted', () async {
+    // pragma·dartograph:ignore·retained_names는 그 선언만 보존하고 공개 멤버는
+    // 보존하지 않는다(publicApi와 다르다). 소비자만 쓰는 FakeClock.now·
+    // FakeExt.doubled는 계속 미도달로 보고되므로 한계도 남아야 한다. 대표
+    // 라이브러리 밖 최상위 선언만 보던 판정은 이 파일들을 뺐다.
+    final limitations = await publicLibrariesFor(
+      {
+        'widgets.dart': 'class Widget {}',
+        'pragma.dart':
+            "@pragma('vm:entry-point')\n"
+            'class FakeClock { DateTime now() => DateTime(2000); }',
+        'ignored.dart':
+            '// dartograph:ignore\n'
+            'extension FakeExt on int { int get doubled => this * 2; }',
+        'named.dart': 'class FakeTimer { void tick() {} }',
+      },
+      rootFiles: {'dartograph.yaml': 'retained_names:\n  - FakeTimer\n'},
+    );
+
+    expect(limitations, [
+      'public-libraries: lib/ignored.dart, lib/named.dart, lib/pragma.dart are '
+          'public libraries outside lib/widgets.dart; their declarations are '
+          'not retained as public API, so ones used only by package consumers '
+          'are reported as unreachable (export them from lib/widgets.dart or '
+          'retain them with retained_files)',
+    ]);
+  });
 
   test(
     'an application that is not published is not told about consumers',

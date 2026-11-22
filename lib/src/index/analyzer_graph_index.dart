@@ -2472,8 +2472,10 @@ const _cacheSchemaVersion = 8;
 // 하는 대표 라이브러리를 dead 파일로 남기므로 폐기한다. public-libraries 한계가
 // 다른 근거로 보존된 선언을 세지 않는다(같은 v33). 이전 캐시는 builder·
 // retained_files로 보존한 파일을 이 한계에 남긴다.
+// public-libraries 한계가 루트가 아닌 공개 멤버도 본다(v34). v33 캐시는 멤버를
+// 보존하지 않는 annotation·설정 루트 클래스의 파일을 이 한계에서 뺀다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v33-entry-library-root';
+    'dartograph-analysis-$toolVersion-cache-v34-public-members';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3218,9 +3220,12 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
 /// 패키지의 다른 최상위 `lib/*.dart`(예: `lib/testing.dart`)도 소비자가 import하는
 /// 공개 라이브러리인데, 그 선언을 소비자만 쓰면 아무 표시 없이 미도달로 보고됐다.
-/// 공개 최상위 선언이 모두 보존 루트인 파일은 세지 않는다. 대표 라이브러리가 다시
-/// export한 선언뿐 아니라 annotation·build.yaml builder·`retained_files` 등 다른
-/// 근거로 보존된 선언도 미도달로 보고되지 않기 때문이다. 그래서 [retentionRoots]가
+/// 공개 최상위 선언과 공개 멤버가 모두 보존 루트인 파일은 세지 않는다. 대표
+/// 라이브러리가 다시 export한 선언은 공개 멤버까지 publicApi 루트가 되고,
+/// `retained_files`는 파일의 모든 선언을 루트로 삼는다. annotation·
+/// `dartograph:ignore`·`retained_names`·build.yaml builder·plugin 루트는 그
+/// 선언만 보존하고 멤버는 보존하지 않으므로, 그 클래스의 공개 멤버를 소비자만
+/// 쓰면 여전히 미도달로 보고된다. 그런 파일은 센다. 그래서 [retentionRoots]가
 /// 모두 정해진 뒤에 부른다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로
 /// 알리지 않는다. 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지
 /// 보존하면 미사용이 가려진다. 알릴 것이 없으면 null이다.
@@ -3242,7 +3247,7 @@ String? _publicLibrariesLimitation(
           RegExp(r'^lib/[^/]+\.dart$').hasMatch(source) &&
           facts[source]!.nodes.any(
             (node) =>
-                _isPublicTopLevel(node.id) &&
+                _isReportablePublicDeclaration(node) &&
                 !retentionRoots.containsKey(node.id),
           ))
         source,
@@ -3282,12 +3287,25 @@ String _optionsExcludedFilesLimitation(List<String> files) {
       'dartograph.yaml)';
 }
 
-/// 라이브러리의 비공개가 아닌 최상위 선언 ID인지 본다(`lib::Name`).
-bool _isPublicTopLevel(String id) {
-  final separator = id.indexOf('::');
+/// 소비자가 이름으로 쓸 수 있고 보존 루트가 아니면 미도달로 보고될 수 있는
+/// 선언인지 본다.
+///
+/// 최상위 선언(`lib::Name`)과 그 멤버(`lib::Name.member`)를 모두 본다. 이름의
+/// 어느 마디든 `_`로 시작하면 비공개다(비공개 클래스의 멤버도 소비자가 쓸 수
+/// 없다). 익명 extension 표식(`<unnamed-extension@…>`)은 경로의 점을 담을 수
+/// 있어 한 마디로 본다(import한 소비자에게 적용되므로 공개다). enum 상수는 enum이
+/// 살아 있으면 구조적으로 보존되므로 빼고, enum 자체는 최상위 선언으로 센다.
+bool _isReportablePublicDeclaration(GraphNode node) {
+  if (node.isEnumConstant) return false;
+  final separator = node.id.indexOf('::');
   if (separator < 0) return false;
-  final name = id.substring(separator + 2);
-  return name.isNotEmpty && !name.contains('.') && !name.startsWith('_');
+  var name = node.id.substring(separator + 2);
+  if (name.startsWith('<')) {
+    final markerEnd = name.indexOf('>');
+    if (markerEnd < 0) return true;
+    name = name.substring(markerEnd + 1);
+  }
+  return !name.split('.').any((segment) => segment.startsWith('_'));
 }
 
 List<String> _agentLimitations(

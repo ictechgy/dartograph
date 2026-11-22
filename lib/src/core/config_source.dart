@@ -75,7 +75,8 @@ const _configurationTooLarge =
 
 /// 설정 파일의 형식 오류 [exception]을 진단에 실을 문구다. YAML 구문 오류면 1부터
 /// 센 줄·열을 붙인다. 파서 문구(`Expected node content.`)만으로는 어디를 고칠지
-/// 알 수 없다.
+/// 알 수 없다. 열은 source_span의 단위인 UTF-16 코드 단위다(bridge 사실의 UTF-8
+/// 바이트 열과 다르다). 닫히지 않은 따옴표 문자열은 파서가 멈춘 파일 끝을 짚는다.
 ///
 /// [FormatException.message]만 쓴다. `toString()`과 `source`는 원문 전체를 담을 수
 /// 있다. `dartograph.yaml`·pubspec 진단과 rules 설정 진단이 같은 형식을 쓴다.

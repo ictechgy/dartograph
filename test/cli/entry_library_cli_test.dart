@@ -108,6 +108,99 @@ void main() {
     });
   }
 
+  /// `dead --explain [id] --format json`의 문서다.
+  Future<Map<String, Object?>> explain(String id) async {
+    final result = await run(['dead', '--explain', id, '--format', 'json']);
+    expect(result.code, ExitStatus.success.code, reason: result.error);
+    return jsonDecode(result.output) as Map<String, Object?>;
+  }
+
+  /// `query [id]`의 `reachability` 객체다.
+  Future<Map<String, Object?>> queryReachability(String id) async {
+    final result = await run(['query', id]);
+    expect(result.code, ExitStatus.success.code, reason: result.error);
+    final document = jsonDecode(result.output) as Map<String, Object?>;
+    return (document['result']! as Map<String, Object?>)['reachability']!
+        as Map<String, Object?>;
+  }
+
+  // 대표 라이브러리 루트가 선언 도달 집합에 들어가 그 라이브러리가 import·export하는
+  // 파일까지 '도달한 선언을 담은 라이브러리'로 시드되던 회귀를 막는다. 그때는
+  // export한 파일이 witness를 잃고, import만 한 파일은 대표 라이브러리에서 시작하는
+  // 경로와 import 간선 대신 `contains a reachable declaration`(거짓)을 받았다.
+  test('an exported file keeps the declaration that witnesses it', () async {
+    await writePackage();
+
+    expect(await explain('project:lib/src/widget.dart'), {
+      'evidence': const <Object>[],
+      'id': 'project:lib/src/widget.dart',
+      'limitations': const <String>[],
+      'path': ['project:lib/src/widget.dart'],
+      'reachable': true,
+      'reason': 'contains a reachable declaration',
+      'witness': 'project:lib/src/widget.dart::Widget',
+    });
+  });
+
+  test('a file the entry library only imports is explained through that '
+      'import', () async {
+    await writePackage();
+    // 대표 라이브러리가 import만 하고 쓰지 않는 파일이다. 지우면 대표 라이브러리가
+    // 컴파일되지 않으므로 dead 파일은 아니지만, 그 선언은 계속 미도달이다.
+    await write(
+      'lib/widgets.dart',
+      "import 'src/helper.dart';\nexport 'src/widget.dart';\n",
+    );
+    await write('lib/src/helper.dart', 'class Helper {}\n');
+    const helper = 'project:lib/src/helper.dart';
+
+    final dead = await deadIds();
+    expect(dead.ids, contains('$helper::Helper'));
+    expect(dead.ids, isNot(contains(helper)));
+
+    expect(await explain(helper), {
+      'evidence': [
+        {'from': entry, 'kind': 'import', 'to': helper},
+      ],
+      'id': helper,
+      'limitations': const <String>[],
+      'path': [entry, helper],
+      'reachable': true,
+      // 자기 선언이 없는 대표 라이브러리에서 시작한다. 선언을 담았다고 하지 않는다.
+      'reason': 'reachable from a retained library',
+    });
+    final reachability = await queryReachability(helper);
+    expect(reachability['state'], 'reachable');
+    expect(reachability['path'], [entry, helper]);
+  });
+
+  test('a file imported by an entry library with its own declaration keeps '
+      'that witness', () async {
+    await write('pubspec.yaml', 'name: widgets\nenvironment:\n  sdk: ^3.0.0\n');
+    await write(
+      'lib/widgets.dart',
+      "import 'src/unused_imported.dart';\nclass Own {}\n",
+    );
+    await write('lib/src/unused_imported.dart', 'class U {}\n');
+    const imported = 'project:lib/src/unused_imported.dart';
+
+    final dead = await deadIds();
+    expect(dead.ids, ['$imported::U']);
+
+    expect(await explain(imported), {
+      'evidence': [
+        {'from': entry, 'kind': 'import', 'to': imported},
+      ],
+      'id': imported,
+      'limitations': const <String>[],
+      'path': [entry, imported],
+      'reachable': true,
+      'reason': 'reachable from a library containing a reachable declaration',
+      'witness': 'project:lib/widgets.dart::Own',
+    });
+    expect((await queryReachability(imported))['path'], [entry, imported]);
+  });
+
   test('--closed-app reports the entry library together with its exports, '
       'as before', () async {
     await writePackage();
