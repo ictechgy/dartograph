@@ -123,6 +123,8 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   루트 기준 경로로 적는다. `Analysis failed: --workspace requires a pub workspace root: …`는
   `pubspec.yaml`이 없거나 `workspace:` 멤버를 선언하지 않은 루트에 `--workspace`를 줬다는 뜻이다. 그 설정을 읽는
   분석 명령은 모두 같은 진단과 종료 코드 2로 끝난다(`impact`도 64가 아니다).
+  `rules --config`의 `Analysis failed: invalid rules configuration: …`도 YAML 구문 오류에
+  같은 줄·열을 붙인다. 설정 파일 경로는 반향하지 않는다.
 - `Analysis failed: the package root was not found or is not a directory.`는 패키지 루트
   인자가 없는 경로·끊긴 링크·순환 링크·파일이거나, 상위 디렉터리 권한 때문에 닿을 수 없는
   경로라는 뜻이다. 경로 오타나 `lib/main.dart` 같은 파일을 넘기지 않았는지, 상위 디렉터리를

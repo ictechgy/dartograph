@@ -750,6 +750,8 @@ Dart SDK가 필요하다.
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
 `rules`는 `name`·`from`(출발 레이어)·`allow` 또는 `deny`(정확히 하나, 대상 레이어 목록)를
 가진다. 알려지지 않은 키나 `allow`/`deny`가 둘 다 있거나 둘 다 없으면 분석 실패(종료 코드 2)다.
+진단은 `Analysis failed: invalid rules configuration: <원인>`이고, YAML 구문 오류에는
+`dartograph.yaml` 진단처럼 1부터 센 줄·열을 붙인다(`Duplicate mapping key. (line 3, column 5)`).
 규칙은 양끝이 모두 레이어에 배치된 사용 간선만 검사한다. 그래서 `allow` 규칙도 어느 레이어에도
 매치되지 않는 코드로의 의존은 위반으로 보지 않는다. 규칙이 있는 레이어에서 그런 정점으로 가는
 간선이 있으면 `unassigned-layer-targets: <n> usage edge(s) from layers with rules reach <m> node(s)
