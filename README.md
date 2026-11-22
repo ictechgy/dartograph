@@ -389,7 +389,9 @@ Limitations:
   with the exported declarations. Other top-level `lib/*.dart`
   libraries of a package that can be published (no `publish_to: none`), such
   as `lib/testing.dart`, are counted by a `public-libraries:` limitation when
-  some of their public declarations are not exported from the entry library.
+  some of their public declarations are retained by nothing (not exported from
+  the entry library, annotated, declared in `build.yaml`, or kept by
+  `retained_names`/`retained_files`).
 - Typedefs are not graph nodes. A use of a typedef references the declarations
   in its aliased type, so `typedef Models = List<Model>` keeps `Model`
   reachable wherever `Models` is used. Querying a typedef reports `notFound`,

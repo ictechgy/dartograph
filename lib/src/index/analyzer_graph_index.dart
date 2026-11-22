@@ -1668,13 +1668,6 @@ AnalyzerGraphResult _assembleResult({
         member.relPath,
     ],
   );
-  final publicLibraries = _publicLibrariesLimitation(
-    pubspecContent,
-    sources,
-    facts,
-    retentionRoots,
-  );
-  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -1736,6 +1729,16 @@ AnalyzerGraphResult _assembleResult({
       'dartograph.yaml retained_names/retained_files',
     );
   }
+  // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
+  // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
+  // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
+  final publicLibraries = _publicLibrariesLimitation(
+    pubspecContent,
+    sources,
+    facts,
+    retentionRoots,
+  );
+  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -2466,7 +2469,9 @@ const _cacheSchemaVersion = 8;
 // 싣는다. 이전 캐시에는 이 한계가 없다. 같은 무렵 키에 더한 include 체인의 옵션
 // 파일과 analyzer 패키지 신원은 키 구성 자체가 바뀌므로 신원 변경이 필요 없었다.
 // 대표 라이브러리 자체를 publicApi 보존 루트로 더한다(v33). 이전 캐시는 export만
-// 하는 대표 라이브러리를 dead 파일로 남기므로 폐기한다.
+// 하는 대표 라이브러리를 dead 파일로 남기므로 폐기한다. public-libraries 한계가
+// 다른 근거로 보존된 선언을 세지 않는다(같은 v33). 이전 캐시는 builder·
+// retained_files로 보존한 파일을 이 한계에 남긴다.
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v33-entry-library-root';
 
@@ -3213,10 +3218,12 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
 /// 패키지의 다른 최상위 `lib/*.dart`(예: `lib/testing.dart`)도 소비자가 import하는
 /// 공개 라이브러리인데, 그 선언을 소비자만 쓰면 아무 표시 없이 미도달로 보고됐다.
-/// 대표 라이브러리가 다시 export해 이미 publicApi로 보존된 선언만 있는 파일은
-/// 세지 않는다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다.
-/// 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이
-/// 가려진다. 알릴 것이 없으면 null이다.
+/// 공개 최상위 선언이 모두 보존 루트인 파일은 세지 않는다. 대표 라이브러리가 다시
+/// export한 선언뿐 아니라 annotation·build.yaml builder·`retained_files` 등 다른
+/// 근거로 보존된 선언도 미도달로 보고되지 않기 때문이다. 그래서 [retentionRoots]가
+/// 모두 정해진 뒤에 부른다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로
+/// 알리지 않는다. 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지
+/// 보존하면 미사용이 가려진다. 알릴 것이 없으면 null이다.
 String? _publicLibrariesLimitation(
   String? pubspecContent,
   List<String> sources,
@@ -3236,7 +3243,7 @@ String? _publicLibrariesLimitation(
           facts[source]!.nodes.any(
             (node) =>
                 _isPublicTopLevel(node.id) &&
-                retentionRoots[node.id] != RetentionReason.publicApi,
+                !retentionRoots.containsKey(node.id),
           ))
         source,
   ]..sort();
@@ -3246,6 +3253,12 @@ String? _publicLibrariesLimitation(
   final more = unretained.length > shown
       ? ' and ${unretained.length - shown} more'
       : '';
+  if (unretained.length == 1) {
+    return 'public-libraries: $listed is a public library outside $entry; '
+        'its declarations are not retained as public API, so ones used only '
+        'by package consumers are reported as unreachable (export it from '
+        '$entry or retain it with retained_files)';
+  }
   return 'public-libraries: $listed$more are public libraries outside $entry; '
       'their declarations are not retained as public API, so ones used only '
       'by package consumers are reported as unreachable (export them from '

@@ -47,6 +47,99 @@ environment:
     },
   );
 
+  /// 게시할 수 있는 패키지 `widgets`의 `lib/` 아래에 [libraries]를 쓰고, 루트에
+  /// [rootFiles](build.yaml·dartograph.yaml 등)를 써서 색인한 `public-libraries:`
+  /// 한계 목록이다.
+  Future<List<String>> publicLibrariesFor(
+    Map<String, String> libraries, {
+    Map<String, String> rootFiles = const {},
+  }) async {
+    final root = await Directory.systemTemp.createTemp('public-libraries.');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory('${root.path}/lib').create(recursive: true);
+    await File(
+      '${root.path}/pubspec.yaml',
+    ).writeAsString('name: widgets\nenvironment:\n  sdk: ^3.11.0\n');
+    for (final entry in libraries.entries) {
+      await File('${root.path}/lib/${entry.key}').writeAsString(entry.value);
+    }
+    for (final entry in rootFiles.entries) {
+      final file = File('${root.path}/${entry.key}');
+      await file.parent.create(recursive: true);
+      await file.writeAsString(entry.value);
+    }
+    final result = await AnalyzerGraphIndex(
+      userCacheEnvironment: const {},
+    ).index(root.path);
+    return [
+      for (final line in result.limitationDetails)
+        if (line.startsWith('public-libraries:')) line,
+    ];
+  }
+
+  test('libraries whose public declarations are all retained on other grounds '
+      'are not counted', () async {
+    // 수정 전에는 publicApi가 아닌 보존 근거를 모두 '미보존'으로 셌고, 설정
+    // 보존(retained_files)과 build.yaml builder 보존보다 먼저 셌다. 그래서 이
+    // 한계가 권하는 retained_files를 따른 kept.dart와 builder factory만 있는
+    // builder.dart도 '미도달로 보고된다'고 알렸다. 어느 파일의 선언도 dead로
+    // 보고되지 않는다.
+    final limitations = await publicLibrariesFor(
+      {
+        'widgets.dart': 'class Widget {}',
+        'builder.dart': 'Object widgetBuilder(Object options) => options;',
+        'hooks.dart': "@pragma('vm:entry-point')\nvoid nativeHook() {}",
+        'kept.dart': 'class Kept {}',
+        'tool.dart': 'void main() {}',
+        'testing.dart': 'class FakeWidget {}',
+      },
+      rootFiles: {
+        'build.yaml': '''
+builders:
+  widget:
+    import: "package:widgets/builder.dart"
+    builder_factories: ["widgetBuilder"]
+    build_extensions: {".dart": [".widget.dart"]}
+''',
+        'dartograph.yaml': 'retained_files:\n  - lib/kept.dart\n',
+        // builder factory는 package: ID로만 찾는다. package config이 없으면
+        // 보존되지 않아 실제로 미도달로 보고되므로 세는 것이 맞다.
+        '.dart_tool/package_config.json': '''
+{"configVersion": 2, "packages": [{"name": "widgets", "rootUri": "../",
+"packageUri": "lib/", "languageVersion": "3.11"}]}
+''',
+      },
+    );
+
+    expect(limitations, [
+      'public-libraries: lib/testing.dart is a public library outside '
+          'lib/widgets.dart; its declarations are not retained as public API, '
+          'so ones used only by package consumers are reported as unreachable '
+          '(export it from lib/widgets.dart or retain it with retained_files)',
+    ]);
+  });
+
+  test(
+    'a library with one unretained public declaration is still counted',
+    () async {
+      final limitations = await publicLibrariesFor({
+        'widgets.dart': 'class Widget {}',
+        // nativeHook은 보존되지만 Helper는 소비자만 쓰면 미도달로 보고된다.
+        'hooks.dart':
+            "@pragma('vm:entry-point')\nvoid nativeHook() {}\nclass Helper {}",
+        'testing.dart': 'class FakeWidget {}',
+      });
+
+      expect(limitations, [
+        'public-libraries: lib/hooks.dart, lib/testing.dart are public libraries '
+            'outside lib/widgets.dart; their declarations are not retained as '
+            'public API, so ones used only by package consumers are reported as '
+            'unreachable (export them from lib/widgets.dart or retain them with '
+            'retained_files)',
+      ]);
+    },
+  );
+
   test(
     'an application that is not published is not told about consumers',
     () async {
