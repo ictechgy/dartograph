@@ -120,6 +120,9 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   줄·열을 붙인다). `Analysis failed: --workspace requires a pub workspace root: …`는
   `workspace:` 멤버를 선언하지 않은 루트에 `--workspace`를 줬다는 뜻이다. 모든 분석
   명령에서 같은 진단과 종료 코드 2다(`impact`도 64가 아니다).
+- `Analysis failed: the package root was not found or is not a directory.`는 패키지 루트
+  인자가 없는 경로·끊긴 링크·파일이라는 뜻이다. 경로 오타나 `lib/main.dart` 같은 파일을
+  넘기지 않았는지 확인하고 `pubspec.yaml`이 있는 디렉터리를 넘긴다.
 - 원인을 분류하지 못한 실패만 `Analysis failed: unable to index the package.`로 남는다.
   경로·내부 상세를 반향하지 않는 정적 문구라, 제보할 때는 설치 방법(`dart install`·
   `dart pub global activate`), `dart --version`, `which dart`, Flutter 여부를 함께 적는다.

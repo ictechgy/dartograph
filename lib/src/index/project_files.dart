@@ -29,6 +29,36 @@ File? nearestPackageConfigFile(String root) {
   }
 }
 
+/// 분석 루트로 받은 경로가 없거나 디렉터리가 아니라는 실패다.
+///
+/// 경로 오타나 파일 경로(`lib/main.dart`)를 루트로 넘긴 경우다. 이 실패는 루트를 처음
+/// 해석하는 곳의 일반 [FileSystemException](없는 경로)이나 그 뒤 분석 중의 다른
+/// 실패(파일 경로)로 나서, CLI가 원인을 알 수 없는 색인 실패(`unable to index the
+/// package`)로만 알렸다. 메시지와 문자열 표현에는 경로를 담지 않는다(다른 색인 실패
+/// 진단과 같은 경계).
+final class PackageRootNotFoundException implements Exception {
+  /// 실패를 만든다.
+  const PackageRootNotFoundException();
+
+  @override
+  String toString() =>
+      'PackageRootNotFoundException: the package root is not a directory';
+}
+
+/// 분석 루트 [rootPath]의 링크를 끝까지 해석한 절대 경로다.
+///
+/// 링크를 따라간 대상이 디렉터리가 아니면 [PackageRootNotFoundException]이다. 없는
+/// 경로, 끊긴 링크, 파일, 조상 디렉터리 권한 때문에 찾을 수 없는 경로가 그렇다.
+/// 해석 실패를 오류 번호로 가르지 않는 이유는, dart:io가 이 해석의 실패를 모두
+/// 일반 [FileSystemException]으로 던지고 그 번호가 플랫폼마다 다르기 때문이다.
+String canonicalPackageRoot(String rootPath) {
+  final absolute = Directory(rootPath).absolute.path;
+  if (FileSystemEntity.typeSync(absolute) != FileSystemEntityType.directory) {
+    throw const PackageRootNotFoundException();
+  }
+  return Directory(absolute).resolveSymbolicLinksSync();
+}
+
 /// [path]가 [root] 자체이거나 그 아래인지 플랫폼 구분자에 맞춰 확인한다.
 bool isPathWithinRoot(String path, String root, {p.Context? context}) {
   final paths = context ?? p.context;

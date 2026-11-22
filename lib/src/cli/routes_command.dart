@@ -65,7 +65,7 @@ Future<int> _emitRoutes(
   DateTime Function() now,
 ) async {
   try {
-    final root = Directory(options.root).absolute.resolveSymbolicLinksSync();
+    final root = canonicalPackageRoot(options.root);
     final exchange = _resolveExchangeProject(root, options.project, error);
     if (exchange == null) return ExitStatus.usage.code;
     final indexed = await indexRouteCalls(

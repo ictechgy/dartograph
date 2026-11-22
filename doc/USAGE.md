@@ -933,6 +933,11 @@ plugins:
 | 2 | 패키지를 신뢰할 수 있게 분석하지 못함, `--since`·`affected`의 Git 변경 파일을 계산하지 못함(얕은 클론 — CI에서 전체 이력을 fetch한다), 또는 `history`가 원장을 읽지 못함 |
 | 64 | 잘못된 명령·인자(`--record`·`history`의 옵션 오류 포함), 또는 `query`/`dead --explain`/`cycles --explain`/`rules --explain` 대상이 그래프에 없음 |
 
+종료 코드 2의 진단은 알려진 원인을 짚는다. 패키지 루트가 없거나 디렉터리가 아님, Dart SDK를
+찾지 못함, 권한 거부, 정규 파일이 아닌 입력·64 MiB를 넘는 입력, `dartograph.yaml`·`pubspec.yaml`·
+`--workspace` 설정 오류가 그렇다([문제 해결](TROUBLESHOOTING.md) §7). 원인을 분류하지 못한
+실패만 `Analysis failed: unable to index the package.`로 남는다.
+
 ## CI 예제
 
 전체 Git 이력이 있어야 `--since`의 merge-base를 계산할 수 있다.

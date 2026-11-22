@@ -70,7 +70,7 @@ Future<int> _emitTraversal(
   IndexPackage indexPackage,
   DateTime Function() now,
 ) async {
-  final root = Directory(options.root).absolute.resolveSymbolicLinksSync();
+  final root = canonicalPackageRoot(options.root);
   final exchange = _resolveExchangeProject(root, options.project, error);
   if (exchange == null) return ExitStatus.usage.code;
   final indexed = await indexPackage(root);

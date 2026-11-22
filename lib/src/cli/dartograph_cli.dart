@@ -2539,9 +2539,7 @@ Future<int> _runBridges(
     return ExitStatus.usage.code;
   }
   try {
-    final root = Directory(
-      positional[rootIndex],
-    ).absolute.resolveSymbolicLinksSync();
+    final root = canonicalPackageRoot(positional[rootIndex]);
     // 프로젝트 루트 우선순위: 명시적 --project > pub workspace 감지 > 스캔
     // 루트. 모노레포 조인은 두 producer 문서가 정확히 같은 project 문자열을
     // 가져야 성립한다(GRAPH-EXCHANGE 정확 문자열 일치 fail-closed) —
@@ -3877,7 +3875,7 @@ Future<int> _runRuntime(
   );
   try {
     // 패키지 루트 부재를 --execute 실패로 오귀인하지 않도록 먼저 해석한다.
-    final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+    final canonicalRoot = canonicalPackageRoot(rootPath);
     if (entrypoint != null && _looksLikeEntryPointPath(entrypoint)) {
       final file = File(
         p.isAbsolute(entrypoint) ? entrypoint : p.join(rootPath, entrypoint),
@@ -4033,6 +4031,8 @@ int _reportAnalysisFailure(StringSink error, [Object? cause]) {
 /// - SDK 부재([DartSdkNotFoundException]). AOT 설치(`dart install`)를 Flutter의
 ///   `bin/dart` 래퍼와 함께 쓰면 흔히 난다(#160).
 /// - 접근 거부([PathAccessException]). 패키지나 명령 입력 파일의 권한 문제다.
+/// - 패키지 루트 부재([PackageRootNotFoundException]). 경로 오타나 파일 경로를 루트로
+///   넘긴 경우다. 사용자가 준 경로라도 다른 색인 실패 진단처럼 반향하지 않는다.
 /// - 프로젝트 설정 오류([ProjectConfigurationException]). `dartograph.yaml`·
 ///   `pubspec.yaml`·`--workspace`의 무엇을 고칠지 짚는 문장을 그대로 싣는다. 그
 ///   문장은 저장소가 쓴 설정 값을 담을 수 있어 제어문자를 이스케이프한다(rules
@@ -4042,9 +4042,16 @@ String _analysisFailureDiagnostic(Object? cause) => switch (cause) {
   ProjectConfigurationException(:final message) =>
     'Analysis failed: ${ReportEscapes.escapeText(message)}',
   DartSdkNotFoundException() => _dartSdkNotFoundDiagnostic,
+  PackageRootNotFoundException() => _packageRootNotFoundDiagnostic,
   PathAccessException() => _accessDeniedDiagnostic,
   _ => 'Analysis failed: unable to index the package.',
 };
+
+/// 패키지 루트가 없거나 디렉터리가 아니라는 진단이다.
+const _packageRootNotFoundDiagnostic =
+    'Analysis failed: the package root was not found or is not a directory. '
+    'Check the path, or pass the package directory (the one that contains '
+    'pubspec.yaml).';
 
 /// Dart SDK를 찾지 못했다는 진단이다. 탐색 순서와 해결 방향을 짚는다.
 const _dartSdkNotFoundDiagnostic =

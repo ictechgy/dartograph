@@ -38,6 +38,8 @@ export 'project_configuration.dart' show ProjectConfigurationException;
 export 'project_files.dart'
     show
         LinkedDirectoryVisits,
+        PackageRootNotFoundException,
+        canonicalPackageRoot,
         isPathWithinRoot,
         skippedLinkedDirectoriesLimitation,
         unreadableDirectoriesLimitation;
@@ -202,8 +204,11 @@ final class AnalysisInputCapture {
 }
 
 /// 캐시와 같은 정규 파일·크기 경계를 적용하여 분석 입력 내용을 캡처한다.
+///
+/// 루트가 없거나 디렉터리가 아니면 [PackageRootNotFoundException]이다(`impact`는
+/// 색인보다 이 캡처를 먼저 한다).
 Future<AnalysisInputCapture> captureAnalysisInputs(String rootPath) async {
-  final root = await Directory(rootPath).resolveSymbolicLinks();
+  final root = canonicalPackageRoot(rootPath);
   final files = await _analysisInputFiles(root);
   final values = <String>[];
   final projectFiles = <String, String>{};
@@ -317,8 +322,10 @@ final class AnalyzerGraphIndex {
   final String? _analyzerIdentity;
 
   /// [rootPath] 아래 분석 대상과 제외된 생성 파일을 함께 색인한다.
+  ///
+  /// 루트가 없거나 디렉터리가 아니면 [PackageRootNotFoundException]이다.
   Future<AnalyzerGraphResult> index(String rootPath) async {
-    final root = Directory(rootPath).absolute.resolveSymbolicLinksSync();
+    final root = canonicalPackageRoot(rootPath);
     // SDK는 캐시보다 먼저 찾는다. 찾지 못하면 캐시 유무와 상관없이 같은 실패다 —
     // 데워진 캐시가 SDK 부재를 가리면 같은 입력이 실행마다 다르게 끝난다(#160).
     final sdk = _analyzerSdk(_analyzerIdentity ?? _processAnalyzerIdentity);

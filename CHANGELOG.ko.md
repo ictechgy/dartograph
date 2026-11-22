@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 패키지 루트 인자가 없는 경로·끊긴 링크·파일(`lib/main.dart` 등)이면 분석 명령이 `Analysis failed: unable to index the package.` 대신 `Analysis failed: the package root was not found or is not a directory.`(패키지 디렉터리를 넘기라는 안내 포함)로 알린다. `compare`·`impact --before`·`impact --format language-traversal`·`bridges`·`schema`·`routes`·`runtime`을 포함해 패키지 루트를 받는 모든 명령이 같다. 경로는 반향하지 않으며 종료 코드는 그대로 2다. 패키지 디렉터리를 가리키는 링크는 지금처럼 따라간다.
+
 - `dartograph.yaml`이 잘못됐을 때(예: 없는 `entry_points` 파일, 목록이 아닌 `include:`, 프로젝트 밖 `source_packages` 항목, 잘못된 YAML), 분석한 `pubspec.yaml`이 YAML이 아니거나 패키지 이름이 잘못됐을 때, `workspace:` 멤버를 선언하지 않은 루트에 `--workspace`를 줬을 때 분석 명령이 `Analysis failed: unable to index the package.`만 남기지 않고 무엇이 잘못됐는지 알린다. 진단은 `Analysis failed: invalid dartograph.yaml: entry_points file does not exist: bin/cli.dart`처럼 파일과 검사를 짚는다. YAML 구문 오류에는 줄과 열을 붙이고, 반향하는 설정 값의 제어문자는 이스케이프한다. 종료 코드는 그대로 2다. 이 오류가 엉뚱한 진단으로 가지도 않는다. `impact --symbol`·`impact --since`와 올바른 목록을 준 `impact --changed`는 이를 `Invalid changed list`와 종료 코드 64로, `schema`·`routes`는 `source_packages` 오류를 소스 경로의 제어문자로 보고했다. 이제 같은 진단과 종료 코드 2로 끝난다. 형식이 잘못된 `--changed` 목록은 그대로 사용 오류(64)다.
 
 - 분석 명령이 분석 대상 소스 디렉터리에서 analysis options(`analysis_options.yaml`이나 그것이 include한 파일의 `analyzer: exclude:`)가 제외한 비생성 Dart 파일을 세어 `options-excluded-files:` 한계를 더하고 경로순 앞의 셋을 적는다. 그런 파일은 분석하지 않으므로 그 파일에서만 쓰는 선언이 미도달로 보고되는데, 출력에는 이유가 없었다. analyzer 14.6부터는 include한 lint 패키지의 패턴으로도 이런 일이 생긴다. 생성 파일(계속 분석·보존), 숨김 경로, 링크로만 닿는 경로, `lib/`·`bin/`·`example/`·`integration_test/`·`test/` 밖 디렉터리는 세지 않는다. analyzer가 따로 컨텍스트로 분석하는 중첩 패키지(자기 `.dart_tool/package_config.json`이 있음)는 자기 옵션으로만 판정한다. 바깥 옵션만 빼려는 파일은 분석되므로 세지 않고, 자기 옵션이 뺀 파일(예: `example/lib/inner_excluded.dart`)은 센다. 자기 package config가 없으면 그 폴더는 바깥 컨텍스트에 속해 두 옵션 파일이 모두 적용된다. finding과 종료 코드는 바뀌지 않는다.
