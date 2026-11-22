@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-11-22 (색인 실패 진단 개선 — 설정 오류·패키지 루트)_
+_Last updated: 2026-11-22 (색인 실패 진단 개선 — PR #164 독립 리뷰 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(2026-11-16 원문은 그 파일 끝 절).
@@ -14,11 +14,14 @@ _Last updated: 2026-11-22 (색인 실패 진단 개선 — 설정 오류·패키
 - `main` `88dd0ee`의 CI·impact-precheck(push)·analyzer-freshness(2026-11-16 예약 실행)는 모두
   통과했다(2026-11-22 GitHub API로 확인). 이전 HANDOFF의 "analyzer-freshness가 `main`에서 실패"
   항목은 해소됐다.
-- 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `88dd0ee`에서 다시 시작했다. 푸시·PR은
-  코디네이터가 한다. 푸시 여부와 CI 상태는 이 문서에 적지 않는다.
+- 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `88dd0ee`에서 다시 시작했고, 코디네이터가
+  PR [#164](https://github.com/ictechgy/dartograph/pull/164)로 올렸다. 푸시는 코디네이터가 한다.
+  어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
   - `419448f` fix(cli): 프로젝트 설정 오류 진단과 impact·schema·routes 오진 수정.
   - `cbca659` fix(cli): 없는 경로·파일 패키지 루트 진단.
-  - 이 HANDOFF 커밋.
+  - `b8a4b28` docs: HANDOFF.
+  - `2321a56` fix(index): PR #164 독립 리뷰 반영(아래 절).
+  - 이 HANDOFF 커밋(init 테스트 임시 디렉터리 정리 포함).
 
 ## 이번 브랜치의 변경
 
@@ -63,6 +66,49 @@ _Last updated: 2026-11-22 (색인 실패 진단 개선 — 설정 오류·패키
   링크 유지). 수정 전 세 경우 모두 실패, 진단 분기·종류 검사·색인·입력 캡처·bridges·runtime·
   routes·language-traversal 지점을 하나씩 되돌린 변형 8개가 각각 실패시켰다.
 
+## PR #164 독립 리뷰 반영 (`2321a56`)
+
+리뷰는 차단 항목 없이 should-fix 2건과 nit 5건을 냈다. 모두 이번 delta에서 생긴 것이라 같은
+브랜치에서 고쳤다. 각 항목을 `b8a4b28` 코드의 AOT 바이너리로 먼저 재현했다(같은 fixture를
+`origin/main` 바이너리로도 돌려 기존 결함을 구분했다).
+
+- S1: `--workspace`에 깨진 루트 pubspec을 주면 `_resolveWorkspace`가 YAML 오류를 삼켜
+  `--workspace requires a pub workspace root: pubspec.yaml declares no workspace members`로
+  답했다(`runtime --workspace`도). 이제 `--workspace` 없이와 같은 `invalid pubspec.yaml: …
+  (line 3, column 1)`이다. pubspec이 없는 루트는 `… the package root has no pubspec.yaml`이다.
+- S2: 리뷰의 변형 세 개가 기존 테스트를 모두 통과했다(package config 읽기 경계 rethrow 제거,
+  source package pubspec YAML 변환 제거, workspace 두 오류를 `FormatException`으로 되돌림).
+  각각을 잡는 CLI 테스트를 더했다.
+- N3: `source_packages`가 읽는 package config의 오류가 `invalid dartograph.yaml`로 나왔다.
+  잘못된 `rootUri`는 URI 파서 문구를, 1.3 MB package config는 원인을 가린 `package config is
+  invalid`를 냈다. 이 경로는 설정 상한 1 MiB로 읽었는데, 캐시 키 열거와 TROUBLESHOOTING은
+  16 MiB다. 이제 루트 기준 상대 경로(`.dart_tool/package_config.json`)를 짚고 16 MiB로 읽는다.
+  같은 함수의 기존 결함도 고쳤다. 루트가 없는 항목(지워진 path 의존) 하나가 `origin/main`에서도
+  실행 전체를 `unable to index the package`로 멈췄는데, 이제 건너뛴다(source package와 짝지어질
+  수 없고, 그 항목이 source package 자신이면 기존 'must be resolved' 오류가 난다).
+  source package pubspec 오류는 그 pubspec(`vendor/local/pubspec.yaml`)을 줄·열과 함께 짚는다.
+- N4: 링크 순환·상위 디렉터리 권한으로 닿을 수 없는 루트도 같은 루트 진단이다. 오류 번호로
+  가르지 않고 문서(CHANGELOG·TROUBLESHOOTING)에 적었고, 링크 순환 루트를 테스트에 더했다.
+- N5: CHANGELOG에 `impact --before`도 64 → 2였다는 사실을 더했다(`origin/main` 바이너리로
+  64 확인). 테스트 루프에도 넣었다.
+- N6: 설정 문장을 CLI에서 400 rune과 말줄임표로 자른다(5,000자 thresholds 키가 5,089바이트
+  줄이었다). `invalid dartograph.yaml: dartograph.yaml must be …`의 반복을 `the document must
+  be a YAML mapping`으로 고쳤다. UTF-8이 아닌 `dartograph.yaml`·pubspec과 1 MiB를 넘는 pubspec은
+  일반 문구였다. 디코드 실패를 `Utf8DecodeException`(`FileSystemException` 하위 타입이라 기존
+  수습은 그대로)으로 구분하고 `_readPubspec`도 `readProjectConfiguration`으로 감쌌다.
+- N7: CHANGELOG의 "패키지 루트를 받는 모든 명령"을 "모든 분석 명령"으로 좁히고 `init`은 자기
+  문구를 쓴다고 적었다.
+- 테스트: `project_configuration_cli_test`에 13개, `project_configuration_test`에 1개,
+  `package_root_cli_test`에 링크 순환 사례를 더했다. 새 CLI 테스트 중 11개는 `b8a4b28` 코드에서
+  실패하고, 나머지는 이미 맞는 동작을 지키는 테스트다. 변형 14개(리뷰의 세 개, 루트 pubspec
+  삼키기, pubspec 없음 문구, 16 MiB → 1 MiB, 없는 루트 건너뛰기 제거, package config 이름 제거,
+  `rootUri` 변환 제거, `_readPubspec` 감싸기 제거, UTF-8 분기 제거, 길이 제한 제거, 매핑 문구)가
+  각각 실패시킨다.
+- 테스트 임시 디렉터리: `/tmp/dartograph-*` 35개는 모두 테스트·도구가 만든 접두사(`init-missing`
+  19, `build-incremental` 9, `corpus`·`scope` 각 2, `dup`·`cmp`·`options-include` 각 1)였고 지웠다.
+  `init_cli_test`의 '없는 디렉터리' 사례는 실행마다 하나씩 남겼다(정리 누락, 수정 전 1개 → 수정 후
+  0개). 나머지는 정리 코드가 있어 시간 초과·중단된 실행의 흔적으로 본다.
+
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
 - 제보 본문은 비어 있다(제목만). 2026-11-04에 저장소 계정이 설치 방법(`dart install`/
@@ -74,6 +120,8 @@ _Last updated: 2026-11-22 (색인 실패 진단 개선 — 설정 오류·패키
   2. 분석 범위 안팎의 읽기 불가 디렉터리(PR #161).
   3. 잘못된 `dartograph.yaml`·pubspec·`--workspace`(이번 `419448f`).
   4. 없는 경로·파일 루트(이번 `cbca659`, `.`을 넘긴 제보와는 맞지 않는다).
+  5. `source_packages`를 쓸 때 package config의 지워진 항목·1 MiB 초과, UTF-8이 아닌
+     `dartograph.yaml`·pubspec, 1 MiB를 넘는 pubspec(이번 `2321a56`).
 - 이번에 재현되지 않은 것(0 종료): `pub get`을 하지 않은 패키지, pubspec 없는 디렉터리, 끊긴
   링크(`lib/` 안·루트·`linux/flutter/ephemeral/.plugin_symlinks`), 디렉터리 링크 순환, 끊긴
   `analysis_options.yaml`·`dartograph.yaml`·`pubspec.yaml` 링크, Latin-1 바이트 소스, 깨진
@@ -104,6 +152,14 @@ _Last updated: 2026-11-22 (색인 실패 진단 개선 — 설정 오류·패키
   `dartograph_cli_test`를 3.13.3에서 건너뜀 없이 돌려 통과했다. 도중에 호스트 디스크가 가득
   차(`No space left on device`) 한 번 실패해, 이 세션의 스크래치(커버리지 원시 파일·worktree)를
   지운 뒤 다시 돌렸다.
+- 리뷰 반영 `2321a56`(3.13.3, 메인 클론, 같은 두 단계): 포맷·analyze 깨끗, 일반 테스트 1,217
+  통과·22 건너뜀·1 실패. 실패는 부하 평균 14 안팎에서 30초를 넘긴 `dup_cli_test`의 시간
+  초과였고 단독 재실행에서 6/6 통과했다. `global_activation` 테스트는 11분 상한에서 시간
+  초과였다(위 검증 메모의 컨테이너 현상). 그래서 `tool/verify-global-activation.sh`를 상한 없이
+  따로 돌려 통과했다(설치본 CLI 계약 239 ok). 커버리지 12,575/13,400(93.84%, 시간 초과로 설치 단계 일부만 합산),
+  오탐 코퍼스·analyzer 경계·CLI 계약(243 ok)·dry-run(경고 0) 통과. 3.11.0(analyzer 14.5.0)은
+  포맷·analyze 깨끗, 새·관련 테스트 63개(`project_configuration`·`package_root`·`init`·
+  `source_packages`·`pub_workspace`) 통과. 일반 테스트가 남긴 `/tmp/dartograph-*`는 0개다.
 - 자기 분석: 일반 테스트의 `self_analysis_test`(제품 finding 0, 모듈 의존 방향) 통과. AOT
   바이너리로 따로 돌린 `dead`는 `test/index/fixture/lib/platform.dart` 파일 finding 1개였고,
   `origin/main` 바이너리도 같은 1개다(테스트 fixture, 기존). `rules --strict --config
