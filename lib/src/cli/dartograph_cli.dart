@@ -959,6 +959,14 @@ Future<int> _runImpact(
       } on FileSystemException {
         error.writeln('Changed list could not be read: $changedFile');
         return ExitStatus.usage.code;
+      } on FormatException {
+        // 변경 목록의 내용 오류만 여기서 64다. 색인이 던지는 FormatException
+        // (설정 오류·읽기 경계 거부)은 이 분기에 닿지 않고 아래 분석 실패로 간다.
+        error.writeln(
+          'Invalid changed list: provide a JSON array of 1–1000 non-empty '
+          'project-relative paths (maximum 1 MiB).',
+        );
+        return ExitStatus.usage.code;
       }
     }
     final capture = await captureAnalysisInputs(rootPath);
@@ -1050,16 +1058,6 @@ Future<int> _runImpact(
     return ExitStatus.success.code;
   } on ChangedFilesException catch (failure) {
     return _reportChangedFilesFailure(error, failure);
-  } on InputRejectedException catch (exception) {
-    // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
-    // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
-    return _reportAnalysisFailure(error, exception);
-  } on FormatException {
-    error.writeln(
-      'Invalid changed list: provide a JSON array of 1–1000 non-empty '
-      'project-relative paths (maximum 1 MiB).',
-    );
-    return ExitStatus.usage.code;
   } on FileSystemException catch (exception) {
     return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
@@ -2591,6 +2589,10 @@ Future<int> _runBridges(
     // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
     // 진단으로 흘리면 원인을 반대로 가리킨다.
     return _reportAnalysisFailure(error, exception);
+  } on ProjectConfigurationException catch (exception) {
+    // `schema`가 그래프 신원을 얻으려 읽는 `dartograph.yaml`의 설정 오류다.
+    // 같은 이유로 제어문자 진단보다 먼저 잡는다.
+    return _reportAnalysisFailure(error, exception);
   } on FormatException {
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
     // 계약). 인덱싱 실패로 답하면 원인을 반대로 가리킨다.
@@ -4031,8 +4033,14 @@ int _reportAnalysisFailure(StringSink error, [Object? cause]) {
 /// - SDK 부재([DartSdkNotFoundException]). AOT 설치(`dart install`)를 Flutter의
 ///   `bin/dart` 래퍼와 함께 쓰면 흔히 난다(#160).
 /// - 접근 거부([PathAccessException]). 패키지나 명령 입력 파일의 권한 문제다.
+/// - 프로젝트 설정 오류([ProjectConfigurationException]). `dartograph.yaml`·
+///   `pubspec.yaml`·`--workspace`의 무엇을 고칠지 짚는 문장을 그대로 싣는다. 그
+///   문장은 저장소가 쓴 설정 값을 담을 수 있어 제어문자를 이스케이프한다(rules
+///   설정 진단과 같은 경계).
 String _analysisFailureDiagnostic(Object? cause) => switch (cause) {
   InputRejectedException() => _inputRejectedDiagnostic(cause),
+  ProjectConfigurationException(:final message) =>
+    'Analysis failed: ${ReportEscapes.escapeText(message)}',
   DartSdkNotFoundException() => _dartSdkNotFoundDiagnostic,
   PathAccessException() => _accessDeniedDiagnostic,
   _ => 'Analysis failed: unable to index the package.',

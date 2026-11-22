@@ -30,9 +30,11 @@ import 'bounded_resource_provider.dart';
 import '../core/generated_files.dart';
 import 'dart_sdk_locator.dart';
 import 'incremental_cache.dart';
+import 'project_configuration.dart';
 import 'project_files.dart';
 
 export 'dart_sdk_locator.dart' show DartSdkNotFoundException;
+export 'project_configuration.dart' show ProjectConfigurationException;
 export 'project_files.dart'
     show
         LinkedDirectoryVisits,
@@ -885,7 +887,8 @@ String? _readPubspec(String root) {
 /// 루트 기준 상대 경로 집합이다.
 ///
 /// pubspec이 없으면 그 패키지의 항목만 비어 있다. 이름이 없거나 패키지 이름
-/// 규칙을 어기면 [FormatException]이다 — 기존 `_addPublicApiRoots`와 같은
+/// 규칙을 어기거나 YAML이 아니면 그 pubspec을 짚는
+/// [ProjectConfigurationException]이다 — 기존 `_addPublicApiRoots`와 같은
 /// 계약(종료 코드 2)을 유지해야 하고, 증분 경로도 해석 전에 같은 시점에
 /// 실패해야 캐시가 그 실패를 가리지 않는다. 멤버의 `lib/<name>.dart`도 대표
 /// 라이브러리로 공개 API 보존 근거를 제공해야 워크스페이스 안에서 쓰이지 않는
@@ -896,14 +899,22 @@ Set<String> _entryLibraryPaths(
   List<_WorkspaceMember> members,
 ) {
   final paths = <String>{};
-  void addEntry(String packageRoot, String? packagePubspec) {
+  // [pubspecName]은 오류가 짚을 루트 상대 pubspec 이름이다.
+  void addEntry(
+    String packageRoot,
+    String? packagePubspec,
+    String pubspecName,
+  ) {
     if (packagePubspec == null) return;
-    final document = loadYaml(packagePubspec);
-    final packageName = document is YamlMap ? document['name'] : null;
-    if (packageName is! String ||
-        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(packageName)) {
-      throw const FormatException('pubspec name must be a valid package name');
-    }
+    final packageName = readProjectConfiguration(pubspecName, () {
+      final document = loadYaml(packagePubspec);
+      final name = document is YamlMap ? document['name'] : null;
+      if (name is! String ||
+          !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
+        throw const FormatException('name must be a valid package name');
+      }
+      return name;
+    });
     final relative = _relativeSourcePath(
       p.join(packageRoot, 'lib', '$packageName.dart'),
       root,
@@ -911,9 +922,13 @@ Set<String> _entryLibraryPaths(
     if (relative != null) paths.add(relative);
   }
 
-  addEntry(root, pubspecContent);
+  addEntry(root, pubspecContent, 'pubspec.yaml');
   for (final member in members) {
-    addEntry(member.absPath, member.pubspecContent);
+    addEntry(
+      member.absPath,
+      member.pubspecContent,
+      p.posix.join(member.relPath, 'pubspec.yaml'),
+    );
   }
   return paths;
 }
@@ -1985,7 +2000,7 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
   }
   final workspace = document is YamlMap ? document['workspace'] : null;
   if (workspace is! YamlList || workspace.isEmpty) {
-    throw const FormatException(
+    throw const ProjectConfigurationException(
       '--workspace requires a pub workspace root: pubspec.yaml declares no '
       'workspace members',
     );
@@ -2034,11 +2049,14 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
     final memberPubspec = readConfigurationSync(
       File(p.join(abs, 'pubspec.yaml')),
     );
-    final memberDocument = loadYaml(memberPubspec);
+    final memberDocument = readProjectConfiguration(
+      p.posix.join(rel, 'pubspec.yaml'),
+      () => loadYaml(memberPubspec),
+    );
     final name = memberDocument is YamlMap ? memberDocument['name'] : null;
     if (name is! String ||
         !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
-      throw FormatException(
+      throw ProjectConfigurationException(
         'workspace member pubspec name must be a valid package name: $rel',
       );
     }
@@ -2057,7 +2075,7 @@ _WorkspaceSpec _resolveWorkspace(String root, String? pubspecContent) {
     );
   }
   if (members.isEmpty) {
-    throw FormatException(
+    throw ProjectConfigurationException(
       '--workspace resolved no members: every declared workspace entry was '
       'skipped (${(skipped.toList()..sort()).join(', ')})',
     );
@@ -3777,10 +3795,18 @@ bool _isIgnoreDirective(String lexeme) {
 /// 이 밖의 `main`은 원래 mainEntryPoint 루트가 아니므로 설정으로 받지 않는다.
 const _entryPointDirectories = {'bin', 'example', 'lib'};
 
+/// `dartograph.yaml`의 `source_packages`를 읽는다([_parseSourcePackages]).
+///
+/// 설정 오류는 그 파일을 짚는 [ProjectConfigurationException]이다.
+List<Directory> _readSourcePackages(String root) => readProjectConfiguration(
+  'dartograph.yaml',
+  () => _parseSourcePackages(root),
+);
+
 /// 프로젝트 내부 local package의 `lib/`를 opt-in 분석 대상으로 검증한다.
 /// 기본 분석 범위는 유지하며 명시한 package root만 연다. pubspec 없는 폴더나
 /// symlink/cache 경계는 조용히 따라가지 않는다.
-List<Directory> _readSourcePackages(String root) {
+List<Directory> _parseSourcePackages(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return const [];
   final document = loadYaml(readConfigurationSync(file));
@@ -3847,7 +3873,16 @@ List<Directory> _readSourcePackages(String root) {
         'source_packages root must contain pubspec.yaml and lib/: $value',
       );
     }
-    final packageDocument = loadYaml(readConfigurationSync(pubspec));
+    final Object? packageDocument;
+    try {
+      packageDocument = loadYaml(readConfigurationSync(pubspec));
+    } on YamlException {
+      // 줄·열은 dartograph.yaml이 아니라 이 pubspec의 위치다. 그대로 올리면
+      // dartograph.yaml의 위치로 읽힌다.
+      throw FormatException(
+        'source_packages pubspec is not valid YAML: $value',
+      );
+    }
     final name = packageDocument is YamlMap ? packageDocument['name'] : null;
     if (name is! String ||
         !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(name)) {
@@ -3881,7 +3916,15 @@ Map<String, String> _packageConfigRoots(String root) {
       'source_packages requires .dart_tool/package_config.json',
     );
   }
-  final document = jsonDecode(readConfigurationSync(file));
+  final Object? document;
+  try {
+    document = jsonDecode(readConfigurationSync(file));
+  } on InputRejectedException {
+    rethrow;
+  } on FormatException {
+    // JSON 파서 문구(`Unexpected character`)로는 어느 파일인지 알 수 없다.
+    throw const FormatException('source_packages package config is invalid');
+  }
   if (document is! Map || document['packages'] is! List) {
     throw const FormatException('source_packages package config is invalid');
   }
@@ -3910,8 +3953,13 @@ Map<String, String> _packageConfigRoots(String root) {
 /// 존재하지 않거나, `.dart`가 아니면 [FormatException]을 던진다. 잘못된 설정으로
 /// 사용자가 선언한 build target이 조용히 무시되거나 보존 루트가 잘못 좁혀지는
 /// 것을 막기 위해서다. malformed YAML의 `YamlException`도 `FormatException`이라
-/// 같은 종료 코드 계약(2)을 따른다.
-Set<String>? _readEntryPoints(String root) {
+/// 같은 종료 코드 계약(2)을 따른다. 형식 오류는 그 파일을 짚는
+/// [ProjectConfigurationException]이다.
+Set<String>? _readEntryPoints(String root) =>
+    readProjectConfiguration('dartograph.yaml', () => _parseEntryPoints(root));
+
+/// [_readEntryPoints]의 해석이다. 오류는 일반 [FormatException]으로 던진다.
+Set<String>? _parseEntryPoints(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return null;
   final document = loadYaml(readConfigurationSync(file));
@@ -4015,8 +4063,13 @@ const _knownConfigKeys = {
 ///
 /// `_readEntryPoints`와 같은 검증 철학을 따른다 — 잘못된 타입·빈 목록·빈
 /// 문자열·컴파일되지 않는 glob은 조용히 무시하지 않고 [FormatException]으로
-/// 실패시킨다(종료 코드 2). 키가 없으면 빈 설정을 돌려준다.
-_ScopeConfig _readScopeConfig(String root) {
+/// 실패시킨다(종료 코드 2). 키가 없으면 빈 설정을 돌려준다. 형식 오류는 그
+/// 파일을 짚는 [ProjectConfigurationException]이다.
+_ScopeConfig _readScopeConfig(String root) =>
+    readProjectConfiguration('dartograph.yaml', () => _parseScopeConfig(root));
+
+/// [_readScopeConfig]의 해석이다. 오류는 일반 [FormatException]으로 던진다.
+_ScopeConfig _parseScopeConfig(String root) {
   final file = File(p.join(root, 'dartograph.yaml'));
   if (!file.existsSync()) return const _ScopeConfig();
   final document = loadYaml(readConfigurationSync(file));

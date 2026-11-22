@@ -336,6 +336,9 @@ Limitations:
   `lib/`, `bin/`, and `example/` is retained. Declaring the real build targets
   under `entry_points` in `dartograph.yaml` narrows retention to the `main`
   functions of those files (a template can be generated with `dartograph init`).
+  An invalid `dartograph.yaml` fails analysis commands with exit code 2 and a
+  diagnostic that names the problem, such as
+  `Analysis failed: invalid dartograph.yaml: entry_points file does not exist: bin/cli.dart`.
 - Only `lib/`, `bin/`, `example/`, `integration_test/`, and `test/` are
   analyzed. Code used only from `web/`, `tool/`, `hook/`, `benchmark/`, or
   `test_driver/` is reported as unreachable; when those directories hold Dart

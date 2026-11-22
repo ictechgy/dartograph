@@ -115,6 +115,14 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   패키지 루트나 명령이 받은 입력 파일을 권한 때문에 읽지 못했다는 뜻이다. 루트 아래
   하위 디렉터리는 실패 대신 건너뛰고 `unreadable-directories: N …` 한계로 센다 — 그
   아래 파일은 분석하지 않았으므로 '미발견'과 빈 결과를 완전성 근거로 쓰지 않는다.
+- `Analysis failed: invalid dartograph.yaml: …`·`Analysis failed: invalid pubspec.yaml: …`는
+  그 파일의 값이 잘못됐다는 뜻이고, 뒤의 문장이 고칠 키와 값을 짚는다(YAML 구문 오류는
+  줄·열을 붙인다). `Analysis failed: --workspace requires a pub workspace root: …`는
+  `workspace:` 멤버를 선언하지 않은 루트에 `--workspace`를 줬다는 뜻이다. 모든 분석
+  명령에서 같은 진단과 종료 코드 2다(`impact`도 64가 아니다).
+- 원인을 분류하지 못한 실패만 `Analysis failed: unable to index the package.`로 남는다.
+  경로·내부 상세를 반향하지 않는 정적 문구라, 제보할 때는 설치 방법(`dart install`·
+  `dart pub global activate`), `dart --version`, `which dart`, Flutter 여부를 함께 적는다.
 - 결과에 `symlink-duplicate-directories: N …` 한계가 있으면 링크 경로 N개가 이미 다른
   경로로 읽은 디렉터리로 이어져 열지 않았다는 뜻이다. 링크를 거쳐 닿는 디렉터리는
   이름순으로 처음 만난 경로 하나로만 분석한다(실제 위치와 링크 하나는 둘 다 분석한다).

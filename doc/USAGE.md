@@ -135,7 +135,8 @@ pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인�
 디렉터리·pubspec이 없는 멤버와 symlink인 멤버 경로는 건너뛰고 보고한다(건너뛴
 멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
 선언하지 않은 루트, 선언된 멤버가 전부 건너뛰어진 경우, 잘못된 패키지 이름의 멤버
-pubspec은 분석 실패(exit 2)다. 멤버의
+pubspec은 분석 실패(exit 2)이고, 진단이 그 원인을 짚는다(예: `Analysis failed: --workspace
+requires a pub workspace root: pubspec.yaml declares no workspace members`). 멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 
@@ -1077,7 +1078,7 @@ entry_points:
   - lib/main_production.dart
 ```
 
-`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
+`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이 파일의 모든 설정 오류(아래 `source_packages`·보고 범위 키, 잘못된 YAML 포함)는 `Analysis failed: invalid dartograph.yaml: entry_points file does not exist: bin/cli.dart`처럼 고칠 키와 값을 짚는 진단으로 끝난다. YAML 구문 오류는 줄·열을 붙이고, 반향하는 값의 제어문자는 이스케이프한다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
 
 로컬 path dependency의 generated Pigeon/Dart source를 그래프에 포함해야 하면 같은 파일에
 `source_packages`를 명시한다.
