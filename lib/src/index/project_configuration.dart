@@ -30,9 +30,12 @@ final class ProjectConfigurationException extends FormatException {
 ///
 /// - 읽기 경계의 거부([InputRejectedException])는 설정 내용이 아니라 입력 자체의
 ///   문제라 그대로 던진다. CLI가 원인대로 따로 진단한다.
-/// - 이미 [ProjectConfigurationException]이면 그대로 던진다.
+/// - 이미 [ProjectConfigurationException]이면 그대로 던진다. 안쪽에서 다른 파일을
+///   짚은 실패가 바깥 파일 이름으로 덮이지 않는다.
 /// - YAML 구문 오류에는 줄과 열을 붙인다. 파서 문구(`Expected node content.`)만으로는
 ///   어디를 고칠지 알 수 없다.
+/// - UTF-8이 아닌 파일([Utf8DecodeException])도 그 파일을 짚는다. 다른 읽기 실패
+///   (부재·권한)는 [FileSystemException] 그대로다.
 T readProjectConfiguration<T>(String file, T Function() read) {
   try {
     return read();
@@ -43,6 +46,10 @@ T readProjectConfiguration<T>(String file, T Function() read) {
   } on FormatException catch (exception) {
     throw ProjectConfigurationException(
       'invalid $file: ${_describeFormatException(exception)}',
+    );
+  } on Utf8DecodeException {
+    throw ProjectConfigurationException(
+      'invalid $file: the file is not valid UTF-8',
     );
   }
 }

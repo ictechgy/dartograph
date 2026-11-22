@@ -60,6 +60,17 @@ void main() {
     ('a missing path', (Directory root) => p.join(root.path, 'lbi')),
     ('a file', (Directory root) => p.join(root.path, 'lib', 'root_app.dart')),
     (
+      'a link loop',
+      (Directory root) {
+        // 링크 순환도 해석되지 않는 경로다. 상위 디렉터리 권한으로 닿을 수 없는
+        // 경로와 함께 진단 문구의 "was not found"에 해당한다.
+        final first = p.join(root.path, 'loop_a');
+        Link(first).createSync(p.join(root.path, 'loop_b'));
+        Link(p.join(root.path, 'loop_b')).createSync(first);
+        return first;
+      },
+    ),
+    (
       'a dangling link',
       (Directory root) {
         final link = p.join(root.path, 'stale');
@@ -88,7 +99,7 @@ void main() {
           expect(error.toString(), diagnostic, reason: reason);
         }
       },
-      skip: name == 'a dangling link' && Platform.isWindows,
+      skip: name.contains('link') && Platform.isWindows,
     );
   }
 

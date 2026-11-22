@@ -72,6 +72,8 @@ void main() {
       ['query', 'run'],
       ['impact', '--symbol', 'project:lib/config_app.dart::run'],
       ['impact', '--changed', changed.path],
+      // --before도 같은 바깥 분기 때문에 64였다.
+      ['impact', '--before', root.path],
     ]) {
       await expectDiagnostic(command, diagnostic);
     }
@@ -159,5 +161,256 @@ Future<void> fetch() => http.get(Uri.parse('https://api.example.test/a'));
 
     await expectDiagnostic(['schema', '--format', 'json'], diagnostic);
     await expectDiagnostic(['routes', '--role', 'client'], diagnostic);
+  });
+  group('workspace declarations', () {
+    test('a malformed root pubspec is named, not reported as missing '
+        'members', () async {
+      // 수정 전에는 YAML 오류를 삼키고 '멤버 선언 없음'으로 답했다.
+      await write('pubspec.yaml', 'name: config_app\nenvironment: [\n');
+
+      for (final command in [
+        ['cycles', '--workspace'],
+        ['runtime', '--workspace'],
+      ]) {
+        final result = await run(command);
+        expect(result.code, ExitStatus.failure.code, reason: result.error);
+        expect(
+          result.error,
+          allOf(
+            startsWith('Analysis failed: invalid pubspec.yaml: '),
+            endsWith(' (line 3, column 1)\n'),
+          ),
+        );
+      }
+    });
+
+    test('a root without pubspec.yaml says so', () async {
+      await File(p.join(root.path, 'pubspec.yaml')).delete();
+
+      await expectDiagnostic(
+        ['cycles', '--workspace'],
+        'Analysis failed: --workspace requires a pub workspace root: the '
+        'package root has no pubspec.yaml',
+      );
+    });
+
+    test('members that are all skipped or misnamed are named', () async {
+      await write(
+        'pubspec.yaml',
+        'name: config_app\npublish_to: none\nworkspace:\n  - pkgs/missing\n',
+      );
+      await expectDiagnostic(
+        ['cycles', '--workspace'],
+        'Analysis failed: --workspace resolved no members: every declared '
+        'workspace entry was skipped (pkgs/missing)',
+      );
+
+      await write(
+        'pubspec.yaml',
+        'name: config_app\npublish_to: none\nworkspace:\n  - pkgs/a\n',
+      );
+      await write('pkgs/a/pubspec.yaml', 'name: a-b\nresolution: workspace\n');
+      await expectDiagnostic(
+        ['cycles', '--workspace'],
+        'Analysis failed: workspace member pubspec name must be a valid '
+        'package name: pkgs/a',
+      );
+
+      await write('pkgs/a/pubspec.yaml', 'name: a\nenvironment: [\n');
+      final result = await run(['cycles', '--workspace']);
+      expect(result.code, ExitStatus.failure.code);
+      expect(
+        result.error,
+        allOf(
+          startsWith('Analysis failed: invalid pkgs/a/pubspec.yaml: '),
+          endsWith(' (line 3, column 1)\n'),
+        ),
+      );
+    });
+  });
+
+  group('source_packages inputs name the file at fault', () {
+    /// `vendor/local` source package와 [packageConfig] 내용의 package config를 둔다.
+    Future<void> sourcePackage(String packageConfig) async {
+      await write('vendor/local/pubspec.yaml', 'name: local\n');
+      await write('vendor/local/lib/local.dart', 'void local() {}\n');
+      await write('.dart_tool/package_config.json', packageConfig);
+      await write('dartograph.yaml', 'source_packages:\n  - vendor/local\n');
+    }
+
+    const localEntry =
+        '{"name": "local", "rootUri": "../vendor/local/", "packageUri": "lib/"}';
+
+    test('a malformed source package pubspec points at that pubspec', () async {
+      await sourcePackage('{"configVersion": 2, "packages": [$localEntry]}');
+      await write('vendor/local/pubspec.yaml', 'name: local\nenvironment: [\n');
+
+      final result = await run(['cycles']);
+
+      // 줄·열은 dartograph.yaml이 아니라 이 pubspec의 위치다.
+      expect(result.code, ExitStatus.failure.code);
+      expect(
+        result.error,
+        allOf(
+          startsWith('Analysis failed: invalid vendor/local/pubspec.yaml: '),
+          endsWith(' (line 3, column 1)\n'),
+        ),
+      );
+    });
+
+    test('a device in place of the package config keeps the read-boundary '
+        'diagnostic', () async {
+      await sourcePackage('{}');
+      await File(
+        p.join(root.path, '.dart_tool', 'package_config.json'),
+      ).delete();
+      await Link(
+        p.join(root.path, '.dart_tool', 'package_config.json'),
+      ).create('/dev/null');
+
+      await expectDiagnostic(
+        ['cycles'],
+        'Analysis failed: an input is not a regular file (device, FIFO, or '
+        'socket). Point the symbolic link or import at a regular file, or '
+        'remove it.',
+      );
+    }, skip: Platform.isWindows);
+
+    test('package config problems name the package config', () async {
+      const config = 'Analysis failed: invalid .dart_tool/package_config.json:';
+
+      await sourcePackage(
+        '{"configVersion": 2, "packages": '
+        '[{"name": "x", "rootUri": "http://[::1"}]}',
+      );
+      await expectDiagnostic([
+        'cycles',
+      ], '$config rootUri is not a valid URI: http://[::1');
+
+      await sourcePackage('{"configVersion": 2, "packages": {}}');
+      await expectDiagnostic(['cycles'], '$config packages must be a list');
+
+      await sourcePackage('{not json');
+      final result = await run(['cycles']);
+      expect(result.code, ExitStatus.failure.code);
+      expect(result.error, startsWith('$config '));
+      expect(result.error, isNot(contains('dartograph.yaml')));
+    });
+
+    test('a package config over 16 MiB is named with its limit', () async {
+      await sourcePackage('');
+      // 내용 없이 길이만 늘린 파일이다(디스크를 쓰지 않는다). 상한 검사가 내용보다 먼저다.
+      File(
+          p.join(root.path, '.dart_tool', 'package_config.json'),
+        ).openSync(mode: FileMode.write)
+        ..truncateSync(16 * 1024 * 1024 + 1)
+        ..closeSync();
+
+      await expectDiagnostic(
+        ['cycles'],
+        'Analysis failed: invalid .dart_tool/package_config.json: package '
+        'configuration exceeds the 16 MiB limit',
+      );
+    });
+
+    test('a package config between 1 and 16 MiB with stale entries is '
+        'read', () async {
+      // 대형 모노레포의 package_config는 설정 상한(1 MiB)을 넘을 수 있다. 캐시 키
+      // 열거와 같은 16 MiB 상한이다. 항목은 모두 지워진 루트를 가리킨다.
+      final stale = [
+        for (var index = 0; index < 16000; index++)
+          '{"name": "gone_$index", "rootUri": "../gone_$index/", '
+              '"packageUri": "lib/"}',
+      ];
+      await sourcePackage(
+        '{"configVersion": 2, "packages": [${[...stale, localEntry].join(', ')}]}',
+      );
+      expect(
+        File(
+          p.join(root.path, '.dart_tool', 'package_config.json'),
+        ).lengthSync(),
+        greaterThan(1024 * 1024),
+      );
+
+      final result = await run(['graph', '--format', 'json']);
+
+      expect(result.code, ExitStatus.success.code, reason: result.error);
+      expect(result.output, contains('package:local/local.dart'));
+    });
+
+    test(
+      'a stale package config entry does not fail source_packages',
+      () async {
+        // 지워진 path 의존 하나가 analysis 전체를 '원인 불명'으로 멈추게 했다.
+        await sourcePackage(
+          '{"configVersion": 2, "packages": [{"name": "gone", "rootUri": '
+          '"../gone/", "packageUri": "lib/"}, $localEntry]}',
+        );
+
+        final result = await run(['graph', '--format', 'json']);
+
+        expect(result.code, ExitStatus.success.code, reason: result.error);
+        expect(result.output, contains('package:local/local.dart'));
+      },
+    );
+  });
+
+  group('diagnostic text', () {
+    test('a long echoed value is shortened with an ellipsis', () async {
+      await write('dartograph.yaml', 'thresholds:\n  ${'k' * 5000}: 1\n');
+      const prefix =
+          'Analysis failed: invalid dartograph.yaml: thresholds key must be '
+          'distance or complexity: kkk';
+
+      final result = await run(['cycles']);
+
+      // "Analysis failed: " 17자 + 설정 문장 400자 + 말줄임표 + 개행이다.
+      expect(result.code, ExitStatus.failure.code);
+      expect(result.error, startsWith(prefix));
+      expect(result.error, endsWith('k…\n'));
+      expect(result.error.length, 17 + 400 + 1 + 1);
+    });
+
+    test('the file name is not repeated for a non-mapping document', () async {
+      await write('dartograph.yaml', '- lib/main.dart\n');
+
+      await expectDiagnostic(
+        ['cycles'],
+        'Analysis failed: invalid dartograph.yaml: the document must be a YAML '
+        'mapping',
+      );
+    });
+
+    test('a configuration file that is not UTF-8 is named', () async {
+      File(p.join(root.path, 'dartograph.yaml')).writeAsBytesSync([
+        ...'entry_points:\n  - bin/caf'.codeUnits,
+        0xe9,
+        ...'.dart\n'.codeUnits,
+      ]);
+      await expectDiagnostic(
+        ['cycles'],
+        'Analysis failed: invalid dartograph.yaml: the file is not valid UTF-8',
+      );
+
+      await File(p.join(root.path, 'dartograph.yaml')).delete();
+      File(p.join(root.path, 'pubspec.yaml')).writeAsBytesSync([
+        ...'name: config_app\ndescription: caf'.codeUnits,
+        0xe9,
+        10,
+      ]);
+      await expectDiagnostic([
+        'cycles',
+      ], 'Analysis failed: invalid pubspec.yaml: the file is not valid UTF-8');
+    });
+
+    test('a pubspec over the configuration limit is named', () async {
+      await write('pubspec.yaml', 'name: config_app\n${'#' * (1024 * 1024)}\n');
+
+      await expectDiagnostic(
+        ['cycles'],
+        'Analysis failed: invalid pubspec.yaml: configuration file exceeds the '
+        '1024 KiB limit',
+      );
+    });
   });
 }

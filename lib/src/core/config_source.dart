@@ -150,15 +150,24 @@ Future<String> readBoundedFile(
   }
 }
 
+/// 경계 읽기([readBoundedFileSync]·[readBoundedFile])가 UTF-8로 디코드하지 못했다는
+/// 실패다.
+///
+/// [File.readAsStringSync]와 같은 메시지의 [FileSystemException]이라 기존 호출자의
+/// 읽기 실패 수습을 그대로 탄다. 설정 파일을 짚어 알려야 하는 호출자만 이 타입을
+/// 따로 잡는다(`readProjectConfiguration`).
+final class Utf8DecodeException extends FileSystemException {
+  /// [path]의 디코드 실패를 만든다.
+  const Utf8DecodeException(String path)
+    : super("Failed to decode data using encoding 'utf-8'", path);
+}
+
 /// [File.readAsStringSync]와 같은 실패 형태로 디코드한다. 호출자는 디코드
 /// 실패를 설정 오류가 아니라 읽기 실패([FileSystemException])로 진단한다.
 String _decodeUtf8(Uint8List bytes, File file) {
   try {
     return utf8.decode(bytes);
   } on FormatException {
-    throw FileSystemException(
-      "Failed to decode data using encoding 'utf-8'",
-      file.path,
-    );
+    throw Utf8DecodeException(file.path);
   }
 }

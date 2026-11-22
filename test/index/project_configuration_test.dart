@@ -47,6 +47,23 @@ void main() {
     );
   });
 
+  test('a file that is not UTF-8 names the file', () {
+    // 다른 읽기 실패(부재·권한)와 달리 고칠 곳이 그 설정 파일이다.
+    expect(
+      () => readProjectConfiguration<void>(
+        'dartograph.yaml',
+        () => throw const Utf8DecodeException('/somewhere/dartograph.yaml'),
+      ),
+      throwsA(
+        isA<ProjectConfigurationException>().having(
+          (error) => error.message,
+          'message',
+          'invalid dartograph.yaml: the file is not valid UTF-8',
+        ),
+      ),
+    );
+  });
+
   test('read boundary rejections keep their own type', () {
     // 장치·FIFO·상한 초과는 설정 내용이 아니라 입력 자체의 문제다. CLI가 원인대로
     // 진단하도록 감싸지 않는다.

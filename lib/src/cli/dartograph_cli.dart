@@ -4034,18 +4034,33 @@ int _reportAnalysisFailure(StringSink error, [Object? cause]) {
 /// - 패키지 루트 부재([PackageRootNotFoundException]). 경로 오타나 파일 경로를 루트로
 ///   넘긴 경우다. 사용자가 준 경로라도 다른 색인 실패 진단처럼 반향하지 않는다.
 /// - 프로젝트 설정 오류([ProjectConfigurationException]). `dartograph.yaml`·
-///   `pubspec.yaml`·`--workspace`의 무엇을 고칠지 짚는 문장을 그대로 싣는다. 그
-///   문장은 저장소가 쓴 설정 값을 담을 수 있어 제어문자를 이스케이프한다(rules
-///   설정 진단과 같은 경계).
+///   `pubspec.yaml`·package config·`--workspace`의 무엇을 고칠지 짚는 문장을
+///   싣는다. 그 문장은 저장소가 쓴 설정 값을 담을 수 있어 길이를 줄이고
+///   제어문자를 이스케이프한다(rules 설정 진단과 같은 경계).
 String _analysisFailureDiagnostic(Object? cause) => switch (cause) {
   InputRejectedException() => _inputRejectedDiagnostic(cause),
   ProjectConfigurationException(:final message) =>
-    'Analysis failed: ${ReportEscapes.escapeText(message)}',
+    'Analysis failed: ${ReportEscapes.escapeText(_shortenEchoed(message))}',
   DartSdkNotFoundException() => _dartSdkNotFoundDiagnostic,
   PackageRootNotFoundException() => _packageRootNotFoundDiagnostic,
   PathAccessException() => _accessDeniedDiagnostic,
   _ => 'Analysis failed: unable to index the package.',
 };
+
+/// 진단 한 줄에 싣는 설정 문장의 최대 rune 수다.
+///
+/// 문장은 끝에 저장소가 쓴 값(경로·glob·키)을 반향한다. 정상 값은 이보다 훨씬
+/// 짧고, 1 MiB까지 읽히는 설정의 긴 키·값이 진단 줄을 그만큼 키우지 않게 한다.
+const _echoedTextLimit = 400;
+
+/// [text]가 [_echoedTextLimit] rune을 넘으면 앞부분만 남기고 `…`를 붙인다.
+///
+/// 이스케이프 전에 자른다. 그래야 가시 이스케이프(`\x1b`) 가운데가 잘리지 않는다.
+String _shortenEchoed(String text) {
+  final runes = text.runes;
+  if (runes.length <= _echoedTextLimit) return text;
+  return '${String.fromCharCodes(runes.take(_echoedTextLimit))}…';
+}
 
 /// 패키지 루트가 없거나 디렉터리가 아니라는 진단이다.
 const _packageRootNotFoundDiagnostic =
