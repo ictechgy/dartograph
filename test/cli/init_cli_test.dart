@@ -180,6 +180,8 @@ environment:
     final temporary = await Directory.systemTemp.createTemp(
       'dartograph-init-missing-',
     );
+    // 실행마다 빈 임시 디렉터리 하나를 남겼다(정리 누락).
+    addTearDown(() => temporary.delete(recursive: true));
     final missingPath = '${temporary.path}/missing';
 
     final error = StringBuffer();

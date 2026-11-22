@@ -959,6 +959,14 @@ Future<int> _runImpact(
       } on FileSystemException {
         error.writeln('Changed list could not be read: $changedFile');
         return ExitStatus.usage.code;
+      } on FormatException {
+        // 변경 목록의 내용 오류만 여기서 64다. 색인이 던지는 FormatException
+        // (설정 오류·읽기 경계 거부)은 이 분기에 닿지 않고 아래 분석 실패로 간다.
+        error.writeln(
+          'Invalid changed list: provide a JSON array of 1–1000 non-empty '
+          'project-relative paths (maximum 1 MiB).',
+        );
+        return ExitStatus.usage.code;
       }
     }
     final capture = await captureAnalysisInputs(rootPath);
@@ -1050,16 +1058,6 @@ Future<int> _runImpact(
     return ExitStatus.success.code;
   } on ChangedFilesException catch (failure) {
     return _reportChangedFilesFailure(error, failure);
-  } on InputRejectedException catch (exception) {
-    // 색인이 거부한 분석 입력이다. 아래 FormatException 분기는 변경 목록의
-    // 형식 오류(64)라, 거기로 흘리면 --symbol·--since에서도 원인을 반대로 짚는다.
-    return _reportAnalysisFailure(error, exception);
-  } on FormatException {
-    error.writeln(
-      'Invalid changed list: provide a JSON array of 1–1000 non-empty '
-      'project-relative paths (maximum 1 MiB).',
-    );
-    return ExitStatus.usage.code;
   } on FileSystemException catch (exception) {
     return _reportAnalysisFailure(error, exception);
   } on ArgumentError {
@@ -2541,9 +2539,7 @@ Future<int> _runBridges(
     return ExitStatus.usage.code;
   }
   try {
-    final root = Directory(
-      positional[rootIndex],
-    ).absolute.resolveSymbolicLinksSync();
+    final root = canonicalPackageRoot(positional[rootIndex]);
     // 프로젝트 루트 우선순위: 명시적 --project > pub workspace 감지 > 스캔
     // 루트. 모노레포 조인은 두 producer 문서가 정확히 같은 project 문자열을
     // 가져야 성립한다(GRAPH-EXCHANGE 정확 문자열 일치 fail-closed) —
@@ -2590,6 +2586,10 @@ Future<int> _runBridges(
   } on InputRejectedException catch (exception) {
     // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
     // 진단으로 흘리면 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
+  } on ProjectConfigurationException catch (exception) {
+    // `schema`가 그래프 신원을 얻으려 읽는 `dartograph.yaml`의 설정 오류다.
+    // 같은 이유로 제어문자 진단보다 먼저 잡는다.
     return _reportAnalysisFailure(error, exception);
   } on FormatException {
     // 제어문자·빈 fact 값의 전면 거부는 bridges 추출 정책이다(GRAPH-EXCHANGE
@@ -3875,7 +3875,7 @@ Future<int> _runRuntime(
   );
   try {
     // 패키지 루트 부재를 --execute 실패로 오귀인하지 않도록 먼저 해석한다.
-    final canonicalRoot = await Directory(rootPath).resolveSymbolicLinks();
+    final canonicalRoot = canonicalPackageRoot(rootPath);
     if (entrypoint != null && _looksLikeEntryPointPath(entrypoint)) {
       final file = File(
         p.isAbsolute(entrypoint) ? entrypoint : p.join(rootPath, entrypoint),
@@ -4031,12 +4031,42 @@ int _reportAnalysisFailure(StringSink error, [Object? cause]) {
 /// - SDK 부재([DartSdkNotFoundException]). AOT 설치(`dart install`)를 Flutter의
 ///   `bin/dart` 래퍼와 함께 쓰면 흔히 난다(#160).
 /// - 접근 거부([PathAccessException]). 패키지나 명령 입력 파일의 권한 문제다.
+/// - 패키지 루트 부재([PackageRootNotFoundException]). 경로 오타나 파일 경로를 루트로
+///   넘긴 경우다. 사용자가 준 경로라도 다른 색인 실패 진단처럼 반향하지 않는다.
+/// - 프로젝트 설정 오류([ProjectConfigurationException]). `dartograph.yaml`·
+///   `pubspec.yaml`·package config·`--workspace`의 무엇을 고칠지 짚는 문장을
+///   싣는다. 그 문장은 저장소가 쓴 설정 값을 담을 수 있어 길이를 줄이고
+///   제어문자를 이스케이프한다(rules 설정 진단과 같은 경계).
 String _analysisFailureDiagnostic(Object? cause) => switch (cause) {
   InputRejectedException() => _inputRejectedDiagnostic(cause),
+  ProjectConfigurationException(:final message) =>
+    'Analysis failed: ${ReportEscapes.escapeText(_shortenEchoed(message))}',
   DartSdkNotFoundException() => _dartSdkNotFoundDiagnostic,
+  PackageRootNotFoundException() => _packageRootNotFoundDiagnostic,
   PathAccessException() => _accessDeniedDiagnostic,
   _ => 'Analysis failed: unable to index the package.',
 };
+
+/// 진단 한 줄에 싣는 설정 문장의 최대 rune 수다.
+///
+/// 문장은 끝에 저장소가 쓴 값(경로·glob·키)을 반향한다. 정상 값은 이보다 훨씬
+/// 짧고, 1 MiB까지 읽히는 설정의 긴 키·값이 진단 줄을 그만큼 키우지 않게 한다.
+const _echoedTextLimit = 400;
+
+/// [text]가 [_echoedTextLimit] rune을 넘으면 앞부분만 남기고 `…`를 붙인다.
+///
+/// 이스케이프 전에 자른다. 그래야 가시 이스케이프(`\x1b`) 가운데가 잘리지 않는다.
+String _shortenEchoed(String text) {
+  final runes = text.runes;
+  if (runes.length <= _echoedTextLimit) return text;
+  return '${String.fromCharCodes(runes.take(_echoedTextLimit))}…';
+}
+
+/// 패키지 루트가 없거나 디렉터리가 아니라는 진단이다.
+const _packageRootNotFoundDiagnostic =
+    'Analysis failed: the package root was not found or is not a directory. '
+    'Check the path, or pass the package directory (the one that contains '
+    'pubspec.yaml).';
 
 /// Dart SDK를 찾지 못했다는 진단이다. 탐색 순서와 해결 방향을 짚는다.
 const _dartSdkNotFoundDiagnostic =

@@ -65,7 +65,7 @@ Future<int> _emitRoutes(
   DateTime Function() now,
 ) async {
   try {
-    final root = Directory(options.root).absolute.resolveSymbolicLinksSync();
+    final root = canonicalPackageRoot(options.root);
     final exchange = _resolveExchangeProject(root, options.project, error);
     if (exchange == null) return ExitStatus.usage.code;
     final indexed = await indexRouteCalls(
@@ -88,6 +88,10 @@ Future<int> _emitRoutes(
   } on InputRejectedException catch (exception) {
     // 읽기 경계의 거부(장치·FIFO·상한 초과)도 FormatException이다. 아래 제어문자
     // 진단으로 흘리면 원인을 반대로 가리킨다.
+    return _reportAnalysisFailure(error, exception);
+  } on ProjectConfigurationException catch (exception) {
+    // route 신원을 얻으려 읽는 `dartograph.yaml`의 설정 오류다. 같은 이유로
+    // 제어문자 진단보다 먼저 잡는다.
     return _reportAnalysisFailure(error, exception);
   } on FormatException {
     error.writeln(

@@ -94,7 +94,8 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   동작은 지원하지 않는다 — 의도된 안전장치다.
 - 저장소가 제공하는 YAML 설정(`dartograph.yaml`, `pubspec.yaml`, `build.yaml`,
   `layers.yaml`, `--config` 파일)은 **1 MiB**까지만 읽는다(`package_config.json`은
-  16 MiB). 초과하면 경로를 반향하지 않는 정적 메시지로 거절한다.
+  16 MiB). 초과하면 호스트 경로를 반향하지 않는 정적 메시지로 거절한다(분석 명령은
+  `invalid pubspec.yaml: …`처럼 저장소 기준 파일 이름을 짚는다).
 - 분석 입력이 정규 파일이 아닌 대상(문자·블록 장치, FIFO, 소켓)이면 읽기 전에 분석
   실패(종료 코드 2)로 멈춘다. 분석 트리의 링크뿐 아니라 import·part가 가리키는
   파일(숨김·`build` 디렉터리 안 파일, 절대 경로)도 같다. 진단은 모든 분석 명령에서 같다:
@@ -115,6 +116,20 @@ CI에서는 `2`와 `64`를 실패로 취급하고, `1`만 별도 게이트로 �
   패키지 루트나 명령이 받은 입력 파일을 권한 때문에 읽지 못했다는 뜻이다. 루트 아래
   하위 디렉터리는 실패 대신 건너뛰고 `unreadable-directories: N …` 한계로 센다 — 그
   아래 파일은 분석하지 않았으므로 '미발견'과 빈 결과를 완전성 근거로 쓰지 않는다.
+- `Analysis failed: invalid dartograph.yaml: …`·`Analysis failed: invalid pubspec.yaml: …`·
+  `Analysis failed: invalid .dart_tool/package_config.json: …`는 그 파일이 잘못됐다는 뜻이고,
+  뒤의 문장이 고칠 키와 값을 짚는다(YAML 구문 오류는 줄·열을 붙이고, UTF-8이 아니거나 상한을
+  넘은 파일도 같은 형태로 짚는다). 멤버·source package의 pubspec은 `pkgs/a/pubspec.yaml`처럼
+  루트 기준 경로로 적는다. `Analysis failed: --workspace requires a pub workspace root: …`는
+  `pubspec.yaml`이 없거나 `workspace:` 멤버를 선언하지 않은 루트에 `--workspace`를 줬다는 뜻이다. 그 설정을 읽는
+  분석 명령은 모두 같은 진단과 종료 코드 2로 끝난다(`impact`도 64가 아니다).
+- `Analysis failed: the package root was not found or is not a directory.`는 패키지 루트
+  인자가 없는 경로·끊긴 링크·순환 링크·파일이거나, 상위 디렉터리 권한 때문에 닿을 수 없는
+  경로라는 뜻이다. 경로 오타나 `lib/main.dart` 같은 파일을 넘기지 않았는지, 상위 디렉터리를
+  읽을 수 있는지 확인하고 `pubspec.yaml`이 있는 디렉터리를 넘긴다.
+- 원인을 분류하지 못한 실패만 `Analysis failed: unable to index the package.`로 남는다.
+  경로·내부 상세를 반향하지 않는 정적 문구라, 제보할 때는 설치 방법(`dart install`·
+  `dart pub global activate`), `dart --version`, `which dart`, Flutter 여부를 함께 적는다.
 - 결과에 `symlink-duplicate-directories: N …` 한계가 있으면 링크 경로 N개가 이미 다른
   경로로 읽은 디렉터리로 이어져 열지 않았다는 뜻이다. 링크를 거쳐 닿는 디렉터리는
   이름순으로 처음 만난 경로 하나로만 분석한다(실제 위치와 링크 하나는 둘 다 분석한다).
