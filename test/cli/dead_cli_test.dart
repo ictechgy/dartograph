@@ -246,11 +246,14 @@ void main() {
     ], workingDirectory: fixture.path);
     expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
 
-    // public_api.dart는 어떤 내부 참조도 없어 dead-file로 보고된다.
+    // --closed-app이면 public_api.dart는 어떤 내부 참조도 없어 dead-file로
+    // 보고된다. 라이브러리 모드에서는 대표 라이브러리가 export해 공개 API로
+    // 보존되므로 이 fixture에 finding이 없다.
     final full = StringBuffer();
     expect(
       await runDartograph([
         'dead',
+        '--closed-app',
         '--format',
         'json',
         fixture.path,
@@ -265,13 +268,17 @@ void main() {
       contains('closed_app_fixture/public_api.dart'),
     );
 
+    // glob은 스킴을 뗀 소스 경로(`lib/public_api.dart`)에 맞춘다. 패키지 이름이
+    // 붙은 경로(`closed_app_fixture/public_api.dart`)는 어느 finding에도 맞지 않아
+    // 이전에는 이 단계와 아래 include 단계가 아무것도 거르지 않고 통과했다.
     await File('${fixture.path}/dartograph.yaml').writeAsString('''
 exclude:
-  - 'closed_app_fixture/public_api.dart'
+  - 'lib/public_api.dart'
 ''');
     final excluded = StringBuffer();
     await runDartograph([
       'dead',
+      '--closed-app',
       '--format',
       'json',
       fixture.path,
@@ -286,6 +293,8 @@ exclude:
         '${finding['id']} ${finding['source']}',
     ].join(' ');
     expect(excludedIds, isNot(contains('public_api.dart')));
+    // 범위 밖이 아닌 finding(대표 라이브러리)은 남는다 — exclude가 골라서 거른다.
+    expect(excludedIds, contains('closed_app_fixture.dart'));
     expect(
       (excludedDoc['limitations']! as List<Object?>).join(' '),
       contains('include-exclude:'),
@@ -295,11 +304,12 @@ exclude:
     // 발견이 사라지므로 종료 코드가 0이 된다.
     await File('${fixture.path}/dartograph.yaml').writeAsString('''
 include:
-  - 'closed_app_fixture/used.dart'
+  - 'lib/used.dart'
 ''');
     final included = StringBuffer();
     final includedStatus = await runDartograph([
       'dead',
+      '--closed-app',
       '--format',
       'json',
       fixture.path,

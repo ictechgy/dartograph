@@ -1615,8 +1615,13 @@ AnalyzerGraphResult _assembleResult({
   // 다시 훑으면 비용이 O(라이브러리 수 × 정점 수)다. 이 루프는 정점을 더하지
   // 않으므로 한 번 만든 색인이 모든 대표 라이브러리(--workspace 멤버 포함)에 맞다.
   Map<String, List<String>>? membersByDeclaration;
-  for (final library in libraries.values) {
+  for (final MapEntry(key: libraryId, value: library) in libraries.entries) {
     if (library.publicApi.isEmpty) continue;
+    // 대표 라이브러리 자체도 소비자가 import하는 공개 API다. export만 하는
+    // barrel은 자기 선언이 없어, 이 루트가 없으면 그 export로 보존한 선언은
+    // 살아 있는데 정작 그 근거인 파일이 dead 파일로 보고됐다. --closed-app은
+    // publicApi 루트를 빼므로 이 루트도 함께 빠진다.
+    retentionRoots.putIfAbsent(libraryId, () => RetentionReason.publicApi);
     _addPublicApiRoots(
       graph,
       retentionRoots,
@@ -2460,8 +2465,10 @@ const _cacheSchemaVersion = 8;
 // analysis options가 제외한 비생성 파일을 세는 options-excluded-files 한계(v32)를
 // 싣는다. 이전 캐시에는 이 한계가 없다. 같은 무렵 키에 더한 include 체인의 옵션
 // 파일과 analyzer 패키지 신원은 키 구성 자체가 바뀌므로 신원 변경이 필요 없었다.
+// 대표 라이브러리 자체를 publicApi 보존 루트로 더한다(v33). 이전 캐시는 export만
+// 하는 대표 라이브러리를 dead 파일로 남기므로 폐기한다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v32-options-includes';
+    'dartograph-analysis-$toolVersion-cache-v33-entry-library-root';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///

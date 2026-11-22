@@ -544,7 +544,7 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 | 값 | 보존한 근거 |
 |---|---|
 | `mainEntryPoint` | `lib/`·`bin/`·`example/`의 `main`(설정한 `entry_points`가 있으면 그 파일의 `main`) |
-| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버(`--closed-app`이면 쓰지 않음) |
+| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버와, 공개 이름을 하나라도 export하는 그 대표 라이브러리 자체(`--closed-app`이면 쓰지 않음) |
 | `overrideContract` | 상속 멤버를 재정의한 멤버와 상위 getter·setter를 구현하는 인스턴스 필드 |
 | `visibleForTesting` | 테스트 디렉터리의 선언과 `@visibleForTesting` 선언 |
 | `generatedCode` | 생성 파일(접미사 목록은 README "Analysis limitations")의 선언 |

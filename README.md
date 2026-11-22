@@ -382,7 +382,11 @@ Limitations:
   reachable whenever `S` is reached at all, even when `S` is only used as a
   type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
-  are retained as the external consumer API. Other top-level `lib/*.dart`
+  are retained as the external consumer API, and so is that entry library
+  itself when it exports at least one public name: an entry library that only
+  re-exports `src/` files is not a file finding, and the libraries it imports
+  or exports count as reached. `--closed-app` drops this retention together
+  with the exported declarations. Other top-level `lib/*.dart`
   libraries of a package that can be published (no `publish_to: none`), such
   as `lib/testing.dart`, are counted by a `public-libraries:` limitation when
   some of their public declarations are not exported from the entry library.
