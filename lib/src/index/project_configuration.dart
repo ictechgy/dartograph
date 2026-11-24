@@ -1,5 +1,3 @@
-import 'package:yaml/yaml.dart';
-
 import '../core/config_source.dart';
 
 /// 프로젝트 설정이 잘못돼 분석을 시작하지 못했다는 실패다.
@@ -45,22 +43,11 @@ T readProjectConfiguration<T>(String file, T Function() read) {
     rethrow;
   } on FormatException catch (exception) {
     throw ProjectConfigurationException(
-      'invalid $file: ${_describeFormatException(exception)}',
+      'invalid $file: ${describeConfigurationError(exception)}',
     );
   } on Utf8DecodeException {
     throw ProjectConfigurationException(
       'invalid $file: the file is not valid UTF-8',
     );
   }
-}
-
-/// 형식 오류 [exception]의 문구다. YAML 구문 오류면 1부터 센 줄·열을 붙인다.
-///
-/// [FormatException.message]만 쓴다. `toString()`과 `source`는 원문 전체를 담을 수
-/// 있다.
-String _describeFormatException(FormatException exception) {
-  final start = exception is YamlException ? exception.span?.start : null;
-  if (start == null) return exception.message;
-  return '${exception.message} '
-      '(line ${start.line + 1}, column ${start.column + 1})';
 }

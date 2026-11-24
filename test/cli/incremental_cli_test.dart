@@ -32,6 +32,9 @@ void main() {
     await write('pubspec.yaml', 'name: app\nenvironment:\n  sdk: ^3.11.0\n');
     await write('lib/app.dart', "export 'service.dart';\n");
     await write('lib/service.dart', 'class Service {}\n');
+    // 아무도 import하지 않는 라이브러리다. dead 결과가 finding(종료 1)을 담게 한다.
+    // export만 하는 대표 라이브러리 lib/app.dart는 공개 API 보존 루트라 dead가 아니다.
+    await write('lib/legacy.dart', 'class Legacy {}\n');
     await write(
       'lib/main.dart',
       "import 'service.dart';\nvoid main() {\n  Service();\n}\n",
@@ -77,7 +80,7 @@ void main() {
     expect(leading.status, 0, reason: leading.error);
     expect(leading.output, plain.output);
 
-    // dead도 같은 색인 경로를 쓴다. package_config이 없어 lib/app.dart 배럴은
+    // dead도 같은 색인 경로를 쓴다. package_config이 없어 lib/legacy.dart는
     // project: ID로 dead-file 발견이 된다 — findings는 종료 1이다.
     final dead = await _run([
       'dead',
@@ -88,7 +91,7 @@ void main() {
       root.path,
     ]);
     expect(dead.status, 1, reason: dead.error);
-    expect(dead.output, contains('project:lib/app.dart'));
+    expect(dead.output, contains('project:lib/legacy.dart'));
   });
 
   test(
@@ -288,12 +291,12 @@ void main() {
         }),
         'malformed': '{"configVersion": 2, "packages": [',
       };
-      // 선언 없는 배럴 lib/app.dart는 두 경우 모두 dead-file이다(종료 1).
+      // 아무도 import하지 않는 lib/legacy.dart는 두 경우 모두 dead-file이다(종료 1).
       // 남은 app 항목은 계속 해석돼 package: ID가 되고, 깨진 문서는 package:
       // URI를 못 풀어 project: ID가 된다.
-      const barrels = {
-        'stale': 'package:app/app.dart',
-        'malformed': 'project:lib/app.dart',
+      const unused = {
+        'stale': 'package:app/legacy.dart',
+        'malformed': 'project:lib/legacy.dart',
       };
       for (final MapEntry(key: name, value: document) in documents.entries) {
         await configuration.writeAsString(document);
@@ -315,7 +318,7 @@ void main() {
         ]);
 
         expect(plain.status, 1, reason: '$name: ${plain.error}');
-        expect(plain.output, contains('"id":"${barrels[name]}"'));
+        expect(plain.output, contains('"id":"${unused[name]}"'));
         expect(incremental.status, plain.status, reason: incremental.error);
         expect(incremental.output, plain.output, reason: name);
         expect(runtime.status, 0, reason: '$name: ${runtime.error}');
@@ -382,7 +385,7 @@ void main() {
         root.path,
       ]);
       expect(second.status, 1, reason: second.error);
-      expect(second.output, contains('project:lib/app.dart'));
+      expect(second.output, contains('project:lib/legacy.dart'));
       expect(facts.lastModifiedSync().isBefore(DateTime(2002)), isTrue);
     });
 

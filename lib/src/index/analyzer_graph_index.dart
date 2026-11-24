@@ -1615,8 +1615,13 @@ AnalyzerGraphResult _assembleResult({
   // 다시 훑으면 비용이 O(라이브러리 수 × 정점 수)다. 이 루프는 정점을 더하지
   // 않으므로 한 번 만든 색인이 모든 대표 라이브러리(--workspace 멤버 포함)에 맞다.
   Map<String, List<String>>? membersByDeclaration;
-  for (final library in libraries.values) {
+  for (final MapEntry(key: libraryId, value: library) in libraries.entries) {
     if (library.publicApi.isEmpty) continue;
+    // 대표 라이브러리 자체도 소비자가 import하는 공개 API다. export만 하는
+    // barrel은 자기 선언이 없어, 이 루트가 없으면 그 export로 보존한 선언은
+    // 살아 있는데 정작 그 근거인 파일이 dead 파일로 보고됐다. --closed-app은
+    // publicApi 루트를 빼므로 이 루트도 함께 빠진다.
+    retentionRoots.putIfAbsent(libraryId, () => RetentionReason.publicApi);
     _addPublicApiRoots(
       graph,
       retentionRoots,
@@ -1663,13 +1668,6 @@ AnalyzerGraphResult _assembleResult({
         member.relPath,
     ],
   );
-  final publicLibraries = _publicLibrariesLimitation(
-    pubspecContent,
-    sources,
-    facts,
-    retentionRoots,
-  );
-  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   // build.yaml이 선언한 builder factory는 build_runner가 이름으로 호출하는
   // 진입점이라 사용 간선이 없어도 보존한다(undead의 framework adapter와 같은
   // 계약). 파싱 실패는 한계로 남기고 분석 실패로 만들지 않는다.
@@ -1731,6 +1729,16 @@ AnalyzerGraphResult _assembleResult({
       'dartograph.yaml retained_names/retained_files',
     );
   }
+  // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
+  // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
+  // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
+  final publicLibraries = _publicLibrariesLimitation(
+    pubspecContent,
+    sources,
+    facts,
+    retentionRoots,
+  );
+  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -2460,8 +2468,17 @@ const _cacheSchemaVersion = 8;
 // analysis options가 제외한 비생성 파일을 세는 options-excluded-files 한계(v32)를
 // 싣는다. 이전 캐시에는 이 한계가 없다. 같은 무렵 키에 더한 include 체인의 옵션
 // 파일과 analyzer 패키지 신원은 키 구성 자체가 바뀌므로 신원 변경이 필요 없었다.
+// 대표 라이브러리 자체를 publicApi 보존 루트로 더한다(v33). 이전 캐시는 export만
+// 하는 대표 라이브러리를 dead 파일로 남기므로 폐기한다. public-libraries 한계가
+// 다른 근거로 보존된 선언을 세지 않는다(같은 v33). 이전 캐시는 builder·
+// retained_files로 보존한 파일을 이 한계에 남긴다.
+// public-libraries 한계가 루트가 아닌 공개 멤버도 본다(v34). v33 캐시는 멤버를
+// 보존하지 않는 annotation·설정 루트 클래스의 파일을 이 한계에서 뺀다.
+// public-libraries 한계가 part 유닛의 선언을 호스트 라이브러리로 센다(v35). v34
+// 캐시는 part에만 보고될 선언이 있는 라이브러리를 이 한계에서 빼고, 최상위 part
+// 파일을 라이브러리로 센다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v32-options-includes';
+    'dartograph-analysis-$toolVersion-cache-v35-library-parts';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3206,10 +3223,16 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
 /// 패키지의 다른 최상위 `lib/*.dart`(예: `lib/testing.dart`)도 소비자가 import하는
 /// 공개 라이브러리인데, 그 선언을 소비자만 쓰면 아무 표시 없이 미도달로 보고됐다.
-/// 대표 라이브러리가 다시 export해 이미 publicApi로 보존된 선언만 있는 파일은
-/// 세지 않는다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다.
-/// 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이
-/// 가려진다. 알릴 것이 없으면 null이다.
+/// 공개 최상위 선언과 공개 멤버가 모두 보존 루트인 파일은 세지 않는다. 대표
+/// 라이브러리가 다시 export한 선언은 공개 멤버까지 publicApi 루트가 되고,
+/// `retained_files`는 파일의 모든 선언을 루트로 삼는다. annotation·
+/// `dartograph:ignore`·`retained_names`·build.yaml builder·plugin 루트는 그
+/// 선언만 보존하고 멤버는 보존하지 않으므로, 그 클래스의 공개 멤버를 소비자만
+/// 쓰면 여전히 미도달로 보고된다. 그런 파일은 센다. 그래서 [retentionRoots]가
+/// 모두 정해진 뒤에 부른다. part 유닛의 선언은 호스트 라이브러리의 것으로 본다.
+/// `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다. 공개 API
+/// 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이 가려진다.
+/// 알릴 것이 없으면 null이다.
 String? _publicLibrariesLimitation(
   String? pubspecContent,
   List<String> sources,
@@ -3222,27 +3245,57 @@ String? _publicLibrariesLimitation(
   final name = document['name'];
   if (name is! String) return null;
   final entry = 'lib/$name.dart';
-  final unretained = <String>[
-    for (final source in sources)
-      if (source != entry &&
-          RegExp(r'^lib/[^/]+\.dart$').hasMatch(source) &&
-          facts[source]!.nodes.any(
-            (node) =>
-                _isPublicTopLevel(node.id) &&
-                retentionRoots[node.id] != RetentionReason.publicApi,
-          ))
-        source,
-  ]..sort();
+  // part의 선언은 호스트 라이브러리의 것이다. 라이브러리마다 자기 유닛과 part
+  // 유닛을 함께 본다. 최상위 `lib/` 아래 part 파일은 라이브러리가 아니라 세지 않고
+  // 그 선언을 호스트 라이브러리에 돌린다.
+  final unitsByLibrary = <String, List<_UnitFacts>>{};
+  for (final source in sources) {
+    final unit = facts[source]!;
+    final library = unit.librarySource;
+    if (library != null) (unitsByLibrary[library] ??= []).add(unit);
+  }
+  final unretained = <String>[];
+  var unnamedExtension = false;
+  for (final MapEntry(key: library, value: units) in unitsByLibrary.entries) {
+    if (library == entry || !RegExp(r'^lib/[^/]+\.dart$').hasMatch(library)) {
+      continue;
+    }
+    final reportable = [
+      for (final unit in units)
+        for (final node in unit.nodes)
+          if (_isReportablePublicDeclaration(node) &&
+              !retentionRoots.containsKey(node.id))
+            node.id,
+    ];
+    if (reportable.isEmpty) continue;
+    unretained.add(library);
+    if (reportable.any((id) => id.contains('::<unnamed-extension@'))) {
+      unnamedExtension = true;
+    }
+  }
+  unretained.sort();
   if (unretained.isEmpty) return null;
   const shown = 3;
   final listed = unretained.take(shown).join(', ');
   final more = unretained.length > shown
       ? ' and ${unretained.length - shown} more'
       : '';
+  // 익명 extension은 이름이 없어 export할 수 없다. 그런 선언이 있으면 export 권고가
+  // 통하지 않으므로 파일 보존을 짚는다.
+  final unnamedNote = unnamedExtension
+      ? '; an unnamed extension cannot be exported, so retain its file with '
+            'retained_files'
+      : '';
+  if (unretained.length == 1) {
+    return 'public-libraries: $listed is a public library outside $entry; '
+        'its declarations are not retained as public API, so ones used only '
+        'by package consumers are reported as unreachable (export it from '
+        '$entry or retain it with retained_files$unnamedNote)';
+  }
   return 'public-libraries: $listed$more are public libraries outside $entry; '
       'their declarations are not retained as public API, so ones used only '
       'by package consumers are reported as unreachable (export them from '
-      '$entry or retain them with retained_files)';
+      '$entry or retain them with retained_files$unnamedNote)';
 }
 
 /// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation
@@ -3262,12 +3315,25 @@ String _optionsExcludedFilesLimitation(List<String> files) {
       'dartograph.yaml)';
 }
 
-/// 라이브러리의 비공개가 아닌 최상위 선언 ID인지 본다(`lib::Name`).
-bool _isPublicTopLevel(String id) {
-  final separator = id.indexOf('::');
+/// 소비자가 이름으로 쓸 수 있고 보존 루트가 아니면 미도달로 보고될 수 있는
+/// 선언인지 본다.
+///
+/// 최상위 선언(`lib::Name`)과 그 멤버(`lib::Name.member`)를 모두 본다. 이름의
+/// 어느 마디든 `_`로 시작하면 비공개다(비공개 클래스의 멤버도 소비자가 쓸 수
+/// 없다). 익명 extension 표식(`<unnamed-extension@…>`)은 경로의 점을 담을 수
+/// 있어 한 마디로 본다(import한 소비자에게 적용되므로 공개다). enum 상수는 enum이
+/// 살아 있으면 구조적으로 보존되므로 빼고, enum 자체는 최상위 선언으로 센다.
+bool _isReportablePublicDeclaration(GraphNode node) {
+  if (node.isEnumConstant) return false;
+  final separator = node.id.indexOf('::');
   if (separator < 0) return false;
-  final name = id.substring(separator + 2);
-  return name.isNotEmpty && !name.contains('.') && !name.startsWith('_');
+  var name = node.id.substring(separator + 2);
+  if (name.startsWith('<')) {
+    final markerEnd = name.indexOf('>');
+    if (markerEnd < 0) return true;
+    name = name.substring(markerEnd + 1);
+  }
+  return !name.split('.').any((segment) => segment.startsWith('_'));
 }
 
 List<String> _agentLimitations(

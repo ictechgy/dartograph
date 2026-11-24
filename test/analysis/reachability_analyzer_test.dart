@@ -443,6 +443,68 @@ void main() {
     });
   });
 
+  test('a library root reaches its imports and exports through the library '
+      'walk, keeping declaration witnesses', () {
+    // 대표 라이브러리 루트가 선언 도달 집합에서 import·export를 따라가면 그 대상이
+    // '선언을 담은 라이브러리'로 시드돼 witness와 import 경로를 잃었다.
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: 'package:app/app.dart', isLibrary: true))
+      ..addNode(GraphNode(id: 'package:app/src/model.dart', isLibrary: true))
+      ..addNode(GraphNode(id: 'package:app/src/helper.dart', isLibrary: true))
+      ..addNode(GraphNode(id: 'package:app/src/model.dart::Model'))
+      ..addNode(GraphNode(id: 'package:app/src/helper.dart::Helper'))
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/app.dart',
+          targetId: 'package:app/src/model.dart',
+          kind: EdgeKind.export,
+        ),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: 'package:app/app.dart',
+          targetId: 'package:app/src/helper.dart',
+          kind: EdgeKind.import,
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'package:app/app.dart': RetentionReason.publicApi,
+        'package:app/src/model.dart::Model': RetentionReason.publicApi,
+      },
+    );
+
+    expect(result.deadFiles, isEmpty);
+    expect(result.deadDeclarations.map((finding) => finding.id), [
+      'package:app/src/helper.dart::Helper',
+    ]);
+    expect(result.explain('package:app/src/model.dart').toJson(), {
+      'evidence': const <Object>[],
+      'id': 'package:app/src/model.dart',
+      'limitations': const <String>[],
+      'path': ['package:app/src/model.dart'],
+      'reachable': true,
+      'reason': 'contains a reachable declaration',
+      'witness': 'package:app/src/model.dart::Model',
+    });
+    expect(result.explain('package:app/src/helper.dart').toJson(), {
+      'evidence': [
+        {
+          'from': 'package:app/app.dart',
+          'kind': 'import',
+          'to': 'package:app/src/helper.dart',
+        },
+      ],
+      'id': 'package:app/src/helper.dart',
+      'limitations': const <String>[],
+      'path': ['package:app/app.dart', 'package:app/src/helper.dart'],
+      'reachable': true,
+      'reason': 'reachable from a retained library',
+    });
+  });
+
   test('dead declarations and files carry evidence without deletion advice', () {
     final graph = CodeGraph()
       ..addNode(

@@ -1439,9 +1439,13 @@ Future<int> _runRules(
     return _reportRulesConfigUnreadable(error, config);
   } on FormatException catch (exception) {
     // 파서 상세는 키 이름 등 설정 내용만 담는다. loadYaml은 문자열을 받으므로
-    // YamlException에도 파일 경로가 없고, .message는 줄 위치도 담지 않는다.
+    // YamlException에도 파일 경로가 없다. .message는 줄 위치를 담지 않아
+    // `dartograph.yaml` 진단과 같이 YAML 구문 오류의 줄·열을 붙인다.
     // 설정 파일 경로는 기존 계약대로 이 진단에 반향하지 않는다.
-    return _reportRulesConfigInvalid(error, exception.message);
+    return _reportRulesConfigInvalid(
+      error,
+      describeConfigurationError(exception),
+    );
   }
   try {
     final indexed = await indexPackage(root);

@@ -238,14 +238,19 @@ class Zeta {
           ],
           [
             'package:pkg_b/b.dart::main=mainEntryPoint',
+            // 대표 라이브러리 자체가 자기 export보다 먼저 루트가 된다.
+            'package:ws_root/ws_root.dart=publicApi',
             'package:ws_root/root.dart::RootPackage=publicApi',
             'package:ws_root/ws_root.dart::Zeta=publicApi',
             'package:ws_root/ws_root.dart::Zeta.alpha=publicApi',
             'package:ws_root/ws_root.dart::Zeta.omega=publicApi',
+            'package:pkg_a/pkg_a.dart=publicApi',
             'package:pkg_a/pkg_a.dart::Alpha=publicApi',
             'package:pkg_a/pkg_a.dart::Alpha.run=publicApi',
             'package:pkg_a/a.dart::Foo=publicApi',
             'package:pkg_a/a.dart::Foo.call=publicApi',
+            // export하는 이름이 모두 이미 루트인 멤버 대표 라이브러리도 루트다.
+            'package:pkg_b/pkg_b.dart=publicApi',
           ],
         );
       },

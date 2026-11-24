@@ -297,6 +297,8 @@ final class ReachabilityResult {
             ? 'retained as a root'
             : path.length == 1
             ? 'contains a reachable declaration'
+            : _libraryWitnesses[path.first] == null
+            ? 'reachable from a retained library'
             : 'reachable from a library containing a reachable declaration',
         rootsChecked: const [],
         path: path,
@@ -449,6 +451,11 @@ final class ReachabilityAnalyzer {
     }
     while (queue.isNotEmpty) {
       final source = queue.removeFirst();
+      // 라이브러리 루트(대표 라이브러리)의 import·export 간선은 아래 라이브러리
+      // 도달성이 따라간다. 여기서 따라가면 그 대상 라이브러리가 선언 도달 집합에
+      // 들어가 '도달한 선언을 담은 라이브러리'로 시드되고, 실제 import 경로와
+      // witness를 잃는다. 루트가 아닌 정점은 이전과 같이 모두 펼친다.
+      if (_isLibraryRoot(source, sortedRoots)) continue;
       for (final edge in outgoing[source] ?? const []) {
         if (paths.containsKey(edge.targetId)) continue;
         paths[edge.targetId] = _PathStep(source, edge);
@@ -498,15 +505,7 @@ final class ReachabilityAnalyzer {
     final libraryPaths = <String, _PathStep>{};
     final libraryWitnesses = <String, String>{};
     final reachableIds = [...paths.keys, ...structuralPaths.keys]..sort();
-    for (final id in reachableIds.where(
-      (id) =>
-          !id.contains('::') &&
-          (id.startsWith('package:') || id.startsWith('project:')),
-    )) {
-      if (nodeIds.contains(id)) {
-        libraryPaths[id] = const _PathStep(null, null);
-      }
-    }
+    // 도달한 선언을 담은 라이브러리를 먼저 시드한다. 그 선언이 witness다.
     for (final id in reachableIds.where((id) => id.contains('::'))) {
       final library = id.split('::').first;
       if (!nodeIds.contains(library) || libraryPaths.containsKey(library)) {
@@ -514,6 +513,13 @@ final class ReachabilityAnalyzer {
       }
       libraryPaths[library] = const _PathStep(null, null);
       libraryWitnesses[library] = id;
+    }
+    // 그다음 보존 루트인 라이브러리를 시드한다(선언 도달 집합의 라이브러리 ID는
+    // 루트뿐이다). 자기 선언이 도달한 루트는 위에서 witness와 함께 시드됐다.
+    for (final id in reachableIds.where(_isLibraryId)) {
+      if (nodeIds.contains(id)) {
+        libraryPaths.putIfAbsent(id, () => const _PathStep(null, null));
+      }
     }
     final libraryQueue = Queue<String>.from(libraryPaths.keys);
     while (libraryQueue.isNotEmpty) {
@@ -826,6 +832,8 @@ final class ReachabilityAnalyzer {
         }
         return true;
       });
+      // [analyze]와 같이 라이브러리 루트의 import·export는 선언 도달로 펼치지 않는다.
+      if (_isLibraryRoot(id, roots)) continue;
       for (final edge in outgoing[id] ?? const <GraphEdge>[]) {
         reach(edge.targetId);
       }
@@ -987,6 +995,20 @@ final class _SourceLimitations {
     }.toList()..sort();
   }
 }
+
+/// [id]가 라이브러리 정점 ID 모양인지 본다(`::`가 없는 `package:`·`project:` ID).
+///
+/// 파일 도달성의 시드·파일 finding 후보와 같은 기준이다.
+bool _isLibraryId(String id) =>
+    !id.contains('::') &&
+    (id.startsWith('package:') || id.startsWith('project:'));
+
+/// [id]가 보존 루트인 라이브러리(대표 라이브러리)인지 본다.
+///
+/// 선언 도달 순회는 이 정점의 간선을 펼치지 않는다. 그 import·export는 파일
+/// 도달성의 라이브러리 순회가 실제 간선과 함께 따라간다.
+bool _isLibraryRoot(String id, Map<String, RetentionReason> roots) =>
+    _isLibraryId(id) && roots.containsKey(id);
 
 String _librarySource(String id) {
   final uri = Uri.parse(id);

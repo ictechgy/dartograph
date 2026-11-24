@@ -54,11 +54,14 @@ void main() {
         .cast<Map<String, Object?>>()
         .map((finding) => finding['id'])
         .join('\n');
-    // 라이브러리 모드: 공개 API 보존 → PublicOnly는 발견이 아니다. 배럴 파일
-    // 자체는 내부 import가 없어 dead-file로 남는다(기존 의미).
+    // 라이브러리 모드: 공개 API 보존 → PublicOnly는 발견이 아니다. 그것을
+    // export하는 대표 라이브러리(배럴) 자체도 publicApi 루트라 dead 파일이
+    // 아니다. 이전에는 내부 import가 없다는 이유로 dead 파일로 남아, 보존 근거인
+    // 파일이 미도달이라는 모순이 있었다.
+    expect(open['status'], ExitStatus.success.code);
     expect(openIds, isNot(contains('PublicOnly')));
     expect(openIds, isNot(contains('public_api.dart')));
-    expect(openIds, contains('closed_app_fixture.dart'));
+    expect(openIds, isNot(contains('closed_app_fixture.dart')));
 
     final closed = await deadJson(const ['--closed-app']);
     expect(closed['status'], ExitStatus.findings.code);
@@ -69,6 +72,8 @@ void main() {
         .join('\n');
     expect(ids, contains('PublicOnly'));
     expect(ids, contains('public_api.dart'));
+    // closed-app은 소비자 전제를 걷어내므로 대표 라이브러리도 보고한다.
+    expect(ids, contains('closed_app_fixture.dart'));
     // main이 참조하는 used()는 두 모드 모두 살아 있다.
     expect(ids, isNot(contains('used')));
     final limitations = (document['limitations']! as List<Object?>)

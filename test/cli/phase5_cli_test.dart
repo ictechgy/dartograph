@@ -162,6 +162,33 @@ rules:
     expect(error.toString(), isNot(contains(rules.path)));
   });
 
+  test('rules names the line and column of a YAML syntax error', () async {
+    // 셋째 줄의 `name:`이 같은 매핑의 키를 반복한다(5열에서 시작). 수정 전에는
+    // 파서 문구만 실어 어디를 고칠지 알 수 없었다. dartograph.yaml 진단과 같은
+    // 1부터 센 줄·열이다.
+    await rules.writeAsString('''
+layers:
+  - name: first
+    name: second
+    match: [a]
+rules: []
+''');
+    final error = StringBuffer();
+
+    final status = await runDartograph(
+      ['rules', '--config', rules.path, temporary.path],
+      error: error,
+      indexPackage: (_) async => indexed,
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      error.toString(),
+      'Analysis failed: invalid rules configuration: Duplicate mapping key. '
+      '(line 3, column 5)\n',
+    );
+  });
+
   test(
     'workspace test complexity is excluded until include-tests is selected',
     () async {

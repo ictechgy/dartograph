@@ -382,10 +382,19 @@ Limitations:
   reachable whenever `S` is reached at all, even when `S` is only used as a
   type and the factory is never called.
 - Public declarations and public members exported by `lib/<package-name>.dart`
-  are retained as the external consumer API. Other top-level `lib/*.dart`
-  libraries of a package that can be published (no `publish_to: none`), such
-  as `lib/testing.dart`, are counted by a `public-libraries:` limitation when
-  some of their public declarations are not exported from the entry library.
+  are retained as the external consumer API, and so is that entry library
+  itself when it exports at least one public name: an entry library that only
+  re-exports `src/` files is not a file finding, and the libraries it imports
+  or exports count as reached (`dead --explain` shows the path from the entry
+  library). `--closed-app` drops this retention together with the exported
+  declarations. Other top-level `lib/*.dart` libraries of a package that can
+  be published (no `publish_to: none`), such as `lib/testing.dart`, are counted
+  by a `public-libraries:` limitation when some public declaration or public
+  member in them is not a retention root and can therefore be reported. Export
+  from the entry library and `retained_files` retain members too; an
+  annotation, `// dartograph:ignore`, or `retained_names` retains only the
+  declaration it names, so such a class with public members is still counted.
+  Declarations in a library's part files count for that library.
 - Typedefs are not graph nodes. A use of a typedef references the declarations
   in its aliased type, so `typedef Models = List<Model>` keeps `Model`
   reachable wherever `Models` is used. Querying a typedef reports `notFound`,

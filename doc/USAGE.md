@@ -544,7 +544,7 @@ baseline과 다르다. 대량·파일 단위 억제는 baseline을 쓴다(파일
 | 값 | 보존한 근거 |
 |---|---|
 | `mainEntryPoint` | `lib/`·`bin/`·`example/`의 `main`(설정한 `entry_points`가 있으면 그 파일의 `main`) |
-| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버(`--closed-app`이면 쓰지 않음) |
+| `publicApi` | `lib/<package-name>.dart`가 export하는 공개 선언·멤버와, 공개 이름을 하나라도 export하는 그 대표 라이브러리 자체(`--closed-app`이면 쓰지 않음) |
 | `overrideContract` | 상속 멤버를 재정의한 멤버와 상위 getter·setter를 구현하는 인스턴스 필드 |
 | `visibleForTesting` | 테스트 디렉터리의 선언과 `@visibleForTesting` 선언 |
 | `generatedCode` | 생성 파일(접미사 목록은 README "Analysis limitations")의 선언 |
@@ -750,6 +750,10 @@ Dart SDK가 필요하다.
 `sourceUri` 양쪽에 걸리는 glob 목록)를 가진 목록이고 먼저 일치하는 레이어가 이긴다.
 `rules`는 `name`·`from`(출발 레이어)·`allow` 또는 `deny`(정확히 하나, 대상 레이어 목록)를
 가진다. 알려지지 않은 키나 `allow`/`deny`가 둘 다 있거나 둘 다 없으면 분석 실패(종료 코드 2)다.
+진단은 `Analysis failed: invalid rules configuration: <원인>`이고, YAML 구문 오류에는
+`dartograph.yaml` 진단처럼 1부터 센 줄·열을 붙인다(`Duplicate mapping key. (line 3, column 5)`). 열은 UTF-16
+코드 단위다(이모지처럼 기본 다국어 평면 밖 문자는 2로 센다. bridge 사실의 UTF-8 바이트 열과 다르다).
+닫히지 않은 따옴표 문자열은 YAML 파서가 멈추는 파일 끝(마지막 줄 다음 줄 1열)을 짚는다.
 규칙은 양끝이 모두 레이어에 배치된 사용 간선만 검사한다. 그래서 `allow` 규칙도 어느 레이어에도
 매치되지 않는 코드로의 의존은 위반으로 보지 않는다. 규칙이 있는 레이어에서 그런 정점으로 가는
 간선이 있으면 `unassigned-layer-targets: <n> usage edge(s) from layers with rules reach <m> node(s)
@@ -1083,7 +1087,7 @@ entry_points:
   - lib/main_production.dart
 ```
 
-`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 이 파일의 모든 설정 오류(아래 `source_packages`·보고 범위 키, 잘못된 YAML, UTF-8이 아닌 파일 포함)는 `Analysis failed: invalid dartograph.yaml: entry_points file does not exist: bin/cli.dart`처럼 고칠 키와 값을 짚는 진단으로 끝난다. YAML 구문 오류는 줄·열을 붙이고, 반향하는 값의 제어문자는 이스케이프하며, 400자를 넘는 문장은 말줄임표로 자른다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
+`entry_points`는 `lib/`, `bin/`, `example/` 아래에 실제로 존재하는 `.dart` 파일의 프로젝트 상대 경로 목록이어야 하며 비어 있을 수 없다. 절대 경로·루트 밖(`..`) 경로·비문자열 항목·범위 밖 디렉터리·존재하지 않는 파일·`.dart`가 아닌 항목은 조용히 무시하지 않고 분석 실패(종료 코드 2)로 알린다. 이는 잘못된 설정으로 사용자가 선언한 build target이 무시되거나 보존 루트가 잘못 좁혀져 삭제 오탐으로 이어지는 것을 막기 위해서다. 이 파일의 모든 설정 오류(아래 `source_packages`·보고 범위 키, 잘못된 YAML, UTF-8이 아닌 파일 포함)는 `Analysis failed: invalid dartograph.yaml: entry_points file does not exist: bin/cli.dart`처럼 고칠 키와 값을 짚는 진단으로 끝난다. YAML 구문 오류는 줄·열(열은 UTF-16 코드 단위)을 붙이고, 반향하는 값의 제어문자는 이스케이프하며, 400자를 넘는 문장은 말줄임표로 자른다. 존재하지만 `main`이 없는 진입점은 `configured-entry-point-without-main` 한계로 보고한다. `entry_points`가 선언되면 보존이 좁혀졌다는 사실 자체도 `entry-points: main retention roots narrowed to N declared build target(s)` 한계로 모든 보고에 실린다 — 설정 추가만으로 죽은 코드가 출력상 조용히 사라지지 않는다. 이 설정은 보존 루트 의미이므로 해석 캐시 키에 포함되며 캐시 identity를 올려 기본 정책으로 분석한 결과를 재사용하지 않는다.
 
 로컬 path dependency의 generated Pigeon/Dart source를 그래프에 포함해야 하면 같은 파일에
 `source_packages`를 명시한다.
