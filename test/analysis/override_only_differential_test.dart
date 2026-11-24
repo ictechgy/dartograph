@@ -84,6 +84,50 @@ void main() {
     expect(_reference(snapshot, roots), isEmpty);
   });
 
+  test('a library root enables no override root through its own edges', () {
+    // 대표 라이브러리 루트의 간선은 선언 도달로 펼치지 않는다(analyze와 같은 규칙).
+    // 실제 그래프의 라이브러리 정점에는 import·export만 있지만, 합성 그래프에서
+    // 라이브러리 → 선언 간선이 있어도 증분 고정점과 반복 정의가 같아야 한다.
+    const library = 'package:app/app.dart';
+    final graph = CodeGraph()
+      ..addNode(GraphNode(id: library, isLibrary: true))
+      ..addNode(GraphNode(id: '$library::main', sourceUri: 'project:lib/a'))
+      ..addNode(GraphNode(id: '$library::Widget', sourceUri: 'project:lib/a'))
+      ..addNode(
+        GraphNode(id: '$library::Widget.build', sourceUri: 'project:lib/a'),
+      )
+      ..addEdge(
+        const GraphEdge(
+          sourceId: library,
+          targetId: '$library::Widget',
+          kind: EdgeKind.reference,
+        ),
+      );
+    const roots = {
+      library: RetentionReason.publicApi,
+      '$library::main': RetentionReason.mainEntryPoint,
+      '$library::Widget.build': RetentionReason.overrideContract,
+    };
+    final snapshot = graph.snapshot();
+
+    final findings = ReachabilityAnalyzer().overrideOnlyDeclarations(
+      snapshot,
+      roots: roots,
+      limitations: const ['global: kept'],
+    );
+
+    expect(findings.map((finding) => finding.id), [
+      '$library::Widget',
+      '$library::Widget.build',
+    ]);
+    expect(
+      jsonEncode([for (final finding in findings) finding.toJson()]),
+      jsonEncode([
+        for (final finding in _reference(snapshot, roots)) finding.toJson(),
+      ]),
+    );
+  });
+
   test('a deep chain of override-enabled types stays linear', () {
     // 타입 i의 재정의 멤버가 타입 i+1을 만든다. 반복 고정점은 깊이만큼 전체
     // 도달성을 다시 계산한다. 결과만 고정한다(시간은 단언하지 않는다).

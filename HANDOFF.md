@@ -15,8 +15,8 @@ _Last updated: 2026-11-22 (4차: 대표 라이브러리 보존 루트·`public-l
   코디네이터가 `65c3e43`까지를 PR [#165](https://github.com/ictechgy/dartograph/pull/165)로 올렸다.
   - `6dd7ded` 대표 라이브러리 루트, `87674a8` `public-libraries:` 한계, `82d0e4c` rules 설정 줄·열,
     `65c3e43` HANDOFF. 각 수정 커밋의 중간 상태도 포맷·`dart analyze --fatal-infos`가 깨끗했다.
-  - 그 위에 독립 리뷰(차단 2·nit 3) 반영 커밋 하나(아래 "PR #165 독립 리뷰 반영"). 이력을 다시 쓰지
-    않았다.
+  - 그 위에 독립 리뷰(차단 2·nit 3) 반영 `858e490`, 재검토(should-fix 1·nit 2) 반영 커밋 하나(아래
+    "PR #165 독립 리뷰 반영"·"재검토 반영"). 이력을 다시 쓰지 않았다.
 
 ## 이번 브랜치의 변경
 
@@ -146,8 +146,8 @@ pub cache의 게시 패키지 65개(이전 세션의 51개 + 14개)에 package c
   `[파일]`을 받았다. `query`의 `reachability.path`도 루트에서 시작하지 않았다.
 - 수정(`reachability_analyzer.dart`): 선언 BFS는 보존 루트인 라이브러리(`::` 없는 `package:`·
   `project:` ID)의 간선을 펼치지 않는다. 그 import·export는 라이브러리 BFS가 실제 `(previous, edge)`로
-  따라간다. 시드는 선언 witness를 먼저, 라이브러리 ID를 `putIfAbsent`로 나중에 한다. 경로가 자기 선언
-  없는 루트 라이브러리에서 시작하면 이유는 `reachable from a retained library`다. 재정의 루트 증분
+  따라간다. 시드는 선언 witness를 먼저, 라이브러리 ID를 `putIfAbsent`로 나중에 한다. 경로가 도달한
+  자기 선언이 없는 루트 라이브러리에서 시작하면 이유는 `reachable from a retained library`다. 재정의 루트 증분
   고정점(`_enableReachedOverrideRoots`)도 같은 규칙을 쓴다.
   - 처음에는 라이브러리 ID 모양이면 모두 펼치지 않게 했다가 `override_only_differential_test`가
     실패했다. 그 무작위 그래프는 라이브러리 정점에도 아무 종류의 간선을 붙이는데, 증분 고정점은 그
@@ -225,6 +225,45 @@ pub cache의 게시 패키지 65개(이전 세션의 51개 + 14개)에 package c
     문구만. `query` 2,429개 중 2,363개는 `origin/main`과 같다. 57개는 대표 라이브러리가 `retained`
     (`publicApi`, 경로 `[entry]`)가 됐고, 3개는 대표 라이브러리를 거치던 경로가 그 루트에서 시작하게
     짧아졌고, 6개는 이번에 빠진 finding의 파일이 실제 경로로 도달했다.
+
+## 재검토 반영 (`858e490` 위)
+
+재검토는 두 차단이 고쳐졌고(explain·query가 모든 경계 사례에서 참, finding 불변, v34 필요·충분)
+should-fix 1·nit 2를 냈다.
+
+- should-fix: `public-libraries:`가 part의 선언을 보지 못했고 이 PR이 그 공백을 축소로 바꿨다.
+  `lib/x.dart`(`part 'src/x_part.dart'; @pragma('vm:entry-point') void hook() {}`)와 part의
+  `class FakeX { void m() {} }`에서 세 빌드 모두 `FakeX`·`FakeX.m`을 보고한다. `origin/main`은 x.dart를
+  셌지만 이유는 pragma로 보존된 `hook`이 publicApi가 아니어서였고(x.dart 자기 유닛만 봤다),
+  `65c3e43`·`858e490`은 `hook`이 루트라 세지 않았다. part로만 된 라이브러리는 `origin/main`도 놓쳤다.
+  원인은 술어가 그 파일 유닛의 정점만 본 것이다.
+  - 수정: 유닛을 `librarySource`(part는 호스트 라이브러리)로 묶어 라이브러리마다 자기 유닛과 part 유닛을
+    함께 본다. 그래서 최상위 `lib/` 아래 part 파일은 라이브러리로 따로 싣지 않고 그 선언을 호스트에
+    돌린다(`origin/main`은 `lib/z.dart, lib/z_part.dart`처럼 part 파일을 라이브러리로 실었다). 캐시 신원
+    v35.
+  - 전후(`origin/main` → `858e490` → 수정 후): part에 보고될 클래스가 있는 `x.dart`는 셈 → 안 셈 →
+    셈, part로만 된 `y.dart`는 안 셈 → 안 셈 → 셈, 모두 pragma로 보존된 최상위 part(`z_part.dart`)는
+    `z.dart, z_part.dart` → 없음 → 없음. finding은 셋 다 같다.
+- nit 1: CHANGELOG(.ko)의 `reachable from a retained library` 조건을 "대표 라이브러리에 자기 선언이
+  없으면"에서 "자기 선언이 하나도 도달하지 않으면"(쓰이지 않는 비공개 선언만 있는 경우 포함)으로 고쳤다.
+- nit 2: 센 라이브러리에 익명 extension이 있으면 권고 끝에 `; an unnamed extension cannot be exported,
+  so retain its file with retained_files`를 붙인다. `origin/main`의 최상위 판정은 익명 extension
+  표식(`<unnamed-extension@project:lib/ext.dart#0>`)의 점 때문에 그것을 세지 못했고, `858e490`부터 센다.
+- 선택 항목: 재정의 고정점이 라이브러리 루트의 간선을 펼치지 않는 규칙을 단위 테스트로 고정했다
+  (라이브러리 → 선언 간선이 있는 합성 그래프, 반복 정의와 같은 결과). 그 건너뛰기를 지우면 실패한다.
+- 테스트: `public_libraries_test`에 2개(part 선언을 호스트로 셈·최상위 part 파일 이름 안 실음, 익명
+  extension 권고)는 `858e490`에서 실패한다. `override_only_differential_test`에 1개(위 고정, `858e490`에도
+  있는 규칙이라 통과하고 건너뛰기를 지우면 실패). 변형 둘(호스트 자기 유닛만 보기, 익명 extension 표시
+  제거)이 각각 실패시킨다.
+- 익명 extension만 있는 `ext.dart`: `origin/main` 안 셈 → `858e490` 셈 → 셈 + 위 안내.
+- 검증: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗(3.13.3·3.11.0). 일반 테스트(3.13.3, `-j 2`)
+  1,233 통과·22 건너뜀·0 실패, 이 실행의 커버리지 12,596/13,421(93.85%). 관련 테스트 `-j 1`은
+  3.13.3 69개(`self_analysis_test` 포함)·3.11.0 81개 통과. CLI 계약 243 ok. AOT 자기 분석은 위와 같다.
+  코퍼스(`dead` 65·`--closed-app` 51)는 `858e490`과 finding·종료 코드·limitation 변화 0이다(part로
+  갈리는 라이브러리가 없다). 실제 `~/.cache/dartograph`는 2,350개 그대로다.
+- 기록만 하는 것(`origin/main`도 같고 보수적인 쪽): 보존된 sealed 클래스의 하위 타입이나 annotation이
+  붙은 멤버로만 살아 있는 클래스(`class Hooks { @pragma('vm:entry-point') static void hook() {} }`)는
+  보고될 것이 없어도 센다. 구조 보존·컨테이너 보존은 루트가 아니어서다.
 
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
@@ -308,6 +347,8 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
     멤버의 다른 최상위 라이브러리는 세지 않는다(PR #165 리뷰 nit 3, 기존 동작).
   - README 데모 cast는 `public-libraries:` 한계가 생기기 전 녹화다. 다시 녹화하면 `impact`·`query`
     출력에 그 줄이 생긴다.
+  - `public-libraries:`는 보존된 sealed 클래스의 하위 타입, annotation 붙은 멤버로만 살아 있는 클래스처럼
+    보고될 것이 없는 파일도 센다(구조·컨테이너 보존은 루트가 아니다, `origin/main`도 같다, 보수적).
 - 일부러 뺀 후속 항목. 보존을 좁히거나 계약을 바꾸는 변경이라 근거와 결정이 먼저 필요하다.
   - 다음 셋은 보존을 좁히므로, 반대 방향 코퍼스와 실제 프로젝트 델타가 먼저 있어야 한다.
     - 문서 주석 참조(`/// [Foo]`)를 사용 간선에서 빼기

@@ -61,7 +61,9 @@ environment:
       '${root.path}/pubspec.yaml',
     ).writeAsString('name: widgets\nenvironment:\n  sdk: ^3.11.0\n');
     for (final entry in libraries.entries) {
-      await File('${root.path}/lib/${entry.key}').writeAsString(entry.value);
+      final file = File('${root.path}/lib/${entry.key}');
+      await file.parent.create(recursive: true);
+      await file.writeAsString(entry.value);
     }
     for (final entry in rootFiles.entries) {
       final file = File('${root.path}/${entry.key}');
@@ -170,6 +172,49 @@ builders:
           'not retained as public API, so ones used only by package consumers '
           'are reported as unreachable (export them from lib/widgets.dart or '
           'retain them with retained_files)',
+    ]);
+  });
+
+  test('declarations in part files count for their host library', () async {
+    // part의 선언은 호스트 라이브러리의 것이다. 이전에는 라이브러리 파일 자신의
+    // 정점만 봐서, 소비자만 쓰는 part 안 클래스(FakeX·FakeX.m, FakeY)가 보고되는데도
+    // x.dart·y.dart를 세지 않았다. 최상위 `lib/` 아래 part 파일(z_part.dart)은
+    // 라이브러리가 아니므로 이름으로 싣지 않고 그 선언을 호스트 z.dart에 돌린다.
+    final limitations = await publicLibrariesFor({
+      'widgets.dart': 'class Widget {}',
+      'x.dart':
+          "part 'src/x_part.dart';\n"
+          "@pragma('vm:entry-point')\nvoid hook() {}",
+      'src/x_part.dart': "part of '../x.dart';\nclass FakeX { void m() {} }",
+      'y.dart': "part 'src/y_part.dart';",
+      'src/y_part.dart': "part of '../y.dart';\nclass FakeY {}",
+      'z.dart': "part 'z_part.dart';",
+      'z_part.dart': "part of 'z.dart';\nclass FakeZ {}",
+    });
+
+    expect(limitations, [
+      'public-libraries: lib/x.dart, lib/y.dart, lib/z.dart are public '
+          'libraries outside lib/widgets.dart; their declarations are not '
+          'retained as public API, so ones used only by package consumers are '
+          'reported as unreachable (export them from lib/widgets.dart or '
+          'retain them with retained_files)',
+    ]);
+  });
+
+  test('an unnamed extension is pointed at retained_files', () async {
+    // 익명 extension은 이름이 없어 대표 라이브러리에서 export할 수 없다.
+    final limitations = await publicLibrariesFor({
+      'widgets.dart': 'class Widget {}',
+      'ext.dart': 'extension on int { int get doubled => this * 2; }',
+    });
+
+    expect(limitations, [
+      'public-libraries: lib/ext.dart is a public library outside '
+          'lib/widgets.dart; its declarations are not retained as public API, '
+          'so ones used only by package consumers are reported as unreachable '
+          '(export it from lib/widgets.dart or retain it with retained_files; '
+          'an unnamed extension cannot be exported, so retain its file with '
+          'retained_files)',
     ]);
   });
 

@@ -394,6 +394,7 @@ Limitations:
   from the entry library and `retained_files` retain members too; an
   annotation, `// dartograph:ignore`, or `retained_names` retains only the
   declaration it names, so such a class with public members is still counted.
+  Declarations in a library's part files count for that library.
 - Typedefs are not graph nodes. A use of a typedef references the declarations
   in its aliased type, so `typedef Models = List<Model>` keeps `Model`
   reachable wherever `Models` is used. Querying a typedef reports `notFound`,

@@ -2474,8 +2474,11 @@ const _cacheSchemaVersion = 8;
 // retained_files로 보존한 파일을 이 한계에 남긴다.
 // public-libraries 한계가 루트가 아닌 공개 멤버도 본다(v34). v33 캐시는 멤버를
 // 보존하지 않는 annotation·설정 루트 클래스의 파일을 이 한계에서 뺀다.
+// public-libraries 한계가 part 유닛의 선언을 호스트 라이브러리로 센다(v35). v34
+// 캐시는 part에만 보고될 선언이 있는 라이브러리를 이 한계에서 빼고, 최상위 part
+// 파일을 라이브러리로 센다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v34-public-members';
+    'dartograph-analysis-$toolVersion-cache-v35-library-parts';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3226,9 +3229,10 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// `dartograph:ignore`·`retained_names`·build.yaml builder·plugin 루트는 그
 /// 선언만 보존하고 멤버는 보존하지 않으므로, 그 클래스의 공개 멤버를 소비자만
 /// 쓰면 여전히 미도달로 보고된다. 그런 파일은 센다. 그래서 [retentionRoots]가
-/// 모두 정해진 뒤에 부른다. `publish_to: none`인 패키지(앱)는 소비자가 없으므로
-/// 알리지 않는다. 공개 API 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지
-/// 보존하면 미사용이 가려진다. 알릴 것이 없으면 null이다.
+/// 모두 정해진 뒤에 부른다. part 유닛의 선언은 호스트 라이브러리의 것으로 본다.
+/// `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다. 공개 API
+/// 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이 가려진다.
+/// 알릴 것이 없으면 null이다.
 String? _publicLibrariesLimitation(
   String? pubspecContent,
   List<String> sources,
@@ -3241,33 +3245,57 @@ String? _publicLibrariesLimitation(
   final name = document['name'];
   if (name is! String) return null;
   final entry = 'lib/$name.dart';
-  final unretained = <String>[
-    for (final source in sources)
-      if (source != entry &&
-          RegExp(r'^lib/[^/]+\.dart$').hasMatch(source) &&
-          facts[source]!.nodes.any(
-            (node) =>
-                _isReportablePublicDeclaration(node) &&
-                !retentionRoots.containsKey(node.id),
-          ))
-        source,
-  ]..sort();
+  // part의 선언은 호스트 라이브러리의 것이다. 라이브러리마다 자기 유닛과 part
+  // 유닛을 함께 본다. 최상위 `lib/` 아래 part 파일은 라이브러리가 아니라 세지 않고
+  // 그 선언을 호스트 라이브러리에 돌린다.
+  final unitsByLibrary = <String, List<_UnitFacts>>{};
+  for (final source in sources) {
+    final unit = facts[source]!;
+    final library = unit.librarySource;
+    if (library != null) (unitsByLibrary[library] ??= []).add(unit);
+  }
+  final unretained = <String>[];
+  var unnamedExtension = false;
+  for (final MapEntry(key: library, value: units) in unitsByLibrary.entries) {
+    if (library == entry || !RegExp(r'^lib/[^/]+\.dart$').hasMatch(library)) {
+      continue;
+    }
+    final reportable = [
+      for (final unit in units)
+        for (final node in unit.nodes)
+          if (_isReportablePublicDeclaration(node) &&
+              !retentionRoots.containsKey(node.id))
+            node.id,
+    ];
+    if (reportable.isEmpty) continue;
+    unretained.add(library);
+    if (reportable.any((id) => id.contains('::<unnamed-extension@'))) {
+      unnamedExtension = true;
+    }
+  }
+  unretained.sort();
   if (unretained.isEmpty) return null;
   const shown = 3;
   final listed = unretained.take(shown).join(', ');
   final more = unretained.length > shown
       ? ' and ${unretained.length - shown} more'
       : '';
+  // 익명 extension은 이름이 없어 export할 수 없다. 그런 선언이 있으면 export 권고가
+  // 통하지 않으므로 파일 보존을 짚는다.
+  final unnamedNote = unnamedExtension
+      ? '; an unnamed extension cannot be exported, so retain its file with '
+            'retained_files'
+      : '';
   if (unretained.length == 1) {
     return 'public-libraries: $listed is a public library outside $entry; '
         'its declarations are not retained as public API, so ones used only '
         'by package consumers are reported as unreachable (export it from '
-        '$entry or retain it with retained_files)';
+        '$entry or retain it with retained_files$unnamedNote)';
   }
   return 'public-libraries: $listed$more are public libraries outside $entry; '
       'their declarations are not retained as public API, so ones used only '
       'by package consumers are reported as unreachable (export them from '
-      '$entry or retain them with retained_files)';
+      '$entry or retain them with retained_files$unnamedNote)';
 }
 
 /// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation

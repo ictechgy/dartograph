@@ -166,7 +166,8 @@ void main() {
       'limitations': const <String>[],
       'path': [entry, helper],
       'reachable': true,
-      // 자기 선언이 없는 대표 라이브러리에서 시작한다. 선언을 담았다고 하지 않는다.
+      // 도달한 자기 선언이 없는 대표 라이브러리에서 시작한다.
+      // 선언을 담았다고 하지 않는다.
       'reason': 'reachable from a retained library',
     });
     final reachability = await queryReachability(helper);
