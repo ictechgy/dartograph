@@ -754,6 +754,7 @@ Dart SDK가 필요하다.
 `dartograph.yaml` 진단처럼 1부터 센 줄·열을 붙인다(`Duplicate mapping key. (line 3, column 5)`). 열은 UTF-16
 코드 단위다(이모지처럼 기본 다국어 평면 밖 문자는 2로 센다. bridge 사실의 UTF-8 바이트 열과 다르다).
 닫히지 않은 따옴표 문자열은 YAML 파서가 멈추는 파일 끝(마지막 줄 다음 줄 1열)을 짚는다.
+원인이 반향하는 키·레이어 이름이 길어 400자(rune)를 넘으면 `dartograph.yaml` 진단처럼 말줄임표로 자른다.
 규칙은 양끝이 모두 레이어에 배치된 사용 간선만 검사한다. 그래서 `allow` 규칙도 어느 레이어에도
 매치되지 않는 코드로의 의존은 위반으로 보지 않는다. 규칙이 있는 레이어에서 그런 정점으로 가는
 간선이 있으면 `unassigned-layer-targets: <n> usage edge(s) from layers with rules reach <m> node(s)

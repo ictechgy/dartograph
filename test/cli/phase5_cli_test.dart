@@ -189,6 +189,33 @@ rules: []
     );
   });
 
+  test('rules shortens a long key echoed by the diagnostic', () async {
+    // 파서 상세는 설정이 쓴 키를 끝에 반향한다. 수정 전에는 5,000자 키가 진단 줄에
+    // 그대로 실렸다. dartograph.yaml 진단과 같이 400 rune에서 자르고 `…`를 붙인다.
+    // 400 rune 안에 든 'unknown layer key: ' 19자 뒤에 키 381자가 남는다.
+    await rules.writeAsString('''
+layers:
+  - name: first
+    match: [a]
+    ${'k' * 5000}: 1
+rules: []
+''');
+    final error = StringBuffer();
+
+    final status = await runDartograph(
+      ['rules', '--config', rules.path, temporary.path],
+      error: error,
+      indexPackage: (_) async => indexed,
+    );
+
+    expect(status, ExitStatus.failure.code);
+    expect(
+      error.toString(),
+      'Analysis failed: invalid rules configuration: unknown layer key: '
+      '${'k' * 381}…\n',
+    );
+  });
+
   test(
     'workspace test complexity is excluded until include-tests is selected',
     () async {
