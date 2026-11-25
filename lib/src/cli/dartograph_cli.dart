@@ -2926,7 +2926,11 @@ Future<int> _runDead(
         ? (Map.of(indexed.retentionRoots)
             ..removeWhere((_, reason) => reason == RetentionReason.publicApi))
         : indexed.retentionRoots;
-    final analyzer = ReachabilityAnalyzer();
+    // 패키지 한계(`public-libraries:`)는 그 패키지의 finding에만 붙는다. 맨 위
+    // limitations에는 모두 남는다.
+    final analyzer = ReachabilityAnalyzer(
+      packageLimitations: indexed.packageLimitationDetails,
+    );
     final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
       final explanation = analyzer

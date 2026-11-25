@@ -689,6 +689,69 @@ void main() {
     ]);
   });
 
+  test('package limitations attach only to findings of their package', () {
+    // `public-libraries:` 같은 패키지 한계는 그 패키지의 finding에만 붙는다.
+    // 전역으로 두면 --workspace의 모든 finding이 모든 멤버의 문장을 실었다.
+    // source는 가장 안쪽 멤버에 속하고(pkgs/a 안의 pkgs/a/sub), 어느 멤버에도
+    // 들지 않거나 project:가 아니면 스캔 루트 패키지('')의 것이다. 문장이 없는
+    // 멤버(apps/app)의 finding은 루트 문장을 받지 않는다.
+    const rootLine = 'public-libraries: lib/extra.dart is a public library';
+    const memberLine =
+        'public-libraries: pkgs/a/lib/t.dart is a public library';
+    const subLine =
+        'public-libraries: pkgs/a/sub/lib/t.dart is a public library';
+    const unlisted =
+        'public-libraries: pkgs/b/lib/t.dart is not in limitations';
+    const global = 'workspace-members-indexed: pkgs/a were analyzed';
+    final graph = CodeGraph();
+    for (final (id, source) in [
+      ('package:ws/extra.dart::RootExtra', 'project:lib/extra.dart'),
+      ('project:test/helper.dart::helper', 'project:test/helper.dart'),
+      ('package:a/t.dart::FakeA', 'project:pkgs/a/lib/t.dart'),
+      ('package:a/x.dart::X', 'project:pkgs/a-b/lib/x.dart'),
+      ('package:sub/t.dart::FakeSub', 'project:pkgs/a/sub/lib/t.dart'),
+      ('package:app/e.dart::AppExtra', 'project:apps/app/lib/e.dart'),
+      ('package:b/t.dart::FakeB', 'project:pkgs/b/lib/t.dart'),
+    ]) {
+      graph.addNode(GraphNode(id: id, sourceUri: source));
+    }
+    graph.addNode(GraphNode(id: 'package:out/o.dart::Outside'));
+
+    final result =
+        ReachabilityAnalyzer(
+          packageLimitations: const {
+            '': [rootLine],
+            'pkgs/a': [memberLine],
+            'pkgs/a/sub': [subLine],
+            'apps/app': [],
+            'pkgs/b': [unlisted],
+          },
+        ).analyze(
+          graph.snapshot(),
+          roots: const {},
+          limitations: const [global, memberLine, rootLine, subLine],
+        );
+
+    expect(
+      {
+        for (final finding in result.deadDeclarations)
+          finding.id: finding.limitations,
+      },
+      {
+        'package:ws/extra.dart::RootExtra': [rootLine, global],
+        'project:test/helper.dart::helper': [rootLine, global],
+        'package:a/t.dart::FakeA': [memberLine, global],
+        // pkgs/a-b는 pkgs/a 멤버가 아니다(접두는 `pkgs/a/`까지 맞춘다).
+        'package:a/x.dart::X': [rootLine, global],
+        'package:sub/t.dart::FakeSub': [subLine, global],
+        'package:app/e.dart::AppExtra': [global],
+        // limitations에 없는 문장은 붙이지 않는다(finding 한계는 전체 목록의 부분집합).
+        'package:b/t.dart::FakeB': [global],
+        'package:out/o.dart::Outside': [rootLine, global],
+      },
+    );
+  });
+
   test('test-only reachability reports production code only tests reach', () {
     final graph = CodeGraph()
       // 프로덕션: main이 도달, 테스트만 도달, 어디서도 도달 못 함, @visibleForTesting.

@@ -130,6 +130,81 @@ resolution: workspace
         'package:ws_root/orphan.dart': 'project:lib/orphan.dart',
       });
     });
+
+    test(
+      'a public-libraries line rides only on its own package findings',
+      () async {
+        // 게시할 수 있는 루트와 멤버 pkgs/b, 게시하지 않는 멤버 apps/zeta다. 줄은 맨 위
+        // limitations에 모두 남고, finding에는 자기 패키지의 줄만 붙는다. 수정 전에는
+        // 모든 finding이 모든 패키지의 줄을 실었다(멤버 수 × finding 수로 커졌다).
+        await write('pubspec.yaml', '''
+name: ws_root
+environment:
+  sdk: ^3.8.0
+workspace:
+  - apps/zeta
+  - pkgs/b
+''');
+        await write('lib/ws_root.dart', 'class Root {}\n');
+        await write('lib/extra.dart', 'class RootExtra {}\n');
+        await write('pkgs/b/pubspec.yaml', '''
+name: b
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+''');
+        await write('pkgs/b/lib/b.dart', 'class B {}\n');
+        await write('pkgs/b/lib/testing.dart', 'class FakeB {}\n');
+        await write('apps/zeta/pubspec.yaml', '''
+name: zeta
+publish_to: none
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+''');
+        await write('apps/zeta/lib/extra.dart', 'class ZetaExtra {}\n');
+        await pubGet();
+
+        final result = await run(['dead', '--workspace', '--format', 'json']);
+        expect(result.error, isEmpty);
+        final document = jsonDecode(result.output) as Map<String, Object?>;
+        const rootLine =
+            'public-libraries: lib/extra.dart is a public library outside '
+            'lib/ws_root.dart; its declarations are not retained as public API, '
+            'so ones used only by package consumers are reported as unreachable '
+            '(export it from lib/ws_root.dart or retain it with retained_files)';
+        const memberLine =
+            'public-libraries: pkgs/b/lib/testing.dart is a public library '
+            'outside pkgs/b/lib/b.dart; its declarations are not retained as '
+            'public API, so ones used only by package consumers are reported as '
+            'unreachable (export it from pkgs/b/lib/b.dart or retain it with '
+            'retained_files)';
+        expect(
+          document['limitations'],
+          containsAll(<String>[rootLine, memberLine]),
+        );
+        final findings = (document['findings']! as List<Object?>)
+            .cast<Map<String, Object?>>();
+        expect(
+          {
+            for (final finding in findings)
+              '${finding['kind']} ${finding['id']}': [
+                for (final line in finding['limitations']! as List<Object?>)
+                  if ((line! as String).startsWith('public-libraries:')) line,
+              ],
+          },
+          {
+            'declaration package:ws_root/extra.dart::RootExtra': [rootLine],
+            'file package:ws_root/extra.dart': [rootLine],
+            'declaration package:b/testing.dart::FakeB': [memberLine],
+            'file package:b/testing.dart': [memberLine],
+            // 게시하지 않는 멤버는 자기 줄이 없고 루트 줄도 받지 않는다.
+            'declaration package:zeta/extra.dart::ZetaExtra': <String>[],
+            'file package:zeta/extra.dart': <String>[],
+          },
+        );
+      },
+    );
   });
 
   test('a source_packages file finding names the local package file', () async {

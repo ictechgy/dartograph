@@ -318,7 +318,7 @@ resolution: workspace
       expect(await workspaceLimitations('publish_to: none'), memberLines);
     });
 
-    test('a publishable root is counted before its members', () async {
+    test('a publishable root is counted with its members', () async {
       expect(await workspaceLimitations(''), [
         'public-libraries: lib/extra.dart is a public library outside '
             'lib/ws_root.dart; its declarations are not retained as public '

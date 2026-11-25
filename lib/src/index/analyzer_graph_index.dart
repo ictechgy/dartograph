@@ -82,6 +82,7 @@ final class AnalyzerGraphResult {
     this.metricsDistanceThreshold,
     this.metricsComplexityThreshold,
     this.workspacePackages = const [],
+    this.packageLimitationDetails = const {},
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -147,6 +148,14 @@ final class AnalyzerGraphResult {
   /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
   final List<WorkspacePackage> workspacePackages;
 
+  /// 한 패키지에만 해당하는 [limitationDetails] 문장을 분석한 패키지마다 담는다.
+  ///
+  /// 키는 스캔 루트 기준 패키지 경로(스캔 루트 패키지는 '', `--workspace` 멤버는
+  /// `pkgs/a`)이고 분석한 패키지가 모두 있다(문장이 없으면 빈 목록). 지금은
+  /// `public-libraries:` 문장이다. dead finding은 자기 source가 든 패키지의 문장만
+  /// 싣는다. 전체 문장은 [limitationDetails]에도 그대로 있다.
+  final Map<String, List<String>> packageLimitationDetails;
+
   /// [limitationDetails] 끝에 [detail] 하나만 더하고 나머지 필드는 그대로 둔
   /// 복사본이다.
   ///
@@ -184,6 +193,7 @@ final class AnalyzerGraphResult {
     metricsDistanceThreshold: metricsDistanceThreshold,
     metricsComplexityThreshold: metricsComplexityThreshold,
     workspacePackages: workspacePackages,
+    packageLimitationDetails: packageLimitationDetails,
   );
 }
 
@@ -1732,15 +1742,16 @@ AnalyzerGraphResult _assembleResult({
   // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
   // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
   // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
-  limitationDetails.addAll(
-    _publicLibrariesLimitations(
-      pubspecContent,
-      workspace?.members ?? const [],
-      sources,
-      facts,
-      retentionRoots,
-    ),
+  final packageLimitationDetails = _publicLibrariesLimitations(
+    pubspecContent,
+    workspace?.members ?? const [],
+    sources,
+    facts,
+    retentionRoots,
   );
+  for (final lines in packageLimitationDetails.values) {
+    limitationDetails.addAll(lines);
+  }
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -1856,6 +1867,7 @@ AnalyzerGraphResult _assembleResult({
     ],
     metricsComplexityThreshold: scope.complexityThreshold,
     tokenSegments: List.unmodifiable(tokenSegments),
+    packageLimitationDetails: Map.unmodifiable(packageLimitationDetails),
   );
 }
 
@@ -2418,7 +2430,9 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
 // workspacePackages 필드 추가로 v7다 — 역시 형식만 바뀐다.
 // dup 전용 토큰 세그먼트를 결과 항목에서 빼 별도 항목([_tokenSegmentsCacheKey])에
 // 두어 v8이다 — 추출 의미는 그대로라 identity는 올리지 않는다.
-const _cacheSchemaVersion = 8;
+// 패키지별 한계 문장(packageLimitationDetails) 필드 추가로 v9다 — 문장 자체는 v36
+// identity의 것과 같고 필드만 늘었다.
+const _cacheSchemaVersion = 9;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
@@ -3104,6 +3118,7 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
     'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
     'packageImports': result.packageImports,
+    'packageLimitationDetails': result.packageLimitationDetails,
     'packageName': ?result.packageName,
     'retentionRoots': {
       for (final id in rootIds) id: result.retentionRoots[id]!.name,
@@ -3198,6 +3213,15 @@ AnalyzerGraphResult? _decodeCachedAnalysis(
         for (final value in document['workspacePackages']! as List<Object?>)
           _workspacePackageFromJson((value! as Map).cast<String, Object?>()),
       ],
+      packageLimitationDetails: {
+        for (final entry
+            in (document['packageLimitationDetails']! as Map)
+                .cast<String, Object?>()
+                .entries)
+          entry.key: [
+            for (final line in entry.value! as List<Object?>) line! as String,
+          ],
+      },
     );
   } on Object {
     return null;
@@ -3241,8 +3265,12 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 라이브러리(`<member>/lib/<name>.dart`)로 공개 API를 보존하는 게시 가능한
 /// 패키지다. 흔한 pub workspace는 루트가 `publish_to: none`이고 멤버를 게시하므로,
 /// 루트 pubspec만 보면 멤버의 `lib/testing.dart`가 단독 분석과 달리 이 한계 없이
-/// 보고됐다. 줄은 루트 다음 멤버 경로순이고, 알릴 것이 없으면 비어 있다.
-List<String> _publicLibrariesLimitations(
+/// 보고됐다.
+///
+/// 결과는 분석한 패키지마다(스캔 루트 기준 경로, 스캔 루트 패키지는 '') 그
+/// 패키지의 한계 문장 목록이다(알릴 것이 없으면 빈 목록). 한 패키지의 문장은 그
+/// 패키지의 finding에만 붙인다([AnalyzerGraphResult.packageLimitationDetails]).
+Map<String, List<String>> _publicLibrariesLimitations(
   String? pubspecContent,
   List<_WorkspaceMember> members,
   List<String> sources,
@@ -3269,20 +3297,21 @@ List<String> _publicLibrariesLimitations(
       (topLevelByPackage[match[1] ?? ''] ??= []).add(library);
     }
   }
-  return [
-    for (final (prefix, content) in [
+  return {
+    for (final (path, content) in [
       ('', pubspecContent),
-      for (final member in members)
-        ('${member.relPath}/', member.pubspecContent),
+      for (final member in members) (member.relPath, member.pubspecContent),
     ])
-      ?_publicLibrariesLimitation(
-        prefix,
-        content,
-        topLevelByPackage[prefix] ?? const [],
-        unitsByLibrary,
-        retentionRoots,
-      ),
-  ];
+      path: [
+        ?_publicLibrariesLimitation(
+          path.isEmpty ? '' : '$path/',
+          content,
+          topLevelByPackage[path.isEmpty ? '' : '$path/'] ?? const [],
+          unitsByLibrary,
+          retentionRoots,
+        ),
+      ],
+  };
 }
 
 /// 패키지 하나의 `public-libraries:` 한계다. [packagePrefix]는 그 패키지의 루트
