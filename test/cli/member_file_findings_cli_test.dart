@@ -265,6 +265,154 @@ workspace:
         );
       },
     );
+
+    /// [document]의 finding마다 붙은 `public-libraries:` 줄이다.
+    Map<String, List<String>> publicLinesByFinding(
+      Map<String, Object?> document,
+    ) => {
+      for (final finding
+          in (document['findings']! as List<Object?>)
+              .cast<Map<String, Object?>>())
+        '${finding['kind']} ${finding['id']}': [
+          for (final line
+              in (finding['limitations']! as List<Object?>).cast<String>())
+            if (line.startsWith('public-libraries:')) line,
+        ],
+    };
+
+    /// `pkgs/<name>/lib/testing.dart is a public library outside …` 줄이다.
+    String memberLine(String name) =>
+        'public-libraries: pkgs/$name/lib/testing.dart is a public library '
+        'outside pkgs/$name/lib/$name.dart; its declarations are not retained '
+        'as public API, so ones used only by package consumers are reported as '
+        'unreachable (export it from pkgs/$name/lib/$name.dart or retain it '
+        'with retained_files)';
+
+    test(
+      'test-only dependencies do not spread public-libraries lines',
+      () async {
+        // 멤버마다 core에 의존하고 테스트 도우미 test_utils를 dev_dependency로 두어
+        // 테스트에서 import한다. test_utils는 모든 멤버에 의존한다. dev_dependencies나
+        // test/ import를 간선으로 보면 모든 멤버가 한 순환으로 묶여 모든 finding이 모든
+        // 멤버의 줄을 실었다(97370a3: 16개 finding × 4줄). 줄을 설명할 수 있는 것은
+        // lib/ 파일의 import와 선언한 dependencies뿐이다. core의 finding만 core에 닿는
+        // 모든 멤버의 줄을 싣는다.
+        const names = ['a', 'b', 'c', 'core'];
+        await write('pubspec.yaml', '''
+name: ws_root
+publish_to: none
+environment:
+  sdk: ^3.8.0
+workspace:
+${[
+          for (final name in [...names, 'test_utils']) '  - pkgs/$name',
+        ].join('\n')}
+''');
+        for (final name in names) {
+          await write('pkgs/$name/pubspec.yaml', '''
+name: $name
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+${name == 'core' ? '' : 'dependencies:\n  core:\n'}dev_dependencies:
+  test_utils:
+''');
+          await write('pkgs/$name/lib/$name.dart', 'class Entry$name {}\n');
+          await write('pkgs/$name/lib/testing.dart', 'class Fake$name {}\n');
+          await write('pkgs/$name/lib/src/dead.dart', 'void dead$name() {}\n');
+          await write(
+            'pkgs/$name/test/${name}_test.dart',
+            "import 'package:test_utils/test_utils.dart';\n\n"
+                'void main() => helper();\n',
+          );
+        }
+        await write('pkgs/test_utils/pubspec.yaml', '''
+name: test_utils
+publish_to: none
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+dependencies:
+${[for (final name in names) '  $name:'].join('\n')}
+''');
+        await write(
+          'pkgs/test_utils/lib/test_utils.dart',
+          'void helper() {}\n',
+        );
+        await pubGet();
+
+        final result = await run(['dead', '--workspace', '--format', 'json']);
+        expect(result.error, isEmpty);
+        final lines = publicLinesByFinding(
+          jsonDecode(result.output) as Map<String, Object?>,
+        );
+        expect(lines, {
+          for (final name in names) ...{
+            'declaration package:$name/src/dead.dart::dead$name': name == 'core'
+                ? [for (final owner in names) memberLine(owner)]
+                : [memberLine(name)],
+            'file package:$name/src/dead.dart': name == 'core'
+                ? [for (final owner in names) memberLine(owner)]
+                : [memberLine(name)],
+            'declaration package:$name/testing.dart::Fake$name': name == 'core'
+                ? [for (final owner in names) memberLine(owner)]
+                : [memberLine(name)],
+            'file package:$name/testing.dart': name == 'core'
+                ? [for (final owner in names) memberLine(owner)]
+                : [memberLine(name)],
+          },
+        });
+        // finding별 줄 수: core 4개 × 4 + 나머지 12개 × 1.
+        expect(lines.values.expand((list) => list), hasLength(28));
+      },
+    );
+
+    test('a source_packages name is followed to its package', () async {
+      // workspace 멤버 a의 lib/testing.dart만 source_packages 패키지 vendor/core의
+      // coreHelper를 부른다. vendor/core는 멤버가 아니어서 스캔 루트 범위('')이고,
+      // 이름 core도 그 범위로 따라가야 a의 줄이 coreHelper에 붙는다.
+      await write('pubspec.yaml', '''
+name: ws_root
+publish_to: none
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/a
+''');
+      await write('dartograph.yaml', 'source_packages:\n  - vendor/core\n');
+      await write('pkgs/a/pubspec.yaml', '''
+name: a
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+dependencies:
+  core:
+    path: ../../vendor/core
+''');
+      await write('pkgs/a/lib/a.dart', 'class A {}\n');
+      await write(
+        'pkgs/a/lib/testing.dart',
+        "import 'package:core/src/impl.dart';\n\n"
+            'class Fakea { void run() => coreHelper(); }\n',
+      );
+      await write('vendor/core/pubspec.yaml', '''
+name: core
+publish_to: none
+environment:
+  sdk: ^3.8.0
+''');
+      await write('vendor/core/lib/src/impl.dart', 'void coreHelper() {}\n');
+      await pubGet();
+
+      final result = await run(['dead', '--workspace', '--format', 'json']);
+      expect(result.error, isEmpty);
+      final lines = publicLinesByFinding(
+        jsonDecode(result.output) as Map<String, Object?>,
+      );
+      expect(lines['declaration package:core/src/impl.dart::coreHelper'], [
+        memberLine('a'),
+      ]);
+    });
   });
 
   test('a source_packages file finding names the local package file', () async {

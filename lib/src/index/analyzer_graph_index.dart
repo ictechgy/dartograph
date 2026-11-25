@@ -154,7 +154,7 @@ final class AnalyzerGraphResult {
   /// 키는 스캔 루트 기준 패키지 경로(스캔 루트 패키지는 '', `--workspace` 멤버는
   /// `pkgs/a`)이고 분석한 패키지가 모두 있다. 값은 source가 그 패키지에 든 finding에
   /// 붙일 문장이다(없으면 빈 목록). 한 멤버의 문장은 그 멤버와, 그 멤버가 닿는
-  /// workspace 패키지(선언한 dependencies·dev_dependencies 또는 실제 `package:`
+  /// 패키지(선언한 `dependencies` 또는 그 멤버 `lib/` 파일의 `package:`
   /// import·export를 따라 전이적으로)의 목록에 든다. 그 멤버의 공개 라이브러리가
   /// 쓰는 코드는 그 패키지들에 있을 수 있어서다. 스캔 루트 패키지의 문장은 모든
   /// 목록에 든다(`origin/main`처럼 모든 finding에 붙는다). 전체 문장은
@@ -1759,9 +1759,10 @@ AnalyzerGraphResult _assembleResult({
   }
   final packageLimitationDetails = _packageLimitationScopes(
     publicLibraries,
-    manifest,
+    manifest.name,
     workspace?.members ?? const [],
-    packageImports,
+    sources,
+    facts,
   );
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
@@ -2509,8 +2510,11 @@ const _cacheSchemaVersion = 9;
 // public-libraries 줄을 붙일 범위(packageLimitationDetails)가 그 패키지가 닿는
 // workspace 패키지까지 넓어지고 스캔 루트의 줄은 모든 패키지에 든다(v37). v36
 // 캐시의 범위는 그 패키지 자신뿐이다.
+// 그 범위의 간선이 선언한 dependencies와 lib/ 파일의 import·export로 좁아지고
+// source_packages 이름도 따른다(v38). v37 캐시는 dev_dependencies와 테스트 import를
+// 따라 넓다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v37-package-limitation-scopes';
+    'dartograph-analysis-$toolVersion-cache-v38-lib-dependency-scopes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3263,92 +3267,140 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 패키지 자신의 한계 문장 [ownLines](패키지 경로 → 문장)를 붙일 finding의 범위로
 /// 바꾼다([AnalyzerGraphResult.packageLimitationDetails]).
 ///
-/// 한 패키지의 `public-libraries:` 줄은 그 패키지의 최상위 라이브러리 선언이
+/// 한 패키지의 `public-libraries:` 줄은 그 패키지의 최상위 `lib/` 라이브러리 선언이
 /// 보존되지 않는다는 뜻이고, 그 선언만 쓰는 코드는 다른 workspace 패키지에도 있을
-/// 수 있다(루트 `lib/testing.dart`가 멤버 `src/`의 함수를 부른다). 그래서 줄을 그
-/// 패키지가 닿는 패키지의 finding에도 붙인다. 간선은 선언한 `dependencies`와
-/// `dev_dependencies`, 그리고 패키지 안 파일의 실제 `package:` import·export
-/// 지시문([packageImports], 해석 실패·조건부 URI 포함)이다. pubspec에 선언하지 않은
-/// workspace 형제 import도 해석되므로 선언만 보면 원인을 놓친다. 지나치게 붙이면
-/// 잡음이지만 덜 붙이면 원인을 숨기므로 넓게 잡는다. `dependency_overrides`는 버전만
-/// 바꾸고 코드 사용이 아니어서 넣지 않는다. 스캔 루트 패키지의 줄은 모든 패키지에
-/// 붙인다(이전처럼 모든 finding에 실린다).
+/// 수 있다(멤버 `b`의 `lib/testing.dart`만 의존 `c`의 `src/` 함수를 부른다). 그래서
+/// 멤버의 줄을 그 멤버가 전이적으로 닿는 패키지의 finding에도 붙인다. 간선은 그
+/// 멤버가 선언한 `dependencies`와, 그 멤버의 `lib/` 아래 파일이 실제로 쓴 `package:`
+/// import·export 지시문(해석 실패·조건부 URI 포함)이다. workspace는 선언하지 않은
+/// 형제 import도 해석하므로 선언만 보면 원인을 놓친다. `dev_dependencies`와
+/// `test/`·`bin/`·`example/` 파일의 import는 넣지 않는다 — 그 파일에서 닿는 코드는
+/// 이미 보존 루트에서 닿고, 넣으면 테스트 도우미 패키지를 거쳐 대부분의 멤버가 한
+/// 순환으로 묶여 모든 finding이 모든 멤버의 줄을 싣는다. `lib/`가 dev_dependency를
+/// import하면 그 import가 간선이 된다. `dependency_overrides`도 코드 사용이 아니다.
+///
+/// 패키지 이름은 그 이름의 `package:` 라이브러리 파일이 든 패키지 경로로 바꾼다
+/// (`source_packages`의 패키지는 어느 멤버에도 들지 않아 스캔 루트 패키지 ''다).
+/// 스캔 루트 패키지의 줄은 모든 패키지에 붙인다(이전처럼 모든 finding에 실린다).
+/// 그래서 ''에서 나가는 간선은 보지 않는다. 강하게 연결된 패키지는 하나로 묶어
+/// 위상 순서로 한 번만 전파한다(패키지 수 + 간선 수에 비례하고, 결과 크기는 패키지
+/// 수 × 그 패키지에 닿는 줄 수다).
 Map<String, List<String>> _packageLimitationScopes(
   Map<String, List<String>> ownLines,
-  ({
-    String? name,
-    List<String> dependencies,
-    List<String> devDependencies,
-    List<String> dependencyOverrides,
-  })
-  rootManifest,
+  String? rootName,
   List<_WorkspaceMember> members,
-  Map<String, List<String>> packageImports,
+  List<String> sources,
+  Map<String, _UnitFacts> facts,
 ) {
-  final packages = [
-    (
-      '',
-      rootManifest.name,
-      [...rootManifest.dependencies, ...rootManifest.devDependencies],
-    ),
-    for (final member in members)
-      (
-        member.relPath,
-        member.name,
-        [...member.dependencies, ...member.devDependencies],
-      ),
-  ];
-  final pathsByName = <String, List<String>>{};
-  for (final (path, name, _) in packages) {
-    if (name != null) (pathsByName[name] ??= []).add(path);
-  }
+  final paths = ['', for (final member in members) member.relPath];
   // 긴 접두 먼저 — 중첩 멤버(pkgs/a 안의 pkgs/a/sub)의 파일은 안쪽 멤버 것이다.
   final memberPaths = [for (final member in members) member.relPath]
     ..sort((a, b) => b.length.compareTo(a.length));
-  String packageOf(String sourceId) {
-    final path = sourceId.substring('project:'.length);
+  String packageOf(String source) {
     for (final member in memberPaths) {
-      if (path.startsWith('$member/')) return member;
+      if (source.startsWith('$member/')) return member;
     }
     return '';
   }
 
+  final pathsByName = <String, Set<String>>{
+    ?rootName: {''},
+  };
+  for (final member in members) {
+    (pathsByName[member.name] ??= {}).add(member.relPath);
+  }
+  final referencedNames = <String, Set<String>>{
+    for (final member in members) member.relPath: {...member.dependencies},
+  };
+  for (final source in sources) {
+    final unit = facts[source]!;
+    final package = packageOf(unit.source);
+    final slash = unit.libraryId.indexOf('/');
+    if (unit.libraryId.startsWith('package:') && slash > 'package:'.length) {
+      final name = unit.libraryId.substring('package:'.length, slash);
+      (pathsByName[name] ??= {}).add(package);
+    }
+    if (package.isNotEmpty && unit.source.startsWith('$package/lib/')) {
+      referencedNames[package]!.addAll(unit.packageReferences);
+    }
+  }
   final reaches = <String, Set<String>>{
-    for (final (path, _, declared) in packages)
-      path: {for (final name in declared) ...?pathsByName[name]},
+    '': const {},
+    for (final MapEntry(key: path, value: names) in referencedNames.entries)
+      path: {for (final name in names) ...?pathsByName[name]},
   };
-  for (final MapEntry(key: name, value: sourceIds) in packageImports.entries) {
-    final targets = pathsByName[name];
-    if (targets == null) continue;
-    for (final sourceId in sourceIds) {
-      reaches[packageOf(sourceId)]!.addAll(targets);
+
+  // 강하게 연결된 성분(Tarjan, 반복형). 성분은 그 성분에서 닿는 성분보다 늦게
+  // 나오므로 역순이 위상 순서다.
+  final index = <String, int>{};
+  final low = <String, int>{};
+  final onStack = <String>{};
+  final stack = <String>[];
+  final componentOf = <String, int>{};
+  final components = <List<String>>[];
+  for (final start in paths) {
+    if (index.containsKey(start)) continue;
+    final work = <(String, Iterator<String>)>[];
+    void visit(String node) {
+      index[node] = low[node] = index.length;
+      stack.add(node);
+      onStack.add(node);
+      work.add((node, reaches[node]!.iterator));
+    }
+
+    visit(start);
+    while (work.isNotEmpty) {
+      final (node, edges) = work.last;
+      if (edges.moveNext()) {
+        final next = edges.current;
+        if (!index.containsKey(next)) {
+          visit(next);
+        } else if (onStack.contains(next) && index[next]! < low[node]!) {
+          low[node] = index[next]!;
+        }
+        continue;
+      }
+      work.removeLast();
+      if (work.isNotEmpty) {
+        final parent = work.last.$1;
+        if (low[node]! < low[parent]!) low[parent] = low[node]!;
+      }
+      if (low[node] != index[node]) continue;
+      final component = <String>[];
+      String member;
+      do {
+        member = stack.removeLast();
+        onStack.remove(member);
+        componentOf[member] = components.length;
+        component.add(member);
+      } while (member != node);
+      components.add(component);
     }
   }
-  final scopes = <String, Set<String>>{
-    for (final (path, _, _) in packages) path: <String>{},
-  };
-  for (final (path, _, _) in packages) {
-    final lines = ownLines[path] ?? const <String>[];
-    if (lines.isEmpty) continue;
-    if (path.isEmpty) {
-      for (final scope in scopes.values) {
-        scope.addAll(lines);
+  // 성분마다 그 성분에 닿는(자기 포함) 멤버 중 줄이 있는 멤버다.
+  final owners = [
+    for (final component in components)
+      {
+        for (final path in component)
+          if (path.isNotEmpty && (ownLines[path] ?? const []).isNotEmpty) path,
+      },
+  ];
+  for (var id = components.length - 1; id >= 0; id--) {
+    for (final path in components[id]) {
+      for (final next in reaches[path]!) {
+        final target = componentOf[next]!;
+        if (target != id) owners[target].addAll(owners[id]);
       }
-      continue;
-    }
-    final reached = <String>{path};
-    final queue = [path];
-    while (queue.isNotEmpty) {
-      for (final next in reaches[queue.removeLast()]!) {
-        if (reached.add(next)) queue.add(next);
-      }
-    }
-    for (final target in reached) {
-      scopes[target]!.addAll(lines);
     }
   }
+  final rootLines = ownLines[''] ?? const <String>[];
   return {
-    for (final MapEntry(:key, :value) in scopes.entries) key: value.toList(),
+    for (final path in paths)
+      path: [
+        ...rootLines,
+        for (final owner in paths)
+          if (owners[componentOf[path]!].contains(owner)) ...?ownLines[owner],
+      ],
   };
 }
 

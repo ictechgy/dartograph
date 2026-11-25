@@ -393,9 +393,10 @@ Limitations:
   member in them is not a retention root and can therefore be reported. With
   `--workspace`, each member is counted against its own pubspec and entry
   library, one line per package. A `dead` finding carries the root package's
-  line, as before, plus the line of each member whose package reaches the
-  finding's package through dependencies or `package:` imports. Export from
-  the entry library and
+  line, as before, plus the line of each member whose `lib/` code reaches the
+  finding's package through declared dependencies or `package:` imports
+  (`dev_dependencies` and test imports are not followed). Export from the
+  entry library and
   `retained_files` retain members too; an annotation, `// dartograph:ignore`,
   or `retained_names` retains only the declaration it names, so such a class
   with public members is still counted.

@@ -132,8 +132,9 @@ OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME` 또는 `~/.cache`, `%L
 각 멤버의 표준 소스 디렉터리(lib·bin·example·integration_test·test)가 분석에 합류하고
 멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며(그 밖의 최상위 `lib/*.dart`는
 게시할 수 있는 멤버마다 `public-libraries:` 한계로 세고, 그 줄은 맨 위 `limitations`에
-실리며 `dead` finding 가운데서는 그 멤버와, 그 멤버가 선언한 `dependencies`·`dev_dependencies`나
-실제 `package:` import·export로 전이적으로 닿는 workspace 패키지의 finding에 붙는다. 루트
+실리며 `dead` finding 가운데서는 그 멤버와, 그 멤버가 선언한 `dependencies`나 그 멤버 `lib/`
+파일의 `package:` import·export로 전이적으로 닿는 패키지의 finding에 붙는다. `dev_dependencies`와
+테스트·`bin/`·`example/` import는 따르지 않고, `source_packages` 패키지는 루트 패키지로 본다. 루트
 패키지의 줄은 모든 finding에 붙는다), `deps`는 패키지마다 자기
 pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인지 표시한다.
 디렉터리·pubspec이 없는 멤버와 symlink인 멤버 경로는 건너뛰고 보고한다(건너뛴
