@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding 경로, 멤버별 `public-libraries:` 한계, rules 진단 길이, PR #166 독립 리뷰 반영)_
+_Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding 경로, 멤버별 `public-libraries:` 한계, rules 진단 길이, PR #166 독립 리뷰·재검토·최종 재검토 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(PR #165 시점 원문은 그 파일 끝 절).
@@ -15,8 +15,9 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
   - 수정 커밋 셋(`d9d3f9a` 파일 finding 경로, `a869625` 멤버별 `public-libraries:`, `c0c5792` rules
     진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영
-    커밋(`9678821` 수정, `4fdfe46`·`cf4f9ae` 문서, 아래 "PR #166 독립 리뷰 반영")과 재검토 반영 커밋
-    (아래 "재검토 반영")을 이력 재작성 없이 더했다.
+    커밋(`9678821` 수정, `4fdfe46`·`cf4f9ae` 문서, 아래 "PR #166 독립 리뷰 반영"), 재검토 반영
+    (`bfb42a9` 수정, `97370a3` 문서, 아래 "재검토 반영"), 최종 재검토 반영(`4bd4ff2` 수정과 그 뒤 문서
+    커밋, 아래 "최종 재검토 반영")을 이력 재작성 없이 더했다.
 
 ## 이번 브랜치의 변경
 
@@ -152,7 +153,8 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   finding에 붙인다(`origin/main`이 붙인 줄은 모두 남는다는 요구 성질). 멤버 P의 줄은 P와 P가 전이적으로
   닿는 workspace 패키지의 목록에 넣는다. 간선은 선언한 `dependencies`·`dev_dependencies`와 패키지 안
   파일의 실제 `package:` import·export(`packageImports`, 해석 실패·조건부 URI 포함)다.
-  - `dev_dependencies`와 실제 import를 넣은 근거: workspace는 package config을 공유해 선언하지 않은
+  - (최종 재검토에서 바뀜: 아래 "최종 재검토 반영"이 간선을 `dependencies`와 `lib/` import로 좁혔다.)
+    `dev_dependencies`와 실제 import를 넣은 근거: workspace는 package config을 공유해 선언하지 않은
     형제 멤버 import도 해석되고(`deps`가 `undeclared-dependency`로 보고하는 경우), `lib/`가
     dev_dependency를 import하는 경우도 있다(`dev-dependency-in-lib`). 선언한 `dependencies`만 보면 그
     원인을 놓친다. 덜 붙이면 원인을 숨기고 더 붙이면 잡음뿐이라 넓게 잡았다. `dependency_overrides`는
@@ -179,6 +181,41 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   선언만)이 각각 실패시킨다. 분석기 단위 테스트(`pkgs/a-b`·문장 없는 멤버·`project:`가 아닌 source)는
   그대로다.
 - nit: 위 수정 2의 테스트 설명에서 "게시 가능한 루트가 먼저"를 N1과 맞게 고쳤다.
+
+### 최종 재검토 반영 (F1·N1·N2)
+
+`97370a3` 최종 재검토는 순환 종료·결정성·"`origin/main`이 붙인 줄은 잃지 않음"·export·조건부 import·
+part·v37 캐시를 확인하고 should-fix 1·nit 2를 냈다.
+
+- F1: `dev_dependencies`와 `test/`를 포함한 모든 파일의 import를 간선으로 넣어, 공용 테스트 도우미
+  (`test_utils`: 모든 멤버가 dev_dependency로 두고 테스트에서 import, 자신은 모든 멤버에 의존)가 있는
+  workspace의 멤버가 한 순환으로 묶였다. 그래서 모든 finding이 모든 멤버의 줄을 실었다. `public-libraries:`
+  줄은 최상위 `lib/` 라이브러리 선언에 관한 것이고 `test/`·`bin/`·`example/`에서 닿는 코드는 이미 보존
+  루트에서 닿으므로, 원인이 될 수 있는 간선은 `lib/` 아래 파일의 import·export뿐이다(`lib/`가
+  dev_dependency를 import하면 그 import가 간선이다).
+  - 수정: 간선을 멤버가 선언한 `dependencies`와 그 멤버 `lib/` 아래 파일의 `package:` import·export로
+    좁혔다. 스캔 루트의 줄은 모든 finding에 붙으므로 루트에서 나가는 간선은 보지 않는다. 캐시 신원 v38.
+  - 전후(`tu`: 멤버 `core`·`a`~`g`·`test_utils`, finding 32): finding별 줄 0(main) → 256(`97370a3`) → 60,
+    text 30,070 → 106,947 → 49,883, json 33,687 → 106,900 → 52,580, sarif 39,106 → 112,319 → 57,999,
+    github-actions 30,348 → 103,337 → 49,409(가장 긴 줄은 core finding이 줄 8개를 실어 3,156 그대로).
+    `dead_b`는 `b`의 줄만, `dead_core`는 core에 의존하는 여덟 멤버의 줄을 모두 싣는다.
+  - 30개 멤버 workspace의 finding별 줄은 42 → 36이다. 빠진 여섯은 앞에서 잡음이라고 적은 것이다
+    (`cli_util`이 테스트 전용 dev_dependency `async`로 `collection`에 닿던 5, `http`가 dev_dependency로만
+    선언한 `shelf`에 닿던 1). `w1`·`w3`는 `97370a3`과 바이트 단위로 같다.
+- N1: 패키지 이름을 루트·멤버 pubspec 이름뿐 아니라 그 이름의 `package:` 라이브러리 파일이 든 패키지
+  경로로도 바꾼다. `source_packages` 패키지는 어느 멤버에도 들지 않아 스캔 루트 범위('')로 간다(그
+  finding이 이미 쓰는 범위). 그래서 `pkgs/a/lib/testing.dart`만 부르는 `vendor/core`의 `coreHelper`에
+  `a`의 줄이 붙는다(`97370a3`은 `[]`).
+- N2: 줄이 있는 패키지마다 BFS하던 것을 강하게 연결된 성분(Tarjan, 반복형)으로 묶어 위상 순서로 한 번
+  전파한다. 같은 알고리즘의 복제 측정은 1,000개 순환 84ms, 1,000개 사슬 140ms다(리뷰어의 BFS 복제는
+  4.7~22초). 결과 크기는 패키지 수 × 그 패키지에 닿는 줄 수라, 1,000개 멤버가 `lib/` import로 한 순환을
+  이루고 모두 줄이 있으면 붙는 줄이 100만 개가 된다(캐시 항목도 그만큼 커진다). 그런 workspace는 모든
+  finding이 모든 줄을 실을 근거가 있는 경우다.
+- 테스트: `member_file_findings_cli_test`에 2개(`test_utils` fixture: 멤버 넷, finding별 줄 표와 합계 28
+  단언; `source_packages` 이름). 둘 다 `97370a3` 코드에서 실패한다. 변형 넷(dev_dependencies 다시 포함,
+  모든 파일의 import, 라이브러리 ID 이름 빼기, 전파 빼기)이 각각 하나 이상을 실패시킨다.
+- `origin/main` 대비 성질: fixture 12개(`w1`·`w3`·`tu`·`sp`·30개 멤버 workspace와 그 게시 가능한 루트 변형·적대
+  입력 `a1`·`a7`·`b1`~`b4`)에서 줄을 잃은 finding 0, 맨 위 목록에서 빠진 줄 0.
 
 ### N1·N2: 문서의 순서·동일성 주장
 
@@ -249,6 +286,18 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
     `origin/main` 대비 finding별 줄을 잃은 finding 0(위 "재검토 반영"의 fixture 10개).
   - 자기 분석은 `origin/main`과 바이트 단위로 같다. `w3`에서 처음 분석, `cf4f9ae`가 쓴 캐시 위의 실행,
     캐시 적중, `--incremental` 두 번(파일 변경 포함)이 바이트 단위로 같다.
+  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
+- 최종 재검토 반영(`4bd4ff2`) 뒤 다시 돌린 것(부하 평균 5~10):
+  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
+    1,243 통과·22 건너뜀·시간 초과 1(`dup_cli_test`, `TimeoutException`) → 그 파일을 `-j 1` 기본 제한으로
+    다시 돌려 6/6 통과. CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
+  - 3.11.0 worktree(`4bd4ff2`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 148개(`-j 1
+    --timeout=4x`) 통과.
+  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
+    `origin/main` 대비 줄을 잃은 finding 0(위 "최종 재검토 반영"의 fixture 12개).
+  - 자기 분석은 `origin/main`과 바이트 단위로 같다. `tu`·`w3`에서 처음 분석, `97370a3`가 쓴 캐시 위의
+    실행, 캐시 적중, `--incremental` 두 번(파일 변경 포함)이 바이트 단위로 같고, `tu`에서 `lib/` import를
+    더한 뒤에도 캐시 적중·증분·처음 분석이 같다(새 간선의 줄이 붙는다).
   - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
 
 ## 검증 메모
