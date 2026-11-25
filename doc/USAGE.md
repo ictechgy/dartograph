@@ -130,7 +130,8 @@ OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME` 또는 `~/.cache`, `%L
 옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께
 분석한다(집계하지 않으면 기존처럼 `workspace-members-not-indexed`로 보고된다).
 각 멤버의 표준 소스 디렉터리(lib·bin·example·integration_test·test)가 분석에 합류하고
-멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며, `deps`는 패키지마다 자기
+멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며(그 밖의 최상위 `lib/*.dart`는
+게시할 수 있는 멤버마다 `public-libraries:` 한계로 센다), `deps`는 패키지마다 자기
 pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인지 표시한다.
 디렉터리·pubspec이 없는 멤버와 symlink인 멤버 경로는 건너뛰고 보고한다(건너뛴
 멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
