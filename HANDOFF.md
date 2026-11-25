@@ -238,6 +238,18 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   - 자기 분석은 `origin/main`과 바이트 단위로 같다. 캐시 적중·`--incremental` 두 번(파일 변경 포함)이
     전체 분석과 같고, `087f516`이 쓴 v8 캐시 항목은 형식 버전이 달라 다시 분석된다.
   - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
+- 재검토 반영(`bfb42a9`) 뒤 다시 돌린 것(부하 평균 2~10):
+  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
+    1,239 통과·22 건너뜀·시간 초과 3(`build_config_cache_test`·`analyzer_graph_index_test`·
+    `fact_cache_test` 각 1, 모두 `TimeoutException`). 세 파일을 `-j 1` 기본 제한으로 다시 돌려 44 통과·
+    3 건너뜀. CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
+  - 3.11.0 worktree(`bfb42a9`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 146개(위 목록에
+    `deps_cli` 추가, `-j 1 --timeout=4x`) 통과.
+  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
+    `origin/main` 대비 finding별 줄을 잃은 finding 0(위 "재검토 반영"의 fixture 10개).
+  - 자기 분석은 `origin/main`과 바이트 단위로 같다. `w3`에서 처음 분석, `cf4f9ae`가 쓴 캐시 위의 실행,
+    캐시 적중, `--incremental` 두 번(파일 변경 포함)이 바이트 단위로 같다.
+  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
 
 ## 검증 메모
 
