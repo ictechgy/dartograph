@@ -1732,13 +1732,15 @@ AnalyzerGraphResult _assembleResult({
   // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
   // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
   // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
-  final publicLibraries = _publicLibrariesLimitation(
-    pubspecContent,
-    sources,
-    facts,
-    retentionRoots,
+  limitationDetails.addAll(
+    _publicLibrariesLimitations(
+      pubspecContent,
+      workspace?.members ?? const [],
+      sources,
+      facts,
+      retentionRoots,
+    ),
   );
-  if (publicLibraries != null) limitationDetails.add(publicLibraries);
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -2477,8 +2479,10 @@ const _cacheSchemaVersion = 8;
 // public-libraries 한계가 part 유닛의 선언을 호스트 라이브러리로 센다(v35). v34
 // 캐시는 part에만 보고될 선언이 있는 라이브러리를 이 한계에서 빼고, 최상위 part
 // 파일을 라이브러리로 센다.
+// public-libraries 한계를 `--workspace` 멤버마다 센다(v36). v35 캐시는 루트
+// pubspec만 봐서 게시 가능한 멤버의 최상위 라이브러리를 이 한계에서 뺀다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v35-library-parts';
+    'dartograph-analysis-$toolVersion-cache-v36-workspace-public-libraries';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3232,19 +3236,19 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 모두 정해진 뒤에 부른다. part 유닛의 선언은 호스트 라이브러리의 것으로 본다.
 /// `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다. 공개 API
 /// 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이 가려진다.
-/// 알릴 것이 없으면 null이다.
-String? _publicLibrariesLimitation(
+///
+/// 스캔 루트 패키지와 `--workspace` [members]마다 따로 센다. 멤버도 대표
+/// 라이브러리(`<member>/lib/<name>.dart`)로 공개 API를 보존하는 게시 가능한
+/// 패키지다. 흔한 pub workspace는 루트가 `publish_to: none`이고 멤버를 게시하므로,
+/// 루트 pubspec만 보면 멤버의 `lib/testing.dart`가 단독 분석과 달리 이 한계 없이
+/// 보고됐다. 줄은 루트 다음 멤버 경로순이고, 알릴 것이 없으면 비어 있다.
+List<String> _publicLibrariesLimitations(
   String? pubspecContent,
+  List<_WorkspaceMember> members,
   List<String> sources,
   Map<String, _UnitFacts> facts,
   Map<String, RetentionReason> retentionRoots,
 ) {
-  if (pubspecContent == null) return null;
-  final document = loadYaml(pubspecContent);
-  if (document is! YamlMap || document['publish_to'] == 'none') return null;
-  final name = document['name'];
-  if (name is! String) return null;
-  final entry = 'lib/$name.dart';
   // part의 선언은 호스트 라이브러리의 것이다. 라이브러리마다 자기 유닛과 part
   // 유닛을 함께 본다. 최상위 `lib/` 아래 part 파일은 라이브러리가 아니라 세지 않고
   // 그 선언을 호스트 라이브러리에 돌린다.
@@ -3254,12 +3258,54 @@ String? _publicLibrariesLimitation(
     final library = unit.librarySource;
     if (library != null) (unitsByLibrary[library] ??= []).add(unit);
   }
+  // 최상위 `lib/*.dart` 라이브러리를 그 앞 경로(패키지 접두, 루트는 '')로 한 번에
+  // 묶는다. 패키지마다 모든 라이브러리를 다시 훑지 않는다. 접두가 분석한 패키지가
+  // 아니면(멤버가 아닌 하위 디렉터리) 아래에서 찾지 않는다.
+  final topLevelByPackage = <String, List<String>>{};
+  final topLevel = RegExp(r'^(.*/)?lib/[^/]+\.dart$');
+  for (final library in unitsByLibrary.keys) {
+    final match = topLevel.firstMatch(library);
+    if (match != null) {
+      (topLevelByPackage[match[1] ?? ''] ??= []).add(library);
+    }
+  }
+  return [
+    for (final (prefix, content) in [
+      ('', pubspecContent),
+      for (final member in members)
+        ('${member.relPath}/', member.pubspecContent),
+    ])
+      ?_publicLibrariesLimitation(
+        prefix,
+        content,
+        topLevelByPackage[prefix] ?? const [],
+        unitsByLibrary,
+        retentionRoots,
+      ),
+  ];
+}
+
+/// 패키지 하나의 `public-libraries:` 한계다. [packagePrefix]는 그 패키지의 루트
+/// 기준 경로(`pkgs/a/`, 스캔 루트는 '')이고 [libraries]는 그 패키지의 최상위
+/// `lib/*.dart` 라이브러리다. 알릴 것이 없으면 null이다.
+String? _publicLibrariesLimitation(
+  String packagePrefix,
+  String? pubspecContent,
+  List<String> libraries,
+  Map<String, List<_UnitFacts>> unitsByLibrary,
+  Map<String, RetentionReason> retentionRoots,
+) {
+  if (pubspecContent == null) return null;
+  final document = loadYaml(pubspecContent);
+  if (document is! YamlMap || document['publish_to'] == 'none') return null;
+  final name = document['name'];
+  if (name is! String) return null;
+  final entry = '${packagePrefix}lib/$name.dart';
   final unretained = <String>[];
   var unnamedExtension = false;
-  for (final MapEntry(key: library, value: units) in unitsByLibrary.entries) {
-    if (library == entry || !RegExp(r'^lib/[^/]+\.dart$').hasMatch(library)) {
-      continue;
-    }
+  for (final library in libraries) {
+    if (library == entry) continue;
+    final units = unitsByLibrary[library]!;
     final reportable = [
       for (final unit in units)
         for (final node in unit.nodes)

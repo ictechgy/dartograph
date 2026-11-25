@@ -390,10 +390,12 @@ Limitations:
   declarations. Other top-level `lib/*.dart` libraries of a package that can
   be published (no `publish_to: none`), such as `lib/testing.dart`, are counted
   by a `public-libraries:` limitation when some public declaration or public
-  member in them is not a retention root and can therefore be reported. Export
-  from the entry library and `retained_files` retain members too; an
-  annotation, `// dartograph:ignore`, or `retained_names` retains only the
-  declaration it names, so such a class with public members is still counted.
+  member in them is not a retention root and can therefore be reported. With
+  `--workspace`, each member is counted against its own pubspec and entry
+  library, one line per package. Export from the entry library and
+  `retained_files` retain members too; an annotation, `// dartograph:ignore`,
+  or `retained_names` retains only the declaration it names, so such a class
+  with public members is still counted.
   Declarations in a library's part files count for that library.
 - Typedefs are not graph nodes. A use of a typedef references the declarations
   in its aliased type, so `typedef Models = List<Model>` keeps `Model`

@@ -228,4 +228,105 @@ builders:
       );
     },
   );
+
+  group('--workspace', () {
+    /// 루트 pubspec의 [rootPublishTo] 줄과 멤버 셋(게시하는 `pkgs/a`·`pkgs/b`,
+    /// 앱 `pkgs/app`)으로 pub workspace를 만들어 `--workspace`로 색인한
+    /// `public-libraries:` 한계 목록이다.
+    Future<List<String>> workspaceLimitations(String rootPublishTo) async {
+      final root = await Directory.systemTemp.createTemp('public-libraries.');
+      addTearDown(() => root.delete(recursive: true));
+      Future<void> write(String relative, String content) async {
+        final file = File('${root.path}/$relative');
+        await file.parent.create(recursive: true);
+        await file.writeAsString(content);
+      }
+
+      await write('pubspec.yaml', '''
+name: ws_root
+$rootPublishTo
+environment:
+  sdk: ^3.8.0
+workspace:
+  - pkgs/a
+  - pkgs/app
+  - pkgs/b
+''');
+      await write('lib/ws_root.dart', 'class Root {}');
+      await write('lib/extra.dart', 'class RootExtra {}');
+      for (final (member, publishTo, libraries) in [
+        ('a', '', {'a.dart': 'class A {}', 'testing.dart': 'class FakeA {}'}),
+        (
+          'app',
+          'publish_to: none',
+          {'app.dart': 'class App {}', 'extra.dart': 'class AppExtra {}'},
+        ),
+        (
+          'b',
+          '',
+          {
+            'b.dart': 'class B {}',
+            'one.dart': 'class One {}',
+            'two.dart': 'class Two {}',
+            'src/impl.dart': 'class Impl {}',
+          },
+        ),
+      ]) {
+        await write('pkgs/$member/pubspec.yaml', '''
+name: $member
+$publishTo
+environment:
+  sdk: ^3.8.0
+resolution: workspace
+''');
+        for (final MapEntry(:key, :value) in libraries.entries) {
+          await write('pkgs/$member/lib/$key', value);
+        }
+      }
+      final pubGet = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: root.path);
+      expect(pubGet.exitCode, 0, reason: pubGet.stderr as String);
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+        userCacheEnvironment: const {},
+      ).index(root.path);
+      return [
+        for (final line in result.limitationDetails)
+          if (line.startsWith('public-libraries:')) line,
+      ];
+    }
+
+    // 멤버를 따로 분석할 때와 같이 멤버마다 자기 pubspec으로 센다. 수정 전에는
+    // 루트 pubspec만 봐서, 루트가 `publish_to: none`인 흔한 workspace에서는 이
+    // 한계가 아예 없었다(멤버 lib/testing.dart의 선언은 그대로 보고됐다).
+    const memberLines = [
+      'public-libraries: pkgs/a/lib/testing.dart is a public library outside '
+          'pkgs/a/lib/a.dart; its declarations are not retained as public API, '
+          'so ones used only by package consumers are reported as unreachable '
+          '(export it from pkgs/a/lib/a.dart or retain it with retained_files)',
+      'public-libraries: pkgs/b/lib/one.dart, pkgs/b/lib/two.dart are public '
+          'libraries outside pkgs/b/lib/b.dart; their declarations are not '
+          'retained as public API, so ones used only by package consumers are '
+          'reported as unreachable (export them from pkgs/b/lib/b.dart or '
+          'retain them with retained_files)',
+    ];
+
+    test('each publishable member is counted on its own pubspec', () async {
+      expect(await workspaceLimitations('publish_to: none'), memberLines);
+    });
+
+    test('a publishable root is counted before its members', () async {
+      expect(await workspaceLimitations(''), [
+        'public-libraries: lib/extra.dart is a public library outside '
+            'lib/ws_root.dart; its declarations are not retained as public '
+            'API, so ones used only by package consumers are reported as '
+            'unreachable (export it from lib/ws_root.dart or retain it with '
+            'retained_files)',
+        ...memberLines,
+      ]);
+    });
+  });
 }
