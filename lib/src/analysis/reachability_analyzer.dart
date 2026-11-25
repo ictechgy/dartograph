@@ -544,7 +544,11 @@ final class ReachabilityAnalyzer {
         )
         .where((node) => !libraryPaths.containsKey(node.id))
         .map((node) {
-          final source = _librarySource(node.id);
+          // 색인은 라이브러리 정점에 실제 파일 경로를 싣는다. `--workspace` 멤버와
+          // `source_packages`의 package: ID는 루트 lib/ 아래 파일이 아니므로 ID에서
+          // 경로를 만들면 다른 파일(`lib/x.dart`)을 짚는다. 선언 finding과 같이
+          // sourceUri를 먼저 쓰고, 없을 때만 ID에서 만든다.
+          final source = node.sourceUri ?? _librarySource(node.id);
           return DeadFinding(
             id: node.id,
             kind: 'file',
@@ -1010,6 +1014,12 @@ bool _isLibraryId(String id) =>
 bool _isLibraryRoot(String id, Map<String, RetentionReason> roots) =>
     _isLibraryId(id) && roots.containsKey(id);
 
+/// sourceUri가 없는 라이브러리 정점 [id]의 소스 경로다(`project:` 접두).
+///
+/// `package:<name>/<path>`는 스캔 루트 패키지의 `lib/<path>`로 본다. 색인은
+/// 라이브러리 파일이 스캔 루트 안에 있으면 정점에 sourceUri를 싣는다(워크스페이스
+/// 멤버의 `pkgs/a/lib/x.dart`도 그 경로다). 이 함수는 sourceUri가 없는 정점(손으로
+/// 만든 그래프 등)의 대체 경로다.
 String _librarySource(String id) {
   final uri = Uri.parse(id);
   // package:<name>/<path>는 패키지명 세그먼트를 건너뛰고 lib/ 아래로 매핑하지만,

@@ -629,6 +629,66 @@ void main() {
     );
   });
 
+  test('a file finding names the library file the index recorded', () {
+    // `--workspace` 멤버(또는 source_packages)의 라이브러리는 package: ID가 루트
+    // lib/ 아래가 아니다. 색인이 라이브러리 정점에 실은 실제 경로를 써야 한다.
+    // ID에서 만들면 둘 다 루트의 `lib/orphan.dart`를 짚어, 멤버 파일 finding이
+    // 루트 파일의 위치·source 한계를 받았다.
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/orphan.dart',
+          sourceUri: 'project:lib/orphan.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:member/orphan.dart',
+          sourceUri: 'project:pkgs/member/lib/orphan.dart',
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+      limitations: const [
+        'source-analysis-errors: project:lib/orphan.dart',
+        'source-analysis-errors: project:pkgs/member/lib/orphan.dart',
+      ],
+    );
+
+    final files = {for (final finding in result.deadFiles) finding.id: finding};
+    expect(files.keys, [
+      'package:app/orphan.dart',
+      'package:member/orphan.dart',
+    ]);
+    expect(files['package:app/orphan.dart']!.source, 'project:lib/orphan.dart');
+    expect(files['package:app/orphan.dart']!.limitations, [
+      'source-analysis-errors: project:lib/orphan.dart',
+    ]);
+    expect(
+      files['package:member/orphan.dart']!.source,
+      'project:pkgs/member/lib/orphan.dart',
+    );
+    expect(files['package:member/orphan.dart']!.limitations, [
+      'source-analysis-errors: project:pkgs/member/lib/orphan.dart',
+    ]);
+  });
+
   test('test-only reachability reports production code only tests reach', () {
     final graph = CodeGraph()
       // 프로덕션: main이 도달, 테스트만 도달, 어디서도 도달 못 함, @visibleForTesting.
