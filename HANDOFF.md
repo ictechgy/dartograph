@@ -14,8 +14,9 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
 - 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `acda403`에서 다시 시작했다(이전 PR은 스쿼시 머지).
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
   - 수정 커밋 셋(`d9d3f9a` 파일 finding 경로, `a869625` 멤버별 `public-libraries:`, `c0c5792` rules
-    진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영 커밋
-    하나(아래 "PR #166 독립 리뷰 반영")를 이력 재작성 없이 더했다.
+    진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영
+    커밋(`9678821` 수정, `4fdfe46`와 그 뒤 문서 커밋 하나, 아래 "PR #166 독립 리뷰 반영")을 이력 재작성 없이
+    더했다.
 
 ## 이번 브랜치의 변경
 
@@ -121,6 +122,9 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   것 포함)는 루트 패키지 것이다. 문장이 없는 멤버의 finding은 루트 문장을 받지 않는다. 문장 텍스트를
   파싱하지 않는다. 맨 위 `limitations`, `dead --explain`·`query` 문서는 전처럼 전체 목록이다.
   단일 패키지는 키가 ''뿐이라 출력이 같다(코퍼스 확인). 결과 필드가 늘어 캐시 형식 버전 v9.
+  `origin/main`과 다른 점 하나: 게시 가능한 workspace 루트의 줄을 `origin/main`은 멤버 finding에도
+  붙였는데 이제 루트 패키지 finding에만 붙는다(루트 `lib/*.dart`에 관한 줄이고 맨 위에는 남는다,
+  루트 + 게시 가능한 멤버 `pkgs/b` fixture로 확인). 맨 위 `limitations`에서 빠지는 줄은 없다.
 - 전후(`w1`, `087f516` → 수정본, 바이트): text 134,839 → 38,941, json 134,362 → 43,084, sarif 140,695 →
   49,417, github-actions 130,246 → 39,628(가장 긴 줄 3,539 → 1,082), markdown 142,291 → 40,243,
   codeowners 120,225 → 23,667. finding별 `limitation: public-libraries:` 줄 360 → 30(게시 가능한 멤버
