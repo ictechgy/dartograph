@@ -2926,7 +2926,12 @@ Future<int> _runDead(
         ? (Map.of(indexed.retentionRoots)
             ..removeWhere((_, reason) => reason == RetentionReason.publicApi))
         : indexed.retentionRoots;
-    final analyzer = ReachabilityAnalyzer();
+    // 패키지 한계(`public-libraries:`)는 색인이 정한 범위(그 패키지와 그 패키지가
+    // 닿는 workspace 패키지, 스캔 루트의 줄은 전부)의 finding에만 붙는다. 맨 위
+    // limitations에는 모두 남는다.
+    final analyzer = ReachabilityAnalyzer(
+      packageLimitations: indexed.packageLimitationDetails,
+    );
     final snapshot = indexed.graph.snapshot();
     if (explainId != null) {
       final explanation = analyzer
@@ -4120,10 +4125,13 @@ int _reportRulesConfigUnreadable(StringSink error, String config) {
   return ExitStatus.failure.code;
 }
 
+/// 파서 상세 [detail]은 설정이 쓴 키·레이어 이름을 끝에 담는다. 1 MiB까지 읽히는
+/// 설정의 긴 키가 진단 줄을 그만큼 키우지 않게 `dartograph.yaml` 진단과 같이
+/// [_echoedTextLimit] rune으로 줄인 뒤 이스케이프한다.
 int _reportRulesConfigInvalid(StringSink error, String detail) {
   error.writeln(
     'Analysis failed: invalid rules configuration: '
-    '${ReportEscapes.escapeText(detail)}',
+    '${ReportEscapes.escapeText(_shortenEchoed(detail))}',
   );
   return ExitStatus.failure.code;
 }

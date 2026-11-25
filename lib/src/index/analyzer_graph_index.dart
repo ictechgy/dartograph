@@ -82,6 +82,7 @@ final class AnalyzerGraphResult {
     this.metricsDistanceThreshold,
     this.metricsComplexityThreshold,
     this.workspacePackages = const [],
+    this.packageLimitationDetails = const {},
   });
 
   /// resolved unit에서 얻은 선언과 관계다.
@@ -147,6 +148,19 @@ final class AnalyzerGraphResult {
   /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
   final List<WorkspacePackage> workspacePackages;
 
+  /// 패키지에 매인 [limitationDetails] 문장(`public-libraries:`)을 dead finding에
+  /// 붙일 범위다.
+  ///
+  /// 키는 스캔 루트 기준 패키지 경로(스캔 루트 패키지는 '', `--workspace` 멤버는
+  /// `pkgs/a`)이고 분석한 패키지가 모두 있다. 값은 source가 그 패키지에 든 finding에
+  /// 붙일 문장이다(없으면 빈 목록). 한 멤버의 문장은 그 멤버와, 그 멤버가 닿는
+  /// 패키지(선언한 `dependencies` 또는 그 멤버 `lib/` 파일의 `package:`
+  /// import·export를 따라 전이적으로)의 목록에 든다. 그 멤버의 공개 라이브러리가
+  /// 쓰는 코드는 그 패키지들에 있을 수 있어서다. 스캔 루트 패키지의 문장은 모든
+  /// 목록에 든다(`origin/main`처럼 모든 finding에 붙는다). 전체 문장은
+  /// [limitationDetails]에도 그대로 있다.
+  final Map<String, List<String>> packageLimitationDetails;
+
   /// [limitationDetails] 끝에 [detail] 하나만 더하고 나머지 필드는 그대로 둔
   /// 복사본이다.
   ///
@@ -184,6 +198,7 @@ final class AnalyzerGraphResult {
     metricsDistanceThreshold: metricsDistanceThreshold,
     metricsComplexityThreshold: metricsComplexityThreshold,
     workspacePackages: workspacePackages,
+    packageLimitationDetails: packageLimitationDetails,
   );
 }
 
@@ -1732,13 +1747,23 @@ AnalyzerGraphResult _assembleResult({
   // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
   // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
   // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
-  final publicLibraries = _publicLibrariesLimitation(
+  final publicLibraries = _publicLibrariesLimitations(
     pubspecContent,
+    workspace?.members ?? const [],
     sources,
     facts,
     retentionRoots,
   );
-  if (publicLibraries != null) limitationDetails.add(publicLibraries);
+  for (final lines in publicLibraries.values) {
+    limitationDetails.addAll(lines);
+  }
+  final packageLimitationDetails = _packageLimitationScopes(
+    publicLibraries,
+    manifest.name,
+    workspace?.members ?? const [],
+    sources,
+    facts,
+  );
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -1854,6 +1879,7 @@ AnalyzerGraphResult _assembleResult({
     ],
     metricsComplexityThreshold: scope.complexityThreshold,
     tokenSegments: List.unmodifiable(tokenSegments),
+    packageLimitationDetails: Map.unmodifiable(packageLimitationDetails),
   );
 }
 
@@ -2416,7 +2442,9 @@ Future<Map<String, ResolvedUnitResult>> resolveProjectUnitsAt(
 // workspacePackages 필드 추가로 v7다 — 역시 형식만 바뀐다.
 // dup 전용 토큰 세그먼트를 결과 항목에서 빼 별도 항목([_tokenSegmentsCacheKey])에
 // 두어 v8이다 — 추출 의미는 그대로라 identity는 올리지 않는다.
-const _cacheSchemaVersion = 8;
+// 패키지별 한계 문장(packageLimitationDetails) 필드 추가로 v9다 — 문장 자체는 v36
+// identity의 것과 같고 필드만 늘었다.
+const _cacheSchemaVersion = 9;
 // 연산자 호출 usage 간선(v4)과 dartograph:ignore 주석 보존 루트(v5) 추가로
 // 추출 의미가 바뀌어 identity를 올렸다. 당시 직렬화 형식은 그대로라 schemaVersion은
 // 올리지 않았다. packageReferences 지시문 수집(v7 — 미해결·조건부 URI까지
@@ -2477,8 +2505,16 @@ const _cacheSchemaVersion = 8;
 // public-libraries 한계가 part 유닛의 선언을 호스트 라이브러리로 센다(v35). v34
 // 캐시는 part에만 보고될 선언이 있는 라이브러리를 이 한계에서 빼고, 최상위 part
 // 파일을 라이브러리로 센다.
+// public-libraries 한계를 `--workspace` 멤버마다 센다(v36). v35 캐시는 루트
+// pubspec만 봐서 게시 가능한 멤버의 최상위 라이브러리를 이 한계에서 뺀다.
+// public-libraries 줄을 붙일 범위(packageLimitationDetails)가 그 패키지가 닿는
+// workspace 패키지까지 넓어지고 스캔 루트의 줄은 모든 패키지에 든다(v37). v36
+// 캐시의 범위는 그 패키지 자신뿐이다.
+// 그 범위의 간선이 선언한 dependencies와 lib/ 파일의 import·export로 좁아지고
+// source_packages 이름도 따른다(v38). v37 캐시는 dev_dependencies와 테스트 import를
+// 따라 넓다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v35-library-parts';
+    'dartograph-analysis-$toolVersion-cache-v38-lib-dependency-scopes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3100,6 +3136,7 @@ String _encodeCachedAnalysis(AnalyzerGraphResult result) {
     'metricsComplexityThreshold': ?result.metricsComplexityThreshold,
     'metricsDistanceThreshold': ?result.metricsDistanceThreshold,
     'packageImports': result.packageImports,
+    'packageLimitationDetails': result.packageLimitationDetails,
     'packageName': ?result.packageName,
     'retentionRoots': {
       for (final id in rootIds) id: result.retentionRoots[id]!.name,
@@ -3194,6 +3231,15 @@ AnalyzerGraphResult? _decodeCachedAnalysis(
         for (final value in document['workspacePackages']! as List<Object?>)
           _workspacePackageFromJson((value! as Map).cast<String, Object?>()),
       ],
+      packageLimitationDetails: {
+        for (final entry
+            in (document['packageLimitationDetails']! as Map)
+                .cast<String, Object?>()
+                .entries)
+          entry.key: [
+            for (final line in entry.value! as List<Object?>) line! as String,
+          ],
+      },
     );
   } on Object {
     return null;
@@ -3218,6 +3264,146 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
       ],
     );
 
+/// 패키지 자신의 한계 문장 [ownLines](패키지 경로 → 문장)를 붙일 finding의 범위로
+/// 바꾼다([AnalyzerGraphResult.packageLimitationDetails]).
+///
+/// 한 패키지의 `public-libraries:` 줄은 그 패키지의 최상위 `lib/` 라이브러리 선언이
+/// 보존되지 않는다는 뜻이고, 그 선언만 쓰는 코드는 다른 workspace 패키지에도 있을
+/// 수 있다(멤버 `b`의 `lib/testing.dart`만 의존 `c`의 `src/` 함수를 부른다). 그래서
+/// 멤버의 줄을 그 멤버가 전이적으로 닿는 패키지의 finding에도 붙인다. 간선은 그
+/// 멤버가 선언한 `dependencies`와, 그 멤버의 `lib/` 아래 파일이 실제로 쓴 `package:`
+/// import·export 지시문(해석 실패·조건부 URI 포함)이다. workspace는 선언하지 않은
+/// 형제 import도 해석하므로 선언만 보면 원인을 놓친다. `dev_dependencies`와
+/// `test/`·`bin/`·`example/` 파일의 import는 넣지 않는다 — 그 파일에서 닿는 코드는
+/// 이미 보존 루트에서 닿고, 넣으면 테스트 도우미 패키지를 거쳐 대부분의 멤버가 한
+/// 순환으로 묶여 모든 finding이 모든 멤버의 줄을 싣는다. `lib/`가 dev_dependency를
+/// import하면 그 import가 간선이 된다. `dependency_overrides`도 코드 사용이 아니다.
+///
+/// 패키지 이름은 그 이름의 `package:` 라이브러리 파일이 든 패키지 경로로 바꾼다
+/// (`source_packages`의 패키지는 어느 멤버에도 들지 않아 스캔 루트 패키지 ''다).
+/// 스캔 루트 패키지의 줄은 모든 패키지에 붙인다(이전처럼 모든 finding에 실린다).
+/// 그래서 ''에서 나가는 간선은 보지 않는다. 강하게 연결된 패키지는 하나로 묶어
+/// 위상 순서로 한 번만 전파한다(패키지 수 + 간선 수에 비례하고, 결과 크기는 패키지
+/// 수 × 그 패키지에 닿는 줄 수다).
+Map<String, List<String>> _packageLimitationScopes(
+  Map<String, List<String>> ownLines,
+  String? rootName,
+  List<_WorkspaceMember> members,
+  List<String> sources,
+  Map<String, _UnitFacts> facts,
+) {
+  final paths = ['', for (final member in members) member.relPath];
+  // 긴 접두 먼저 — 중첩 멤버(pkgs/a 안의 pkgs/a/sub)의 파일은 안쪽 멤버 것이다.
+  final memberPaths = [for (final member in members) member.relPath]
+    ..sort((a, b) => b.length.compareTo(a.length));
+  String packageOf(String source) {
+    for (final member in memberPaths) {
+      if (source.startsWith('$member/')) return member;
+    }
+    return '';
+  }
+
+  final pathsByName = <String, Set<String>>{
+    ?rootName: {''},
+  };
+  for (final member in members) {
+    (pathsByName[member.name] ??= {}).add(member.relPath);
+  }
+  final referencedNames = <String, Set<String>>{
+    for (final member in members) member.relPath: {...member.dependencies},
+  };
+  for (final source in sources) {
+    final unit = facts[source]!;
+    final package = packageOf(unit.source);
+    final slash = unit.libraryId.indexOf('/');
+    if (unit.libraryId.startsWith('package:') && slash > 'package:'.length) {
+      final name = unit.libraryId.substring('package:'.length, slash);
+      (pathsByName[name] ??= {}).add(package);
+    }
+    if (package.isNotEmpty && unit.source.startsWith('$package/lib/')) {
+      referencedNames[package]!.addAll(unit.packageReferences);
+    }
+  }
+  final reaches = <String, Set<String>>{
+    '': const {},
+    for (final MapEntry(key: path, value: names) in referencedNames.entries)
+      path: {for (final name in names) ...?pathsByName[name]},
+  };
+
+  // 강하게 연결된 성분(Tarjan, 반복형). 성분은 그 성분에서 닿는 성분보다 늦게
+  // 나오므로 역순이 위상 순서다.
+  final index = <String, int>{};
+  final low = <String, int>{};
+  final onStack = <String>{};
+  final stack = <String>[];
+  final componentOf = <String, int>{};
+  final components = <List<String>>[];
+  for (final start in paths) {
+    if (index.containsKey(start)) continue;
+    final work = <(String, Iterator<String>)>[];
+    void visit(String node) {
+      index[node] = low[node] = index.length;
+      stack.add(node);
+      onStack.add(node);
+      work.add((node, reaches[node]!.iterator));
+    }
+
+    visit(start);
+    while (work.isNotEmpty) {
+      final (node, edges) = work.last;
+      if (edges.moveNext()) {
+        final next = edges.current;
+        if (!index.containsKey(next)) {
+          visit(next);
+        } else if (onStack.contains(next) && index[next]! < low[node]!) {
+          low[node] = index[next]!;
+        }
+        continue;
+      }
+      work.removeLast();
+      if (work.isNotEmpty) {
+        final parent = work.last.$1;
+        if (low[node]! < low[parent]!) low[parent] = low[node]!;
+      }
+      if (low[node] != index[node]) continue;
+      final component = <String>[];
+      String member;
+      do {
+        member = stack.removeLast();
+        onStack.remove(member);
+        componentOf[member] = components.length;
+        component.add(member);
+      } while (member != node);
+      components.add(component);
+    }
+  }
+  // 성분마다 그 성분에 닿는(자기 포함) 멤버 중 줄이 있는 멤버다.
+  final owners = [
+    for (final component in components)
+      {
+        for (final path in component)
+          if (path.isNotEmpty && (ownLines[path] ?? const []).isNotEmpty) path,
+      },
+  ];
+  for (var id = components.length - 1; id >= 0; id--) {
+    for (final path in components[id]) {
+      for (final next in reaches[path]!) {
+        final target = componentOf[next]!;
+        if (target != id) owners[target].addAll(owners[id]);
+      }
+    }
+  }
+  final rootLines = ownLines[''] ?? const <String>[];
+  return {
+    for (final path in paths)
+      path: [
+        ...rootLines,
+        for (final owner in paths)
+          if (owners[componentOf[path]!].contains(owner)) ...?ownLines[owner],
+      ],
+  };
+}
+
 /// 대표 라이브러리 밖 공개 라이브러리를 세는 `public-libraries:` 한계다.
 ///
 /// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
@@ -3232,19 +3418,23 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 모두 정해진 뒤에 부른다. part 유닛의 선언은 호스트 라이브러리의 것으로 본다.
 /// `publish_to: none`인 패키지(앱)는 소비자가 없으므로 알리지 않는다. 공개 API
 /// 보존을 넓히지는 않는다 — 앱의 최상위 lib 파일까지 보존하면 미사용이 가려진다.
-/// 알릴 것이 없으면 null이다.
-String? _publicLibrariesLimitation(
+///
+/// 스캔 루트 패키지와 `--workspace` [members]마다 따로 센다. 멤버도 대표
+/// 라이브러리(`<member>/lib/<name>.dart`)로 공개 API를 보존하는 게시 가능한
+/// 패키지다. 흔한 pub workspace는 루트가 `publish_to: none`이고 멤버를 게시하므로,
+/// 루트 pubspec만 보면 멤버의 `lib/testing.dart`가 단독 분석과 달리 이 한계 없이
+/// 보고됐다.
+///
+/// 결과는 분석한 패키지마다(스캔 루트 기준 경로, 스캔 루트 패키지는 '') 그
+/// 패키지 자신의 한계 문장 목록이다(알릴 것이 없으면 빈 목록). 어느 finding에
+/// 붙일지는 [_packageLimitationScopes]가 정한다.
+Map<String, List<String>> _publicLibrariesLimitations(
   String? pubspecContent,
+  List<_WorkspaceMember> members,
   List<String> sources,
   Map<String, _UnitFacts> facts,
   Map<String, RetentionReason> retentionRoots,
 ) {
-  if (pubspecContent == null) return null;
-  final document = loadYaml(pubspecContent);
-  if (document is! YamlMap || document['publish_to'] == 'none') return null;
-  final name = document['name'];
-  if (name is! String) return null;
-  final entry = 'lib/$name.dart';
   // part의 선언은 호스트 라이브러리의 것이다. 라이브러리마다 자기 유닛과 part
   // 유닛을 함께 본다. 최상위 `lib/` 아래 part 파일은 라이브러리가 아니라 세지 않고
   // 그 선언을 호스트 라이브러리에 돌린다.
@@ -3254,12 +3444,55 @@ String? _publicLibrariesLimitation(
     final library = unit.librarySource;
     if (library != null) (unitsByLibrary[library] ??= []).add(unit);
   }
+  // 최상위 `lib/*.dart` 라이브러리를 그 앞 경로(패키지 접두, 루트는 '')로 한 번에
+  // 묶는다. 패키지마다 모든 라이브러리를 다시 훑지 않는다. 접두가 분석한 패키지가
+  // 아니면(멤버가 아닌 하위 디렉터리) 아래에서 찾지 않는다.
+  final topLevelByPackage = <String, List<String>>{};
+  final topLevel = RegExp(r'^(.*/)?lib/[^/]+\.dart$');
+  for (final library in unitsByLibrary.keys) {
+    final match = topLevel.firstMatch(library);
+    if (match != null) {
+      (topLevelByPackage[match[1] ?? ''] ??= []).add(library);
+    }
+  }
+  return {
+    for (final (path, content) in [
+      ('', pubspecContent),
+      for (final member in members) (member.relPath, member.pubspecContent),
+    ])
+      path: [
+        ?_publicLibrariesLimitation(
+          path.isEmpty ? '' : '$path/',
+          content,
+          topLevelByPackage[path.isEmpty ? '' : '$path/'] ?? const [],
+          unitsByLibrary,
+          retentionRoots,
+        ),
+      ],
+  };
+}
+
+/// 패키지 하나의 `public-libraries:` 한계다. [packagePrefix]는 그 패키지의 루트
+/// 기준 경로(`pkgs/a/`, 스캔 루트는 '')이고 [libraries]는 그 패키지의 최상위
+/// `lib/*.dart` 라이브러리다. 알릴 것이 없으면 null이다.
+String? _publicLibrariesLimitation(
+  String packagePrefix,
+  String? pubspecContent,
+  List<String> libraries,
+  Map<String, List<_UnitFacts>> unitsByLibrary,
+  Map<String, RetentionReason> retentionRoots,
+) {
+  if (pubspecContent == null) return null;
+  final document = loadYaml(pubspecContent);
+  if (document is! YamlMap || document['publish_to'] == 'none') return null;
+  final name = document['name'];
+  if (name is! String) return null;
+  final entry = '${packagePrefix}lib/$name.dart';
   final unretained = <String>[];
   var unnamedExtension = false;
-  for (final MapEntry(key: library, value: units) in unitsByLibrary.entries) {
-    if (library == entry || !RegExp(r'^lib/[^/]+\.dart$').hasMatch(library)) {
-      continue;
-    }
+  for (final library in libraries) {
+    if (library == entry) continue;
+    final units = unitsByLibrary[library]!;
     final reportable = [
       for (final unit in units)
         for (final node in unit.nodes)

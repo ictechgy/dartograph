@@ -130,7 +130,12 @@ OS 사용자 캐시(`~/Library/Caches`, `$XDG_CACHE_HOME` 또는 `~/.cache`, `%L
 옵트인한다. 루트 pubspec의 `workspace:` 목록에 있는 멤버를 하나의 그래프로 함께
 분석한다(집계하지 않으면 기존처럼 `workspace-members-not-indexed`로 보고된다).
 각 멤버의 표준 소스 디렉터리(lib·bin·example·integration_test·test)가 분석에 합류하고
-멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며, `deps`는 패키지마다 자기
+멤버의 `lib/<name>.dart`는 공개 API 보존을 유지하며(그 밖의 최상위 `lib/*.dart`는
+게시할 수 있는 멤버마다 `public-libraries:` 한계로 세고, 그 줄은 맨 위 `limitations`에
+실리며 `dead` finding 가운데서는 그 멤버와, 그 멤버가 선언한 `dependencies`나 그 멤버 `lib/`
+파일의 `package:` import·export로 전이적으로 닿는 패키지의 finding에 붙는다. `dev_dependencies`와
+테스트·`bin/`·`example/` import는 따르지 않고, `source_packages` 패키지는 루트 패키지로 본다. 루트
+패키지의 줄은 모든 finding에 붙는다), `deps`는 패키지마다 자기
 pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인지 표시한다.
 디렉터리·pubspec이 없는 멤버와 symlink인 멤버 경로는 건너뛰고 보고한다(건너뛴
 멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
@@ -754,6 +759,7 @@ Dart SDK가 필요하다.
 `dartograph.yaml` 진단처럼 1부터 센 줄·열을 붙인다(`Duplicate mapping key. (line 3, column 5)`). 열은 UTF-16
 코드 단위다(이모지처럼 기본 다국어 평면 밖 문자는 2로 센다. bridge 사실의 UTF-8 바이트 열과 다르다).
 닫히지 않은 따옴표 문자열은 YAML 파서가 멈추는 파일 끝(마지막 줄 다음 줄 1열)을 짚는다.
+원인이 반향하는 키·레이어 이름이 길어 400자(rune)를 넘으면 `dartograph.yaml` 진단처럼 말줄임표로 자른다.
 규칙은 양끝이 모두 레이어에 배치된 사용 간선만 검사한다. 그래서 `allow` 규칙도 어느 레이어에도
 매치되지 않는 코드로의 의존은 위반으로 보지 않는다. 규칙이 있는 레이어에서 그런 정점으로 가는
 간선이 있으면 `unassigned-layer-targets: <n> usage edge(s) from layers with rules reach <m> node(s)

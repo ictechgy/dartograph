@@ -431,6 +431,21 @@ final class ReachabilityResult {
 
 /// `EdgeKind.impliesUsage`만으로 전역 도달성을 계산한다.
 final class ReachabilityAnalyzer {
+  /// [packageLimitations]는 분석한 패키지마다(스캔 루트 기준 경로, 스캔 루트
+  /// 패키지는 '', `--workspace` 멤버는 `pkgs/a`) source가 그 패키지에 든 finding에
+  /// 붙일 패키지 한계 문장을 담는다(없으면 빈 목록). 어느 패키지에 어떤 문장을
+  /// 둘지는 만든 쪽(색인)이 정한다. source가 어느 멤버에도 들지 않으면 스캔 루트
+  /// 패키지('')의 목록을 쓴다. 키가 있는 멤버는 그 목록만 쓰고 ''의 목록을 물려받지
+  /// 않는다.
+  const ReachabilityAnalyzer({this.packageLimitations = const {}});
+
+  /// 패키지 경로 → 그 패키지의 finding에 붙일 패키지 한계 문장이다.
+  ///
+  /// 문장은 분석 메서드가 받는 `limitations`에도 있어야 finding에 붙는다(finding의
+  /// 한계는 전체 목록의 부분집합이다). 어느 목록에도 없는 문장은 이전처럼 전역
+  /// 한계다.
+  final Map<String, List<String>> packageLimitations;
+
   /// 보존 [roots]에서 그래프를 순회해 선언과 파일 발견을 만든다.
   ReachabilityResult analyze(
     GraphSnapshot graph, {
@@ -469,7 +484,7 @@ final class ReachabilityAnalyzer {
     // 메서드 안에서만 유효하다(limitations 인자가 바뀌면 결과도 바뀐다) —
     // source만 키로 하는 더 긴 수명의 저장소로 승격하지 않는다.
     final sourceLimitations = <String, List<String>>{};
-    final limitationIndex = _SourceLimitations(limitations);
+    final limitationIndex = _SourceLimitations(limitations, packageLimitations);
     List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
       source,
       () => limitationIndex.forSource(source),
@@ -544,7 +559,11 @@ final class ReachabilityAnalyzer {
         )
         .where((node) => !libraryPaths.containsKey(node.id))
         .map((node) {
-          final source = _librarySource(node.id);
+          // 색인은 라이브러리 정점에 실제 파일 경로를 싣는다. `--workspace` 멤버와
+          // `source_packages`의 package: ID는 루트 lib/ 아래 파일이 아니므로 ID에서
+          // 경로를 만들면 다른 파일(`lib/x.dart`)을 짚는다. 선언 finding과 같이
+          // sourceUri를 먼저 쓰고, 없을 때만 ID에서 만든다.
+          final source = node.sourceUri ?? _librarySource(node.id);
           return DeadFinding(
             id: node.id,
             kind: 'file',
@@ -881,7 +900,7 @@ final class ReachabilityAnalyzer {
     // 같은 source의 발견이 filter·toSet·sort를 반복하지 않게 메모한다 —
     // 함수가 결정적이라 목록 공유로 출력이 달라지지 않는다.
     final sourceLimitations = <String, List<String>>{};
-    final limitationIndex = _SourceLimitations(limitations);
+    final limitationIndex = _SourceLimitations(limitations, packageLimitations);
     List<String> limitsFor(String source) => sourceLimitations.putIfAbsent(
       source,
       () => limitationIndex.forSource(source),
@@ -957,11 +976,35 @@ bool _isTestRoot(RetentionReason reason, String? source) =>
 ///
 /// limitation 목록을 한 번만 분류해 둔다. source마다 전체 목록을 다시 훑으면
 /// source 수 × limitation 수가 되고, `source-*` 한계는 파일 수에 비례해 결국
-/// 파일 수의 제곱이 된다.
+/// 파일 수의 제곱이 된다. 패키지 한계(`public-libraries:`처럼 패키지에 매인
+/// 문장)는 source가 속한 패키지의 목록에 든 것만 붙인다. 전역으로 두면
+/// `--workspace`에서 모든 finding이 모든 멤버의 문장을 실어 출력이 멤버 수 ×
+/// finding 수로 커진다.
 final class _SourceLimitations {
-  /// [limitations]를 전역 한계와 마지막 `': '` 뒤 꼬리별 소스 한계로 나눈다.
-  _SourceLimitations(List<String> limitations) {
+  /// [limitations]를 전역 한계, 마지막 `': '` 뒤 꼬리별 소스 한계, [packages]에
+  /// 든 패키지 한계로 나눈다. 패키지 한계는 [limitations]에 있는 문장만 쓴다.
+  _SourceLimitations(
+    List<String> limitations,
+    Map<String, List<String>> packages,
+  ) {
+    final listed = limitations.toSet();
+    final scoped = <String>{};
+    for (final MapEntry(key: path, value: lines) in packages.entries) {
+      // 문장이 없는 멤버도 접두를 둔다. 그 멤버의 finding이 스캔 루트 패키지의
+      // 문장을 받지 않게 한다.
+      if (path.isNotEmpty) _memberPrefixes.add('project:$path/');
+      final present = [
+        for (final line in lines)
+          if (listed.contains(line)) line,
+      ];
+      if (present.isEmpty) continue;
+      _byPackage[path] = present;
+      scoped.addAll(present);
+    }
+    // 긴 접두 먼저 — 중첩 멤버(pkgs/a 안의 pkgs/a/sub)의 source는 안쪽 멤버다.
+    _memberPrefixes.sort((a, b) => b.length.compareTo(a.length));
     for (final item in limitations) {
+      if (scoped.contains(item)) continue;
       if (!item.startsWith('source-')) {
         _global.add(item);
         continue;
@@ -973,25 +1016,38 @@ final class _SourceLimitations {
     }
   }
 
-  /// `source-`로 시작하지 않아 모든 finding에 붙는 한계다.
+  /// `source-`로 시작하지 않고 패키지 한계도 아니어서 모든 finding에 붙는 한계다.
   final _global = <String>[];
 
   /// 소스 한계를 마지막 `': '` 뒤 꼬리로 묶은 후보다.
   final _byTail = <String, List<String>>{};
+
+  /// 패키지 경로('' = 스캔 루트 패키지) → 그 패키지 한계다.
+  final _byPackage = <String, List<String>>{};
+
+  /// [packages]에 든 멤버의 source 접두(`project:pkgs/a/`)다. 긴 것 먼저다.
+  final _memberPrefixes = <String>[];
 
   /// [source]에 붙는 한계를 중복 없이 정렬해 돌려준다.
   ///
   /// `item.endsWith(': $source')`이면 item의 마지막 `': '` 뒤 꼬리는 [source]의
   /// 마지막 `': '` 뒤 꼬리(없으면 [source] 전체)와 같다. 그래서 그 꼬리의 후보만
   /// 같은 술어로 거른다. source에 `': '`가 없는 보통 경로는 후보가 모두 맞는다.
+  /// 패키지 한계는 [source]가 든 가장 안쪽 멤버의 목록이고, 어느 멤버에도 들지
+  /// 않는 source(`project:`가 아닌 source 포함)는 스캔 루트 패키지('')의 목록이다.
   List<String> forSource(String source) {
     final separator = source.lastIndexOf(': ');
     final tail = separator < 0 ? source : source.substring(separator + 2);
     final suffix = ': $source';
+    final member = _memberPrefixes.where(source.startsWith).firstOrNull;
+    final package = member == null
+        ? ''
+        : member.substring('project:'.length, member.length - 1);
     return {
       ..._global,
       for (final item in _byTail[tail] ?? const <String>[])
         if (item.endsWith(suffix)) item,
+      ...?_byPackage[package],
     }.toList()..sort();
   }
 }
@@ -1010,6 +1066,12 @@ bool _isLibraryId(String id) =>
 bool _isLibraryRoot(String id, Map<String, RetentionReason> roots) =>
     _isLibraryId(id) && roots.containsKey(id);
 
+/// sourceUri가 없는 라이브러리 정점 [id]의 소스 경로다(`project:` 접두).
+///
+/// `package:<name>/<path>`는 스캔 루트 패키지의 `lib/<path>`로 본다. 색인은
+/// 라이브러리 파일이 스캔 루트 안에 있으면 정점에 sourceUri를 싣는다(워크스페이스
+/// 멤버의 `pkgs/a/lib/x.dart`도 그 경로다). 이 함수는 sourceUri가 없는 정점(손으로
+/// 만든 그래프 등)의 대체 경로다.
 String _librarySource(String id) {
   final uri = Uri.parse(id);
   // package:<name>/<path>는 패키지명 세그먼트를 건너뛰고 lib/ 아래로 매핑하지만,

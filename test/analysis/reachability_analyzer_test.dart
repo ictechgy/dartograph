@@ -629,6 +629,130 @@ void main() {
     );
   });
 
+  test('a file finding names the library file the index recorded', () {
+    // `--workspace` 멤버(또는 source_packages)의 라이브러리는 package: ID가 루트
+    // lib/ 아래가 아니다. 색인이 라이브러리 정점에 실은 실제 경로를 써야 한다.
+    // ID에서 만들면 둘 다 루트의 `lib/orphan.dart`를 짚어, 멤버 파일 finding이
+    // 루트 파일의 위치·source 한계를 받았다.
+    final graph = CodeGraph()
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart::main',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/main.dart',
+          sourceUri: 'project:lib/main.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:app/orphan.dart',
+          sourceUri: 'project:lib/orphan.dart',
+        ),
+      )
+      ..addNode(
+        GraphNode(
+          id: 'package:member/orphan.dart',
+          sourceUri: 'project:pkgs/member/lib/orphan.dart',
+        ),
+      );
+
+    final result = ReachabilityAnalyzer().analyze(
+      graph.snapshot(),
+      roots: const {
+        'package:app/main.dart::main': RetentionReason.mainEntryPoint,
+      },
+      limitations: const [
+        'source-analysis-errors: project:lib/orphan.dart',
+        'source-analysis-errors: project:pkgs/member/lib/orphan.dart',
+      ],
+    );
+
+    final files = {for (final finding in result.deadFiles) finding.id: finding};
+    expect(files.keys, [
+      'package:app/orphan.dart',
+      'package:member/orphan.dart',
+    ]);
+    expect(files['package:app/orphan.dart']!.source, 'project:lib/orphan.dart');
+    expect(files['package:app/orphan.dart']!.limitations, [
+      'source-analysis-errors: project:lib/orphan.dart',
+    ]);
+    expect(
+      files['package:member/orphan.dart']!.source,
+      'project:pkgs/member/lib/orphan.dart',
+    );
+    expect(files['package:member/orphan.dart']!.limitations, [
+      'source-analysis-errors: project:pkgs/member/lib/orphan.dart',
+    ]);
+  });
+
+  test('package limitations attach only to findings of their package', () {
+    // `public-libraries:` 같은 패키지 한계는 source가 든 패키지의 목록에 든 것만
+    // 붙는다. 전역으로 두면 --workspace의 모든 finding이 모든 멤버의 문장을 실었다.
+    // source는 가장 안쪽 멤버에 속하고(pkgs/a 안의 pkgs/a/sub), 어느 멤버에도
+    // 들지 않거나 project:가 아니면 스캔 루트 패키지('')의 것이다. 분석기는 받은
+    // 목록만 쓴다: 키가 있는 멤버(apps/app)는 ''의 목록을 물려받지 않는다(어느 줄을
+    // 어느 목록에 둘지는 색인이 정한다).
+    const rootLine = 'public-libraries: lib/extra.dart is a public library';
+    const memberLine =
+        'public-libraries: pkgs/a/lib/t.dart is a public library';
+    const subLine =
+        'public-libraries: pkgs/a/sub/lib/t.dart is a public library';
+    const unlisted =
+        'public-libraries: pkgs/b/lib/t.dart is not in limitations';
+    const global = 'workspace-members-indexed: pkgs/a were analyzed';
+    final graph = CodeGraph();
+    for (final (id, source) in [
+      ('package:ws/extra.dart::RootExtra', 'project:lib/extra.dart'),
+      ('project:test/helper.dart::helper', 'project:test/helper.dart'),
+      ('package:a/t.dart::FakeA', 'project:pkgs/a/lib/t.dart'),
+      ('package:a/x.dart::X', 'project:pkgs/a-b/lib/x.dart'),
+      ('package:sub/t.dart::FakeSub', 'project:pkgs/a/sub/lib/t.dart'),
+      ('package:app/e.dart::AppExtra', 'project:apps/app/lib/e.dart'),
+      ('package:b/t.dart::FakeB', 'project:pkgs/b/lib/t.dart'),
+    ]) {
+      graph.addNode(GraphNode(id: id, sourceUri: source));
+    }
+    graph.addNode(GraphNode(id: 'package:out/o.dart::Outside'));
+
+    final result =
+        ReachabilityAnalyzer(
+          packageLimitations: const {
+            '': [rootLine],
+            'pkgs/a': [memberLine],
+            'pkgs/a/sub': [subLine],
+            'apps/app': [],
+            'pkgs/b': [unlisted],
+          },
+        ).analyze(
+          graph.snapshot(),
+          roots: const {},
+          limitations: const [global, memberLine, rootLine, subLine],
+        );
+
+    expect(
+      {
+        for (final finding in result.deadDeclarations)
+          finding.id: finding.limitations,
+      },
+      {
+        'package:ws/extra.dart::RootExtra': [rootLine, global],
+        'project:test/helper.dart::helper': [rootLine, global],
+        'package:a/t.dart::FakeA': [memberLine, global],
+        // pkgs/a-b는 pkgs/a 멤버가 아니다(접두는 `pkgs/a/`까지 맞춘다).
+        'package:a/x.dart::X': [rootLine, global],
+        'package:sub/t.dart::FakeSub': [subLine, global],
+        'package:app/e.dart::AppExtra': [global],
+        // limitations에 없는 문장은 붙이지 않는다(finding 한계는 전체 목록의 부분집합).
+        'package:b/t.dart::FakeB': [global],
+        'package:out/o.dart::Outside': [rootLine, global],
+      },
+    );
+  });
+
   test('test-only reachability reports production code only tests reach', () {
     final graph = CodeGraph()
       // 프로덕션: main이 도달, 테스트만 도달, 어디서도 도달 못 함, @visibleForTesting.
