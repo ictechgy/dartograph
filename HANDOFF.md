@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding 경로, 멤버별 `public-libraries:` 한계, rules 진단 길이)_
+_Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding 경로, 멤버별 `public-libraries:` 한계, rules 진단 길이, PR #166 독립 리뷰 반영)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
 [HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(PR #165 시점 원문은 그 파일 끝 절).
@@ -14,7 +14,8 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
 - 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `acda403`에서 다시 시작했다(이전 PR은 스쿼시 머지).
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
   - 수정 커밋 셋(`d9d3f9a` 파일 finding 경로, `a869625` 멤버별 `public-libraries:`, `c0c5792` rules
-    진단 길이)과 이 HANDOFF 커밋이다.
+    진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영 커밋
+    하나(아래 "PR #166 독립 리뷰 반영")를 이력 재작성 없이 더했다.
 
 ## 이번 브랜치의 변경
 
@@ -51,7 +52,8 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   workspace에서는 아예 나오지 않았다. 이전 HANDOFF의 "PR #165 리뷰 nit 3"이다.
 - 수정: `_publicLibrariesLimitations`가 루트와 멤버마다 그 pubspec(`publish_to: none`이면 건너뜀)과
   대표 라이브러리(`<member>/lib/<name>.dart`)로 센다. 최상위 `lib/*.dart`는 앞 경로로 한 번에 묶어
-  패키지마다 다시 훑지 않는다. 줄은 패키지당 하나, 루트 다음 멤버 경로순, 경로는 루트 기준이다.
+  패키지마다 다시 훑지 않는다. 줄은 패키지당 하나이고 경로는 루트 기준이다(명령 출력은 다른 한계와
+  함께 정렬한다).
   루트 문구는 그대로다. 캐시 신원 v36.
 - 테스트: `public_libraries_test`의 `--workspace` 그룹 2개(루트 `publish_to: none`, 게시 가능한 루트가
   먼저). 멤버를 넘기지 않게 되돌리면 둘 다 실패한다.
@@ -97,8 +99,46 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   (`project:lib/algorithms.dart` → `project:pkgs/collection/lib/algorithms.dart` 등, 수정 1)과 새
   `public-libraries:` 줄 여섯(`args`·`cli_util`·`glob`·`http`·`matcher`·`shelf`, 수정 2)뿐이다. 멤버
   30개를 각각 단독으로 분석한 `public-libraries:` 줄에 멤버 경로를 붙이면 workspace의 여섯 줄과 정확히
-  같다. `collection`의 다섯 파일은 자기 선언이 없어 세지 않는다(아래 "남긴 것"의 export 전용 최상위
+  같다. 이 코퍼스의 멤버에는 자기 `dartograph.yaml`이 없어서다. `--workspace`는 멤버 설정을 읽지
+  않으므로(`workspace-member-config-ignored:`) 자기 `retained_files`를 둔 멤버는 다를 수 있다.
+  리뷰 반영 뒤에는 finding 16개가 자기 멤버의 줄 하나씩을 더 싣고, 다른 패키지의 줄은 싣지 않는다.
+  `collection`의 다섯 파일은 자기 선언이 없어 세지 않는다(아래 "남긴 것"의 export 전용 최상위
   라이브러리).
+
+## PR #166 독립 리뷰 반영
+
+리뷰는 차단 0·should-fix 1·nit 2를 냈다(세 수정이 모든 형식·필터·`--since`·CODEOWNERS·SARIF 인코딩·
+캐시·rune 자르기에서 동작함을 확인). 리뷰어의 fixture는 지워져 설명대로 다시 만들었다(`w1`: 멤버 13,
+게시 가능 10, finding 36). `087f516`·수정본 네이티브 바이너리로 비교했다.
+
+### S1: 모든 finding이 모든 멤버의 `public-libraries:` 줄을 실었다
+
+- 원인: `_SourceLimitations`가 `source-`로 시작하지 않는 줄을 모두 전역으로 봤다. 그래서 finding마다
+  게시 가능한 멤버 수만큼 줄이 붙었고(`w1` text 360줄), `publish_to: none` 멤버의 finding도 실었다.
+- 수정: 색인 결과에 `packageLimitationDetails`(분석한 패키지 경로 → 그 패키지에만 해당하는 문장, 루트는
+  '', 문장이 없으면 빈 목록)를 더하고, dead의 `ReachabilityAnalyzer(packageLimitations: …)`가 그 문장을
+  source가 든 가장 안쪽 멤버의 finding에만 붙인다. 어느 멤버에도 들지 않는 source(`project:`가 아닌
+  것 포함)는 루트 패키지 것이다. 문장이 없는 멤버의 finding은 루트 문장을 받지 않는다. 문장 텍스트를
+  파싱하지 않는다. 맨 위 `limitations`, `dead --explain`·`query` 문서는 전처럼 전체 목록이다.
+  단일 패키지는 키가 ''뿐이라 출력이 같다(코퍼스 확인). 결과 필드가 늘어 캐시 형식 버전 v9.
+- 전후(`w1`, `087f516` → 수정본, 바이트): text 134,839 → 38,941, json 134,362 → 43,084, sarif 140,695 →
+  49,417, github-actions 130,246 → 39,628(가장 긴 줄 3,539 → 1,082), markdown 142,291 → 40,243,
+  codeowners 120,225 → 23,667. finding별 `limitation: public-libraries:` 줄 360 → 30(게시 가능한 멤버
+  10개 × 자기 finding 3개). `query --workspace`는 4,259 → 4,259다. query 문서의 `limitations`는 실행
+  전체 목록이라(모든 파일의 `source-*` 줄도 싣는다) 맨 위 목록 규칙대로 그대로 두었다. 줄 수는 게시
+  가능한 패키지 수로 한 번만 늘어난다.
+- 테스트: `reachability_analyzer_test` 1개(합성 그래프: 루트·멤버·중첩 멤버·`pkgs/a-b`처럼 접두만 같은
+  경로·문장 없는 멤버·`project:`가 아닌 source·`limitations`에 없는 문장), `member_file_findings_cli_test`
+  1개(실제 analyzer: 게시 가능한 루트·멤버·`publish_to: none` 멤버의 finding별 줄). CLI 테스트는
+  `087f516` 코드에서 실패하고(단위 테스트는 새 생성자 인자가 없어 컴파일되지 않는다), 변형 둘(전역
+  분류로 되돌림, 문장 있는 멤버만 접두로 둠)이 각각 실패시킨다.
+
+### N1·N2: 문서의 순서·동일성 주장
+
+- N1: CLI가 limitations를 정렬하므로 "루트가 먼저"는 출력에서 거짓이었다. CHANGELOG(.ko)·HANDOFF를
+  "다른 한계와 함께 정렬"로 고쳤다. 색인 단계 순서를 고정한 테스트 이름도 순서 주장을 뺐다.
+- N2: "각 줄이 멤버 단독 분석과 같다"는 이 코퍼스(멤버 `dartograph.yaml` 없음)에서만 참이다. 멤버 설정을
+  읽지 않아 다를 수 있다는 조건을 CHANGELOG(.ko)·HANDOFF·PR 초안에 적었다.
 
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
@@ -137,6 +177,20 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   파일 finding 1개(`test/index/fixture/lib/platform.dart`, 이전과 같음), `rules --strict --config
   tool/module_layers.yaml` 위반 0, `cycles --level file`은 cli 모듈 안(`dartograph_cli` ↔ `mcp_server`)
   하나뿐이다.
+- PR #166 리뷰 반영(`9678821`) 뒤 다시 돌린 것(부하 평균 5~14):
+  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
+    1,240 통과·22 건너뜀·시간 초과 2(`dup_cli_test`·`build_config_cache_test`의 한 개씩, 둘 다
+    `TimeoutException`). 두 파일을 `-j 1` 기본 제한으로 다시 돌려 9/9 통과. 이 단계만의 제품 라인
+    커버리지 12,638/13,462(93.88%). CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
+    `global_activation`은 설치 경로가 바뀌지 않아 다시 돌리지 않았다(위 `087f516` 이전 실행이 통과).
+  - 3.11.0 worktree(`9678821`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 139개(위 목록에
+    `incremental_cache`·`incremental_analysis` 추가, `-j 1 --timeout=4x`) 통과.
+  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
+    30개 멤버 workspace는 위 "코퍼스 델타"와 같다(맨 위 줄 여섯 추가·삭제 0, 파일 경로 다섯, finding 16개가
+    자기 멤버 줄을 더 실음). 출력은 `087f516` 133,943바이트 → 92,043바이트(`origin/main` 85,155).
+  - 자기 분석은 `origin/main`과 바이트 단위로 같다. 캐시 적중·`--incremental` 두 번(파일 변경 포함)이
+    전체 분석과 같고, `087f516`이 쓴 v8 캐시 항목은 형식 버전이 달라 다시 분석된다.
+  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
 
 ## 검증 메모
 
@@ -165,6 +219,12 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
 - 다음 릴리스(0.18.0 후보)는 CONTRIBUTING 절차를 따른다. 게시 전에 이슈 #160에 수정 버전을
   안내할지 사용자에게 확인한다.
 - 이번에 보고 남긴 것:
+  - (PR #166 리뷰가 찾은 기존 동작, `origin/main`과 같다) `lib/dead%20enc.dart`처럼 이름에 유효한
+    퍼센트 이스케이프가 든 파일은 그래프에 아예 없고 finding도 한계도 없다.
+  - (같음) 중첩 pub workspace 멤버(`pkgs/nest`가 `workspace: [sub]`를 선언)는 `--workspace`에서 분석되지
+    않고 어떤 한계도 알리지 않는다.
+  - (같음) `--workspace` 없이 `source_packages: [pkgs/sp]`면 색인한 `pkgs/sp`도
+    `workspace-members-not-indexed: … pkgs/sp`로 보고된다.
   - 대표 라이브러리가 아닌 export 전용 최상위 라이브러리(예: `collection`의 `lib/algorithms.dart`)는
     게시 패키지에서도 dead 파일로 보고되고, 자기 선언이 없어 `public-libraries:`에도 세지지 않는다.
     사용자 결정이 필요한 항목이다(대표 라이브러리 밖 공개 라이브러리 보존을 넓히지 않기로 한 기존
