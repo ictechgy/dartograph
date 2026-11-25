@@ -132,57 +132,100 @@ resolution: workspace
     });
 
     test(
-      'a public-libraries line rides only on its own package findings',
+      'a public-libraries line reaches the findings it can explain',
       () async {
-        // 게시할 수 있는 루트와 멤버 pkgs/b, 게시하지 않는 멤버 apps/zeta다. 줄은 맨 위
-        // limitations에 모두 남고, finding에는 자기 패키지의 줄만 붙는다. 수정 전에는
-        // 모든 finding이 모든 패키지의 줄을 실었다(멤버 수 × finding 수로 커졌다).
+        // 루트 lib/testing.dart가 멤버 a의 src/ 함수를, 멤버 b의 testing.dart가 의존
+        // 패키지 c의 src/ 함수를, 멤버 d의 testing.dart가 선언하지 않은 형제 e의 src/
+        // 함수를 쓴다. 그 함수들은 그 공개 라이브러리 때문에 보고되므로 그 줄이 붙어야
+        // 한다. 줄은 그 패키지와 그 패키지가 닿는 workspace 패키지(선언한 의존과 실제
+        // import)의 finding에 붙고, 스캔 루트의 줄은 모든 finding에 붙는다
+        // (origin/main과 같다). 관계없는 멤버 z와 게시하지 않는 멤버 zeta에는 루트
+        // 줄만 붙는다. cf4f9ae는 자기 패키지의 줄만 붙여 원인 줄을 잃었다.
         await write('pubspec.yaml', '''
 name: ws_root
 environment:
   sdk: ^3.8.0
+dependencies:
+  a:
 workspace:
   - apps/zeta
+  - pkgs/a
   - pkgs/b
+  - pkgs/c
+  - pkgs/d
+  - pkgs/e
+  - pkgs/z
 ''');
         await write('lib/ws_root.dart', 'class Root {}\n');
-        await write('lib/extra.dart', 'class RootExtra {}\n');
-        await write('pkgs/b/pubspec.yaml', '''
-name: b
-environment:
-  sdk: ^3.8.0
-resolution: workspace
-''');
-        await write('pkgs/b/lib/b.dart', 'class B {}\n');
-        await write('pkgs/b/lib/testing.dart', 'class FakeB {}\n');
-        await write('apps/zeta/pubspec.yaml', '''
-name: zeta
-publish_to: none
-environment:
-  sdk: ^3.8.0
-resolution: workspace
-''');
-        await write('apps/zeta/lib/extra.dart', 'class ZetaExtra {}\n');
+        await write(
+          'lib/testing.dart',
+          "import 'package:a/src/impl.dart';\n\n"
+              'class FakeRoot { void run() => implHelper(); }\n',
+        );
+        Future<void> member(
+          String path,
+          String name,
+          Map<String, String> libraries, {
+          String extra = '',
+        }) async {
+          await write(
+            '$path/pubspec.yaml',
+            'name: $name\n${extra}environment:\n  sdk: ^3.8.0\n'
+                'resolution: workspace\n',
+          );
+          for (final MapEntry(:key, :value) in libraries.entries) {
+            await write('$path/lib/$key', value);
+          }
+        }
+
+        await member('pkgs/a', 'a', {
+          'a.dart': 'class A {}\n',
+          'extra.dart': 'class AExtra {}\n',
+          'src/impl.dart': 'void implHelper() {}\n',
+        });
+        await member('pkgs/b', 'b', {
+          'b.dart': 'class B {}\n',
+          'testing.dart':
+              "import 'package:c/src/cimpl.dart';\n\n"
+              'class FakeB { void run() => cHelper(); }\n',
+        }, extra: 'dependencies:\n  c:\n');
+        await member('pkgs/c', 'c', {
+          'c.dart': 'class C {}\n',
+          'src/cimpl.dart': 'void cHelper() {}\n',
+        });
+        // d는 e를 pubspec에 선언하지 않고 import한다(workspace에서는 해석된다).
+        await member('pkgs/d', 'd', {
+          'd.dart': 'class D {}\n',
+          'testing.dart':
+              "import 'package:e/src/eimpl.dart';\n\n"
+              'class FakeD { void run() => eHelper(); }\n',
+        });
+        await member('pkgs/e', 'e', {
+          'e.dart': 'class E {}\n',
+          'src/eimpl.dart': 'void eHelper() {}\n',
+        });
+        await member('pkgs/z', 'z', {
+          'z.dart': 'class Z {}\n',
+          'src/orphan.dart': 'void zOrphan() {}\n',
+        });
+        await member('apps/zeta', 'zeta', {
+          'extra.dart': 'class ZetaExtra {}\n',
+        }, extra: 'publish_to: none\n');
         await pubGet();
 
         final result = await run(['dead', '--workspace', '--format', 'json']);
         expect(result.error, isEmpty);
         final document = jsonDecode(result.output) as Map<String, Object?>;
-        const rootLine =
-            'public-libraries: lib/extra.dart is a public library outside '
-            'lib/ws_root.dart; its declarations are not retained as public API, '
-            'so ones used only by package consumers are reported as unreachable '
-            '(export it from lib/ws_root.dart or retain it with retained_files)';
-        const memberLine =
-            'public-libraries: pkgs/b/lib/testing.dart is a public library '
-            'outside pkgs/b/lib/b.dart; its declarations are not retained as '
-            'public API, so ones used only by package consumers are reported as '
-            'unreachable (export it from pkgs/b/lib/b.dart or retain it with '
-            'retained_files)';
-        expect(
-          document['limitations'],
-          containsAll(<String>[rootLine, memberLine]),
-        );
+        String line(String library, String entry) =>
+            'public-libraries: $library is a public library outside $entry; '
+            'its declarations are not retained as public API, so ones used '
+            'only by package consumers are reported as unreachable (export it '
+            'from $entry or retain it with retained_files)';
+        final root = line('lib/testing.dart', 'lib/ws_root.dart');
+        final a = line('pkgs/a/lib/extra.dart', 'pkgs/a/lib/a.dart');
+        final b = line('pkgs/b/lib/testing.dart', 'pkgs/b/lib/b.dart');
+        final d = line('pkgs/d/lib/testing.dart', 'pkgs/d/lib/d.dart');
+        expect(document['limitations'], containsAll(<String>[root, a, b, d]));
         final findings = (document['findings']! as List<Object?>)
             .cast<Map<String, Object?>>();
         expect(
@@ -194,13 +237,30 @@ resolution: workspace
               ],
           },
           {
-            'declaration package:ws_root/extra.dart::RootExtra': [rootLine],
-            'file package:ws_root/extra.dart': [rootLine],
-            'declaration package:b/testing.dart::FakeB': [memberLine],
-            'file package:b/testing.dart': [memberLine],
-            // 게시하지 않는 멤버는 자기 줄이 없고 루트 줄도 받지 않는다.
-            'declaration package:zeta/extra.dart::ZetaExtra': <String>[],
-            'file package:zeta/extra.dart': <String>[],
+            'declaration package:ws_root/testing.dart::FakeRoot': [root],
+            'declaration package:ws_root/testing.dart::FakeRoot.run': [root],
+            'file package:ws_root/testing.dart': [root],
+            // 루트 testing.dart만 쓰는 a의 함수: 원인인 루트 줄과 a 자신의 줄.
+            'declaration package:a/src/impl.dart::implHelper': [root, a],
+            'file package:a/src/impl.dart': [root, a],
+            'declaration package:a/extra.dart::AExtra': [root, a],
+            'file package:a/extra.dart': [root, a],
+            'declaration package:b/testing.dart::FakeB': [root, b],
+            'declaration package:b/testing.dart::FakeB.run': [root, b],
+            'file package:b/testing.dart': [root, b],
+            // b가 선언한 의존 c의 함수.
+            'declaration package:c/src/cimpl.dart::cHelper': [root, b],
+            'file package:c/src/cimpl.dart': [root, b],
+            'declaration package:d/testing.dart::FakeD': [root, d],
+            'declaration package:d/testing.dart::FakeD.run': [root, d],
+            'file package:d/testing.dart': [root, d],
+            // d가 선언 없이 import한 e의 함수.
+            'declaration package:e/src/eimpl.dart::eHelper': [root, d],
+            'file package:e/src/eimpl.dart': [root, d],
+            'declaration package:z/src/orphan.dart::zOrphan': [root],
+            'file package:z/src/orphan.dart': [root],
+            'declaration package:zeta/extra.dart::ZetaExtra': [root],
+            'file package:zeta/extra.dart': [root],
           },
         );
       },

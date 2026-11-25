@@ -432,15 +432,18 @@ final class ReachabilityResult {
 /// `EdgeKind.impliesUsage`만으로 전역 도달성을 계산한다.
 final class ReachabilityAnalyzer {
   /// [packageLimitations]는 분석한 패키지마다(스캔 루트 기준 경로, 스캔 루트
-  /// 패키지는 '', `--workspace` 멤버는 `pkgs/a`) 그 패키지에만 해당하는 limitation
-  /// 문장을 담는다(없으면 빈 목록). 그 문장은 source가 그 패키지에 든 finding에만
-  /// 붙는다. source가 어느 멤버에도 들지 않으면 스캔 루트 패키지의 것이다.
+  /// 패키지는 '', `--workspace` 멤버는 `pkgs/a`) source가 그 패키지에 든 finding에
+  /// 붙일 패키지 한계 문장을 담는다(없으면 빈 목록). 어느 패키지에 어떤 문장을
+  /// 둘지는 만든 쪽(색인)이 정한다. source가 어느 멤버에도 들지 않으면 스캔 루트
+  /// 패키지('')의 목록을 쓴다. 키가 있는 멤버는 그 목록만 쓰고 ''의 목록을 물려받지
+  /// 않는다.
   const ReachabilityAnalyzer({this.packageLimitations = const {}});
 
-  /// 패키지 경로 → 그 패키지에만 해당하는 limitation 문장이다.
+  /// 패키지 경로 → 그 패키지의 finding에 붙일 패키지 한계 문장이다.
   ///
   /// 문장은 분석 메서드가 받는 `limitations`에도 있어야 finding에 붙는다(finding의
-  /// 한계는 전체 목록의 부분집합이다). 여기 없는 문장은 이전처럼 전역 한계다.
+  /// 한계는 전체 목록의 부분집합이다). 어느 목록에도 없는 문장은 이전처럼 전역
+  /// 한계다.
   final Map<String, List<String>> packageLimitations;
 
   /// 보존 [roots]에서 그래프를 순회해 선언과 파일 발견을 만든다.
@@ -973,10 +976,10 @@ bool _isTestRoot(RetentionReason reason, String? source) =>
 ///
 /// limitation 목록을 한 번만 분류해 둔다. source마다 전체 목록을 다시 훑으면
 /// source 수 × limitation 수가 되고, `source-*` 한계는 파일 수에 비례해 결국
-/// 파일 수의 제곱이 된다. 패키지 한계(`public-libraries:`처럼 한 패키지에만
-/// 해당하는 문장)는 source가 속한 패키지의 finding에만 붙인다. 전역으로 두면
+/// 파일 수의 제곱이 된다. 패키지 한계(`public-libraries:`처럼 패키지에 매인
+/// 문장)는 source가 속한 패키지의 목록에 든 것만 붙인다. 전역으로 두면
 /// `--workspace`에서 모든 finding이 모든 멤버의 문장을 실어 출력이 멤버 수 ×
-/// finding 수로 커지고, 멤버 finding이 그 멤버의 단독 분석과 달라진다.
+/// finding 수로 커진다.
 final class _SourceLimitations {
   /// [limitations]를 전역 한계, 마지막 `': '` 뒤 꼬리별 소스 한계, [packages]에
   /// 든 패키지 한계로 나눈다. 패키지 한계는 [limitations]에 있는 문장만 쓴다.
@@ -1030,8 +1033,8 @@ final class _SourceLimitations {
   /// `item.endsWith(': $source')`이면 item의 마지막 `': '` 뒤 꼬리는 [source]의
   /// 마지막 `': '` 뒤 꼬리(없으면 [source] 전체)와 같다. 그래서 그 꼬리의 후보만
   /// 같은 술어로 거른다. source에 `': '`가 없는 보통 경로는 후보가 모두 맞는다.
-  /// 패키지 한계는 [source]가 든 가장 안쪽 멤버의 것이고, 어느 멤버에도 들지 않는
-  /// source(`project:`가 아닌 source 포함)는 스캔 루트 패키지의 것이다.
+  /// 패키지 한계는 [source]가 든 가장 안쪽 멤버의 목록이고, 어느 멤버에도 들지
+  /// 않는 source(`project:`가 아닌 source 포함)는 스캔 루트 패키지('')의 목록이다.
   List<String> forSource(String source) {
     final separator = source.lastIndexOf(': ');
     final tail = separator < 0 ? source : source.substring(separator + 2);

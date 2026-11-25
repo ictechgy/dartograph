@@ -690,11 +690,12 @@ void main() {
   });
 
   test('package limitations attach only to findings of their package', () {
-    // `public-libraries:` 같은 패키지 한계는 그 패키지의 finding에만 붙는다.
-    // 전역으로 두면 --workspace의 모든 finding이 모든 멤버의 문장을 실었다.
+    // `public-libraries:` 같은 패키지 한계는 source가 든 패키지의 목록에 든 것만
+    // 붙는다. 전역으로 두면 --workspace의 모든 finding이 모든 멤버의 문장을 실었다.
     // source는 가장 안쪽 멤버에 속하고(pkgs/a 안의 pkgs/a/sub), 어느 멤버에도
-    // 들지 않거나 project:가 아니면 스캔 루트 패키지('')의 것이다. 문장이 없는
-    // 멤버(apps/app)의 finding은 루트 문장을 받지 않는다.
+    // 들지 않거나 project:가 아니면 스캔 루트 패키지('')의 것이다. 분석기는 받은
+    // 목록만 쓴다: 키가 있는 멤버(apps/app)는 ''의 목록을 물려받지 않는다(어느 줄을
+    // 어느 목록에 둘지는 색인이 정한다).
     const rootLine = 'public-libraries: lib/extra.dart is a public library';
     const memberLine =
         'public-libraries: pkgs/a/lib/t.dart is a public library';

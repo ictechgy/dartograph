@@ -148,12 +148,17 @@ final class AnalyzerGraphResult {
   /// 목록이다(경로 정렬). 집계하지 않은 분석에서는 비어 있다.
   final List<WorkspacePackage> workspacePackages;
 
-  /// 한 패키지에만 해당하는 [limitationDetails] 문장을 분석한 패키지마다 담는다.
+  /// 패키지에 매인 [limitationDetails] 문장(`public-libraries:`)을 dead finding에
+  /// 붙일 범위다.
   ///
   /// 키는 스캔 루트 기준 패키지 경로(스캔 루트 패키지는 '', `--workspace` 멤버는
-  /// `pkgs/a`)이고 분석한 패키지가 모두 있다(문장이 없으면 빈 목록). 지금은
-  /// `public-libraries:` 문장이다. dead finding은 자기 source가 든 패키지의 문장만
-  /// 싣는다. 전체 문장은 [limitationDetails]에도 그대로 있다.
+  /// `pkgs/a`)이고 분석한 패키지가 모두 있다. 값은 source가 그 패키지에 든 finding에
+  /// 붙일 문장이다(없으면 빈 목록). 한 멤버의 문장은 그 멤버와, 그 멤버가 닿는
+  /// workspace 패키지(선언한 dependencies·dev_dependencies 또는 실제 `package:`
+  /// import·export를 따라 전이적으로)의 목록에 든다. 그 멤버의 공개 라이브러리가
+  /// 쓰는 코드는 그 패키지들에 있을 수 있어서다. 스캔 루트 패키지의 문장은 모든
+  /// 목록에 든다(`origin/main`처럼 모든 finding에 붙는다). 전체 문장은
+  /// [limitationDetails]에도 그대로 있다.
   final Map<String, List<String>> packageLimitationDetails;
 
   /// [limitationDetails] 끝에 [detail] 하나만 더하고 나머지 필드는 그대로 둔
@@ -1742,16 +1747,22 @@ AnalyzerGraphResult _assembleResult({
   // 모든 보존 루트(build.yaml builder·설정 보존 포함)가 정해진 뒤에 센다. 그 전에
   // 세면 이 한계가 권하는 retained_files를 따른 파일과 builder factory만 있는
   // lib/builder.dart도 '미도달로 보고된다'고 알렸다.
-  final packageLimitationDetails = _publicLibrariesLimitations(
+  final publicLibraries = _publicLibrariesLimitations(
     pubspecContent,
     workspace?.members ?? const [],
     sources,
     facts,
     retentionRoots,
   );
-  for (final lines in packageLimitationDetails.values) {
+  for (final lines in publicLibraries.values) {
     limitationDetails.addAll(lines);
   }
+  final packageLimitationDetails = _packageLimitationScopes(
+    publicLibraries,
+    manifest,
+    workspace?.members ?? const [],
+    packageImports,
+  );
   if (scope.unknownKeys.isNotEmpty) {
     limitationDetails.add(
       'config-unknown-keys: dartograph.yaml has unrecognized keys: '
@@ -2495,8 +2506,11 @@ const _cacheSchemaVersion = 9;
 // 파일을 라이브러리로 센다.
 // public-libraries 한계를 `--workspace` 멤버마다 센다(v36). v35 캐시는 루트
 // pubspec만 봐서 게시 가능한 멤버의 최상위 라이브러리를 이 한계에서 뺀다.
+// public-libraries 줄을 붙일 범위(packageLimitationDetails)가 그 패키지가 닿는
+// workspace 패키지까지 넓어지고 스캔 루트의 줄은 모든 패키지에 든다(v37). v36
+// 캐시의 범위는 그 패키지 자신뿐이다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v36-workspace-public-libraries';
+    'dartograph-analysis-$toolVersion-cache-v37-package-limitation-scopes';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3246,6 +3260,98 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
       ],
     );
 
+/// 패키지 자신의 한계 문장 [ownLines](패키지 경로 → 문장)를 붙일 finding의 범위로
+/// 바꾼다([AnalyzerGraphResult.packageLimitationDetails]).
+///
+/// 한 패키지의 `public-libraries:` 줄은 그 패키지의 최상위 라이브러리 선언이
+/// 보존되지 않는다는 뜻이고, 그 선언만 쓰는 코드는 다른 workspace 패키지에도 있을
+/// 수 있다(루트 `lib/testing.dart`가 멤버 `src/`의 함수를 부른다). 그래서 줄을 그
+/// 패키지가 닿는 패키지의 finding에도 붙인다. 간선은 선언한 `dependencies`와
+/// `dev_dependencies`, 그리고 패키지 안 파일의 실제 `package:` import·export
+/// 지시문([packageImports], 해석 실패·조건부 URI 포함)이다. pubspec에 선언하지 않은
+/// workspace 형제 import도 해석되므로 선언만 보면 원인을 놓친다. 지나치게 붙이면
+/// 잡음이지만 덜 붙이면 원인을 숨기므로 넓게 잡는다. `dependency_overrides`는 버전만
+/// 바꾸고 코드 사용이 아니어서 넣지 않는다. 스캔 루트 패키지의 줄은 모든 패키지에
+/// 붙인다(이전처럼 모든 finding에 실린다).
+Map<String, List<String>> _packageLimitationScopes(
+  Map<String, List<String>> ownLines,
+  ({
+    String? name,
+    List<String> dependencies,
+    List<String> devDependencies,
+    List<String> dependencyOverrides,
+  })
+  rootManifest,
+  List<_WorkspaceMember> members,
+  Map<String, List<String>> packageImports,
+) {
+  final packages = [
+    (
+      '',
+      rootManifest.name,
+      [...rootManifest.dependencies, ...rootManifest.devDependencies],
+    ),
+    for (final member in members)
+      (
+        member.relPath,
+        member.name,
+        [...member.dependencies, ...member.devDependencies],
+      ),
+  ];
+  final pathsByName = <String, List<String>>{};
+  for (final (path, name, _) in packages) {
+    if (name != null) (pathsByName[name] ??= []).add(path);
+  }
+  // 긴 접두 먼저 — 중첩 멤버(pkgs/a 안의 pkgs/a/sub)의 파일은 안쪽 멤버 것이다.
+  final memberPaths = [for (final member in members) member.relPath]
+    ..sort((a, b) => b.length.compareTo(a.length));
+  String packageOf(String sourceId) {
+    final path = sourceId.substring('project:'.length);
+    for (final member in memberPaths) {
+      if (path.startsWith('$member/')) return member;
+    }
+    return '';
+  }
+
+  final reaches = <String, Set<String>>{
+    for (final (path, _, declared) in packages)
+      path: {for (final name in declared) ...?pathsByName[name]},
+  };
+  for (final MapEntry(key: name, value: sourceIds) in packageImports.entries) {
+    final targets = pathsByName[name];
+    if (targets == null) continue;
+    for (final sourceId in sourceIds) {
+      reaches[packageOf(sourceId)]!.addAll(targets);
+    }
+  }
+  final scopes = <String, Set<String>>{
+    for (final (path, _, _) in packages) path: <String>{},
+  };
+  for (final (path, _, _) in packages) {
+    final lines = ownLines[path] ?? const <String>[];
+    if (lines.isEmpty) continue;
+    if (path.isEmpty) {
+      for (final scope in scopes.values) {
+        scope.addAll(lines);
+      }
+      continue;
+    }
+    final reached = <String>{path};
+    final queue = [path];
+    while (queue.isNotEmpty) {
+      for (final next in reaches[queue.removeLast()]!) {
+        if (reached.add(next)) queue.add(next);
+      }
+    }
+    for (final target in reached) {
+      scopes[target]!.addAll(lines);
+    }
+  }
+  return {
+    for (final MapEntry(:key, :value) in scopes.entries) key: value.toList(),
+  };
+}
+
 /// 대표 라이브러리 밖 공개 라이브러리를 세는 `public-libraries:` 한계다.
 ///
 /// 공개 API 보존은 `lib/<package-name>.dart`가 export하는 선언만 본다. 게시되는
@@ -3268,8 +3374,8 @@ WorkspacePackage _workspacePackageFromJson(Map<String, Object?> json) =>
 /// 보고됐다.
 ///
 /// 결과는 분석한 패키지마다(스캔 루트 기준 경로, 스캔 루트 패키지는 '') 그
-/// 패키지의 한계 문장 목록이다(알릴 것이 없으면 빈 목록). 한 패키지의 문장은 그
-/// 패키지의 finding에만 붙인다([AnalyzerGraphResult.packageLimitationDetails]).
+/// 패키지 자신의 한계 문장 목록이다(알릴 것이 없으면 빈 목록). 어느 finding에
+/// 붙일지는 [_packageLimitationScopes]가 정한다.
 Map<String, List<String>> _publicLibrariesLimitations(
   String? pubspecContent,
   List<_WorkspaceMember> members,

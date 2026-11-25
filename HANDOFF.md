@@ -15,8 +15,8 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
   - 수정 커밋 셋(`d9d3f9a` 파일 finding 경로, `a869625` 멤버별 `public-libraries:`, `c0c5792` rules
     진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영
-    커밋(`9678821` 수정, `4fdfe46`와 그 뒤 문서 커밋 하나, 아래 "PR #166 독립 리뷰 반영")을 이력 재작성 없이
-    더했다.
+    커밋(`9678821` 수정, `4fdfe46`·`cf4f9ae` 문서, 아래 "PR #166 독립 리뷰 반영")과 재검토 반영 커밋
+    (아래 "재검토 반영")을 이력 재작성 없이 더했다.
 
 ## 이번 브랜치의 변경
 
@@ -56,8 +56,9 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   패키지마다 다시 훑지 않는다. 줄은 패키지당 하나이고 경로는 루트 기준이다(명령 출력은 다른 한계와
   함께 정렬한다).
   루트 문구는 그대로다. 캐시 신원 v36.
-- 테스트: `public_libraries_test`의 `--workspace` 그룹 2개(루트 `publish_to: none`, 게시 가능한 루트가
-  먼저). 멤버를 넘기지 않게 되돌리면 둘 다 실패한다.
+- 테스트: `public_libraries_test`의 `--workspace` 그룹 2개(루트 `publish_to: none`, 게시 가능한 루트와
+  멤버를 함께 셈. 색인 결과의 줄 순서를 고정하지만 명령 출력은 정렬한다). 멤버를 넘기지 않게 되돌리면
+  둘 다 실패한다.
 
 ### 3. rules 설정 진단의 반향 길이
 
@@ -102,7 +103,7 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   30개를 각각 단독으로 분석한 `public-libraries:` 줄에 멤버 경로를 붙이면 workspace의 여섯 줄과 정확히
   같다. 이 코퍼스의 멤버에는 자기 `dartograph.yaml`이 없어서다. `--workspace`는 멤버 설정을 읽지
   않으므로(`workspace-member-config-ignored:`) 자기 `retained_files`를 둔 멤버는 다를 수 있다.
-  리뷰 반영 뒤에는 finding 16개가 자기 멤버의 줄 하나씩을 더 싣고, 다른 패키지의 줄은 싣지 않는다.
+  재검토 반영 뒤에는 finding별 줄이 42개다(멤버 줄이 그 멤버와 그 멤버가 닿는 패키지의 finding에 붙는다).
   `collection`의 다섯 파일은 자기 선언이 없어 세지 않는다(아래 "남긴 것"의 export 전용 최상위
   라이브러리).
 
@@ -122,9 +123,8 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   것 포함)는 루트 패키지 것이다. 문장이 없는 멤버의 finding은 루트 문장을 받지 않는다. 문장 텍스트를
   파싱하지 않는다. 맨 위 `limitations`, `dead --explain`·`query` 문서는 전처럼 전체 목록이다.
   단일 패키지는 키가 ''뿐이라 출력이 같다(코퍼스 확인). 결과 필드가 늘어 캐시 형식 버전 v9.
-  `origin/main`과 다른 점 하나: 게시 가능한 workspace 루트의 줄을 `origin/main`은 멤버 finding에도
-  붙였는데 이제 루트 패키지 finding에만 붙는다(루트 `lib/*.dart`에 관한 줄이고 맨 위에는 남는다,
-  루트 + 게시 가능한 멤버 `pkgs/b` fixture로 확인). 맨 위 `limitations`에서 빠지는 줄은 없다.
+  이 수정은 원인이 다른 패키지에 있는 finding에서 줄을 잃게 했다. 재검토가 찾았고 아래 "재검토 반영"
+  에서 고쳤다(루트 줄은 다시 모든 finding에, 멤버 줄은 의존 폐쇄로).
 - 전후(`w1`, `087f516` → 수정본, 바이트): text 134,839 → 38,941, json 134,362 → 43,084, sarif 140,695 →
   49,417, github-actions 130,246 → 39,628(가장 긴 줄 3,539 → 1,082), markdown 142,291 → 40,243,
   codeowners 120,225 → 23,667. finding별 `limitation: public-libraries:` 줄 360 → 30(게시 가능한 멤버
@@ -136,6 +136,49 @@ _Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding
   1개(실제 analyzer: 게시 가능한 루트·멤버·`publish_to: none` 멤버의 finding별 줄). CLI 테스트는
   `087f516` 코드에서 실패하고(단위 테스트는 새 생성자 인자가 없어 컴파일되지 않는다), 변형 둘(전역
   분류로 되돌림, 문장 있는 멤버만 접두로 둠)이 각각 실패시킨다.
+
+### 재검토 반영 (S1′: 원인이 다른 패키지에 있는 finding이 줄을 잃음)
+
+`cf4f9ae` 재검토는 접두 매칭·맨 위 목록·단일 패키지 동일성·캐시 v9·N1·N2를 확인하고 should-fix 1·nit 1을
+냈다.
+
+- 문제: `forSource`가 finding 자기 파일의 패키지만 봤다. 게시 가능한 루트가 `a`에 의존하고 루트
+  `lib/testing.dart`의 `FakeRoot.run`만 `pkgs/a/lib/src/impl.dart`의 `implHelper`를 부르면,
+  `implHelper`는 `origin/main`에서 원인인 루트 줄을 실었는데 `cf4f9ae`에서는 관계없는 `pkgs/a` 줄만
+  실었다. `pkgs/b/lib/testing.dart`만 의존 `pkgs/c`의 `cHelper`를 부르면 `cHelper`는 `[]`였다.
+  GitHub 주석·SARIF에서 `origin/main` 대비 회귀다(lib/AGENTS.md의 전역 영향 경고 보존).
+- 수정(`_packageLimitationScopes`, 구조화된 자료만): `packageLimitationDetails`의 값을 "그 패키지의
+  finding에 붙일 문장"으로 바꿨다. 루트 패키지의 줄은 모든 패키지 목록에 넣어 `origin/main`처럼 모든
+  finding에 붙인다(`origin/main`이 붙인 줄은 모두 남는다는 요구 성질). 멤버 P의 줄은 P와 P가 전이적으로
+  닿는 workspace 패키지의 목록에 넣는다. 간선은 선언한 `dependencies`·`dev_dependencies`와 패키지 안
+  파일의 실제 `package:` import·export(`packageImports`, 해석 실패·조건부 URI 포함)다.
+  - `dev_dependencies`와 실제 import를 넣은 근거: workspace는 package config을 공유해 선언하지 않은
+    형제 멤버 import도 해석되고(`deps`가 `undeclared-dependency`로 보고하는 경우), `lib/`가
+    dev_dependency를 import하는 경우도 있다(`dev-dependency-in-lib`). 선언한 `dependencies`만 보면 그
+    원인을 놓친다. 덜 붙이면 원인을 숨기고 더 붙이면 잡음뿐이라 넓게 잡았다. `dependency_overrides`는
+    버전만 바꾸고 코드 사용이 아니어서 넣지 않았다.
+  - 분석기는 그대로다(받은 목록만 붙인다). 붙일 범위의 의미가 바뀌어 캐시 신원 v37.
+- 전후(재검토 시나리오 `w3`: 게시 가능한 루트 + `a`·`b`→`c`·`d`(선언 없이 `e` import)·`z`·`zeta`):
+  `implHelper` main `[루트]` → `cf4f9ae` `[a]` → 수정 후 `[루트, a]`, `cHelper` `[루트]` → `[]` →
+  `[루트, b]`, `eHelper` `[루트]` → `[]` → `[루트, d]`, `zOrphan`·`ZetaExtra` `[루트]` → `[]` → `[루트]`.
+  text 출력 18,588 → 17,342 → 23,538바이트.
+- `origin/main` 대비 성질 확인(`dead --workspace`, finding별 `public-libraries:` 줄): `w1`, `w3`, 30개
+  멤버 workspace, 그 게시 가능한 루트 변형(루트가 `args`에 의존하고 `lib/testing.dart`를 둠), 적대 입력
+  `a1`·`a7`·`b1`~`b4`에서 `origin/main`이 붙인 줄을 잃은 finding 0, 맨 위 목록에서 빠진 줄 0, finding
+  ID·종류·종료 코드 같음. 게시 가능한 루트 변형은 29개 finding 모두 루트 줄을 그대로 싣는다.
+- 크기(`w1`, 멤버 사이 의존 없음): `cf4f9ae`와 바이트 단위로 같다(text 38,941, json 43,084, sarif 49,417,
+  github-actions 39,628, markdown 40,243, codeowners 23,667, query 4,259. `origin/main`은 27,253·31,916·
+  38,241·28,160·28,095·11,919·1,443). 30개 멤버 workspace의 finding별 줄은 16 → 42다. 늘어난
+  것은 `collection`의 finding 5개가 그것에 전이적으로 닿는 `cli_util`·`glob`·`http`·`matcher`·`shelf`의
+  줄을, `shelf`의 finding 1개가 `http`의 줄을 더 싣는 것이다. 일부는 넓게 잡은 데서 오는 잡음이다:
+  `cli_util`은 테스트에서만 import하는 dev_dependency `async`를 거쳐 `collection`에 닿고, `http`는
+  `shelf`를 dev_dependency로 선언만 했다(이 게시본의 파일은 import하지 않는다).
+- 테스트: `member_file_findings_cli_test`의 이전 CLI 테스트를 두 시나리오(+ 선언 없는 import, 관계없는
+  멤버, `publish_to: none` 멤버)로 바꿨다. `cf4f9ae` 코드에서 실패한다(`implHelper` `[a]`, `cHelper`·
+  `eHelper`·`zOrphan` `[]`). 변형 셋(루트 줄을 루트 목록에만, 폐쇄 없이 자기 패키지만, 실제 import 빼고
+  선언만)이 각각 실패시킨다. 분석기 단위 테스트(`pkgs/a-b`·문장 없는 멤버·`project:`가 아닌 source)는
+  그대로다.
+- nit: 위 수정 2의 테스트 설명에서 "게시 가능한 루트가 먼저"를 N1과 맞게 고쳤다.
 
 ### N1·N2: 문서의 순서·동일성 주장
 
