@@ -1,228 +1,127 @@
 # Handoff
 
-_Last updated: 2026-11-25 (5차: `--workspace`·`source_packages` 파일 finding 경로, 멤버별 `public-libraries:` 한계, rules 진단 길이, PR #166 독립 리뷰·재검토·최종 재검토 반영)_
+_Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중첩 멤버 한계, impact-precheck 실패 조사)_
 
 현재 재개 정보만 담는다. 작업 규칙은 [AGENTS.md](AGENTS.md), 이전 세션의 원문·측정·판정은
-[HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(PR #165 시점 원문은 그 파일 끝 절).
+[HANDOFF-HISTORY.md](HANDOFF-HISTORY.md)에 보존한다(PR #166 시점 원문은 그 파일 끝 절).
 
 ## Current Status
 
 - 발행본은 **0.17.0**이다(pub.dev, GitHub Release `v0.17.0`, `dartograph_analysis_plugin` 0.1.1).
-  `main`의 `Unreleased`에는 PR #161(`4bd0370`), PR #163(`88dd0ee`), PR #164(`7da8267`), PR #165
-  (`acda403`, 대표 라이브러리 보존 루트·`public-libraries:` 한계·rules 설정 줄·열)가 있다. 아직
-  발행하지 않았다.
-- 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `acda403`에서 다시 시작했다(이전 PR은 스쿼시 머지).
+  `main`의 `Unreleased`에는 PR #161(`4bd0370`), #163(`88dd0ee`), #164(`7da8267`), #165(`acda403`),
+  #166(`28d75c7`, workspace 멤버 파일 finding 경로·멤버별 `public-libraries:`·rules 진단 길이)이
+  있다. 아직 발행하지 않았다.
+- 브랜치 `ccr-37904670-hxdjsx`를 `origin/main` `28d75c7`에서 다시 시작했다(이전 PR은 스쿼시 머지).
   푸시·PR은 코디네이터가 한다. 어느 커밋까지 푸시됐는지와 CI 상태는 이 문서에 적지 않는다.
-  - 수정 커밋 셋(`d9d3f9a` 파일 finding 경로, `a869625` 멤버별 `public-libraries:`, `c0c5792` rules
-    진단 길이)과 HANDOFF 커밋 `087f516`까지가 PR #166으로 푸시됐다. 그 위에 독립 리뷰 반영
-    커밋(`9678821` 수정, `4fdfe46`·`cf4f9ae` 문서, 아래 "PR #166 독립 리뷰 반영"), 재검토 반영
-    (`bfb42a9` 수정, `97370a3` 문서, 아래 "재검토 반영"), 최종 재검토 반영(`4bd4ff2` 수정과 그 뒤 문서
-    커밋, 아래 "최종 재검토 반영")을 이력 재작성 없이 더했다.
+  - 커밋: `3ab920c`(unresolved-files), `02d48d1`(중첩 멤버), `e81dc69`(unresolved-files 문구에
+    `#`·`?`), `055cfa3`(중첩 멤버의 글롭 항목), `e36ee10`(3.11 lint에 맞춘 반복문), 그 뒤 HANDOFF·README
+    문서 커밋.
 
 ## 이번 브랜치의 변경
 
-세 수정 모두 `origin/main`을 네이티브 바이너리(`dg-main`)로 컴파일해 먼저 재현했다. 수정 1만 넣은
-바이너리(`dg-a`)와 셋 다 넣은 바이너리(`dg-new`)로 델타를 나눠 쟀다.
+두 수정 모두 `origin/main`을 네이티브 바이너리(`dg-main`)로 컴파일해 먼저 재현했고, 수정본
+바이너리와 바이트 단위로 비교했다. 둘 다 한계 줄만 더한다. 그래프·finding·종료 코드는 그대로다.
 
-### 1. `--workspace` 멤버·`source_packages`의 dead 파일 finding 경로
+### 1. analyzer가 해석하지 않은 파일: `unresolved-files:` 한계
 
-- 재현: 루트(`publish_to: none`)와 멤버 `pkgs/a`(`lib/testing.dart`에 `FakeCore`)가 있는 workspace에서
-  `dead --workspace --format text`가
-  `lib/testing.dart: warning: file package:a/testing.dart — …`를 냈다. 같은 실행의 선언 finding은
-  `pkgs/a/lib/testing.dart:1:1`, `query package:a/testing.dart`의 `location.path`는
-  `project:pkgs/a/lib/testing.dart`였다. `source_packages: [packages/core]`도 같아서
-  `package:core/orphan.dart`가 루트의 `lib/orphan.dart`(다른 파일)로 보고됐다.
-- 원인: `ReachabilityAnalyzer`가 파일 finding의 source를 라이브러리 ID에서 만들며(`_librarySource`)
-  `package:<name>/<path>`를 언제나 스캔 루트의 `lib/<path>`로 옮겼다. 색인은 라이브러리 정점에 실제
-  경로(`sourceUri`)를 이미 싣는다.
-- 수정: 선언 finding처럼 `node.sourceUri ?? _librarySource(node.id)`. 분석 계층만 바뀌므로 캐시
-  신원은 그대로다(캐시된 그래프에 `sourceUri`가 있다). finding ID·baseline 지문(id·kind)도 그대로다
-  (`dg-main`이 쓴 baseline을 `dg-new`가 읽어 8개 모두 억제됨을 확인).
-- 영향받던 곳(모두 `finding.source`를 쓴다): text·GitHub Actions·SARIF·Markdown 위치, CODEOWNERS
-  묶음(`dg-main`은 멤버 파일 finding을 모두 `*` 소유자로 묶었다), `include`/`exclude` glob,
-  `--since`(`dg-main`은 루트 `lib/orphan.dart`만 바꿔도 멤버 파일 finding 셋을 그 변경에 넣었다),
-  파일별 `source-*` 한계 매칭.
-- 테스트: `reachability_analyzer_test` 1개(합성 그래프, 경로와 source 한계), 새
-  `test/cli/member_file_findings_cli_test.dart` 3개(실제 analyzer: `--workspace`의 JSON·text·GitHub
-  Actions, `exclude: ["pkgs/**"]`, `source_packages`). 넷 다 수정을 되돌리면 실패한다.
+- 재현(이전 HANDOFF 후속 항목): 패키지 `lib/src/dead%20enc.dart`, `lib/src/dead%25.dart`는
+  `dead`·`graph` 어디에도 없고 한계도 없었다. 더 나쁜 모양: 공개 라이브러리가
+  `import 'src/enc%2520x.dart'`로 그 파일의 `EncUsed`를 쓰고 `EncUsed.run`만
+  `helper.dart`의 `helperOnlyFromEnc`를 부르면 `dart analyze`는 깨끗한데 `dg-main dead`는
+  `helperOnlyFromEnc`와 `helper.dart`를 미도달로 보고하고(종료 1) 이유를 알리지 않았다. 파일
+  이름을 `enc_x.dart`로 바꾸면 그 두 finding은 사라지고 `EncDead`만 남는다.
+- 원인: analyzer(검증 집합 14.3~14.7의 코드가 같다)는 `getResolvedUnit(path)`에서
+  `FileSystemState.hasUri`로 경로→URI→경로 왕복을 확인하고, 실패하면 `NotPathOfUriResult`를
+  준다. `PackageMapUriResolver.pathToUri`가 패키지 `lib/` 아래 경로를 이스케이프 없이
+  `package:` URI로 만들어(`uriCache.parse('package:$name/$relPath')`) 유효한 `%XX`는 다른 문자로
+  디코딩되고, `#`·`?`는 fragment·query가 된다. `_resolveUnitFacts`는 그 결과를 null로 받아 조용히
+  건너뛰었다. `bin/`·`test/`의 `file:` URI, `%zz` 같은 무효 이스케이프, `+`·`[]`·한글 이름은 왕복한다
+  (직접 확인).
+- 수정: 열거한 분석 대상 중 사실이 없는 파일을 `_unresolvedFiles`로 전체·증분 경로가 같은 함수로
+  세어 `options-excluded-files:`와 같은 모양(수, 경로순 앞의 셋, `and N more`)으로 싣는다. 캐시 신원
+  v39. analysis options가 제외한 파일은 열거 단계에서 빠져 `options-excluded-files:`에만 든다.
+- 이 한계를 싣는 것은 그래프를 만드는 명령(`dead`·`query`·`impact`·`graph`·`cycles`·`metrics`·
+  `deps` 확인)이다. `runtime`·`routes`·`bridges`·`schema`는 그래프 밖에서 유닛을 따로 해석하며
+  (`resolveProjectUnitsEach` 등) 같은 파일을 여전히 조용히 건너뛴다(아래 "남긴 것").
+- 테스트: `test/index/unresolved_files_test.dart` 3개(실제 analyzer: 5개 파일 수와 앞의 셋, 대조군
+  `%zz`·`bin/`이 그래프에 있음, 퍼센트 파일만 지우면 줄 없음, 증분 첫 실행·재사용·파일 변경 뒤 같은 줄).
+  `origin/main` 코드에서 첫째·셋째가 실패하고, 증분 경로에만 빈 목록을 넘기는 변형이 셋째를 실패시킨다.
 
-### 2. `--workspace`의 `public-libraries:` 한계를 멤버마다 센다
+### 2. `--workspace`의 중첩 워크스페이스 멤버
 
-- 재현: 위 workspace에서 멤버를 따로 분석하면(`dead pkgs/a`) `public-libraries: lib/testing.dart is a
-  public library outside lib/a.dart; …`가 나오는데, `dead --workspace`에는 이 줄이 없었다. 한계가
-  루트 pubspec의 `publish_to`·이름과 `^lib/[^/]+\.dart$`만 봐서, 루트가 `publish_to: none`인 흔한
-  workspace에서는 아예 나오지 않았다. 이전 HANDOFF의 "PR #165 리뷰 nit 3"이다.
-- 수정: `_publicLibrariesLimitations`가 루트와 멤버마다 그 pubspec(`publish_to: none`이면 건너뜀)과
-  대표 라이브러리(`<member>/lib/<name>.dart`)로 센다. 최상위 `lib/*.dart`는 앞 경로로 한 번에 묶어
-  패키지마다 다시 훑지 않는다. 줄은 패키지당 하나이고 경로는 루트 기준이다(명령 출력은 다른 한계와
-  함께 정렬한다).
-  루트 문구는 그대로다. 캐시 신원 v36.
-- 테스트: `public_libraries_test`의 `--workspace` 그룹 2개(루트 `publish_to: none`, 게시 가능한 루트와
-  멤버를 함께 셈. 색인 결과의 줄 순서를 고정하지만 명령 출력은 정렬한다). 멤버를 넘기지 않게 되돌리면
-  둘 다 실패한다.
+- 재현(이전 HANDOFF 후속 항목): 루트 `workspace: [pkgs/nest]`, `pkgs/nest/pubspec.yaml`이
+  `workspace: [sub]`를 선언(Dart 3.13.3 `dart pub get --offline`이 받아들이고 package config에 `sub`가
+  든다). `dg-main dead --workspace`는 `workspace-members-indexed: pkgs/nest …`와 `0 finding(s)`로 끝나고
+  `sub/lib/orphan.dart`의 `SubOrphan`은 그래프에 없었다. `dg-main dead --workspace pkgs/nest`는 `sub`를
+  집계해 그 finding 둘을 낸다.
+- 수정: 집계한 멤버마다 그 pubspec의 `workspace:` 항목을 멤버 기준 경로로 바꿔
+  `workspace-members-not-indexed: pkgs/nest/sub are nested workspace members declared by pkgs/nest;
+  --workspace aggregates only the members listed in the root pubspec; run dartograph --workspace on
+  pkgs/nest to analyze them`을 선언한 멤버마다 한 줄 싣는다. 세지 않는 것: 루트 목록으로 이미 집계한
+  멤버, 그리고 그 디렉터리 안에 (더 안쪽 집계 멤버의 것이 아닌) 분석 대상 파일이 있는 항목(멤버의
+  표준 소스 디렉터리 안 `pkgs/nest/example`, `source_packages` — 이미 분석되므로 "색인하지 않음"이
+  거짓). Dart 파일이 없는 중첩 멤버는 센다. 글롭 항목(pub은 언어 버전 3.11부터 받는다, 집계는 펼치지
+  않는다)은 첫 글롭 마디 앞 디렉터리로 같은 확인을 한다: `packages/*`는 세고, 이미 `pkgs/nest/example/`로
+  분석되는 `example/*`는 세지 않는다(`02d48d1`은 글롭 문자열을 경로로 봐서 `example/*`도 셌다 — 적대 입력에서
+  찾아 `055cfa3`에서 고침). `*`처럼 첫 마디부터 글롭이라 그 디렉터리가 멤버 자신이면 멤버 파일이 있어 세지
+  않는다(조용히 빠지는 쪽, 거짓 사실은 아니다). `--workspace` 없는 출력은 그대로다. 캐시 신원은 1과 같은
+  v39(키는 이미 모든 중첩 pubspec을 해시한다. 중첩 `workspace:`를 더한 뒤 캐시 경로·증분 경로가 새 줄을
+  내는 것을 확인).
+- 테스트: `test/index/nested_workspace_members_test.dart` 5개(pub이 받아들이는 fixture: `sub`(안쪽
+  `sub/inner`만 루트가 나열)·`example`·`empty`를 선언한 `pkgs/nest`; 기대 줄은 `empty, sub`; `--workspace`
+  없는 줄 그대로; `pkgs/nest`를 루트로 집계하면 줄 없음; 증분 경로 같은 줄; 언어 3.11 글롭 `packages/*`·
+  `example/*` → `packages/*`만). `origin/main`에서 첫째·넷째·다섯째가 실패하고, 분석 파일 확인을 빼는 변형,
+  더 안쪽 멤버 제외를 빼는 변형, 빈 파일 목록을 넘기는 변형이 각각 첫째·넷째를, 글롭 앞 디렉터리 대신 글롭
+  문자열을 보는 변형(`02d48d1`)이 다섯째를 실패시킨다.
 
-### 3. rules 설정 진단의 반향 길이
+### 적대 입력 (`dg-main` → 수정본, `dead --format json`)
 
-- 재현: 5,000자 모르는 키가 있는 `rules --config`의 진단 줄이 5,066바이트였다. 같은 길이의
-  `entry_points` 값을 가진 `dartograph.yaml` 진단은 400 rune + `…`(421바이트)이다. 이전 HANDOFF의 후속
-  항목이다.
-- 수정: `_reportRulesConfigInvalid`가 이스케이프 전에 `_shortenEchoed`를 적용한다. CODEOWNERS 내용
-  오류는 고정 문구만 내므로 손대지 않았다.
-- 테스트: `phase5_cli_test` 1개(381자 + `…`). 자르기를 빼면 실패한다.
-
-### 적대 입력 (`dg-main` → `dg-new`)
-
-`dead --format json`(필요하면 `--workspace`)으로 비교했다. 픽스처 생성 스크립트는 세션 스크래치에
-있었고 저장소에 넣지 않았다.
-
-- 바뀌지 않음: 루트 안 다른 디렉터리를 가리키는 `lib/link.dart` 링크(선언·파일 모두 링크 경로),
-  루트 밖을 가리키는 링크, 공백이 든 파일 이름(`a%20b.dart` → `lib/a b.dart`), package config 없음
-  (`project:` ID), part를 가진 고아 라이브러리(호스트 경로), `retained_files`로 멤버 파일 보존 +
-  대표 라이브러리 export로 보존한 멤버(종료 0, 한계 없음).
-- 바뀜(의도): 중첩 멤버(`pkgs/a`, `pkgs/a/sub`)는 파일 finding 경로가 각 멤버 경로가 되고 한계가 두
-  줄(`pkgs/a/lib/extra.dart, pkgs/a/lib/orphan.dart …`, `pkgs/a/sub/lib/orphan.dart …`), 멤버의 파일이
-  섞이지 않는다. workspace + `source_packages`는 `vendor/core` 경로가 바로잡히고 게시하지 않는
-  `vendor/core`는 세지 않는다. 대표 라이브러리가 없는 멤버, `publish_to: https://…` 멤버는 센다
-  (단독 분석과 같다). 건너뛴 멤버(pubspec 없음)는 줄이 없다. 멤버의 최상위 part·pragma 함수만 있는
-  라이브러리·익명 extension은 단독 분석과 같은 문구(익명 extension 안내 포함)다.
-- `--since`·CODEOWNERS·Markdown·SARIF는 위 1절. 같은 캐시를 `dg-main` → `dg-new` 순서로 써도 v36
-  덕에 새 줄이 나오고, 두 번째 실행(캐시 적중)과 `--incremental` 두 번(파일 변경 포함)이 전체
-  분석과 바이트 같다.
+- 1: part 파일(`lib/src/p%20x.dart`, 호스트가 `part 'src/p%2520x.dart'`), 디렉터리 이름(`lib/src%20dir/`
+  파일 넷 → `and 1 more`), `--workspace` 멤버(`pkgs/m/lib/src/x%41y.dart`), 생성 파일(`gen%20x.g.dart`),
+  인코딩한 슬래시(`a%2Fb.dart`), `source_packages`(`vendor/vend/lib/v%20x.dart`)는 모두 새 줄에만 든다.
+  analysis options가 제외한 `lib/legacy/old%20x.dart`는 `options-excluded-files:`에만 든다. `#`·`?`
+  이름은 새 줄에 들고(그래서 문구에 넣었다) `+`·`[]`·한글 이름은 그래프에 있어 세지 않는다. 링크 넷
+  (루트 안 파일·디렉터리·같은 디렉터리·루트 밖)은 출력이 바이트 단위로 같다. 이름에 `%20`이 든 디렉터리
+  안의 프로젝트(이름은 정상)는 줄이 없다(패키지 폴더 아래 상대 경로만 URI가 된다). 모든 경우 finding ID와
+  종료 코드가 같다. 캐시 적중·`--incremental` 두 번·파일 변경 뒤 증분·퍼센트 이름↔정상 이름 바꾸기가 전체
+  분석과 같다.
+- 2: 루트도 `pkgs/nest/sub`를 나열(pub은 거부, 손으로 만든 package config) → 줄 없음. `../other`로 루트가
+  나열한 형제를 가리킴(pub 거부) → 줄 없음. 없는 디렉터리 → 센다. 더 안쪽 `pkgs/nest/sub/inner`만 집계 →
+  `sub`를 센다. `source_packages: [pkgs/nest/sub]` → 줄 없음(lib/ 분석). 두 멤버 각각 중첩 + 깊은 중첩
+  (`pkgs/a/y`가 다시 `deeper` 선언) → `pkgs/a/y, pkgs/a/z`와 `pkgs/b/q` 두 줄, `--workspace pkgs/a`로 돌리면
+  `y/deeper`를 센다. Dart 파일 없는 중첩 멤버 → 센다. 글롭 `packages/*`·`example/*` → `packages/*`만.
+  `deps --workspace`·`query --workspace`도 같은 줄을 싣는다(중첩 멤버 pubspec은 `deps`가 감사하지 않으므로
+  참이다).
 
 ### 코퍼스 델타
 
-- 단일 패키지: pub cache의 게시 패키지 75개(이름마다 최신 버전, `analyzer`·`_fe_analyzer_shared`
-  제외)에 캐시 패키지 전부를 담은 package config을 손으로 만들어(pub 해석과 같지 않음)
-  `dead`·`dead --closed-app`을 비교했다. `dg-main` → `dg-a` 150건, `dg-main` → `dg-new` 150건 모두
-  종료 코드와 stdout이 바이트 단위로 같다(단일 패키지에는 루트 밖 패키지 라이브러리가 없고, 루트의
-  `public-libraries:` 계산은 그대로다).
-- workspace: 같은 캐시의 게시 패키지 30개를 멤버(`pkgs/<name>`, `resolution: workspace`)로 둔
-  workspace(루트 `publish_to: none`)에서 `dead --workspace`를 비교했다. 26개 finding의 ID·종류·수와
-  다른 한계는 같다. 바뀐 것은 `collection` 멤버의 export 전용 최상위 라이브러리 파일 finding 다섯
-  (`project:lib/algorithms.dart` → `project:pkgs/collection/lib/algorithms.dart` 등, 수정 1)과 새
-  `public-libraries:` 줄 여섯(`args`·`cli_util`·`glob`·`http`·`matcher`·`shelf`, 수정 2)뿐이다. 멤버
-  30개를 각각 단독으로 분석한 `public-libraries:` 줄에 멤버 경로를 붙이면 workspace의 여섯 줄과 정확히
-  같다. 이 코퍼스의 멤버에는 자기 `dartograph.yaml`이 없어서다. `--workspace`는 멤버 설정을 읽지
-  않으므로(`workspace-member-config-ignored:`) 자기 `retained_files`를 둔 멤버는 다를 수 있다.
-  재검토 반영 뒤에는 finding별 줄이 42개다(멤버 줄이 그 멤버와 그 멤버가 닿는 패키지의 finding에 붙는다).
-  `collection`의 다섯 파일은 자기 선언이 없어 세지 않는다(아래 "남긴 것"의 export 전용 최상위
-  라이브러리).
+- 단일 패키지: pub cache의 게시 패키지 75개(이름마다 최신 버전, `analyzer`·`_fe_analyzer_shared` 제외)에
+  캐시 패키지 전부를 담은 package config을 손으로 만들어(pub 해석과 같지 않음) `dead`·`dead --closed-app`
+  150건을 비교했다. 종료 코드와 stdout이 모두 바이트 단위로 같다(`dead` 종료 0이 41, 1이 34. 이 캐시의
+  `lib/`에는 퍼센트 이름이 없다).
+- workspace: 같은 캐시의 게시 패키지 30개를 멤버로 둔 workspace(루트 `publish_to: none`, package config
+  손으로 만듦)의 `dead --workspace`가 바이트 단위로 같다(405,293바이트, 종료 1). 게시 패키지에는 중첩
+  `workspace:`가 없다.
 
-## PR #166 독립 리뷰 반영
+## impact-precheck 실패 조사 (코디네이터 관측, 변경 없음)
 
-리뷰는 차단 0·should-fix 1·nit 2를 냈다(세 수정이 모든 형식·필터·`--since`·CODEOWNERS·SARIF 인코딩·
-캐시·rune 자르기에서 동작함을 확인). 리뷰어의 fixture는 지워져 설명대로 다시 만들었다(`w1`: 멤버 13,
-게시 가능 10, finding 36). `087f516`·수정본 네이티브 바이너리로 비교했다.
-
-### S1: 모든 finding이 모든 멤버의 `public-libraries:` 줄을 실었다
-
-- 원인: `_SourceLimitations`가 `source-`로 시작하지 않는 줄을 모두 전역으로 봤다. 그래서 finding마다
-  게시 가능한 멤버 수만큼 줄이 붙었고(`w1` text 360줄), `publish_to: none` 멤버의 finding도 실었다.
-- 수정: 색인 결과에 `packageLimitationDetails`(분석한 패키지 경로 → 그 패키지에만 해당하는 문장, 루트는
-  '', 문장이 없으면 빈 목록)를 더하고, dead의 `ReachabilityAnalyzer(packageLimitations: …)`가 그 문장을
-  source가 든 가장 안쪽 멤버의 finding에만 붙인다. 어느 멤버에도 들지 않는 source(`project:`가 아닌
-  것 포함)는 루트 패키지 것이다. 문장이 없는 멤버의 finding은 루트 문장을 받지 않는다. 문장 텍스트를
-  파싱하지 않는다. 맨 위 `limitations`, `dead --explain`·`query` 문서는 전처럼 전체 목록이다.
-  단일 패키지는 키가 ''뿐이라 출력이 같다(코퍼스 확인). 결과 필드가 늘어 캐시 형식 버전 v9.
-  이 수정은 원인이 다른 패키지에 있는 finding에서 줄을 잃게 했다. 재검토가 찾았고 아래 "재검토 반영"
-  에서 고쳤다(루트 줄은 다시 모든 finding에, 멤버 줄은 의존 폐쇄로).
-- 전후(`w1`, `087f516` → 수정본, 바이트): text 134,839 → 38,941, json 134,362 → 43,084, sarif 140,695 →
-  49,417, github-actions 130,246 → 39,628(가장 긴 줄 3,539 → 1,082), markdown 142,291 → 40,243,
-  codeowners 120,225 → 23,667. finding별 `limitation: public-libraries:` 줄 360 → 30(게시 가능한 멤버
-  10개 × 자기 finding 3개). `query --workspace`는 4,259 → 4,259다. query 문서의 `limitations`는 실행
-  전체 목록이라(모든 파일의 `source-*` 줄도 싣는다) 맨 위 목록 규칙대로 그대로 두었다. 줄 수는 게시
-  가능한 패키지 수로 한 번만 늘어난다.
-- 테스트: `reachability_analyzer_test` 1개(합성 그래프: 루트·멤버·중첩 멤버·`pkgs/a-b`처럼 접두만 같은
-  경로·문장 없는 멤버·`project:`가 아닌 source·`limitations`에 없는 문장), `member_file_findings_cli_test`
-  1개(실제 analyzer: 게시 가능한 루트·멤버·`publish_to: none` 멤버의 finding별 줄). CLI 테스트는
-  `087f516` 코드에서 실패하고(단위 테스트는 새 생성자 인자가 없어 컴파일되지 않는다), 변형 둘(전역
-  분류로 되돌림, 문장 있는 멤버만 접두로 둠)이 각각 실패시킨다.
-
-### 재검토 반영 (S1′: 원인이 다른 패키지에 있는 finding이 줄을 잃음)
-
-`cf4f9ae` 재검토는 접두 매칭·맨 위 목록·단일 패키지 동일성·캐시 v9·N1·N2를 확인하고 should-fix 1·nit 1을
-냈다.
-
-- 문제: `forSource`가 finding 자기 파일의 패키지만 봤다. 게시 가능한 루트가 `a`에 의존하고 루트
-  `lib/testing.dart`의 `FakeRoot.run`만 `pkgs/a/lib/src/impl.dart`의 `implHelper`를 부르면,
-  `implHelper`는 `origin/main`에서 원인인 루트 줄을 실었는데 `cf4f9ae`에서는 관계없는 `pkgs/a` 줄만
-  실었다. `pkgs/b/lib/testing.dart`만 의존 `pkgs/c`의 `cHelper`를 부르면 `cHelper`는 `[]`였다.
-  GitHub 주석·SARIF에서 `origin/main` 대비 회귀다(lib/AGENTS.md의 전역 영향 경고 보존).
-- 수정(`_packageLimitationScopes`, 구조화된 자료만): `packageLimitationDetails`의 값을 "그 패키지의
-  finding에 붙일 문장"으로 바꿨다. 루트 패키지의 줄은 모든 패키지 목록에 넣어 `origin/main`처럼 모든
-  finding에 붙인다(`origin/main`이 붙인 줄은 모두 남는다는 요구 성질). 멤버 P의 줄은 P와 P가 전이적으로
-  닿는 workspace 패키지의 목록에 넣는다. 간선은 선언한 `dependencies`·`dev_dependencies`와 패키지 안
-  파일의 실제 `package:` import·export(`packageImports`, 해석 실패·조건부 URI 포함)다.
-  - (최종 재검토에서 바뀜: 아래 "최종 재검토 반영"이 간선을 `dependencies`와 `lib/` import로 좁혔다.)
-    `dev_dependencies`와 실제 import를 넣은 근거: workspace는 package config을 공유해 선언하지 않은
-    형제 멤버 import도 해석되고(`deps`가 `undeclared-dependency`로 보고하는 경우), `lib/`가
-    dev_dependency를 import하는 경우도 있다(`dev-dependency-in-lib`). 선언한 `dependencies`만 보면 그
-    원인을 놓친다. 덜 붙이면 원인을 숨기고 더 붙이면 잡음뿐이라 넓게 잡았다. `dependency_overrides`는
-    버전만 바꾸고 코드 사용이 아니어서 넣지 않았다.
-  - 분석기는 그대로다(받은 목록만 붙인다). 붙일 범위의 의미가 바뀌어 캐시 신원 v37.
-- 전후(재검토 시나리오 `w3`: 게시 가능한 루트 + `a`·`b`→`c`·`d`(선언 없이 `e` import)·`z`·`zeta`):
-  `implHelper` main `[루트]` → `cf4f9ae` `[a]` → 수정 후 `[루트, a]`, `cHelper` `[루트]` → `[]` →
-  `[루트, b]`, `eHelper` `[루트]` → `[]` → `[루트, d]`, `zOrphan`·`ZetaExtra` `[루트]` → `[]` → `[루트]`.
-  text 출력 18,588 → 17,342 → 23,538바이트.
-- `origin/main` 대비 성질 확인(`dead --workspace`, finding별 `public-libraries:` 줄): `w1`, `w3`, 30개
-  멤버 workspace, 그 게시 가능한 루트 변형(루트가 `args`에 의존하고 `lib/testing.dart`를 둠), 적대 입력
-  `a1`·`a7`·`b1`~`b4`에서 `origin/main`이 붙인 줄을 잃은 finding 0, 맨 위 목록에서 빠진 줄 0, finding
-  ID·종류·종료 코드 같음. 게시 가능한 루트 변형은 29개 finding 모두 루트 줄을 그대로 싣는다.
-- 크기(`w1`, 멤버 사이 의존 없음): `cf4f9ae`와 바이트 단위로 같다(text 38,941, json 43,084, sarif 49,417,
-  github-actions 39,628, markdown 40,243, codeowners 23,667, query 4,259. `origin/main`은 27,253·31,916·
-  38,241·28,160·28,095·11,919·1,443). 30개 멤버 workspace의 finding별 줄은 16 → 42다. 늘어난
-  것은 `collection`의 finding 5개가 그것에 전이적으로 닿는 `cli_util`·`glob`·`http`·`matcher`·`shelf`의
-  줄을, `shelf`의 finding 1개가 `http`의 줄을 더 싣는 것이다. 일부는 넓게 잡은 데서 오는 잡음이다:
-  `cli_util`은 테스트에서만 import하는 dev_dependency `async`를 거쳐 `collection`에 닿고, `http`는
-  `shelf`를 dev_dependency로 선언만 했다(이 게시본의 파일은 import하지 않는다).
-- 테스트: `member_file_findings_cli_test`의 이전 CLI 테스트를 두 시나리오(+ 선언 없는 import, 관계없는
-  멤버, `publish_to: none` 멤버)로 바꿨다. `cf4f9ae` 코드에서 실패한다(`implHelper` `[a]`, `cHelper`·
-  `eHelper`·`zOrphan` `[]`). 변형 셋(루트 줄을 루트 목록에만, 폐쇄 없이 자기 패키지만, 실제 import 빼고
-  선언만)이 각각 실패시킨다. 분석기 단위 테스트(`pkgs/a-b`·문장 없는 멤버·`project:`가 아닌 source)는
-  그대로다.
-- nit: 위 수정 2의 테스트 설명에서 "게시 가능한 루트가 먼저"를 N1과 맞게 고쳤다.
-
-### 최종 재검토 반영 (F1·N1·N2)
-
-`97370a3` 최종 재검토는 순환 종료·결정성·"`origin/main`이 붙인 줄은 잃지 않음"·export·조건부 import·
-part·v37 캐시를 확인하고 should-fix 1·nit 2를 냈다.
-
-- F1: `dev_dependencies`와 `test/`를 포함한 모든 파일의 import를 간선으로 넣어, 공용 테스트 도우미
-  (`test_utils`: 모든 멤버가 dev_dependency로 두고 테스트에서 import, 자신은 모든 멤버에 의존)가 있는
-  workspace의 멤버가 한 순환으로 묶였다. 그래서 모든 finding이 모든 멤버의 줄을 실었다. `public-libraries:`
-  줄은 최상위 `lib/` 라이브러리 선언에 관한 것이고 `test/`·`bin/`·`example/`에서 닿는 코드는 이미 보존
-  루트에서 닿으므로, 원인이 될 수 있는 간선은 `lib/` 아래 파일의 import·export뿐이다(`lib/`가
-  dev_dependency를 import하면 그 import가 간선이다).
-  - 수정: 간선을 멤버가 선언한 `dependencies`와 그 멤버 `lib/` 아래 파일의 `package:` import·export로
-    좁혔다. 스캔 루트의 줄은 모든 finding에 붙으므로 루트에서 나가는 간선은 보지 않는다. 캐시 신원 v38.
-  - 전후(`tu`: 멤버 `core`·`a`~`g`·`test_utils`, finding 32): finding별 줄 0(main) → 256(`97370a3`) → 60,
-    text 30,070 → 106,947 → 49,883, json 33,687 → 106,900 → 52,580, sarif 39,106 → 112,319 → 57,999,
-    github-actions 30,348 → 103,337 → 49,409(가장 긴 줄은 core finding이 줄 8개를 실어 3,156 그대로).
-    `dead_b`는 `b`의 줄만, `dead_core`는 core에 의존하는 여덟 멤버의 줄을 모두 싣는다.
-  - 30개 멤버 workspace의 finding별 줄은 42 → 36이다. 빠진 여섯은 앞에서 잡음이라고 적은 것이다
-    (`cli_util`이 테스트 전용 dev_dependency `async`로 `collection`에 닿던 5, `http`가 dev_dependency로만
-    선언한 `shelf`에 닿던 1). `w1`·`w3`는 `97370a3`과 바이트 단위로 같다.
-- N1: 패키지 이름을 루트·멤버 pubspec 이름뿐 아니라 그 이름의 `package:` 라이브러리 파일이 든 패키지
-  경로로도 바꾼다. `source_packages` 패키지는 어느 멤버에도 들지 않아 스캔 루트 범위('')로 간다(그
-  finding이 이미 쓰는 범위). 그래서 `pkgs/a/lib/testing.dart`만 부르는 `vendor/core`의 `coreHelper`에
-  `a`의 줄이 붙는다(`97370a3`은 `[]`).
-- N2: 줄이 있는 패키지마다 BFS하던 것을 강하게 연결된 성분(Tarjan, 반복형)으로 묶어 위상 순서로 한 번
-  전파한다. 같은 알고리즘의 복제 측정은 1,000개 순환 84ms, 1,000개 사슬 140ms다(리뷰어의 BFS 복제는
-  4.7~22초). 결과 크기는 패키지 수 × 그 패키지에 닿는 줄 수라, 1,000개 멤버가 `lib/` import로 한 순환을
-  이루고 모두 줄이 있으면 붙는 줄이 100만 개가 된다(캐시 항목도 그만큼 커진다). 그런 workspace는 모든
-  finding이 모든 줄을 실을 근거가 있는 경우다.
-- 테스트: `member_file_findings_cli_test`에 2개(`test_utils` fixture: 멤버 넷, finding별 줄 표와 합계 28
-  단언; `source_packages` 이름). 둘 다 `97370a3` 코드에서 실패한다. 변형 넷(dev_dependencies 다시 포함,
-  모든 파일의 import, 라이브러리 ID 이름 빼기, 전파 빼기)이 각각 하나 이상을 실패시킨다.
-- `origin/main` 대비 성질: fixture 12개(`w1`·`w3`·`tu`·`sp`·30개 멤버 workspace와 그 게시 가능한 루트 변형·적대
-  입력 `a1`·`a7`·`b1`~`b4`)에서 줄을 잃은 finding 0, 맨 위 목록에서 빠진 줄 0.
-
-### N1·N2: 문서의 순서·동일성 주장
-
-- N1: CLI가 limitations를 정렬하므로 "루트가 먼저"는 출력에서 거짓이었다. CHANGELOG(.ko)·HANDOFF를
-  "다른 한계와 함께 정렬"로 고쳤다. 색인 단계 순서를 고정한 테스트 이름도 순서 주장을 뺐다.
-- N2: "각 줄이 멤버 단독 분석과 같다"는 이 코퍼스(멤버 `dartograph.yaml` 없음)에서만 참이다. 멤버 설정을
-  읽지 않아 다를 수 있다는 조건을 CHANGELOG(.ko)·HANDOFF·PR 초안에 적었다.
+- `main` push 6번 중 `28d75c7`·`acda403`·`7da8267`·`4bd0370`이 실패, `88dd0ee`·`a179b19`가 통과했다.
+- 실패 단계는 모두 마지막 `Impact gate (fail on high)`(`dart run dartograph impact --since "$IMPACT_BASE"
+  --format github-actions --fail-on high`)이고 종료 1이다. 그 직전 줄이 각각 `risk high (81/100)`
+  (`28d75c7`, 284개 영향 심볼), `85/100`(`acda403`, 369), `85/100`(`7da8267`, 306), `81/100`(`4bd0370`, 245)다.
+  통과한 둘은 `risk medium (66/100)`(`88dd0ee`)과 `risk low (0/100)`(`a179b19`, HANDOFF만 바꾼 커밋)이다.
+- 기준은 맞다. `IMPACT_BASE`는 각각 직전 push의 head(`github.event.before`: `acda403`→`28d75c7`,
+  `7da8267`→`acda403`, `88dd0ee`→`7da8267`, `25b38ab`→`4bd0370`)이고 checkout은 `fetch-depth: 0`이다.
+  로그의 `echo "::error::comparison base $base is not in the checkout"`는 GitHub가 단계 시작에 찍는 스크립트
+  본문(색 코드 `[36;1m`)이고 실행된 줄이 아니다. 로그 6개의 `##[error]`는 `Process completed with exit
+  code 1.`뿐이다.
+- 의도된 동작이다. 워크플로 주석("게이트(`--fail-on high`)는 기본 브랜치 push와 수동 실행에만 건다.
+  붉어지면 정책에 맞게 `--fail-on`을 완화하거나 게이트 단계를 조정한다"), README·README.ko("a `--fail-on
+  high` gate on default-branch pushes"), USAGE·TROUBLESHOOTING(`--fail-on` 임계 이상이면 종료 1)이 그렇게
+  적는다. 점수는 `inbound-references`(최대 30)·`impact-depth`(20)·`impact-breadth`(15)·`public-api-surface`
+  (5)·`cycle-participation`(15)의 합이라, 핵심 파일을 바꾸는 큰 스쿼시 PR은 81~85로 high가 된다. 고치려면
+  예시 워크플로의 정책(임계를 낮추거나 이 저장소에서는 게이트를 정보용으로 두기)을 바꿔야 하므로 사용자
+  결정으로 남긴다.
 
 ## 이슈 #160 (`Analysis failed: unable to index the package.`)
 
@@ -233,72 +132,36 @@ part·v37 캐시를 확인하고 should-fix 1·nit 2를 냈다.
 ## 검증
 
 - 도구: 이 컨테이너에 Dart가 없어 이전 세션이 내려받아 둔 SDK(3.13.3·3.11.0)를 썼다. `packet-ask`도
-  없어 GLM 리뷰는 받지 못했다. 공유 호스트의 부하 평균이 17~37이었다. 테스트·바이너리 실행은 `HOME`을
-  스크래치로 두고(`PUB_CACHE=/root/.pub-cache`) 돌려 실제 `~/.cache/dartograph`(2,350개)를 건드리지
-  않았다.
-- Dart 3.13.3(analyzer 14.7.0), 메인 클론: `dart format --output=none --set-exit-if-changed .` 변경 없음,
-  `dart analyze --fatal-infos` 깨끗(두 중간 커밋 `d9d3f9a`·`a869625`에서도 깨끗).
-  - `tool/check-coverage.sh`를 그대로 한 번 돌렸을 때는 부하 37에서 30초 시간 초과가 32개 났다(모두
-    `TimeoutException`, 뒤따른 오류는 시간 초과한 본문이 teardown 뒤에 낸 것). 그 실행을 멈추고 같은
-    일반 단계를 `dart test -j 2 --timeout=4x --exclude-tags=global_activation --coverage=…`로 다시 돌려
-    1,240 통과·22 건너뜀·실패 0(62분, `self_analysis_test` 셋 포함)이다. 이 단계만의 제품 라인
-    커버리지는 12,610/13,435(93.86%, 기준 90%)다. CI는 기본 시간 제한으로 돈다.
-  - `global_activation` 태그: 테스트(11분 상한)는 이 컨테이너에서 시간 초과였다(검증 메모의 현상). 같은
-    스크립트 `tool/verify-global-activation.sh`를 상한 없이 돌려 통과했다(설치본 CLI 계약 239 ok,
-    21분 58초). 그래서 두 단계를 합산한 커버리지는 이 환경에서 내지 못했다(CI가 낸다).
-  - 오탐 코퍼스(`tool/verify-false-positive-corpus.sh`)·analyzer 경계 통과. CLI 계약
-    (`tool/verify-cli-contract.sh`, 스스로 컴파일해 SDK 탐색 4건 포함) 243 ok·실패 0.
-    `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다(HANDOFF는 게시 패키지에서
-    빠진다).
-- Dart 3.11.0(analyzer 14.5.0), 별도 worktree(`c0c5792`): 포맷 변경 없음, `dart analyze --fatal-infos`
-  깨끗, 관련 테스트 118개(`reachability_analyzer`·`member_file_findings`·`public_libraries`·`phase5`·
-  `pub_workspace`·`entry_library`·`source_packages`·`dead_cli`·`closed_app`·`codeowners`·
-  `project_configuration`, `-j 1 --timeout=4x`) 통과.
-- 회귀 테스트가 수정 없이 실패하는지: 새 테스트 7개 중 수정 1의 넷은 `_librarySource(node.id)`로
-  되돌리면, 수정 2의 둘은 멤버를 넘기지 않게(`const []`) 되돌리면, 수정 3의 하나는 `_shortenEchoed`를
-  빼면 실패한다(각각 확인).
-- 자기 분석(AOT 바이너리, `dg-main`과 `dg-new` 결과가 바이트 단위로 같다): `dead`는 테스트 fixture
-  파일 finding 1개(`test/index/fixture/lib/platform.dart`, 이전과 같음), `rules --strict --config
+  없어 GLM 리뷰는 받지 못했다. 공유 호스트의 부하 평균이 20~31이었다. 테스트·바이너리 실행은 `HOME`을
+  스크래치로 두고(`PUB_CACHE=/root/.pub-cache`) 돌렸다.
+- Dart 3.13.3(analyzer 14.7.0), 메인 클론(`055cfa3` 코드):
+  - `dart format --output=none --set-exit-if-changed .` 변경 없음, `dart analyze --fatal-infos` 깨끗.
+  - 일반 단계 `dart test -j 2 --timeout=4x --exclude-tags=global_activation --coverage=…`: 1,252 통과·
+    22 건너뜀·실패 0(48분 38초, `self_analysis_test` 포함). 이 단계만의 제품 라인 커버리지
+    12,763/13,589(93.92%, 기준 90%). 새 함수의 줄은 모두 실행됐다.
+  - 그 뒤 `e36ee10`(같은 의미의 반복문으로 바꾼 스타일 커밋)에서 format·`analyze --fatal-infos` 깨끗,
+    새 테스트 8개 통과. 전체 단계는 다시 돌리지 않았다.
+  - CLI 계약(`tool/verify-cli-contract.sh`, 스스로 컴파일) 243 ok·`CLI contract passed`, 오탐 코퍼스
+    (`tool/verify-false-positive-corpus.sh`) 종료 0, `tool/check-analyzer-boundary.sh` 통과.
+  - `tool/verify-global-activation.sh`(`e36ee10` 코드, 상한 없이): 설치본 CLI 계약 239 ok·`Global activation
+    contract passed`(25분). 그래서 두 단계를 합산한 커버리지는 이 환경에서 내지 않았다(CI가 낸다).
+- Dart 3.11.0(analyzer 14.5.0), 별도 worktree(`e36ee10`): 포맷 변경 없음, `dart analyze --fatal-infos`
+  깨끗(`055cfa3`에서는 `use_null_aware_elements` info 하나 — `e36ee10`이 고친 것), 관련 테스트 109개
+  (새 두 파일, `pub_workspace`·`options_excluded_files`·`source_packages`·`public_libraries`·
+  `incremental_analysis`·`incremental_cache`·`member_file_findings_cli`·`deps_cli`·
+  `options_excluded_files_cli`·`reachability_analyzer`, `-j 1 --timeout=4x`) 통과. analyzer 14.5에서도
+  퍼센트 이름 파일이 해석되지 않아 새 한계가 나오고, 언어 3.11 글롭 fixture를 pub이 받아들인다.
+- 회귀 테스트가 수정 없이 실패하는지: 최종 새 테스트 8개를 `origin/main`(`28d75c7`) worktree에 복사해
+  돌리면 5개(양성 사례)가 실패하고 대조 3개(퍼센트 파일 없음, `--workspace` 없음, `pkgs/nest` 루트)는
+  통과한다. 변형:
+  증분 경로에 빈 목록, 분석 파일 확인 제거, 더 안쪽 멤버 제외 제거, 빈 파일 목록, 글롭 문자열 그대로
+  확인 — 각각 해당 테스트를 실패시킨다.
+- 자기 분석(AOT 바이너리, `dg-main`과 최종 바이너리가 바이트 단위로 같다): `dead`는 테스트 fixture 파일
+  finding 1개(`test/index/fixture/lib/platform.dart`, 이전과 같음), `rules --strict --config
   tool/module_layers.yaml` 위반 0, `cycles --level file`은 cli 모듈 안(`dartograph_cli` ↔ `mcp_server`)
   하나뿐이다.
-- PR #166 리뷰 반영(`9678821`) 뒤 다시 돌린 것(부하 평균 5~14):
-  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
-    1,240 통과·22 건너뜀·시간 초과 2(`dup_cli_test`·`build_config_cache_test`의 한 개씩, 둘 다
-    `TimeoutException`). 두 파일을 `-j 1` 기본 제한으로 다시 돌려 9/9 통과. 이 단계만의 제품 라인
-    커버리지 12,638/13,462(93.88%). CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
-    `global_activation`은 설치 경로가 바뀌지 않아 다시 돌리지 않았다(위 `087f516` 이전 실행이 통과).
-  - 3.11.0 worktree(`9678821`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 139개(위 목록에
-    `incremental_cache`·`incremental_analysis` 추가, `-j 1 --timeout=4x`) 통과.
-  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
-    30개 멤버 workspace는 위 "코퍼스 델타"와 같다(맨 위 줄 여섯 추가·삭제 0, 파일 경로 다섯, finding 16개가
-    자기 멤버 줄을 더 실음). 출력은 `087f516` 133,943바이트 → 92,043바이트(`origin/main` 85,155).
-  - 자기 분석은 `origin/main`과 바이트 단위로 같다. 캐시 적중·`--incremental` 두 번(파일 변경 포함)이
-    전체 분석과 같고, `087f516`이 쓴 v8 캐시 항목은 형식 버전이 달라 다시 분석된다.
-  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
-- 재검토 반영(`bfb42a9`) 뒤 다시 돌린 것(부하 평균 2~10):
-  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
-    1,239 통과·22 건너뜀·시간 초과 3(`build_config_cache_test`·`analyzer_graph_index_test`·
-    `fact_cache_test` 각 1, 모두 `TimeoutException`). 세 파일을 `-j 1` 기본 제한으로 다시 돌려 44 통과·
-    3 건너뜀. CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
-  - 3.11.0 worktree(`bfb42a9`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 146개(위 목록에
-    `deps_cli` 추가, `-j 1 --timeout=4x`) 통과.
-  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
-    `origin/main` 대비 finding별 줄을 잃은 finding 0(위 "재검토 반영"의 fixture 10개).
-  - 자기 분석은 `origin/main`과 바이트 단위로 같다. `w3`에서 처음 분석, `cf4f9ae`가 쓴 캐시 위의 실행,
-    캐시 적중, `--incremental` 두 번(파일 변경 포함)이 바이트 단위로 같다.
-  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
-- 최종 재검토 반영(`4bd4ff2`) 뒤 다시 돌린 것(부하 평균 5~10):
-  - 3.13.3: 포맷 변경 없음, `dart analyze --fatal-infos` 깨끗. 일반 단계(`-j 2`, 기본 30초 제한)
-    1,243 통과·22 건너뜀·시간 초과 1(`dup_cli_test`, `TimeoutException`) → 그 파일을 `-j 1` 기본 제한으로
-    다시 돌려 6/6 통과. CLI 계약(스스로 컴파일) 243 ok, 오탐 코퍼스·analyzer 경계 통과.
-  - 3.11.0 worktree(`4bd4ff2`): 포맷·`dart analyze --fatal-infos` 깨끗, 관련 테스트 148개(`-j 1
-    --timeout=4x`) 통과.
-  - 코퍼스: 단일 패키지 75개 `dead`·`dead --closed-app` 150건이 `origin/main`과 바이트 단위로 같다.
-    `origin/main` 대비 줄을 잃은 finding 0(위 "최종 재검토 반영"의 fixture 12개).
-  - 자기 분석은 `origin/main`과 바이트 단위로 같다. `tu`·`w3`에서 처음 분석, `97370a3`가 쓴 캐시 위의
-    실행, 캐시 적중, `--incremental` 두 번(파일 변경 포함)이 바이트 단위로 같고, `tu`에서 `lib/` import를
-    더한 뒤에도 캐시 적중·증분·처음 분석이 같다(새 간선의 줄이 붙는다).
-  - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
+- `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다(HANDOFF는 게시 패키지에서
+  빠진다).
 
 ## 검증 메모
 
@@ -312,7 +175,10 @@ part·v37 캐시를 확인하고 should-fix 1·nit 2를 냈다.
 - Dart 3.11.0은 analyzer 14.5.0, 3.13.3은 14.7.0을 해석한다. 3.11.0 검증은 lock이 바뀌므로 별도
   worktree에서 한다.
 - 테스트·바이너리 실행은 `HOME`을 스크래치로 두고 돌린다. 일반 테스트 한 번이 실제 사용자 캐시에
-  임시 루트마다 항목을 남기기 때문이다(아래 Next Steps).
+  임시 루트마다 항목을 남기기 때문이다(아래 Next Steps). git 커밋은 실제 `HOME`으로 한다(전역 git
+  설정).
+- 같은 캐시 신원(v39)으로 문구만 바뀐 바이너리를 같은 `HOME`에서 돌리면 이전 문구의 캐시 항목이
+  나온다. 문구를 바꾼 뒤에는 `HOME`을 새로 둔다.
 
 ## 리뷰 절차의 대체
 
@@ -326,23 +192,37 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
   90% 게이트 결과를 PR에서 확인한다.
 - 다음 릴리스(0.18.0 후보)는 CONTRIBUTING 절차를 따른다. 게시 전에 이슈 #160에 수정 버전을
   안내할지 사용자에게 확인한다.
-- 이번에 보고 남긴 것:
-  - (PR #166 리뷰가 찾은 기존 동작, `origin/main`과 같다) `lib/dead%20enc.dart`처럼 이름에 유효한
-    퍼센트 이스케이프가 든 파일은 그래프에 아예 없고 finding도 한계도 없다.
-  - (같음) 중첩 pub workspace 멤버(`pkgs/nest`가 `workspace: [sub]`를 선언)는 `--workspace`에서 분석되지
-    않고 어떤 한계도 알리지 않는다.
-  - (같음) `--workspace` 없이 `source_packages: [pkgs/sp]`면 색인한 `pkgs/sp`도
-    `workspace-members-not-indexed: … pkgs/sp`로 보고된다.
+- 사용자 결정이 필요한 것:
+  - impact-precheck 게이트 정책(위 조사). 지금은 큰 PR의 머지 커밋마다 붉어진다.
+  - `query` 문서의 limitations를 주제에 맞게 좁히기(5차에서 남긴 결정).
   - 대표 라이브러리가 아닌 export 전용 최상위 라이브러리(예: `collection`의 `lib/algorithms.dart`)는
-    게시 패키지에서도 dead 파일로 보고되고, 자기 선언이 없어 `public-libraries:`에도 세지지 않는다.
-    사용자 결정이 필요한 항목이다(대표 라이브러리 밖 공개 라이브러리 보존을 넓히지 않기로 한 기존
-    결정과 맞물린다). 이번 수정 1로 workspace에서는 그 finding의 경로만 바로잡혔다.
+    게시 패키지에서도 dead 파일로 보고되고 `public-libraries:`에도 세지지 않는다.
+- 이번에 보고 남긴 것(재현함, `origin/main`과 같은 동작):
+  - `--workspace` 없이 `source_packages: [pkgs/sp]`이고 `pkgs/sp`가 루트 `workspace:` 멤버면
+    `workspace-members-not-indexed: pkgs/other, pkgs/sp are separate workspace packages; …`가 나온다.
+    실제로는 `pkgs/sp/lib/`가 분석되고(같은 실행의 finding이 `pkgs/sp/lib/sp.dart`에 있다) `test/` 등은
+    분석되지 않는다(`pkgs/sp/test`에서만 쓰는 `spOnlyTest`가 미도달로 보고된다). 줄은 반만 참이다. 같은
+    모양의 이웃: 루트 `workspace: [example]`이면 `--workspace` 없이도 `example/`가 루트 표준 디렉터리라
+    통째로 분석되는데(`package:exm_example/orphan.dart` finding) 같은 줄이 `example`을 "separate … run on
+    each member root"로 적는다. 멤버마다 실제 분석 범위(루트 표준 디렉터리 안·`source_packages`의 `lib/`만·
+    분석 안 함)를 나눠 적어야 하는데, 문구·키를 새로 정해야 해서 이번 범위에서 뺐다.
+  - pub workspace 글롭 항목(`workspace: [pkgs/*]`, pub은 언어 버전 3.11부터 받아들인다. 3.13.3에서
+    `dart pub get`이 `pkgs/a`·`pkgs/b`를 해석함을 확인)을 `--workspace`가 펼치지 않는다. 모든 항목이
+    글롭이면 `Analysis failed: --workspace resolved no members: every declared workspace entry was skipped
+    (pkgs/*)`(종료 2), 일부면 `workspace-members-not-indexed: pkgs/* are declared but were not indexed
+    (unreadable member directory or pubspec)`(이유가 틀림)다. pub의 글롭 의미(패키지 `glob`, 숨김 디렉터리,
+    pubspec 없는 디렉터리)를 원본으로 확인한 뒤 펼치거나, 최소한 이유 문구를 고친다. 이 세션에서는
+    dart-lang/pub 원본을 읽을 수 없었다.
+  - `runtime`·`routes`·`bridges`·`schema`도 analyzer가 해석하지 않은 유닛을 조용히 건너뛴다
+    (`resolveProjectUnitsEach`의 `if (result is ResolvedUnitResult)` 등). 각 명령의 한계 계약에 맞춰
+    세는 것은 별도 작업이다.
+- 이전부터 남은 것:
   - `source_packages`의 패키지는 대표 라이브러리 보존도 `public-libraries:`도 적용하지 않는다(로컬
     path 의존성을 앱 내부 코드로 본다, 기존 동작). 게시하는 로컬 패키지를 그렇게 다룰지는 별도 판단이다.
   - 일반 테스트 한 번이 실제 사용자 캐시 `~/.cache/dartograph`에 임시 루트마다 새 항목을 남긴다.
     임시 패키지를 분석하는 CLI·`dart run` 테스트 30여 파일이 `userCacheEnvironment`나
     `XDG_CACHE_HOME`을 격리하지 않는다. test/AGENTS.md의 "격리 캐시" 규칙과 맞지 않는 테스트 쪽
-    후속이다(파일 수가 많아 이번 범위에서 뺐다).
+    후속이다(이번에 더한 테스트는 격리한다).
   - `build_config_cache_test`가 시간 초과하면 teardown 뒤에도 본문이 돌아 증분 캐시 디렉터리를 다시
     만든다(`/tmp/dartograph-build-incremental.*`가 남는다).
   - 도움말의 CODEOWNERS 문단 "The file path is not echoed in errors."는 내용 오류 진단에만 맞다. 읽기
@@ -370,8 +250,8 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
 ## Resume Prompt
 
 HANDOFF.md와 적용 AGENTS.md를 읽고 branch/status를 확인해줘. 발행본은 0.17.0이고 `main`
-`acda403`까지의 `Unreleased`는 미발행이야. 브랜치 `ccr-37904670-hxdjsx`의 5차 수정(workspace·
-source_packages 파일 finding 경로, 멤버별 `public-libraries:`, rules 진단 길이)이 푸시됐는지와 CI는
-GitHub에서 확인해줘. 릴리스는 지시가 있을 때 CONTRIBUTING 절차를 따라. #160은 Refs로만 연결돼
-있으니 제보자 확인 전에는 닫지 말고, 새 댓글은 승인 뒤에만 달아. Next Steps의 제외 항목은 근거 없이
-착수하지 마.
+`28d75c7`까지의 `Unreleased`는 미발행이야. 브랜치 `ccr-37904670-hxdjsx`의 6차 수정
+(`unresolved-files:` 한계, `--workspace` 중첩 멤버 한계)이 푸시됐는지와 CI는 GitHub에서 확인해줘.
+impact-precheck 게이트 실패는 의도된 `--fail-on high`라서 정책 결정 전에는 바꾸지 마. 릴리스는 지시가
+있을 때 CONTRIBUTING 절차를 따라. #160은 Refs로만 연결돼 있으니 제보자 확인 전에는 닫지 말고, 새
+댓글은 승인 뒤에만 달아. Next Steps의 제외 항목은 근거 없이 착수하지 마.
