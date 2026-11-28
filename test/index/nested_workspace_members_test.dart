@@ -84,11 +84,13 @@ resolution: workspace
 
   // example은 pkgs/nest의 example/ 디렉터리로 이미 분석돼 세지 않는다. sub는 더
   // 안쪽 집계 멤버(inner)의 파일만 담고 있어 센다. empty는 파일이 없어 센다.
-  const expected =
-      'workspace-members-not-indexed: pkgs/nest/empty, pkgs/nest/sub are '
-      'nested workspace members declared by pkgs/nest; --workspace aggregates '
-      'only the members listed in the root pubspec; run dartograph --workspace '
-      'on pkgs/nest to analyze them';
+  /// [members]를 [declarer]가 선언한 중첩 멤버로 센 줄이다.
+  String nestedLine(String members, String declarer) =>
+      'workspace-members-not-indexed: $members are nested workspace members '
+      'declared by $declarer; --workspace aggregates only the members listed '
+      'in the root pubspec; run dartograph on each member root';
+
+  final expected = nestedLine('pkgs/nest/empty, pkgs/nest/sub', 'pkgs/nest');
 
   test('nested members outside the analysis scope are reported', () async {
     final result = await AnalyzerGraphIndex(
@@ -149,66 +151,103 @@ resolution: workspace
     expect(notIndexedOf(reused), [expected]);
   });
 
-  test('a glob entry counts only when nothing under its literal directory is '
-      'analyzed', () async {
-    // pub은 언어 버전 3.11부터 `workspace:` 글롭을 받는다. 집계는 글롭을 펼치지
-    // 않는다. `example/*`가 고르는 e1은 pkgs/nest의 example/로 이미 분석되므로
-    // 세면 거짓이고, `packages/*` 아래에는 분석한 파일이 없다.
-    final root = Directory(
-      Directory.systemTemp
-          .createTempSync('dartograph-nested-glob.')
-          .resolveSymbolicLinksSync(),
-    );
-    addTearDown(() => root.deleteSync(recursive: true));
+  group('globs and deeper nesting', () {
+    late Directory root;
+
     void put(String relative, String content) {
       File(p.join(root.path, relative))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(content);
     }
 
-    String pubspec(String name, [String extra = '']) =>
-        'name: $name\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
-        '$extra';
-    put('pubspec.yaml', pubspec('glob_root', 'workspace:\n  - pkgs/nest\n'));
-    put(
-      'pkgs/nest/pubspec.yaml',
-      pubspec(
-        'nest',
-        'resolution: workspace\n'
-            'workspace:\n  - packages/*\n  - example/*\n',
-      ),
-    );
-    put('pkgs/nest/lib/nest.dart', 'void nestApi() {}\n');
-    for (final (directory, name) in [
-      ('packages/p1', 'p1'),
-      ('example/e1', 'e1'),
-    ]) {
+    /// 언어 버전 3.11(글롭 허용)의 워크스페이스 멤버 패키지다.
+    void package(String path, String name, [String workspace = '']) {
       put(
-        'pkgs/nest/$directory/pubspec.yaml',
-        pubspec(name, 'resolution: workspace\n'),
+        '$path/pubspec.yaml',
+        'name: $name\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
+            'resolution: workspace\n$workspace',
       );
-      put('pkgs/nest/$directory/lib/$name.dart', 'class ${name}Orphan {}\n');
+      put('$path/lib/$name.dart', 'class ${name}Orphan {}\n');
     }
-    final pub = await Process.run(Platform.resolvedExecutable, const [
-      'pub',
-      'get',
-      '--offline',
-    ], workingDirectory: root.path);
-    expect(pub.exitCode, 0, reason: '${pub.stdout}${pub.stderr}');
 
-    final result = await AnalyzerGraphIndex(
-      aggregateWorkspace: true,
-      userCacheEnvironment: const {},
-    ).index(root.path);
+    setUp(() async {
+      root = Directory(
+        Directory.systemTemp
+            .createTempSync('dartograph-nested-glob.')
+            .resolveSymbolicLinksSync(),
+      );
+      put(
+        'pubspec.yaml',
+        'name: glob_root\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
+            'workspace:\n  - pkgs/a\n  - pkgs/b\n  - pkgs/c\n  - pkgs/d\n'
+            '  - pkgs/e\n',
+      );
+      // a: 첫 마디부터 글롭이라 글롭 앞 디렉터리가 멤버 자신이다(멤버 lib/ 파일과 무관하게 센다).
+      package('pkgs/a', 'a', 'workspace:\n  - sub_*\n');
+      package('pkgs/a/sub_x', 'sub_x');
+      package('pkgs/a/sub_y', 'sub_y');
+      // b: `*`는 q1과 이미 분석되는 b의 example/을 고른다. pubspec 없는 lib/은 고르지 않는다.
+      package('pkgs/b', 'b', 'workspace:\n  - "*"\n');
+      package('pkgs/b/q1', 'q1');
+      package('pkgs/b/example', 'b_example');
+      // c: p1은 source_packages라 lib/가 분석되고 p2는 분석되지 않는다.
+      package('pkgs/c', 'c', 'workspace:\n  - packages/*\n');
+      package('pkgs/c/packages/p1', 'p1');
+      package('pkgs/c/packages/p2', 'p2');
+      // d: 선택지 글롭은 펼치지 않고 패턴으로 센다.
+      package('pkgs/d', 'd', 'workspace:\n  - "{m1,m2}"\n');
+      package('pkgs/d/m1', 'm1');
+      package('pkgs/d/m2', 'm2');
+      // e: 중첩 멤버 sub가 다시 deeper를 선언한다.
+      package('pkgs/e', 'e', 'workspace:\n  - sub\n');
+      package('pkgs/e/sub', 'sub', 'workspace:\n  - deeper\n');
+      package('pkgs/e/sub/deeper', 'deeper');
+      final pub = await Process.run(Platform.resolvedExecutable, const [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: root.path);
+      expect(pub.exitCode, 0, reason: '${pub.stdout}${pub.stderr}');
+      put('dartograph.yaml', 'source_packages:\n  - pkgs/c/packages/p1\n');
+    });
+    tearDown(() => root.deleteSync(recursive: true));
 
-    expect(notIndexedOf(result), [
-      'workspace-members-not-indexed: pkgs/nest/packages/* are nested '
-          'workspace members declared by pkgs/nest; --workspace aggregates '
-          'only the members listed in the root pubspec; run dartograph '
-          '--workspace on pkgs/nest to analyze them',
-    ]);
-    final nodes = result.graph.nodes.keys.toSet();
-    expect(nodes, contains('package:e1/e1.dart::e1Orphan'));
-    expect(nodes.where((id) => id.startsWith('package:p1/')), isEmpty);
+    test('every unanalyzed nested member is named or counted', () async {
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+        userCacheEnvironment: const {},
+      ).index(root.path);
+
+      expect(notIndexedOf(result)..sort(), [
+        nestedLine('pkgs/a/sub_x, pkgs/a/sub_y', 'pkgs/a'),
+        nestedLine('pkgs/b/q1', 'pkgs/b'),
+        nestedLine('pkgs/c/packages/p2', 'pkgs/c'),
+        'workspace-members-not-indexed: pkgs/d/{m1,m2} are workspace member '
+            'globs declared by pkgs/d that dartograph does not expand; the '
+            'packages they match are not aggregated as workspace members '
+            '(their files are analyzed only when they lie in an analyzed '
+            'source directory); run dartograph on each member root',
+        nestedLine('pkgs/e/sub', 'pkgs/e'),
+        nestedLine('pkgs/e/sub/deeper', 'pkgs/e/sub'),
+      ]);
+      // 줄의 근거: 센 패키지의 선언은 그래프에 없고, 세지 않은 것은 있다.
+      final nodes = result.graph.nodes.keys.toSet();
+      for (final name in [
+        'sub_x',
+        'sub_y',
+        'q1',
+        'p2',
+        'm1',
+        'sub',
+        'deeper',
+      ]) {
+        expect(nodes.where((id) => id.startsWith('package:$name/')), isEmpty);
+      }
+      expect(
+        nodes,
+        contains('package:b_example/b_example.dart::b_exampleOrphan'),
+      );
+      expect(nodes, contains('package:p1/p1.dart::p1Orphan'));
+    });
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -1856,7 +1857,7 @@ AnalyzerGraphResult _assembleResult({
     // 집계는 루트 목록만 따르므로, 알리지 않으면 중첩 멤버 소스가 빠진 결과가
     // "발견 없음"과 구분되지 않는다.
     limitationDetails.addAll(
-      _nestedWorkspaceMembersLimitations(workspace.members, [
+      _nestedWorkspaceMembersLimitations(root, workspace.members, [
         ...sources,
         ...unresolvedFiles,
       ]),
@@ -2001,21 +2002,19 @@ List<String> _workspaceMemberPaths(String? pubspecContent) {
 ///
 /// pub은 멤버 pubspec의 `workspace:`가 선언한 패키지(중첩 워크스페이스)도 같은
 /// 해석(루트 package config)에 넣지만, 집계는 루트 pubspec의 목록만 따른다. 집계한
-/// 멤버 [members]마다 그 `workspace:` 항목을 멤버 기준 경로로 바꿔 한 줄로 센다.
+/// 멤버 [members]에서 시작해 선언된 중첩 멤버의 pubspec을 다시 따라가며(방문 집합,
+/// 깊이 상한 [_nestedWorkspaceDepthLimit]) 선언한 패키지마다 항목을 펼친다
+/// ([_expandNestedWorkspaceEntries]). [root]는 스캔 루트의 절대 경로다.
 ///
-/// 두 경우는 세지 않는다. 루트 목록으로 이미 집계한 멤버와, [analyzedFiles](분석
-/// 대상으로 열거한 파일의 루트 기준 POSIX 경로) 가운데 그 디렉터리 안에 있으면서 더
-/// 안쪽 집계 멤버에 속하지 않는 파일이 있는 항목이다. 뒤의 경우는 멤버의 표준 소스
-/// 디렉터리(예: `pkgs/a/example`) 안에 있거나 `source_packages`여서 소스가 이미
-/// 분석되므로 "색인하지 않음"이 거짓이 된다. 그래서 Dart 파일이 하나도 없는 중첩
-/// 멤버는 디렉터리와 상관없이 센다(집계하지 않은 것은 같다).
-///
-/// pub은 언어 버전 3.11부터 `workspace:` 항목에 글롭(`packages/*`)을 받는다. 집계는
-/// 글롭을 펼치지 않으므로, 글롭 항목은 첫 글롭 마디 앞까지의 디렉터리
-/// ([_globLiteralDirectory])로 같은 확인을 한다. 그 디렉터리에 분석 파일이 없으면
-/// 글롭이 고르는 어떤 패키지도 분석되지 않았으므로 세도 참이고, 있으면
-/// (`example/*`) 세지 않는다.
+/// 펼친 디렉터리 중 두 경우는 세지 않는다. 루트 목록으로 이미 집계한 멤버와,
+/// [analyzedFiles](분석 대상으로 열거한 파일의 루트 기준 POSIX 경로) 가운데 그
+/// 디렉터리 안에 있으면서 더 안쪽 집계 멤버에 속하지 않는 파일이 있는 디렉터리다.
+/// 뒤의 경우는 멤버의 표준 소스 디렉터리(예: `pkgs/a/example`) 안에 있어 통째로
+/// 분석되거나 `source_packages`여서 `lib/`가 분석된다(그 밖의 디렉터리는
+/// `source_packages`의 계약대로 분석하지 않는다). Dart 파일이 하나도 없는 중첩
+/// 멤버는 센다. 펼치지 못한 글롭은 패턴 그대로 따로 센다(숨기지 않는다).
 List<String> _nestedWorkspaceMembersLimitations(
+  String root,
   List<_WorkspaceMember> members,
   List<String> analyzedFiles,
 ) {
@@ -2030,41 +2029,233 @@ List<String> _nestedWorkspaceMembersLimitations(
         ),
   );
   final lines = <String>[];
-  for (final member in members) {
-    final declared = <String>{
-      for (final entry in _workspaceMemberPaths(member.pubspecContent))
-        p.posix.normalize(p.posix.join(member.relPath, entry)),
-    };
-    final nested = [
-      for (final path in declared)
-        if (!aggregated.contains(path) &&
-            !holdsAnalyzedFile(_globLiteralDirectory(path)))
-          path,
-    ]..sort();
-    if (nested.isEmpty) continue;
-    lines.add(
-      'workspace-members-not-indexed: ${nested.join(', ')} '
-      'are nested workspace members declared by ${member.relPath}; '
-      '--workspace aggregates only the members listed in the root pubspec; '
-      'run dartograph --workspace on ${member.relPath} to analyze them',
+  final visited = {...aggregated};
+  final pending = Queue<(String, String, int)>.of([
+    for (final member in members) (member.relPath, member.pubspecContent, 0),
+  ]);
+  while (pending.isNotEmpty) {
+    final (declarer, pubspec, depth) = pending.removeFirst();
+    final entries = _workspaceMemberPaths(pubspec);
+    final expansion = _expandNestedWorkspaceEntries(
+      root,
+      declarer,
+      entries,
+      expand: depth < _nestedWorkspaceDepthLimit,
     );
+    final unindexed = [
+      for (final directory in expansion.directories)
+        if (!aggregated.contains(directory) && !holdsAnalyzedFile(directory))
+          directory,
+    ]..sort();
+    if (unindexed.isNotEmpty) {
+      lines.add(
+        'workspace-members-not-indexed: ${unindexed.join(', ')} are nested '
+        'workspace members declared by $declarer; --workspace aggregates only '
+        'the members listed in the root pubspec; run dartograph on each '
+        'member root',
+      );
+    }
+    final patterns = [
+      for (final pattern in expansion.patterns)
+        p.posix.normalize(p.posix.join(declarer, pattern)),
+    ]..sort();
+    if (patterns.isNotEmpty) {
+      lines.add(
+        'workspace-members-not-indexed: ${patterns.join(', ')} are workspace '
+        'member globs declared by $declarer that dartograph does not expand; '
+        'the packages they match are not aggregated as workspace members '
+        '(their files are analyzed only when they lie in an analyzed source '
+        'directory); run dartograph on each member root',
+      );
+    }
+    for (final directory in expansion.directories) {
+      if (!visited.add(directory)) continue;
+      final content = _nestedWorkspacePubspec(root, directory);
+      if (content != null) pending.add((directory, content, depth + 1));
+    }
   }
   return lines;
 }
 
-/// [path]에서 글롭 메타문자(`*`·`?`·`[`·`{`)가 든 첫 마디 앞까지의 디렉터리다.
+/// 중첩 워크스페이스 pubspec을 따라가는 깊이 상한이다.
 ///
-/// 글롭이 아니면 [path] 그대로다. 첫 마디부터 글롭이면 `.`(스캔 루트)이다.
-String _globLiteralDirectory(String path) {
-  final literal = p.posix
-      .split(path)
-      .takeWhile((segment) => !segment.contains(_globMetacharacters))
-      .toList();
-  return literal.isEmpty ? '.' : p.posix.joinAll(literal);
+/// 방문 집합이 순환을 끊으므로 상한은 병적인 깊이에서 일을 묶는 장치다. 상한에
+/// 닿은 패키지의 항목은 펼치지 않고 패턴으로 센다.
+const _nestedWorkspaceDepthLimit = 32;
+
+/// 글롭 하나를 펼칠 때 훑는 디렉터리 항목 수의 상한이다. 넘으면 그 글롭을 센다.
+const _nestedWorkspaceGlobEntryLimit = 50000;
+
+/// [declarer](스캔 루트 기준 POSIX 경로)의 `workspace:` 항목 [entries]를 펼친다.
+///
+/// 결과의 `directories`는 루트 기준 POSIX 경로, `patterns`는 펼치지 못한 항목이다
+/// (선언한 패키지 기준). [expand]가 거짓이면(깊이 상한) 유효한 항목을 모두 패턴으로
+/// 돌려준다. pub(Dart 3.13.3에서 확인)은 항목을 그 패키지 기준으로 읽고,
+/// 언어 버전 3.11부터 글롭을 받아 `pubspec.yaml`이 있는 디렉터리(숨김 디렉터리
+/// 포함)만 고른다. 고른 것이 없으면 `pub get`이 실패한다. 여기서는 숨김 디렉터리를
+/// 고르지 않는다. 분석 캐시 키가 숨김 디렉터리의 pubspec을 해시하지 않아서, 골랐다면
+/// 그런 패키지가 생기거나 사라져도 캐시 적중이 이전 줄을 돌려준다.
+///
+/// - 절대 경로나 `..` 마디가 든 항목은 건너뛴다. pub이 그런 워크스페이스를
+///   거부하고(`../other` 확인), 루트 해석도 스캔 루트 밖을 읽지 않는다.
+/// - 글롭이 아닌 항목은 그대로 디렉터리다(없어도 센다).
+/// - `*`·`?`만 쓰는 글롭은 마디마다 이름을 맞춰 펼친다([_matchesWildcardSegment]).
+///   마디 수만큼만 내려가고 링크도 따라간다(pub처럼). 맞는 디렉터리가 없거나,
+///   읽지 못한 디렉터리가 있거나, [_nestedWorkspaceGlobEntryLimit]을 넘으면 패턴으로
+///   센다.
+/// - `**`·`[...]`·`{...}`·`\`가 든 글롭은 펼치지 않고 패턴으로 센다. 패키지 `glob`의
+///   정규식 매처를 저장소가 고른 패턴에 쓰지 않는다(`**a**a…` 같은 패턴의 역추적
+///   비용, `PathGlob` 문서의 같은 이유).
+({List<String> directories, List<String> patterns})
+_expandNestedWorkspaceEntries(
+  String root,
+  String declarer,
+  List<String> entries, {
+  required bool expand,
+}) {
+  final directories = <String>{};
+  final patterns = <String>{};
+  for (final entry in entries) {
+    final relative = p.posix.normalize(entry.trim());
+    if (relative.isEmpty ||
+        p.posix.isAbsolute(relative) ||
+        p.posix.split(relative).contains('..')) {
+      continue;
+    }
+    if (!expand) {
+      patterns.add(relative);
+      continue;
+    }
+    if (!relative.contains(_wildcardCharacters)) {
+      directories.add(p.posix.normalize(p.posix.join(declarer, relative)));
+      continue;
+    }
+    if (relative.contains(_unexpandedGlobSyntax)) {
+      patterns.add(relative);
+      continue;
+    }
+    final matches = _expandWildcardEntry(root, declarer, relative);
+    if (matches == null || matches.isEmpty) {
+      patterns.add(relative);
+    } else {
+      directories.addAll(matches);
+    }
+  }
+  return (directories: directories.toList(), patterns: patterns.toList());
 }
 
-/// pub `workspace:` 글롭(패키지 `glob` 문법)의 메타문자다.
-final _globMetacharacters = RegExp(r'[*?\[{]');
+/// `*`·`?`만 쓰는 글롭 [relative]를 [declarer] 아래에서 펼친다(루트 기준 경로).
+///
+/// 펼치는 일이 불확실하면(읽지 못한 디렉터리, 항목 상한 초과) null이다.
+List<String>? _expandWildcardEntry(
+  String root,
+  String declarer,
+  String relative,
+) {
+  final caseSensitive = p.style != p.Style.windows;
+  var frontier = [declarer];
+  var visitedEntries = 0;
+  try {
+    for (final segment in p.posix.split(relative)) {
+      final next = <String>[];
+      for (final directory in frontier) {
+        final absolute = p.joinAll([root, ...p.posix.split(directory)]);
+        if (!segment.contains(_wildcardCharacters)) {
+          final child = p.posix.join(directory, segment);
+          if (FileSystemEntity.isDirectorySync(p.join(absolute, segment))) {
+            next.add(child);
+          }
+          continue;
+        }
+        final children = Directory(absolute).listSync(followLinks: false)
+          ..sort((a, b) => a.path.compareTo(b.path));
+        for (final child in children) {
+          if (++visitedEntries > _nestedWorkspaceGlobEntryLimit) return null;
+          final name = p.basename(child.path);
+          if (!name.startsWith('.') &&
+              FileSystemEntity.isDirectorySync(child.path) &&
+              _matchesWildcardSegment(
+                caseSensitive ? segment : segment.toLowerCase(),
+                caseSensitive ? name : name.toLowerCase(),
+              )) {
+            next.add(p.posix.join(directory, name));
+          }
+        }
+      }
+      frontier = next;
+    }
+  } on FileSystemException {
+    return null;
+  }
+  return [
+    for (final directory in frontier)
+      if (File(
+        p.joinAll([root, ...p.posix.split(directory), 'pubspec.yaml']),
+      ).existsSync())
+        directory,
+  ];
+}
+
+/// [name]이 `*`(0자 이상)·`?`(한 글자)만 쓰는 글롭 마디 [pattern]에 맞는지다.
+///
+/// 마지막 `*` 하나로만 되돌아가는 탐욕 매처라 최악 비용이 O(이름 × 패턴)이다.
+bool _matchesWildcardSegment(String pattern, String name) {
+  var patternIndex = 0;
+  var nameIndex = 0;
+  var star = -1;
+  var resume = 0;
+  while (nameIndex < name.length) {
+    if (patternIndex < pattern.length &&
+        (pattern[patternIndex] == '?' ||
+            pattern[patternIndex] == name[nameIndex])) {
+      patternIndex++;
+      nameIndex++;
+    } else if (patternIndex < pattern.length && pattern[patternIndex] == '*') {
+      star = patternIndex++;
+      resume = nameIndex;
+    } else if (star >= 0) {
+      patternIndex = star + 1;
+      nameIndex = ++resume;
+    } else {
+      return false;
+    }
+  }
+  while (patternIndex < pattern.length && pattern[patternIndex] == '*') {
+    patternIndex++;
+  }
+  return patternIndex == pattern.length;
+}
+
+/// 중첩 멤버 [directory](루트 기준 POSIX 경로)의 pubspec 내용이다.
+///
+/// 없거나, 경로 어딘가가 링크라 실제 위치가 다르거나, 읽지 못하면 null이다(그
+/// 아래 항목은 따라가지 않는다 — 그 디렉터리 자체는 이미 세거나 분석된 것으로
+/// 판정했다). 링크를 따라가지 않으므로 `loop -> ..` 같은 링크가 같은 pubspec을
+/// 경로만 길어지며 거듭 읽게 하지 않는다. 루트 해석이 symlink 멤버를 건너뛰는 것과
+/// 같은 경계다. [root]는 링크를 푼 절대 경로다.
+String? _nestedWorkspacePubspec(String root, String directory) {
+  // 숨김 디렉터리의 pubspec은 캐시 키에 없다([_expandNestedWorkspaceEntries]와 같은 이유).
+  if (p.posix.split(directory).any((segment) => segment.startsWith('.'))) {
+    return null;
+  }
+  final path = p.joinAll([root, ...p.posix.split(directory), 'pubspec.yaml']);
+  final file = File(path);
+  try {
+    if (!regularFileExistsSync(file) ||
+        !p.equals(p.normalize(file.resolveSymbolicLinksSync()), path)) {
+      return null;
+    }
+    return readConfigurationSync(file);
+  } on Exception {
+    return null;
+  }
+}
+
+/// pub `workspace:` 글롭의 와일드카드 문자다(이것이 없으면 글롭이 아니다).
+final _wildcardCharacters = RegExp(r'[*?\[\]{}\\]');
+
+/// 펼치지 않는 글롭 문법이다: `**`, 문자 클래스, 선택지, 이스케이프.
+final _unexpandedGlobSyntax = RegExp(r'\*\*|[\[\]{}\\]');
 
 /// `--workspace` 집계에서 분석할 워크스페이스 멤버 하나다.
 final class _WorkspaceMember {
@@ -2606,8 +2797,10 @@ const _cacheSchemaVersion = 9;
 // 집계하지 않은 중첩 워크스페이스 멤버의 workspace-members-not-indexed 줄을
 // 싣는다(v39). 입력이 같아도 v38 캐시에는 두 줄이 없다.
 // unresolved-files 문구에 백슬래시를 더한다(v40, 발행 전 브랜치 안의 변경).
+// 중첩 멤버 줄이 `*`·`?` 글롭을 펼치고 중첩 pubspec을 따라가며 안내 문구가
+// 바뀐다(v41, 발행 전 브랜치 안의 변경).
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v40-unresolved-files-backslash';
+    'dartograph-analysis-$toolVersion-cache-v41-nested-member-expansion';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///

@@ -143,12 +143,17 @@ pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인�
 pubspec은 분석 실패(exit 2)이고, 진단이 그 원인을 짚는다(예: `Analysis failed: --workspace
 requires a pub workspace root: pubspec.yaml declares no workspace members`). 집계는 루트 목록만
 따른다. 멤버 pubspec이 다시 `workspace:`로 선언한 중첩 멤버(pub은 같은 해석에 넣는다)는 집계하지
-않고, 선언한 멤버마다 `workspace-members-not-indexed: pkgs/nest/sub are nested workspace members
-declared by pkgs/nest; …; run dartograph --workspace on pkgs/nest to analyze them`으로 알린다. 그
-멤버의 표준 소스 디렉터리 안(예: `pkgs/nest/example`)에 있거나 `source_packages`라서 파일이 이미
-분석되는 중첩 멤버는 세지 않는다. 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 펼치지 않고, 첫 글롭
-마디 앞 디렉터리 아래에 분석한 파일이 없을 때만 센다(`packages/*`는 세고 `example/*`는 세지 않는다).
-멤버의
+않고, 그래프 명령(`runtime` 제외)이 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub
+are nested workspace members declared by pkgs/nest; …; run dartograph on each member root`로 알린다.
+선언된 중첩 멤버의 pubspec도 따라가므로(순환은 끊고 깊이 상한 32) `pkgs/nest/sub`가 선언한 멤버도
+따로 센다. `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는
+디렉터리에 맞춰 펼쳐 디렉터리마다 판정한다(숨김 디렉터리는 pub과 달리 고르지 않는다 — 분석과 캐시 키
+밖이다). `**`·`[...]`·`{...}`·`\`가 든 글롭, 맞는
+디렉터리가 없거나 읽지 못한 디렉터리가 있는 글롭은 펼치지 않고 `… are workspace member globs declared
+by pkgs/nest that dartograph does not expand; …` 줄에 패턴으로 센다(`--workspace` 자체는 루트의 글롭을
+펼치지 않는다). 세지 않는 것은 루트 목록으로 이미 집계한 멤버, 멤버의 표준 소스 디렉터리 안에 있어
+파일이 분석되는 중첩 멤버(예: `pkgs/nest/example`), `lib/`가 분석되는 `source_packages` 패키지다(그
+밖의 디렉터리는 분석하지 않는다). pub이 거부하는 절대 경로·`..` 항목은 건너뛴다. 멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 
