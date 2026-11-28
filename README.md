@@ -231,7 +231,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   project instead; use it for repositories you do not trust),
   `--workspace` opts into pub workspace aggregation (members listed in the
   root pubspec's `workspace:` are analyzed together; `deps` audits each
-  package against its own pubspec), and `--record <dir>`/`history` keep an
+  package against its own pubspec; nested members that a member's own
+  `workspace:` declares are not aggregated and are named or counted as
+  `workspace-members-not-indexed:`), and `--record <dir>`/`history` keep an
   append-only ledger of run inputs, versions, and results.
 - A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
   GitHub Actions: it activates a published release (or a checked-out source

@@ -145,16 +145,29 @@ requires a pub workspace root: pubspec.yaml declares no workspace members`). 집
 따른다. 멤버 pubspec이 다시 `workspace:`로 선언한 중첩 멤버(pub은 같은 해석에 넣는다)는 집계하지
 않고, 그래프 명령(`runtime` 제외)이 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub
 are nested workspace members declared by pkgs/nest; …; run dartograph on each member root`로 알린다.
-줄마다 앞의 세 디렉터리와 나머지 수를 적는다. 선언된 중첩 멤버의 pubspec도 따라가므로
-`pkgs/nest/sub`가 선언한 멤버도 따로 센다(순환은 끊고, 32단계를 넘어 다시 멤버를 선언하는 패키지는
-`… were not followed (nesting deeper than 32 levels)` 줄에 적는다). `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는
-디렉터리에 맞춰 펼쳐 디렉터리마다 판정한다(숨김 디렉터리는 pub과 달리 고르지 않는다 — 분석과 캐시 키
-밖이다). `**`·`[...]`·`{...}`·`\`가 든 글롭, 맞는
-디렉터리가 없거나 읽지 못한 디렉터리가 있는 글롭은 펼치지 않고 `… are workspace member globs declared
-by pkgs/nest that dartograph does not expand; …` 줄에 패턴으로 센다(`--workspace` 자체는 루트의 글롭을
-펼치지 않는다). 세지 않는 것은 루트 목록으로 이미 집계한 멤버, 멤버의 표준 소스 디렉터리 안에 있어
-파일이 분석되는 중첩 멤버(예: `pkgs/nest/example`), `lib/`가 분석되는 `source_packages` 패키지다(그
-밖의 디렉터리는 분석하지 않는다). pub이 거부하는 절대 경로·`..` 항목은 건너뛴다. 멤버의
+pub이 넣는데 분석하지 않는 것은 이름을 대거나 세고 조용히 빼지 않는다. 줄마다 앞의 세 디렉터리와
+나머지 수를 적고, 반향하는 항목은 200자에서 자른다.
+
+- 선언된 중첩 멤버의 pubspec도 따라가므로 `pkgs/nest/sub`가 선언한 멤버도 따로 센다(순환은 끊는다).
+  따라가지 않은 pubspec은 `workspace members that … may declare were not followed (…)` 줄에 그 패키지를
+  적는다. 이유는 32단계보다 깊은 중첩, 숨김·`build` 디렉터리(분석 캐시 키 밖), 링크를 거친 pubspec,
+  읽지 못한 pubspec(1 MiB 설정 상한 초과 등)이다.
+- `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는 디렉터리에 맞춰
+  펼쳐 디렉터리마다 판정한다. 숨김·`build` 디렉터리는 고르지 않는다(pub은 고른다). 그런 이름에 맞을 수
+  있는 글롭은 패턴 글자만 보고 `hidden or build directories that … can match are not matched by
+  dartograph` 줄로 센다(캐시 적중이 어긋나지 않게 디렉터리를 보지 않는다).
+- 펼치지 않는 글롭은 `workspace member globs declared by … were not expanded: <패턴> (<이유>)` 줄에
+  적는다. 이유는 지원하지 않는 글롭 문법(`**`·`[...]`·`{...}`·`\`), 숨김·`build` 밖에서 맞는 패키지
+  디렉터리 없음, 디렉터리 링크를 지나야 함(펼칠 때 링크를 따라가지 않는다), 읽지 못한 디렉터리, 펼치기
+  예산 소진이다. 예산은 분석 하나의 모든 글롭이 나눠 쓰고 읽은 디렉터리 목록은 그 안에서 기억한다
+  (47,051개 글롭이 든 1 MiB pubspec과 디렉터리 1만 1천 개에서 글롭이 없을 때보다 약 1.6초 더 걸렸다).
+  `--workspace` 자체는 루트의 글롭을 펼치지 않는다.
+- 세지 않는 것은 루트 목록으로 이미 집계한 멤버와, 분석한 파일의 가장 가까운 패키지가 그 디렉터리인
+  경우다(멤버의 표준 소스 디렉터리 안에 있어 통째로 분석되는 `pkgs/nest/example`, `lib/`만 분석되는
+  `source_packages` 패키지). 안에 든 다른 패키지만 분석되는 디렉터리와 Dart 파일이 없는 중첩 멤버는
+  센다. pub이 거부하는 절대 경로·`..` 항목은 건너뛴다.
+
+멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 
