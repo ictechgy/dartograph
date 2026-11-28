@@ -254,4 +254,86 @@ resolution: workspace
       expect(nodes, contains('package:p1/p1.dart::p1Orphan'));
     });
   });
+
+  test(
+    'globs without a match and nesting past the depth cap are counted',
+    () async {
+      // pub은 맞는 것이 없는 글롭을 거부하므로 package config을 손으로 쓴다.
+      final root = Directory(
+        Directory.systemTemp
+            .createTempSync('dartograph-nested-depth.')
+            .resolveSymbolicLinksSync(),
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      void put(String relative, String content) {
+        File(p.join(root.path, relative))
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(content);
+      }
+
+      String pubspec(String name, String workspace) =>
+          'name: $name\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
+          'resolution: workspace\nworkspace:\n$workspace';
+      put(
+        'pubspec.yaml',
+        'name: depth_root\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
+            'workspace:\n  - pkgs/n0\n',
+      );
+      put(
+        '.dart_tool/package_config.json',
+        '{"configVersion": 2, "packages": ['
+            '{"name": "depth_root", "rootUri": "../", "packageUri": "lib/"},'
+            '{"name": "n0", "rootUri": "../pkgs/n0", "packageUri": "lib/"}]}\n',
+      );
+      // n0은 사슬의 시작 n1, 맞는 것이 없는 글롭, 이름 그대로 맞는 `sub*`를 선언한다.
+      put(
+        'pkgs/n0/pubspec.yaml',
+        pubspec('n0', '  - n1\n  - nothing_*\n  - sub*\n'),
+      );
+      put('pkgs/n0/lib/n0.dart', 'class N0 {}\n');
+      put('pkgs/n0/sub/pubspec.yaml', 'name: sub\n');
+      // n1부터 n33까지 각자 다음 단계를 선언하는 사슬이다.
+      var path = 'pkgs/n0';
+      for (var level = 1; level <= 33; level++) {
+        path = '$path/n$level';
+        put('$path/pubspec.yaml', pubspec('n$level', '  - n${level + 1}\n'));
+      }
+
+      final result = await AnalyzerGraphIndex(
+        aggregateWorkspace: true,
+        userCacheEnvironment: const {},
+      ).index(root.path);
+
+      final lines = notIndexedOf(result);
+      expect(lines, contains(nestedLine('pkgs/n0/n1, pkgs/n0/sub', 'pkgs/n0')));
+      expect(
+        lines,
+        contains(
+          'workspace-members-not-indexed: pkgs/n0/nothing_* are workspace '
+          'member globs declared by pkgs/n0 that dartograph does not expand; '
+          'the packages they match are not aggregated as workspace members '
+          '(their files are analyzed only when they lie in an analyzed source '
+          'directory); run dartograph on each member root',
+        ),
+      );
+      // n0(깊이 0)부터 n31(깊이 31)까지 32개 패키지의 항목을 펼친다. n32는 세지만
+      // 그 pubspec은 따라가지 않으므로 그것이 선언한 n33을 따로 알린다.
+      final n32 = [
+        for (var level = 1; level <= 32; level++) 'n$level',
+      ].join('/');
+      expect(
+        lines.where((line) => line.contains('are nested workspace members')),
+        hasLength(32),
+      );
+      expect(
+        lines,
+        contains(
+          'workspace-members-not-indexed: the workspace members declared by '
+          'pkgs/n0/$n32 were not followed (nesting deeper than 32 levels); '
+          'run dartograph on each member root',
+        ),
+      );
+      expect(lines, hasLength(34));
+    },
+  );
 }
