@@ -2030,18 +2030,14 @@ List<String> _nestedWorkspaceMembersLimitations(
   );
   final lines = <String>[];
   final visited = {...aggregated};
+  final unfollowed = <String>{};
   final pending = Queue<(String, String, int)>.of([
     for (final member in members) (member.relPath, member.pubspecContent, 0),
   ]);
   while (pending.isNotEmpty) {
     final (declarer, pubspec, depth) = pending.removeFirst();
     final entries = _workspaceMemberPaths(pubspec);
-    final expansion = _expandNestedWorkspaceEntries(
-      root,
-      declarer,
-      entries,
-      expand: depth < _nestedWorkspaceDepthLimit,
-    );
+    final expansion = _expandNestedWorkspaceEntries(root, declarer, entries);
     final unindexed = [
       for (final directory in expansion.directories)
         if (!aggregated.contains(directory) && !holdsAnalyzedFile(directory))
@@ -2049,7 +2045,7 @@ List<String> _nestedWorkspaceMembersLimitations(
     ]..sort();
     if (unindexed.isNotEmpty) {
       lines.add(
-        'workspace-members-not-indexed: ${unindexed.join(', ')} are nested '
+        'workspace-members-not-indexed: ${_firstPaths(unindexed)} are nested '
         'workspace members declared by $declarer; --workspace aggregates only '
         'the members listed in the root pubspec; run dartograph on each '
         'member root',
@@ -2061,7 +2057,7 @@ List<String> _nestedWorkspaceMembersLimitations(
     ]..sort();
     if (patterns.isNotEmpty) {
       lines.add(
-        'workspace-members-not-indexed: ${patterns.join(', ')} are workspace '
+        'workspace-members-not-indexed: ${_firstPaths(patterns)} are workspace '
         'member globs declared by $declarer that dartograph does not expand; '
         'the packages they match are not aggregated as workspace members '
         '(their files are analyzed only when they lie in an analyzed source '
@@ -2071,16 +2067,41 @@ List<String> _nestedWorkspaceMembersLimitations(
     for (final directory in expansion.directories) {
       if (!visited.add(directory)) continue;
       final content = _nestedWorkspacePubspec(root, directory);
-      if (content != null) pending.add((directory, content, depth + 1));
+      if (content == null) continue;
+      if (depth + 1 < _nestedWorkspaceDepthLimit) {
+        pending.add((directory, content, depth + 1));
+      } else if (_workspaceMemberPaths(content).isNotEmpty) {
+        unfollowed.add(directory);
+      }
     }
   }
+  if (unfollowed.isNotEmpty) {
+    lines.add(
+      'workspace-members-not-indexed: the workspace members declared by '
+      '${_firstPaths(unfollowed.toList()..sort())} were not followed '
+      '(nesting deeper than $_nestedWorkspaceDepthLimit levels); run '
+      'dartograph on each member root',
+    );
+  }
   return lines;
+}
+
+/// 정렬된 [paths]의 앞 세 개와 나머지 수다(`a, b, c and 2 more`).
+///
+/// 글롭 하나가 수천 패키지를 고를 수 있고, 이 줄은 모든 finding에 붙는다.
+/// `options-excluded-files:`·`unresolved-files:`와 같은 규칙으로 줄 길이를 묶는다.
+String _firstPaths(List<String> paths) {
+  const shown = 3;
+  final listed = paths.take(shown).join(', ');
+  return paths.length > shown
+      ? '$listed and ${paths.length - shown} more'
+      : listed;
 }
 
 /// 중첩 워크스페이스 pubspec을 따라가는 깊이 상한이다.
 ///
 /// 방문 집합이 순환을 끊으므로 상한은 병적인 깊이에서 일을 묶는 장치다. 상한에
-/// 닿은 패키지의 항목은 펼치지 않고 패턴으로 센다.
+/// 닿아 따라가지 않은 pubspec이 다시 멤버를 선언하면 그 패키지를 따로 센다.
 const _nestedWorkspaceDepthLimit = 32;
 
 /// 글롭 하나를 펼칠 때 훑는 디렉터리 항목 수의 상한이다. 넘으면 그 글롭을 센다.
@@ -2089,8 +2110,7 @@ const _nestedWorkspaceGlobEntryLimit = 50000;
 /// [declarer](스캔 루트 기준 POSIX 경로)의 `workspace:` 항목 [entries]를 펼친다.
 ///
 /// 결과의 `directories`는 루트 기준 POSIX 경로, `patterns`는 펼치지 못한 항목이다
-/// (선언한 패키지 기준). [expand]가 거짓이면(깊이 상한) 유효한 항목을 모두 패턴으로
-/// 돌려준다. pub(Dart 3.13.3에서 확인)은 항목을 그 패키지 기준으로 읽고,
+/// (선언한 패키지 기준). pub(Dart 3.13.3에서 확인)은 항목을 그 패키지 기준으로 읽고,
 /// 언어 버전 3.11부터 글롭을 받아 `pubspec.yaml`이 있는 디렉터리(숨김 디렉터리
 /// 포함)만 고른다. 고른 것이 없으면 `pub get`이 실패한다. 여기서는 숨김 디렉터리를
 /// 고르지 않는다. 분석 캐시 키가 숨김 디렉터리의 pubspec을 해시하지 않아서, 골랐다면
@@ -2110,9 +2130,8 @@ const _nestedWorkspaceGlobEntryLimit = 50000;
 _expandNestedWorkspaceEntries(
   String root,
   String declarer,
-  List<String> entries, {
-  required bool expand,
-}) {
+  List<String> entries,
+) {
   final directories = <String>{};
   final patterns = <String>{};
   for (final entry in entries) {
@@ -2120,10 +2139,6 @@ _expandNestedWorkspaceEntries(
     if (relative.isEmpty ||
         p.posix.isAbsolute(relative) ||
         p.posix.split(relative).contains('..')) {
-      continue;
-    }
-    if (!expand) {
-      patterns.add(relative);
       continue;
     }
     if (!relative.contains(_wildcardCharacters)) {

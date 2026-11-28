@@ -188,7 +188,9 @@ resolution: workspace
       package('pkgs/a/sub_y', 'sub_y');
       // b: `*`는 q1과 이미 분석되는 b의 example/을 고른다. pubspec 없는 lib/은 고르지 않는다.
       package('pkgs/b', 'b', 'workspace:\n  - "*"\n');
-      package('pkgs/b/q1', 'q1');
+      for (final name in ['q1', 'q2', 'q3', 'q4']) {
+        package('pkgs/b/$name', name);
+      }
       package('pkgs/b/example', 'b_example');
       // c: p1은 source_packages라 lib/가 분석되고 p2는 분석되지 않는다.
       package('pkgs/c', 'c', 'workspace:\n  - packages/*\n');
@@ -220,7 +222,8 @@ resolution: workspace
 
       expect(notIndexedOf(result)..sort(), [
         nestedLine('pkgs/a/sub_x, pkgs/a/sub_y', 'pkgs/a'),
-        nestedLine('pkgs/b/q1', 'pkgs/b'),
+        // 앞의 셋만 적고 나머지는 수로 센다.
+        nestedLine('pkgs/b/q1, pkgs/b/q2, pkgs/b/q3 and 1 more', 'pkgs/b'),
         nestedLine('pkgs/c/packages/p2', 'pkgs/c'),
         'workspace-members-not-indexed: pkgs/d/{m1,m2} are workspace member '
             'globs declared by pkgs/d that dartograph does not expand; the '
@@ -236,6 +239,7 @@ resolution: workspace
         'sub_x',
         'sub_y',
         'q1',
+        'q4',
         'p2',
         'm1',
         'sub',

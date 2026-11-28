@@ -145,8 +145,9 @@ requires a pub workspace root: pubspec.yaml declares no workspace members`). 집
 따른다. 멤버 pubspec이 다시 `workspace:`로 선언한 중첩 멤버(pub은 같은 해석에 넣는다)는 집계하지
 않고, 그래프 명령(`runtime` 제외)이 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub
 are nested workspace members declared by pkgs/nest; …; run dartograph on each member root`로 알린다.
-선언된 중첩 멤버의 pubspec도 따라가므로(순환은 끊고 깊이 상한 32) `pkgs/nest/sub`가 선언한 멤버도
-따로 센다. `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는
+줄마다 앞의 세 디렉터리와 나머지 수를 적는다. 선언된 중첩 멤버의 pubspec도 따라가므로
+`pkgs/nest/sub`가 선언한 멤버도 따로 센다(순환은 끊고, 32단계를 넘어 다시 멤버를 선언하는 패키지는
+`… were not followed (nesting deeper than 32 levels)` 줄에 적는다). `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는
 디렉터리에 맞춰 펼쳐 디렉터리마다 판정한다(숨김 디렉터리는 pub과 달리 고르지 않는다 — 분석과 캐시 키
 밖이다). `**`·`[...]`·`{...}`·`\`가 든 글롭, 맞는
 디렉터리가 없거나 읽지 못한 디렉터리가 있는 글롭은 펼치지 않고 `… are workspace member globs declared
