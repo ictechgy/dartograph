@@ -17,7 +17,9 @@ _Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중�
     `#`·`?`), `055cfa3`(중첩 멤버의 글롭 항목), `e36ee10`(3.11 lint에 맞춘 반복문), `d839b9e`(HANDOFF·README,
     여기까지 PR #167로 푸시됨). 그 위에 PR #167 독립 리뷰 반영: `dd27ec7`(unresolved-files 문구에 백슬래시),
     `856fdd7`(중첩 멤버 글롭 펼치기·깊은 중첩·안내 문구), `b3eab8f`(경로 셋으로 묶기·깊이 상한 줄),
-    `9502e05`(맞는 것 없는 글롭·깊이 상한 테스트), 그 뒤 문서 커밋. 리뷰 반영분은 푸시하지 않았다.
+    `9502e05`(맞는 것 없는 글롭·깊이 상한 테스트), `3cfd98f`(문서). 재검토 반영: `1e7e0bd`(가장 가까운
+    패키지 판정, 따라가지 않은 pubspec·숨김·`build` 글롭 줄, 분석 하나의 펼치기 예산), 그 뒤 문서 커밋.
+    `3cfd98f` 이후는 푸시하지 않았다.
 
 ## 이번 브랜치의 변경
 
@@ -58,45 +60,59 @@ _Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중�
   `workspace: [sub]`를 선언(Dart 3.13.3 `dart pub get --offline`이 받아들이고 package config에 `sub`가
   든다). `dg-main dead --workspace`는 `workspace-members-indexed: pkgs/nest …`와 `0 finding(s)`로 끝나고
   `sub/lib/orphan.dart`의 `SubOrphan`은 그래프에 없었다.
-- 수정(최종, `856fdd7`·`b3eab8f`): 집계한 멤버에서 시작해 선언된 중첩 멤버의 pubspec을 다시 따라가며
-  (방문 집합, 깊이 상한 32) 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub are nested
-  workspace members declared by pkgs/nest; --workspace aggregates only the members listed in the root
-  pubspec; run dartograph on each member root`을 싣는다. 경로는 앞의 셋과 나머지 수(`… and N more`)다.
-  - 글롭(pub은 언어 버전 3.11부터 받는다): `*`·`?`만 쓰는 항목은 `pubspec.yaml`이 있는 디렉터리에
-    마디마다 맞춰 펼치고(마디 수만큼만 내려감, 링크는 따라감, O(이름×패턴) 매처) 맞은 디렉터리마다
-    판정한다. `**`·`[...]`·`{...}`·`\`가 든 글롭, 맞는 디렉터리가 없거나 읽지 못한 디렉터리가 있는 글롭은
-    `… are workspace member globs declared by … that dartograph does not expand; …` 줄에 패턴으로 센다.
-    패키지 `glob`의 정규식 매처는 저장소가 고른 패턴의 역추적 비용 때문에 쓰지 않았다(새 의존성도 없음).
+- 원칙: pub이 넣는데 dartograph가 분석하지 않는 것은 이름을 대거나 세고 조용히 빼지 않는다.
+- 수정(최종, `1e7e0bd`): 집계한 멤버에서 시작해 선언된 중첩 멤버의 pubspec을 다시 따라가며(방문 집합,
+  깊이 상한 32) 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub are nested workspace
+  members declared by pkgs/nest; --workspace aggregates only the members listed in the root pubspec; run
+  dartograph on each member root`을 싣는다. 경로는 앞의 셋과 나머지 수(`… and N more`), 항목 하나는
+  200 rune에서 자른다.
+  - 판정: 분석한 파일마다 가장 가까운 `pubspec.yaml` 디렉터리를 한 번 구해(디렉터리별 기억) 그
+    디렉터리면 분석된 것으로 본다. 멤버의 표준 소스 디렉터리 안 `pkgs/nest/example`은 통째로, `source_packages`
+    패키지는 `lib/`만 분석된다(그 밖은 분석하지 않는다, 기존 계약 — 그 패키지의 줄은 없다). 안에 든 다른
+    패키지(집계 멤버든 `source_packages`든)만 분석되는 디렉터리와 Dart 파일이 없는 중첩 멤버는 센다.
+  - 따라가지 않은 pubspec: `workspace members that … may declare were not followed (<이유>)` 줄에 그
+    패키지를 적는다. 이유는 `nesting deeper than 32 levels`(그 pubspec이 실제로 멤버를 선언할 때만),
+    `hidden or build directory`(경로 글자만 보고, 분석 캐시 키가 그 pubspec을 해시하지 않음), `linked pubspec`
+    (실제 위치가 다름, `loop -> .`에서 한 줄로 끝남), `unreadable pubspec`(1 MiB 상한 초과·UTF-8 아님·장치
+    파일·읽기 실패)이다.
+  - 글롭(pub은 언어 버전 3.11부터 받는다): `*`·`?`만 쓰는 항목은 `pubspec.yaml`이 있는 디렉터리에 마디마다
+    맞춰 펼치고(마디 수만큼만 내려감, O(이름×패턴) 매처) 맞은 디렉터리마다 판정한다. 숨김·`build`
+    디렉터리는 고르지도 지나가지도 않는다(캐시 키 밖). 대신 마디가 `*`·`?`·`.`로 시작하거나 `build`에 맞을
+    수 있는 글롭은 패턴 글자만 보고 `hidden or build directories that … can match are not matched by
+    dartograph (pub includes the packages there)` 줄로 센다.
+  - 펼치지 못한 글롭: `workspace member globs declared by … were not expanded: <패턴> (<이유>)`. 이유는
+    `unsupported glob syntax`(`**`·`[...]`·`{...}`·`\`), `no package directory matches outside hidden and
+    build directories`, `crosses a directory link`(펼칠 때 링크를 따라가지 않는다), `an unreadable directory`,
+    `expansion budget exhausted`, `crosses a hidden or build directory`(글자 마디가 그런 이름일 때)다.
+    패키지 `glob`의 정규식 매처는 저장소가 고른 패턴의 역추적 비용 때문에 쓰지 않았다(새 의존성 없음).
+  - 비용: 예산 5,000,000을 분석 하나의 모든 글롭이 나눠 쓴다. 비교 하나는 (이름+1)×(마디+1), 디렉터리
+    목록은 처음 읽을 때 1,000 + 항목 수이고 목록은 기억해 다른 글롭이 다시 쓴다(글자 마디도 기억한 목록에서
+    찾는다).
   - pub 동작(3.13.3에서 확인): `pubspec.yaml`이 있는 디렉터리만 고르고, 숨김 디렉터리도 고르며, `**`는
     재귀하고, 맞는 것이 없거나 고른 패키지에 `resolution: workspace`가 없으면 `pub get`이 실패한다.
-    dartograph는 숨김 디렉터리를 고르지 않는다 — 분석 캐시 키가 숨김 디렉터리의 pubspec을 해시하지 않아,
-    골랐다면 캐시 적중이 낡은 줄을 낸다(숨김만 맞는 글롭은 맞는 것이 없어 패턴으로 센다).
-  - 세지 않는 것: 루트 목록으로 이미 집계한 멤버, 그리고 그 디렉터리 안에 (더 안쪽 집계 멤버의 것이 아닌)
-    분석 대상 파일이 있는 디렉터리(멤버의 표준 소스 디렉터리 안 `pkgs/nest/example`은 통째로 분석된다.
-    `source_packages` 패키지는 `lib/`만 분석되고 `test/` 등은 분석되지 않는다 — 그 패키지의 줄은 없고,
-    이것은 `source_packages`의 기존 계약이다). Dart 파일이 없는 중첩 멤버는 센다.
-  - pub이 거부하는 항목(절대 경로, `..`)은 출력하지 않는다(루트 해석처럼 스캔 루트 밖을 반향하지 않는다).
-    링크를 거친 pubspec과 숨김 디렉터리의 pubspec은 따라가지 않는다(`loop -> .` 링크에서 한 줄로 끝남을
-    확인). 32단계를 넘어 다시 멤버를 선언하는 패키지는 `the workspace members declared by … were not
-    followed (nesting deeper than 32 levels)` 줄에 적는다(35단계 사슬에서 확인).
-  - `--workspace` 없는 출력은 그대로다. `runtime --workspace`는 이 줄을 싣지 않는다. 캐시 신원 v41
-    (v40은 `dd27ec7`의 백슬래시 문구). 키는 이미 숨김 아닌 모든 pubspec을 해시한다. 글롭이 고르는
-    패키지를 더한 뒤 캐시 경로·증분 경로가 새로 분석한 결과와 같음을 확인했다.
-  - 거쳐 온 길: `02d48d1`은 집계한 멤버의 항목만 보고 "run dartograph --workspace on pkgs/nest"를
-    안내했고, `055cfa3`은 글롭을 첫 글롭 마디 앞 디렉터리로만 판정했다. PR #167 독립 리뷰(아래)가 그
-    빈틈과 실패하는 안내를 찾았다.
-- 테스트: `test/index/nested_workspace_members_test.dart` 6개.
+  - pub이 거부하는 항목(절대 경로, `..`)은 출력하지 않는다.
+  - `--workspace` 없는 출력은 그대로다. `runtime --workspace`는 이 줄을 싣지 않는다. 캐시 신원 v42
+    (v39~v41은 이 브랜치의 중간 상태). 키는 숨김·`build` 밖의 모든 pubspec을 해시한다. 글롭이 고르는
+    패키지를 더하면 캐시 적중·`--incremental`이 새로 분석한 결과와 같고, 숨김·`build` 아래에 패키지를
+    더하면 출력이 그대로다(캐시 적중과 새 분석이 같다).
+  - 거쳐 온 길: `02d48d1`은 집계한 멤버의 항목만 보고 `--workspace` 명령을 안내했고, `055cfa3`은 글롭을 첫
+    글롭 마디 앞 디렉터리로만 판정했고, `856fdd7`·`b3eab8f`는 링크·숨김·읽기 실패를 조용히 넘기고 안쪽
+    `source_packages`가 바깥 디렉터리를 가리게 두었으며 예산이 글롭마다였다. PR #167 독립 리뷰 두 번(아래)이
+    찾았다.
+- 테스트: `test/index/nested_workspace_members_test.dart` 7개.
   - 첫 fixture(pub이 받아들임): `sub`(안쪽 `sub/inner`만 루트가 나열)·`example`·`empty`를 선언한
-    `pkgs/nest`. 기대 줄은 `empty, sub`이다. `--workspace` 없는 줄은 그대로이고, `pkgs/nest`를 루트로
-    집계하면 줄이 없고, 증분 경로도 같은 줄이다.
-  - 글롭·깊은 중첩 fixture(언어 3.11, pub이 받아들임): `sub_*`(→ sub_x, sub_y), `*`(→ q1~q4는 `and 1
-    more`로 세고, 이미 분석되는 example은 세지 않음), `packages/*`(p1은 `source_packages`라 빼고 p2만),
-    `{m1,m2}`(패턴 줄), `sub`가 다시 `deeper` 선언(두 줄)을 확인한다.
-  - 손으로 쓴 package config fixture(pub이 거부): 맞는 것 없는 `nothing_*`(패턴 줄), 별 뒤 0자로 맞는
-    `sub*`, 33단계 사슬(32줄과 `were not followed` 줄).
-  - `d839b9e` 코드에서 첫째·넷째·다섯째·여섯째가 실패한다. 변형 여덟이 각각 실패시킨다: 재귀 빼기,
-    와일드카드를 글자 그대로 보기, 분석 확인 빼기, 펼치지 못한 글롭 버리기, 맞는 것 없는 글롭 버리기, 셋으로
-    묶기 빼기, 따라가지 않은 패키지 세지 않기, 옛 안내 문구.
+    `pkgs/nest`. 기대 줄은 `empty, sub`. `--workspace` 없는 줄 그대로, `pkgs/nest`를 루트로 집계하면 줄 없음,
+    증분 경로 같은 줄.
+  - 글롭·깊은 중첩 fixture(언어 3.11, pub이 받아들임): `sub_*`, `*`(q1~q4 `and 1 more`, example 빼고 숨김
+    줄), `packages/*`(p1 `source_packages`라 p2만, 숨김 줄), `{m1,m2}`(패턴 줄), `sub` → `deeper`(두 줄).
+  - 손으로 쓴 package config fixture 둘(pub이 거부하거나 링크·큰 파일을 씀): `nothing_*`·`sub*`·33단계 사슬,
+    그리고 `*`가 vis만 고르고 `.hidden`·`build`는 숨김 줄로 셈, 숨김·링크·1.1 MiB 멤버의 이유별 줄, 링크
+    둘을 지나야 하는 글롭(`crosses a directory link`), 각자 예산의 절반 남짓을 쓰는 4만 자 마디 둘(둘째만
+    `expansion budget exhausted`), 안쪽 `source_packages`(`inner`)만 분석되는 `sub`를 셈.
+  - `3cfd98f` 코드에서 뒤의 셋이 실패한다. 변형(안쪽 패키지가 가리게 되돌림, 숨김 줄 빼기, 숨김·링크
+    pubspec 따라가기, 읽기 실패 침묵, 펼칠 때 링크 따라가기, 예산 빼기, 글롭마다 예산, `build` 고르기, 재귀
+    빼기, 와일드카드를 글자 그대로, 펼치지 못한 글롭 버리기, 셋으로 묶기 빼기, 옛 안내 문구)이 각각 하나
+    이상을 실패시킨다.
 
 ### 적대 입력 (`dg-main` → 수정본, `dead --format json`)
 
@@ -114,13 +130,12 @@ _Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중�
   줄 없음. 없는 디렉터리 → 센다. 더 안쪽 `pkgs/nest/sub/inner`만 집계 → `sub`를 센다.
   `source_packages: [pkgs/nest/sub]` → 줄 없음(lib/ 분석). Dart 파일 없는 중첩 멤버 → 센다.
   `deps --workspace`·`query --workspace`도 같은 줄을 싣는다(중첩 멤버 pubspec은 `deps`가 감사하지 않는다).
-- 2(최종 바이너리): `**` → 패턴 줄(이전 판은 침묵). 맞는 것 없는 `nothing_*`(pub은 거부) → 패턴 줄.
-  `/etc`·`../../../outside`·`ok`(pub 거부) → `pkgs/nest/ok`만(이전 판은 `../outside, /etc`도 반향).
-  `loop -> .` 링크 → 줄 하나로 끝남. `group*/x`(중간 글자 마디) → `group1/x, group2/x`(pubspec 없는
-  `group3` 제외). 숨김 `.hid`만 맞는 `*` → 패턴 줄. 35단계 사슬 → 32줄과 `were not followed` 한 줄(0.5초).
-  `p*`가 2,000개를 고르는 경우 → 줄 하나(앞의 셋과 `and 1997 more`), 전체 3.66초(`origin/main` 3.71초).
-  글롭이 고르는 패키지를 더한 뒤 캐시 적중·`--incremental`이 새로 분석한 결과와 같고, pubspec 없는 빈
-  디렉터리를 더하면 출력이 그대로다.
+- 2(최종 바이너리 `1e7e0bd`): `**` → 패턴 줄(`unsupported glob syntax`). 맞는 것 없는 `nothing_*`(pub은
+  거부) → 패턴 줄. `/etc`·`../../../outside`·`ok`(pub 거부) → `pkgs/nest/ok`만. `loop -> .` 링크 → 멤버 줄과
+  `linked pubspec` 줄. `group*/x` → `group1/x, group2/x`. 숨김 `.hid`만 맞는 `*` → 패턴 줄과 숨김 줄.
+  35단계 사슬 → 32줄과 `were not followed` 한 줄. `p*`가 2,000개를 고르는 경우 → 줄 하나(앞의 셋과
+  `and 1997 more`). 비용 측정은 아래 "PR #167 재검토 반영". 글롭이 고르는 패키지를 더한 뒤 캐시 적중·
+  `--incremental`이 새로 분석한 결과와 같고, 숨김·`build` 아래 패키지를 더하면 출력이 그대로다.
 
 ### 코퍼스 델타
 
@@ -155,6 +170,27 @@ _Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중�
   (`b3eab8f`). 앞 커밋은 깊이 상한에서 글롭이 아닌 항목도 "펼치지 않는 글롭"으로 적었다 → 상한 줄을
   따로 둔다. 숨김 디렉터리를 고르면 캐시 키와 어긋난다 → 고르지 않는다.
 
+## PR #167 재검토 반영 (`3cfd98f` 위)
+
+재검토는 SF1~SF4 반영과 `./a_*`·`b_*/`·`grp/*/*`·대소문자·셋으로 묶기가 pub과 맞음을 확인하고
+should-fix 셋과 nit을 냈다(`1e7e0bd`).
+
+- SF1(pub이 넣는데 줄이 없음): `*`가 `.hidden`에 맞는 경우, 다시 멤버를 선언하는 숨김 멤버(`.tools` →
+  `sub`)·링크 멤버(`sub -> ../../real/sub` → `deeper`, 글롭 매치도)·1 MiB를 넘는 pubspec. → 따라가지 않은
+  pubspec은 이유별 `were not followed` 줄로, 숨김·`build`에 맞을 수 있는 글롭은 패턴 글자만 본 줄로 센다.
+- SF2(안쪽 패키지만 분석될 때 바깥 디렉터리가 숨음): `source_packages: [pkgs/nest/sub/inner]`를 더하면
+  `pkgs/nest/sub` 줄이 사라졌다(분석 파일 확인이 안쪽 집계 멤버만 뺐다). → 가장 가까운 패키지 판정.
+- SF3(펼치기 비용에 전체 상한 없음): 상한이 글롭마다 50,000 항목이었고 링크를 따라갔다. → 분석 하나의 예산,
+  목록 기억, 링크를 지나지 않음. 측정(AOT, 각각 새 `HOME`):
+  - `l1 -> .`·`l2 -> .`와 15마디 `*/…/*/q{i}` 글롭 5개: `3cfd98f` 3.19초 → 0.32초, 50개: 28.6초 → 0.35초.
+  - 디렉터리 11,110개(10×10×10×10 트리)에서 `*/*/*/*/q{i}` 47,051개(1 MiB pubspec): `3cfd98f`는 120초 안에
+    끝나지 않음 → 4.67초(같은 트리에 글롭 10개 3.00초, `--workspace` 없이 3.08초). 첫 구현(목록 기억과 글자
+    마디 기억 없이 예산 2천만)은 70초였다 — 글자 마디의 stat이 예산에 잡히지 않았다.
+  - 250자 이름 20개와 `*a*a…*b` 마디 3개짜리 글롭 5개: 0.33초(`3cfd98f` 0.32초).
+- nit: `build/`는 캐시 키 밖이라 숨김처럼 고르지 않는다(분석 캐시 적중과 새 분석이 같음을 확인). 분석 파일
+  확인을 디렉터리 집합 하나로 미리 구한다. CHANGELOG·USAGE에 링크·숨김·읽기 실패와 안쪽 패키지 경우를 적었다.
+- 리뷰 뒤 스스로 고친 것: 30만 자 글롭이 줄에 그대로 실렸다 → 항목을 200 rune에서 자르고 이유는 남긴다.
+
 ## impact-precheck 실패 조사 (코디네이터 관측, 변경 없음)
 
 - `main` push 6번 중 `28d75c7`·`acda403`·`7da8267`·`4bd0370`이 실패, `88dd0ee`·`a179b19`가 통과했다.
@@ -187,30 +223,27 @@ _Last updated: 2026-11-28 (6차: `unresolved-files:` 한계, `--workspace` 중�
 - 도구: 이 컨테이너에 Dart가 없어 이전 세션이 내려받아 둔 SDK(3.13.3·3.11.0)를 썼다. `packet-ask`도
   없어 GLM 리뷰는 받지 못했다(독립 리뷰가 대신했다). 테스트·바이너리 실행은 `HOME`을 스크래치로 두고
   (`PUB_CACHE=/root/.pub-cache`) 돌렸다.
-- PR #167 리뷰 반영 뒤(`b3eab8f` 코드, `9502e05`은 테스트만 더함):
+- PR #167 재검토 반영 뒤(`1e7e0bd` 코드):
   - Dart 3.13.3(analyzer 14.7.0): `dart format --output=none --set-exit-if-changed .` 변경 없음,
     `dart analyze --fatal-infos` 깨끗. 일반 단계(`dart test -j 2 --timeout=4x
-    --exclude-tags=global_activation --coverage=…`) 1,252 통과·22 건너뜀·실패 0(22분 34초,
-    `self_analysis_test` 포함). 이 단계만의 제품 라인 커버리지 12,837/13,673(93.89%, 기준 90%). 새 코드에서
-    실행되지 않은 줄은 깊이 상한·맞는 것 없는 글롭·Windows 대소문자·읽기 실패 분기였고, 앞의 둘은
-    `9502e05`의 테스트가 실행한다(그 파일 6개를 3.13.3·3.11.0에서 따로 돌려 통과).
+    --exclude-tags=global_activation --coverage=…`) 1,254 통과·22 건너뜀·실패 0(11분 24초,
+    `self_analysis_test` 포함). 이 단계만의 제품 라인 커버리지 12,906/13,736(93.96%, 기준 90%).
   - CLI 계약(`tool/verify-cli-contract.sh`, 스스로 컴파일) 243 ok·`CLI contract passed`, 오탐 코퍼스 종료 0,
-    `tool/check-analyzer-boundary.sh` 통과. `tool/verify-global-activation.sh`는 이번에 다시 돌리지 않았다
-    (설치 경로는 그대로, `e36ee10`에서 239 ok·통과).
-  - Dart 3.11.0(analyzer 14.5.0), 별도 worktree(`b3eab8f`): 포맷 변경 없음, `dart analyze --fatal-infos`
-    깨끗, 관련 테스트 109개(새 두 파일, `pub_workspace`·`options_excluded_files`·`source_packages`·
+    `tool/check-analyzer-boundary.sh` 통과. `tool/verify-global-activation.sh`는 다시 돌리지 않았다(설치
+    경로는 그대로, `e36ee10`에서 239 ok·통과).
+  - Dart 3.11.0(analyzer 14.5.0), 별도 worktree(`1e7e0bd`): 포맷 변경 없음, `dart analyze --fatal-infos`
+    깨끗, 관련 테스트 111개(새 두 파일과 `pub_workspace`·`options_excluded_files`·`source_packages`·
     `public_libraries`·`incremental_analysis`·`incremental_cache`·`member_file_findings_cli`·`deps_cli`·
     `options_excluded_files_cli`·`reachability_analyzer`, `-j 1 --timeout=4x`) 통과.
-  - 코퍼스(`b3eab8f` 바이너리): 단일 패키지 75개 `dead`·`dead --closed-app` 150건과 30개 멤버 workspace
+  - 코퍼스(`1e7e0bd` 바이너리): 단일 패키지 75개 `dead`·`dead --closed-app` 150건과 30개 멤버 workspace
     `dead --workspace`(405,293바이트)가 `origin/main`과 바이트 단위로 같다.
-  - 자기 분석(AOT 바이너리, `dg-main`과 바이트 단위로 같다): `dead`는 테스트 fixture 파일 finding 1개
-    (`test/index/fixture/lib/platform.dart`, 이전과 같음), `rules --strict --config tool/module_layers.yaml`
-    위반 0, `cycles --level file`은 cli 모듈 안(`dartograph_cli` ↔ `mcp_server`) 하나뿐이다.
-  - 회귀 테스트: 새 테스트 9개를 `d839b9e` 코드에서 돌리면 6개가 실패하고 대조 3개(퍼센트 파일 없음,
-    `--workspace` 없음, `pkgs/nest` 루트)는 통과한다. 변형(재귀 빼기, 와일드카드를 글자 그대로, 분석
-    확인 빼기, 펼치지 못한 글롭 버리기, 맞는 것 없는 글롭 버리기, 셋으로 묶기 빼기, 따라가지 않은 패키지
-    세지 않기, 옛 안내 문구, 증분 경로에 빈 목록)이 각각 하나 이상을 실패시킨다.
+  - 자기 분석(AOT 바이너리, `dg-main`과 바이트 단위로 같다): `dead`는 테스트 fixture 파일 finding 1개,
+    `rules --strict --config tool/module_layers.yaml` 위반 0, `cycles --level file`은 cli 모듈 안 하나뿐이다.
+  - 회귀 테스트: 새 nested 테스트 셋(글롭·깊은 중첩, 맞는 것 없는 글롭·깊이 상한, 조용히 빠지지 않음)이
+    `3cfd98f` 코드에서 실패한다. 변형 목록은 위 2절. 비용 측정은 "PR #167 재검토 반영".
   - `dart pub publish --dry-run`은 이 HANDOFF 커밋 뒤 깨끗한 트리에서 경고 0이다.
+- PR #167 리뷰 반영 뒤(`b3eab8f`, 이전 기록): 3.13.3 일반 단계 1,252 통과·실패 0, CLI 계약 243 ok,
+  3.11.0 관련 109개 통과, 같은 코퍼스와 자기 분석이 `origin/main`과 같았다.
 - `d839b9e`까지의 검증(이전 기록): 3.13.3 일반 단계 1,252 통과·실패 0(`055cfa3`), CLI 계약 243 ok,
   `verify-global-activation.sh` 239 ok(`e36ee10`), 3.11.0 관련 109개 통과, 같은 코퍼스와 자기 분석이
   `origin/main`과 같았다.
@@ -265,8 +298,10 @@ GLM 리뷰를 받지 못했다. PR을 열면 코디네이터가 독립 리뷰를
     중첩 멤버 줄의 `*`·`?` 펼치기(위 2절)를 루트 해석에도 쓸 수 있지만 집계 범위가 바뀌는 행동 변경이라
     이 PR에서 하지 않았다. 관측한 pub 의미: `pubspec.yaml`이 있는 디렉터리만, 숨김 포함, `**`는 재귀, 맞는
     것이 없으면 실패. dart-lang/pub 원본은 이 세션에서 읽을 수 없었다.
-  - 중첩 멤버 줄의 남은 빈틈: `**`·`[...]`·`{...}`·`\` 글롭은 펼치지 않고 패턴으로만 센다. 숨김 디렉터리는
-    고르지 않는다(pub은 고른다). `source_packages`인 중첩 멤버는 `lib/`만 분석되는데 줄이 없다.
+  - 중첩 멤버 줄의 남은 정밀도 한계(조용히 빠지지는 않는다): `**`·`[...]`·`{...}`·`\` 글롭과 링크를
+    지나야 하는 글롭은 펼치지 않고 패턴으로만 센다. 숨김·`build` 디렉터리는 고르지 않고 패턴 글자로만 센다
+    (pub은 고른다). 링크·숨김·읽기 실패 pubspec은 그 아래를 따라가지 않고 패키지 이름만 적는다.
+    `source_packages`인 중첩 멤버는 `lib/`만 분석되는데 줄이 없다(그 계약의 `test/` 미분석과 같다).
   - `runtime`·`routes`·`bridges`·`schema`도 analyzer가 해석하지 않은 유닛을 조용히 건너뛴다
     (`resolveProjectUnitsEach`의 `if (result is ResolvedUnitResult)` 등). 각 명령의 한계 계약에 맞춰
     세는 것은 별도 작업이다.
