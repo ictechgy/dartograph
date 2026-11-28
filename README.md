@@ -231,7 +231,9 @@ Full arguments, output formats, exit codes, and CI examples live in
   project instead; use it for repositories you do not trust),
   `--workspace` opts into pub workspace aggregation (members listed in the
   root pubspec's `workspace:` are analyzed together; `deps` audits each
-  package against its own pubspec), and `--record <dir>`/`history` keep an
+  package against its own pubspec; nested members that a member's own
+  `workspace:` declares are not aggregated and are named or counted as
+  `workspace-members-not-indexed:`), and `--record <dir>`/`history` keep an
   append-only ledger of run inputs, versions, and results.
 - A reusable composite action ([`action.yml`](action.yml)) wraps the CLI for
   GitHub Actions: it activates a published release (or a checked-out source
@@ -360,6 +362,12 @@ Limitations:
   `package:` applied none. A package without its own `analysis_options.yaml`
   uses the nearest one in a parent directory, whose patterns are relative to
   that file's directory with every analyzer version.
+- The analyzer does not resolve a file under a package's `lib/` whose path has
+  a valid percent escape, such as `lib/src/a%20b.dart`, or a `#`, `?`, or
+  backslash: it builds the `package:` URI without escaping the path, and the
+  URI no longer maps back to the file. Such a file is not in the graph, so a declaration
+  used only from it is reported as unreachable; analysis commands count those
+  files in an `unresolved-files:` limitation that lists the first three paths.
 - `dart:` libraries are resolved from the Dart SDK that dartograph located (see
   Install). When that SDK is older than the `environment.sdk` lower bound of the
   analyzed package (or of a `--workspace` member), SDK libraries and language

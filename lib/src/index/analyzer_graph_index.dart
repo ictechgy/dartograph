@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -509,6 +510,7 @@ final class AnalyzerGraphIndex {
         workspace: workspace,
         sdkVersion: sdkVersion,
         optionsExcludedFiles: optionsExcludedFiles,
+        unresolvedFiles: _unresolvedFiles(unitPaths, root, facts),
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
       // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
@@ -712,6 +714,7 @@ final class AnalyzerGraphIndex {
       workspace: workspace,
       sdkVersion: sdkVersion,
       optionsExcludedFiles: optionsExcludedFiles,
+      unresolvedFiles: _unresolvedFiles(unitPaths, root, facts),
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
     // 갱신 여부와 무관하게 출력에 드러나야 한다.
@@ -1558,6 +1561,9 @@ GraphEdge _edgeFromJson(Map<String, Object?> edge) => GraphEdge(
 /// 전체 해석과 증분 해석이 같은 함수를 지난다 — 사실이 같으면 산출물도 같다.
 /// 순서가 의미를 갖는 지점(중복 정점의 첫 승리, 보존 사유의 마지막 승리,
 /// 라이브러리·publicApi·plugin 루트의 putIfAbsent)은 원래 유닛 순서를 따른다.
+///
+/// [unresolvedFiles]는 분석 대상으로 열거했지만 analyzer가 해석하지 않아 사실이
+/// 없는 파일이다([_unresolvedFiles]). 두 경로가 같은 함수로 센다.
 AnalyzerGraphResult _assembleResult({
   required String root,
   required List<String> sources,
@@ -1569,6 +1575,7 @@ AnalyzerGraphResult _assembleResult({
   Set<String>? linkEscapes,
   required String sdkVersion,
   required List<String> optionsExcludedFiles,
+  required List<String> unresolvedFiles,
   int skippedLinkedDirectories = 0,
   int unreadableDirectories = 0,
 }) {
@@ -1813,6 +1820,11 @@ AnalyzerGraphResult _assembleResult({
       _optionsExcludedFilesLimitation(optionsExcludedFiles),
     );
   }
+  // 열거한 파일을 analyzer가 해석하지 않으면 그 파일의 선언·참조가 그래프에 없다.
+  // 조용히 빼면 그 파일에서만 쓰는 선언이 이유 없이 미도달로 보고된다.
+  if (unresolvedFiles.isNotEmpty) {
+    limitationDetails.add(_unresolvedFilesLimitation(unresolvedFiles));
+  }
   if (workspace == null) {
     final workspaceMembers = _workspaceMemberPaths(pubspecContent);
     if (workspaceMembers.isNotEmpty) {
@@ -1841,6 +1853,15 @@ AnalyzerGraphResult _assembleResult({
         'pubspec)',
       );
     }
+    // 멤버가 자기 pubspec에 `workspace:`를 두면 pub은 그 멤버도 같은 해석에 넣는다.
+    // 집계는 루트 목록만 따르므로, 알리지 않으면 중첩 멤버 소스가 빠진 결과가
+    // "발견 없음"과 구분되지 않는다.
+    limitationDetails.addAll(
+      _nestedWorkspaceMembersLimitations(root, workspace.members, [
+        ...sources,
+        ...unresolvedFiles,
+      ]),
+    );
     // 멤버의 dartograph.yaml은 읽지 않는다 — 설정 경로는 스캔 루트 하나라
     // 멤버가 자체 설정을 두고도 적용되지 않는 사실을 출력에 남긴다.
     for (final member in workspace.members) {
@@ -1976,6 +1997,503 @@ List<String> _workspaceMemberPaths(String? pubspecContent) {
       if (entry is String) entry,
   ]..sort();
 }
+
+/// `--workspace`가 집계하지 않은 중첩 워크스페이스 멤버를 센 limitation 줄이다.
+///
+/// pub은 멤버 pubspec의 `workspace:`가 선언한 패키지(중첩 워크스페이스)도 같은
+/// 해석(루트 package config)에 넣지만, 집계는 루트 pubspec의 목록만 따른다. 집계한
+/// 멤버 [members]에서 시작해 선언된 중첩 멤버의 pubspec을 다시 따라가며(방문 집합,
+/// 깊이 상한 [_nestedWorkspaceDepthLimit]) 선언한 패키지마다 항목을 펼친다
+/// ([_expandNestedWorkspaceEntries]). [root]는 링크를 푼 스캔 루트의 절대 경로다.
+///
+/// 펼친 디렉터리 중 루트 목록으로 이미 집계한 멤버와, [analyzedFiles](분석 대상으로
+/// 열거한 파일의 루트 기준 POSIX 경로) 가운데 가장 가까운 패키지가 그 디렉터리인
+/// 파일이 있는 디렉터리([_analyzedPackageDirectories])는 세지 않는다. 멤버의 표준
+/// 소스 디렉터리(예: `pkgs/a/example`) 안에 있어 통째로 분석되거나
+/// `source_packages`여서 `lib/`가 분석되는 경우다(그 밖은 `source_packages`의
+/// 계약대로 분석하지 않는다). 그 안의 다른 패키지만 분석되는 디렉터리는 센다.
+/// Dart 파일이 하나도 없는 중첩 멤버도 센다.
+///
+/// pub이 넣는데 분석하지 않는 것은 이름을 대거나 세고, 조용히 빼지 않는다.
+/// 펼치지 못한 글롭은 이유와 함께 패턴으로, 숨김·`build` 디렉터리를 고를 수 있는
+/// 글롭은 패턴 글자만 보고 따로, 따라가지 않은 pubspec은 이유별로 센다.
+List<String> _nestedWorkspaceMembersLimitations(
+  String root,
+  List<_WorkspaceMember> members,
+  List<String> analyzedFiles,
+) {
+  final aggregated = {for (final member in members) member.relPath};
+  final analyzed = _analyzedPackageDirectories(root, analyzedFiles);
+  final budget = _GlobExpansionBudget(_nestedWorkspaceGlobBudget);
+  final lines = <String>[];
+  final visited = {...aggregated};
+  final unfollowed = <String, Set<String>>{};
+  final pending = Queue<(String, String, int)>.of([
+    for (final member in members) (member.relPath, member.pubspecContent, 0),
+  ]);
+  while (pending.isNotEmpty) {
+    final (declarer, pubspec, depth) = pending.removeFirst();
+    final expansion = _expandNestedWorkspaceEntries(
+      root,
+      declarer,
+      _workspaceMemberPaths(pubspec),
+      budget,
+    );
+    final unindexed = [
+      for (final directory in expansion.directories)
+        if (!aggregated.contains(directory) && !analyzed.contains(directory))
+          directory,
+    ]..sort();
+    final listed = unindexed.map(_echoedPath).toList();
+    if (unindexed.isNotEmpty) {
+      lines.add(
+        'workspace-members-not-indexed: ${_firstPaths(listed)} are nested '
+        'workspace members declared by $declarer; --workspace aggregates only '
+        'the members listed in the root pubspec; run dartograph on each '
+        'member root',
+      );
+    }
+    if (expansion.patterns.isNotEmpty) {
+      final patterns = [
+        for (final (pattern, reason) in expansion.patterns)
+          '${_echoedPath(p.posix.normalize(p.posix.join(declarer, pattern)))} '
+              '($reason)',
+      ]..sort();
+      lines.add(
+        'workspace-members-not-indexed: workspace member globs declared by '
+        '$declarer were not expanded: ${_firstPaths(patterns)}; the packages '
+        'they match are not aggregated as workspace members (their files are '
+        'analyzed only when they lie in an analyzed source directory); run '
+        'dartograph on each member root',
+      );
+    }
+    if (expansion.reachHidden.isNotEmpty) {
+      final globs = [
+        for (final pattern in expansion.reachHidden)
+          _echoedPath(p.posix.normalize(p.posix.join(declarer, pattern))),
+      ]..sort();
+      lines.add(
+        'workspace-members-not-indexed: hidden or build directories that '
+        '${_firstPaths(globs)} can match are not matched by dartograph (pub '
+        'includes the packages there); run dartograph on each member root',
+      );
+    }
+    for (final directory in expansion.directories) {
+      if (!visited.add(directory)) continue;
+      final read = _readNestedWorkspacePubspec(root, directory);
+      final content = read.content;
+      if (read.unfollowed != null) {
+        unfollowed.putIfAbsent(read.unfollowed!, () => {}).add(directory);
+      } else if (content == null) {
+        continue;
+      } else if (depth + 1 < _nestedWorkspaceDepthLimit) {
+        pending.add((directory, content, depth + 1));
+      } else if (_workspaceMemberPaths(content).isNotEmpty) {
+        unfollowed.putIfAbsent(_depthReason, () => {}).add(directory);
+      }
+    }
+  }
+  for (final reason in _unfollowedReasons) {
+    final directories = unfollowed[reason];
+    if (directories == null) continue;
+    lines.add(
+      'workspace-members-not-indexed: workspace members that '
+      '${_firstPaths((directories.toList()..sort()).map(_echoedPath).toList())} '
+      'may declare were not '
+      'followed ($reason); run dartograph on each member root',
+    );
+  }
+  return lines;
+}
+
+/// 중첩 pubspec을 따라가지 않은 이유다. 출력 순서도 이 순서다.
+const _depthReason = 'nesting deeper than $_nestedWorkspaceDepthLimit levels';
+const _hiddenReason = 'hidden or build directory';
+const _linkedReason = 'linked pubspec';
+const _unreadableReason = 'unreadable pubspec';
+const _unfollowedReasons = [
+  _depthReason,
+  _hiddenReason,
+  _linkedReason,
+  _unreadableReason,
+];
+
+/// 정렬된 [paths]의 앞 세 개와 나머지 수다(`a, b, c and 2 more`).
+///
+/// 글롭 하나가 수천 패키지를 고를 수 있고, 이 줄은 모든 finding에 붙는다.
+/// `options-excluded-files:`·`unresolved-files:`와 같은 규칙으로 줄 길이를 묶는다.
+String _firstPaths(List<String> paths) {
+  const shown = 3;
+  final listed = paths.take(shown).join(', ');
+  return paths.length > shown
+      ? '$listed and ${paths.length - shown} more'
+      : listed;
+}
+
+/// 중첩 멤버 줄이 경로·패턴 하나를 반향하는 최대 rune 수다.
+const _echoedPathLimit = 200;
+
+/// [path]가 [_echoedPathLimit] rune을 넘으면 자르고 `…`를 붙인다.
+///
+/// 경로는 저장소의 pubspec 항목에서 온다. 30만 자짜리 글롭이 모든 finding에
+/// 실리지 않게 한다(제어 문자는 리포터가 이스케이프한다).
+String _echoedPath(String path) => path.runes.length > _echoedPathLimit
+    ? '${String.fromCharCodes(path.runes.take(_echoedPathLimit))}…'
+    : path;
+
+/// 중첩 워크스페이스 pubspec을 따라가는 깊이 상한이다.
+///
+/// 방문 집합이 순환을 끊으므로 상한은 병적인 깊이에서 일을 묶는 장치다. 상한에
+/// 닿아 따라가지 않은 pubspec이 다시 멤버를 선언하면 그 패키지를 따로 센다.
+const _nestedWorkspaceDepthLimit = 32;
+
+/// 분석 한 번에서 모든 글롭을 펼치는 데 쓰는 일의 상한이다.
+///
+/// 디렉터리 항목 하나를 글롭 마디 하나와 견주는 비용을 (이름 길이 + 1) ×
+/// (마디 길이 + 1)로 센다([_matchesWildcardSegment]의 최악 단계 수의 위쪽 한계).
+/// 디렉터리 목록은 처음 읽을 때 [_globListingCost] + 항목 수로 센다(같은 분석의
+/// 다른 글롭은 기억한 목록을 쓴다). 다 쓰면 나머지 글롭은 펼치지 않고 패턴으로
+/// 센다.
+const _nestedWorkspaceGlobBudget = 5000000;
+
+/// 디렉터리 목록 하나를 처음 읽는 고정 비용이다(시스템 호출 비용을 비교 단계로 환산).
+const _globListingCost = 1000;
+
+/// 분석 한 번 동안 글롭 펼치기가 나눠 쓰는 예산과 디렉터리 목록 기억이다.
+final class _GlobExpansionBudget {
+  _GlobExpansionBudget(this._remaining);
+
+  int _remaining;
+
+  /// 읽은 디렉터리(절대 경로)의 항목: 이름과 디렉터리 링크·디렉터리 여부다.
+  final _listings = <String, List<_GlobListingEntry>>{};
+
+  /// [_listings]의 이름(Windows는 소문자) → 항목이다. 글자 마디를 찾을 때 쓴다.
+  final _byName = <String, Map<String, _GlobListingEntry>>{};
+
+  /// [cost]만큼 쓸 수 있으면 쓰고 참이다. 모자라면 남은 예산을 모두 버린다 —
+  /// 그 뒤의 글롭도 모두 패턴으로 세어 결과가 처리 순서에 덜 기대게 한다.
+  bool spend(int cost) {
+    if (cost > _remaining) {
+      _remaining = 0;
+      return false;
+    }
+    _remaining -= cost;
+    return true;
+  }
+
+  /// [directory]의 항목을 이름순으로 돌려준다. 처음 읽을 때 예산을 쓰고, 모자라면
+  /// null이다. 링크는 따라가지 않고 링크가 디렉터리를 가리키는지만 기록한다.
+  List<_GlobListingEntry>? list(String directory) {
+    final known = _listings[directory];
+    if (known != null) return known;
+    final children = Directory(directory).listSync(followLinks: false);
+    if (!spend(_globListingCost + children.length)) return null;
+    final listing = [
+      for (final child in children)
+        (
+          name: p.basename(child.path),
+          link: child is Link,
+          directory:
+              child is Directory ||
+              (child is Link && FileSystemEntity.isDirectorySync(child.path)),
+        ),
+    ]..sort((a, b) => a.name.compareTo(b.name));
+    final caseSensitive = p.style != p.Style.windows;
+    _byName[directory] = {
+      for (final entry in listing)
+        caseSensitive ? entry.name : entry.name.toLowerCase(): entry,
+    };
+    return _listings[directory] = listing;
+  }
+
+  /// [directory]에서 이름이 [name]인 항목이다([list]의 기억을 쓴다). 예산이
+  /// 모자라면 null, 없으면 [_missingListingEntry]다.
+  _GlobListingEntry? find(String directory, String name) {
+    if (list(directory) == null || !spend(name.length + 1)) return null;
+    final key = p.style != p.Style.windows ? name : name.toLowerCase();
+    return _byName[directory]![key] ?? _missingListingEntry;
+  }
+}
+
+/// 글롭 펼치기가 기억하는 디렉터리 항목 하나다.
+typedef _GlobListingEntry = ({String name, bool link, bool directory});
+
+/// [_GlobExpansionBudget.find]가 찾지 못한 항목을 나타낸다.
+const _GlobListingEntry _missingListingEntry = (
+  name: '',
+  link: false,
+  directory: false,
+);
+
+/// [analyzedFiles](루트 기준 POSIX 경로)마다 가장 가까운 패키지 디렉터리의 집합이다.
+///
+/// 파일의 디렉터리에서 루트로 올라가며 `pubspec.yaml`이 있는 첫 디렉터리가 그
+/// 파일의 패키지다(루트는 `.`). 디렉터리마다 결과를 기억해 한 번만 확인한다. 이 키는
+/// 분석 캐시 키가 해시하는 pubspec(숨김·`build` 밖)으로만 정해진다.
+Set<String> _analyzedPackageDirectories(
+  String root,
+  List<String> analyzedFiles,
+) {
+  final nearest = <String, String>{};
+  String packageOf(String directory) {
+    final walked = <String>[];
+    var current = directory;
+    String package;
+    while (true) {
+      final known = nearest[current];
+      if (known != null) {
+        package = known;
+        break;
+      }
+      walked.add(current);
+      if (current == '.' ||
+          File(
+            p.joinAll([root, ...p.posix.split(current), 'pubspec.yaml']),
+          ).existsSync()) {
+        package = current;
+        break;
+      }
+      current = p.posix.dirname(current);
+    }
+    for (final directory in walked) {
+      nearest[directory] = package;
+    }
+    return package;
+  }
+
+  return {for (final file in analyzedFiles) packageOf(p.posix.dirname(file))};
+}
+
+/// [declarer](스캔 루트 기준 POSIX 경로)의 `workspace:` 항목 [entries]를 펼친다.
+///
+/// `directories`는 루트 기준 POSIX 경로, `patterns`는 펼치지 못한 항목과 이유,
+/// `reachHidden`은 숨김·`build` 디렉터리 이름에 맞을 수 있는 글롭이다(뒤 둘은
+/// 선언한 패키지 기준). pub(Dart 3.13.3에서 확인)은 항목을 그 패키지 기준으로 읽고,
+/// 언어 버전 3.11부터 글롭을 받아 `pubspec.yaml`이 있는 디렉터리(숨김 포함)를 고르고,
+/// 맞는 것이 없으면 `pub get`이 실패한다.
+///
+/// - 절대 경로나 `..` 마디가 든 항목은 건너뛴다. pub이 그런 워크스페이스를
+///   거부하고(`../other` 확인), 루트 해석도 스캔 루트 밖을 읽지 않는다.
+/// - 글롭이 아닌 항목은 그대로 디렉터리다(없어도 센다).
+/// - `**`·`[...]`·`{...}`·`\`가 든 글롭은 펼치지 않는다. 패키지 `glob`의 정규식
+///   매처를 저장소가 고른 패턴에 쓰지 않는다(`PathGlob` 문서의 역추적 비용).
+/// - `*`·`?`만 쓰는 글롭은 [_expandWildcardEntry]가 펼친다.
+({
+  List<String> directories,
+  List<(String, String)> patterns,
+  List<String> reachHidden,
+})
+_expandNestedWorkspaceEntries(
+  String root,
+  String declarer,
+  List<String> entries,
+  _GlobExpansionBudget budget,
+) {
+  final directories = <String>{};
+  final patterns = <String, String>{};
+  final reachHidden = <String>{};
+  for (final entry in entries) {
+    final relative = p.posix.normalize(entry.trim());
+    if (relative.isEmpty ||
+        p.posix.isAbsolute(relative) ||
+        p.posix.split(relative).contains('..')) {
+      continue;
+    }
+    if (!relative.contains(_wildcardCharacters)) {
+      directories.add(p.posix.normalize(p.posix.join(declarer, relative)));
+      continue;
+    }
+    if (relative.contains(_unexpandedGlobSyntax)) {
+      patterns[relative] = 'unsupported glob syntax';
+      continue;
+    }
+    if (p.posix
+        .split(relative)
+        .any((segment) => _wildcardSegmentReachesHidden(segment))) {
+      reachHidden.add(relative);
+    }
+    final expanded = _expandWildcardEntry(root, declarer, relative, budget);
+    if (expanded.failure != null) {
+      patterns[relative] = expanded.failure!;
+    } else if (expanded.matches.isEmpty) {
+      patterns[relative] =
+          'no package directory matches outside hidden and build directories';
+    } else {
+      directories.addAll(expanded.matches);
+    }
+  }
+  return (
+    directories: directories.toList(),
+    patterns: [for (final entry in patterns.entries) (entry.key, entry.value)],
+    reachHidden: reachHidden.toList(),
+  );
+}
+
+/// 글롭 마디 [segment]가 숨김 디렉터리 이름(`.`로 시작)이나 [indexExcludedDirectories]
+/// 이름에 맞을 수 있는지다. 패턴 글자만 본다 — 그런 디렉터리의 pubspec은 분석 캐시
+/// 키에 없어서, 실제 디렉터리를 보고 판정하면 캐시 적중이 낡은 줄을 낸다.
+bool _wildcardSegmentReachesHidden(String segment) {
+  if (!segment.contains(_wildcardCharacters)) return false;
+  final caseSensitive = p.style != p.Style.windows;
+  final pattern = caseSensitive ? segment : segment.toLowerCase();
+  return pattern.startsWith('*') ||
+      pattern.startsWith('?') ||
+      pattern.startsWith('.') ||
+      indexExcludedDirectories.any(
+        (name) => _matchesWildcardSegment(pattern, name),
+      );
+}
+
+/// 이름이 분석 캐시 키 밖(숨김이거나 [indexExcludedDirectories])인 디렉터리인지다.
+bool _outsideCacheKey(String name) =>
+    name.startsWith('.') || indexExcludedDirectories.contains(name);
+
+/// `*`·`?`만 쓰는 글롭 [relative]를 [declarer] 아래에서 펼친다(루트 기준 경로).
+///
+/// 마디 수만큼만 내려가고, 숨김·`build` 디렉터리는 고르거나 지나가지 않는다(분석
+/// 캐시 키 밖). 디렉터리 링크는 따라가지 않는다 — 글자 마디나 와일드카드 마디가
+/// 링크를 지나야 하면 `failure`다(`l1 -> .`·`l2 -> .` 같은 링크로 일이 거듭
+/// 늘어나지 않는다). 읽지 못한 디렉터리, [budget] 소진도 `failure`다.
+({List<String> matches, String? failure}) _expandWildcardEntry(
+  String root,
+  String declarer,
+  String relative,
+  _GlobExpansionBudget budget,
+) {
+  final caseSensitive = p.style != p.Style.windows;
+  var frontier = [declarer];
+  try {
+    for (final segment in p.posix.split(relative)) {
+      final next = <String>[];
+      final pattern = caseSensitive ? segment : segment.toLowerCase();
+      for (final directory in frontier) {
+        final absolute = p.joinAll([root, ...p.posix.split(directory)]);
+        if (!segment.contains(_wildcardCharacters)) {
+          if (_outsideCacheKey(segment)) {
+            return (
+              matches: const [],
+              failure: 'crosses a hidden or build directory',
+            );
+          }
+          final child = budget.find(absolute, segment);
+          if (child == null) {
+            return (matches: const [], failure: 'expansion budget exhausted');
+          }
+          if (!child.directory) continue;
+          if (child.link) {
+            return (matches: const [], failure: 'crosses a directory link');
+          }
+          next.add(p.posix.join(directory, child.name));
+          continue;
+        }
+        final children = budget.list(absolute);
+        if (children == null) {
+          return (matches: const [], failure: 'expansion budget exhausted');
+        }
+        for (final child in children) {
+          final name = child.name;
+          if (!budget.spend((name.length + 1) * (segment.length + 1))) {
+            return (matches: const [], failure: 'expansion budget exhausted');
+          }
+          if (!child.directory ||
+              _outsideCacheKey(name) ||
+              !_matchesWildcardSegment(
+                pattern,
+                caseSensitive ? name : name.toLowerCase(),
+              )) {
+            continue;
+          }
+          if (child.link) {
+            return (matches: const [], failure: 'crosses a directory link');
+          }
+          next.add(p.posix.join(directory, name));
+        }
+      }
+      frontier = next;
+    }
+  } on FileSystemException {
+    return (matches: const [], failure: 'an unreadable directory');
+  }
+  return (
+    matches: [
+      for (final directory in frontier)
+        if (File(
+          p.joinAll([root, ...p.posix.split(directory), 'pubspec.yaml']),
+        ).existsSync())
+          directory,
+    ],
+    failure: null,
+  );
+}
+
+/// [name]이 `*`(0자 이상)·`?`(한 글자)만 쓰는 글롭 마디 [pattern]에 맞는지다.
+///
+/// 마지막 `*` 하나로만 되돌아가는 탐욕 매처라 최악 비용이 O(이름 × 패턴)이다.
+bool _matchesWildcardSegment(String pattern, String name) {
+  var patternIndex = 0;
+  var nameIndex = 0;
+  var star = -1;
+  var resume = 0;
+  while (nameIndex < name.length) {
+    if (patternIndex < pattern.length &&
+        (pattern[patternIndex] == '?' ||
+            pattern[patternIndex] == name[nameIndex])) {
+      patternIndex++;
+      nameIndex++;
+    } else if (patternIndex < pattern.length && pattern[patternIndex] == '*') {
+      star = patternIndex++;
+      resume = nameIndex;
+    } else if (star >= 0) {
+      patternIndex = star + 1;
+      nameIndex = ++resume;
+    } else {
+      return false;
+    }
+  }
+  while (patternIndex < pattern.length && pattern[patternIndex] == '*') {
+    patternIndex++;
+  }
+  return patternIndex == pattern.length;
+}
+
+/// 중첩 멤버 [directory](루트 기준 POSIX 경로)의 pubspec을 읽는다.
+///
+/// `content`는 따라갈 pubspec 내용이고, `unfollowed`는 따라가지 않은 이유다. 둘 다
+/// null이면 pubspec이 없다(그 디렉터리는 패키지가 아니므로 더 선언할 것이 없다).
+/// - 경로에 숨김·`build` 마디가 있으면 파일을 보지 않고 [_hiddenReason]이다(그
+///   pubspec은 분석 캐시 키에 없다).
+/// - 경로 어딘가가 링크라 실제 위치가 다르면 [_linkedReason]이다(루트 해석이 symlink
+///   멤버를 건너뛰는 것과 같은 경계, `loop -> .` 같은 링크로 같은 pubspec을 거듭
+///   읽지 않는다).
+/// - 상한(1 MiB) 초과·UTF-8 아님·장치 파일·읽기 실패는 [_unreadableReason]이다.
+({String? content, String? unfollowed}) _readNestedWorkspacePubspec(
+  String root,
+  String directory,
+) {
+  if (p.posix.split(directory).any(_outsideCacheKey)) {
+    return (content: null, unfollowed: _hiddenReason);
+  }
+  final path = p.joinAll([root, ...p.posix.split(directory), 'pubspec.yaml']);
+  final file = File(path);
+  try {
+    if (!regularFileExistsSync(file)) {
+      return (content: null, unfollowed: null);
+    }
+    if (!p.equals(p.normalize(file.resolveSymbolicLinksSync()), path)) {
+      return (content: null, unfollowed: _linkedReason);
+    }
+    return (content: readConfigurationSync(file), unfollowed: null);
+  } on Exception {
+    return (content: null, unfollowed: _unreadableReason);
+  }
+}
+
+/// pub `workspace:` 글롭의 와일드카드 문자다(이것이 없으면 글롭이 아니다).
+final _wildcardCharacters = RegExp(r'[*?\[\]{}\\]');
+
+/// 펼치지 않는 글롭 문법이다: `**`, 문자 클래스, 선택지, 이스케이프.
+final _unexpandedGlobSyntax = RegExp(r'\*\*|[\[\]{}\\]');
 
 /// `--workspace` 집계에서 분석할 워크스페이스 멤버 하나다.
 final class _WorkspaceMember {
@@ -2513,8 +3031,16 @@ const _cacheSchemaVersion = 9;
 // 그 범위의 간선이 선언한 dependencies와 lib/ 파일의 import·export로 좁아지고
 // source_packages 이름도 따른다(v38). v37 캐시는 dev_dependencies와 테스트 import를
 // 따라 넓다.
+// analyzer가 해석하지 않은 파일을 세는 unresolved-files 한계와 `--workspace`가
+// 집계하지 않은 중첩 워크스페이스 멤버의 workspace-members-not-indexed 줄을
+// 싣는다(v39). 입력이 같아도 v38 캐시에는 두 줄이 없다.
+// unresolved-files 문구에 백슬래시를 더한다(v40, 발행 전 브랜치 안의 변경).
+// 중첩 멤버 줄이 `*`·`?` 글롭을 펼치고 중첩 pubspec을 따라가며 안내 문구가
+// 바뀐다(v41, 발행 전 브랜치 안의 변경).
+// 중첩 멤버 판정이 가장 가까운 패키지로 바뀌고, 따라가지 않은 pubspec·숨김 디렉터리를
+// 고를 수 있는 글롭·펼치지 못한 글롭의 이유를 센다(v42, 발행 전 브랜치 안의 변경).
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v38-lib-dependency-scopes';
+    'dartograph-analysis-$toolVersion-cache-v42-nested-member-reasons';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3529,6 +4055,46 @@ String? _publicLibrariesLimitation(
       'their declarations are not retained as public API, so ones used only '
       'by package consumers are reported as unreachable (export them from '
       '$entry or retain them with retained_files$unnamedNote)';
+}
+
+/// [unitPaths] 가운데 사실이 없는 파일의 루트 기준 POSIX 상대 경로다(정렬).
+///
+/// [_resolveUnitFacts]는 analyzer가 [ResolvedUnitResult]를 주지 않으면 null이다.
+/// analyzer(검증 집합 14.3~14.7의 코드가 같다)는 파일 경로를 URI로 바꿨다가 되돌린
+/// 경로가 원래 경로와 같을 때만 해석하고, 아니면 `NotPathOfUriResult`를 준다. 패키지 `lib/` 아래 경로는
+/// `PackageMapUriResolver.pathToUri`가 이스케이프 없이 `package:` URI로 만들므로
+/// `%20` 같은 유효한 퍼센트 이스케이프나 `#`·`?`·`\`가 든 경로는 되돌리면 다른 경로가
+/// 된다(`#`·`?`부터는 fragment·query가 되고 `\`는 `/`로 읽힌다). 루트 밖
+/// 경로는 원래 source가 없어 세지 않는다. 증분 경로는 해석하지 못한 파일의 사실을
+/// 캐시하지 않으므로 매번 다시 해석해 같은 목록이 된다.
+List<String> _unresolvedFiles(
+  List<String> unitPaths,
+  String root,
+  Map<String, _UnitFacts> facts,
+) {
+  final unresolved = <String>[];
+  for (final path in unitPaths) {
+    final source = _relativeSourcePath(path, root);
+    if (source != null && !facts.containsKey(source)) unresolved.add(source);
+  }
+  return unresolved..sort();
+}
+
+/// analyzer가 해석하지 않아 그래프에 없는 파일 [files]를 센 limitation 문구다.
+/// [files]는 루트 기준 POSIX 상대 경로이고 정렬돼 있다.
+///
+/// 앞의 세 경로만 싣고 나머지는 개수로 적는다(`options-excluded-files:`와 같은 규칙).
+/// 확인한 원인은 경로가 URI로 왕복하지 않는 경우 하나라 그것을 예로 든다.
+String _unresolvedFilesLimitation(List<String> files) {
+  const shown = 3;
+  final listed = files.take(shown).join(', ');
+  final more = files.length > shown ? ' and ${files.length - shown} more' : '';
+  return 'unresolved-files: ${files.length} Dart file(s) in analyzed source '
+      'directories were not resolved by the analyzer and are not in the '
+      'graph: $listed$more; the analyzer resolves a file only when its path '
+      'maps to a URI and back (for example, a path under a package lib/ that '
+      'contains #, ?, a backslash, or a percent escape such as %20 does not); '
+      'declarations used only from them are reported as unreachable';
 }
 
 /// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation

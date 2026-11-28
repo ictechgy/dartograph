@@ -141,7 +141,33 @@ pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인�
 멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
 선언하지 않은 루트, 선언된 멤버가 전부 건너뛰어진 경우, 잘못된 패키지 이름의 멤버
 pubspec은 분석 실패(exit 2)이고, 진단이 그 원인을 짚는다(예: `Analysis failed: --workspace
-requires a pub workspace root: pubspec.yaml declares no workspace members`). 멤버의
+requires a pub workspace root: pubspec.yaml declares no workspace members`). 집계는 루트 목록만
+따른다. 멤버 pubspec이 다시 `workspace:`로 선언한 중첩 멤버(pub은 같은 해석에 넣는다)는 집계하지
+않고, 그래프 명령(`runtime` 제외)이 선언한 패키지마다 `workspace-members-not-indexed: pkgs/nest/sub
+are nested workspace members declared by pkgs/nest; …; run dartograph on each member root`로 알린다.
+pub이 넣는데 분석하지 않는 것은 이름을 대거나 세고 조용히 빼지 않는다. 줄마다 앞의 세 디렉터리와
+나머지 수를 적고, 반향하는 항목은 200자에서 자른다.
+
+- 선언된 중첩 멤버의 pubspec도 따라가므로 `pkgs/nest/sub`가 선언한 멤버도 따로 센다(순환은 끊는다).
+  따라가지 않은 pubspec은 `workspace members that … may declare were not followed (…)` 줄에 그 패키지를
+  적는다. 이유는 32단계보다 깊은 중첩, 숨김·`build` 디렉터리(분석 캐시 키 밖), 링크를 거친 pubspec,
+  읽지 못한 pubspec(1 MiB 설정 상한 초과 등)이다.
+- `*`·`?`만 쓰는 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 `pubspec.yaml`이 있는 디렉터리에 맞춰
+  펼쳐 디렉터리마다 판정한다. 숨김·`build` 디렉터리는 고르지 않는다(pub은 고른다). 그런 이름에 맞을 수
+  있는 글롭은 패턴 글자만 보고 `hidden or build directories that … can match are not matched by
+  dartograph` 줄로 센다(캐시 적중이 어긋나지 않게 디렉터리를 보지 않는다).
+- 펼치지 않는 글롭은 `workspace member globs declared by … were not expanded: <패턴> (<이유>)` 줄에
+  적는다. 이유는 지원하지 않는 글롭 문법(`**`·`[...]`·`{...}`·`\`), 숨김·`build` 밖에서 맞는 패키지
+  디렉터리 없음, 디렉터리 링크를 지나야 함(펼칠 때 링크를 따라가지 않는다), 읽지 못한 디렉터리, 펼치기
+  예산 소진이다. 예산은 분석 하나의 모든 글롭이 나눠 쓰고 읽은 디렉터리 목록은 그 안에서 기억한다
+  (디렉터리 1만 1천 개에서 47,051개 글롭이 든 1 MiB pubspec은 4.7초, 같은 트리에 글롭 10개는 3.0초였다).
+  `--workspace` 자체는 루트의 글롭을 펼치지 않는다.
+- 세지 않는 것은 루트 목록으로 이미 집계한 멤버와, 분석한 파일의 가장 가까운 패키지가 그 디렉터리인
+  경우다(멤버의 표준 소스 디렉터리 안에 있어 통째로 분석되는 `pkgs/nest/example`, `lib/`만 분석되는
+  `source_packages` 패키지). 안에 든 다른 패키지만 분석되는 디렉터리와 Dart 파일이 없는 중첩 멤버는
+  센다. pub이 거부하는 절대 경로·`..` 항목은 건너뛴다.
+
+멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 
@@ -323,6 +349,20 @@ limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알�
 같은 디렉터리 파일만 온전히, 조상 디렉터리 파일은 `**/` 패턴만 적용했다. 자기 옵션 파일이 없는
 패키지가 물려받는 조상 디렉터리의 `analysis_options.yaml` 패턴은 모든 버전에서 그 파일의 디렉터리
 기준이다.
+
+분석 대상으로 열거한 파일을 analyzer가 해석하지 않으면 그 파일의 선언과 참조는 그래프에 없다.
+analyzer는 파일 경로를 URI로 바꿨다가 되돌린 경로가 원래 경로와 같을 때만 해석하는데, 패키지
+`lib/` 아래 경로는 이스케이프 없이 `package:` URI가 되므로 `lib/src/a%20b.dart`나
+`lib/src%20dir/c.dart`처럼 유효한 퍼센트 이스케이프가 든 경로, URI의 fragment·query를 시작하는
+`#`·`?`나 URI 파서가 `/`로 읽는 `\`가 든 경로는 해석되지 않는다(`bin/`·`test/`의
+`file:` URI나 `%zz`처럼 유효하지 않은 이스케이프는 해석된다). 그러면 분석 명령은
+`unresolved-files: 1 Dart file(s) in analyzed source directories were not resolved by the analyzer and are not in the graph: lib/src/a%20b.dart; …`
+limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알린다(나머지는 `and N more`). 그 파일의
+선언은 보고되지 않고, 그 파일에서만 쓰는 선언은 미도달로 보고된다. 다른 라이브러리가
+`import 'src/a%2520b.dart'`로 그 파일을 import해 analyzer가 그 import를 해석해도(`dart analyze`는
+깨끗하다) 마찬가지다. 종료 코드와 finding은 이 한계로 바뀌지 않는다. analysis options가 제외한
+파일은 `options-excluded-files:`에만 센다. 그래프 밖에서 따로 유닛을 해석하는
+`runtime`·`routes`·`bridges`·`schema`의 사실 수집은 이 한계를 싣지 않는다.
 
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
