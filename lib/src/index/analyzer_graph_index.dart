@@ -3637,12 +3637,14 @@ List<String> _unresolvedFiles(
   List<String> unitPaths,
   String root,
   Map<String, _UnitFacts> facts,
-) => [
-  for (final path in unitPaths)
-    if (_relativeSourcePath(path, root) case final source?
-        when !facts.containsKey(source))
-      source,
-]..sort();
+) {
+  final unresolved = <String>[];
+  for (final path in unitPaths) {
+    final source = _relativeSourcePath(path, root);
+    if (source != null && !facts.containsKey(source)) unresolved.add(source);
+  }
+  return unresolved..sort();
+}
 
 /// analyzer가 해석하지 않아 그래프에 없는 파일 [files]를 센 limitation 문구다.
 /// [files]는 루트 기준 POSIX 상대 경로이고 정렬돼 있다.
