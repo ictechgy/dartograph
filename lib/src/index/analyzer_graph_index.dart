@@ -2009,6 +2009,12 @@ List<String> _workspaceMemberPaths(String? pubspecContent) {
 /// 디렉터리(예: `pkgs/a/example`) 안에 있거나 `source_packages`여서 소스가 이미
 /// 분석되므로 "색인하지 않음"이 거짓이 된다. 그래서 Dart 파일이 하나도 없는 중첩
 /// 멤버는 디렉터리와 상관없이 센다(집계하지 않은 것은 같다).
+///
+/// pub은 언어 버전 3.11부터 `workspace:` 항목에 글롭(`packages/*`)을 받는다. 집계는
+/// 글롭을 펼치지 않으므로, 글롭 항목은 첫 글롭 마디 앞까지의 디렉터리
+/// ([_globLiteralDirectory])로 같은 확인을 한다. 그 디렉터리에 분석 파일이 없으면
+/// 글롭이 고르는 어떤 패키지도 분석되지 않았으므로 세도 참이고, 있으면
+/// (`example/*`) 세지 않는다.
 List<String> _nestedWorkspaceMembersLimitations(
   List<_WorkspaceMember> members,
   List<String> analyzedFiles,
@@ -2031,7 +2037,9 @@ List<String> _nestedWorkspaceMembersLimitations(
     };
     final nested = [
       for (final path in declared)
-        if (!aggregated.contains(path) && !holdsAnalyzedFile(path)) path,
+        if (!aggregated.contains(path) &&
+            !holdsAnalyzedFile(_globLiteralDirectory(path)))
+          path,
     ]..sort();
     if (nested.isEmpty) continue;
     lines.add(
@@ -2043,6 +2051,20 @@ List<String> _nestedWorkspaceMembersLimitations(
   }
   return lines;
 }
+
+/// [path]에서 글롭 메타문자(`*`·`?`·`[`·`{`)가 든 첫 마디 앞까지의 디렉터리다.
+///
+/// 글롭이 아니면 [path] 그대로다. 첫 마디부터 글롭이면 `.`(스캔 루트)이다.
+String _globLiteralDirectory(String path) {
+  final literal = p.posix
+      .split(path)
+      .takeWhile((segment) => !segment.contains(_globMetacharacters))
+      .toList();
+  return literal.isEmpty ? '.' : p.posix.joinAll(literal);
+}
+
+/// pub `workspace:` 글롭(패키지 `glob` 문법)의 메타문자다.
+final _globMetacharacters = RegExp(r'[*?\[{]');
 
 /// `--workspace` 집계에서 분석할 워크스페이스 멤버 하나다.
 final class _WorkspaceMember {

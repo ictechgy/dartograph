@@ -146,7 +146,9 @@ requires a pub workspace root: pubspec.yaml declares no workspace members`). 집
 않고, 선언한 멤버마다 `workspace-members-not-indexed: pkgs/nest/sub are nested workspace members
 declared by pkgs/nest; …; run dartograph --workspace on pkgs/nest to analyze them`으로 알린다. 그
 멤버의 표준 소스 디렉터리 안(예: `pkgs/nest/example`)에 있거나 `source_packages`라서 파일이 이미
-분석되는 중첩 멤버는 세지 않는다. 멤버의
+분석되는 중첩 멤버는 세지 않는다. 글롭 항목(pub은 언어 버전 3.11부터 받는다)은 펼치지 않고, 첫 글롭
+마디 앞 디렉터리 아래에 분석한 파일이 없을 때만 센다(`packages/*`는 세고 `example/*`는 세지 않는다).
+멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 

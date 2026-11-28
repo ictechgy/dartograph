@@ -148,4 +148,67 @@ resolution: workspace
     expect(notIndexedOf(first), [expected]);
     expect(notIndexedOf(reused), [expected]);
   });
+
+  test('a glob entry counts only when nothing under its literal directory is '
+      'analyzed', () async {
+    // pub은 언어 버전 3.11부터 `workspace:` 글롭을 받는다. 집계는 글롭을 펼치지
+    // 않는다. `example/*`가 고르는 e1은 pkgs/nest의 example/로 이미 분석되므로
+    // 세면 거짓이고, `packages/*` 아래에는 분석한 파일이 없다.
+    final root = Directory(
+      Directory.systemTemp
+          .createTempSync('dartograph-nested-glob.')
+          .resolveSymbolicLinksSync(),
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    void put(String relative, String content) {
+      File(p.join(root.path, relative))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(content);
+    }
+
+    String pubspec(String name, [String extra = '']) =>
+        'name: $name\npublish_to: none\nenvironment:\n  sdk: ^3.11.0\n'
+        '$extra';
+    put('pubspec.yaml', pubspec('glob_root', 'workspace:\n  - pkgs/nest\n'));
+    put(
+      'pkgs/nest/pubspec.yaml',
+      pubspec(
+        'nest',
+        'resolution: workspace\n'
+            'workspace:\n  - packages/*\n  - example/*\n',
+      ),
+    );
+    put('pkgs/nest/lib/nest.dart', 'void nestApi() {}\n');
+    for (final (directory, name) in [
+      ('packages/p1', 'p1'),
+      ('example/e1', 'e1'),
+    ]) {
+      put(
+        'pkgs/nest/$directory/pubspec.yaml',
+        pubspec(name, 'resolution: workspace\n'),
+      );
+      put('pkgs/nest/$directory/lib/$name.dart', 'class ${name}Orphan {}\n');
+    }
+    final pub = await Process.run(Platform.resolvedExecutable, const [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: root.path);
+    expect(pub.exitCode, 0, reason: '${pub.stdout}${pub.stderr}');
+
+    final result = await AnalyzerGraphIndex(
+      aggregateWorkspace: true,
+      userCacheEnvironment: const {},
+    ).index(root.path);
+
+    expect(notIndexedOf(result), [
+      'workspace-members-not-indexed: pkgs/nest/packages/* are nested '
+          'workspace members declared by pkgs/nest; --workspace aggregates '
+          'only the members listed in the root pubspec; run dartograph '
+          '--workspace on pkgs/nest to analyze them',
+    ]);
+    final nodes = result.graph.nodes.keys.toSet();
+    expect(nodes, contains('package:e1/e1.dart::e1Orphan'));
+    expect(nodes.where((id) => id.startsWith('package:p1/')), isEmpty);
+  });
 }
