@@ -2605,8 +2605,9 @@ const _cacheSchemaVersion = 9;
 // analyzer가 해석하지 않은 파일을 세는 unresolved-files 한계와 `--workspace`가
 // 집계하지 않은 중첩 워크스페이스 멤버의 workspace-members-not-indexed 줄을
 // 싣는다(v39). 입력이 같아도 v38 캐시에는 두 줄이 없다.
+// unresolved-files 문구에 백슬래시를 더한다(v40, 발행 전 브랜치 안의 변경).
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v39-unresolved-files';
+    'dartograph-analysis-$toolVersion-cache-v40-unresolved-files-backslash';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3629,8 +3630,8 @@ String? _publicLibrariesLimitation(
 /// analyzer(검증 집합 14.3~14.7의 코드가 같다)는 파일 경로를 URI로 바꿨다가 되돌린
 /// 경로가 원래 경로와 같을 때만 해석하고, 아니면 `NotPathOfUriResult`를 준다. 패키지 `lib/` 아래 경로는
 /// `PackageMapUriResolver.pathToUri`가 이스케이프 없이 `package:` URI로 만들므로
-/// `%20` 같은 유효한 퍼센트 이스케이프나 `#`·`?`가 든 경로는 되돌리면 다른 경로가
-/// 된다(`#`·`?`부터는 fragment·query가 된다). 루트 밖
+/// `%20` 같은 유효한 퍼센트 이스케이프나 `#`·`?`·`\`가 든 경로는 되돌리면 다른 경로가
+/// 된다(`#`·`?`부터는 fragment·query가 되고 `\`는 `/`로 읽힌다). 루트 밖
 /// 경로는 원래 source가 없어 세지 않는다. 증분 경로는 해석하지 못한 파일의 사실을
 /// 캐시하지 않으므로 매번 다시 해석해 같은 목록이 된다.
 List<String> _unresolvedFiles(
@@ -3658,9 +3659,9 @@ String _unresolvedFilesLimitation(List<String> files) {
   return 'unresolved-files: ${files.length} Dart file(s) in analyzed source '
       'directories were not resolved by the analyzer and are not in the '
       'graph: $listed$more; the analyzer resolves a file only when its path '
-      'maps to a URI and back (a path under a package lib/ that contains #, ?, '
-      'or a percent escape such as %20 does not); declarations used only from '
-      'them are reported as unreachable';
+      'maps to a URI and back (for example, a path under a package lib/ that '
+      'contains #, ?, a backslash, or a percent escape such as %20 does not); '
+      'declarations used only from them are reported as unreachable';
 }
 
 /// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation

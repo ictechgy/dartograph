@@ -334,8 +334,8 @@ limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알�
 분석 대상으로 열거한 파일을 analyzer가 해석하지 않으면 그 파일의 선언과 참조는 그래프에 없다.
 analyzer는 파일 경로를 URI로 바꿨다가 되돌린 경로가 원래 경로와 같을 때만 해석하는데, 패키지
 `lib/` 아래 경로는 이스케이프 없이 `package:` URI가 되므로 `lib/src/a%20b.dart`나
-`lib/src%20dir/c.dart`처럼 유효한 퍼센트 이스케이프가 든 경로와 URI의 fragment·query를 시작하는
-`#`·`?`가 든 경로는 해석되지 않는다(`bin/`·`test/`의
+`lib/src%20dir/c.dart`처럼 유효한 퍼센트 이스케이프가 든 경로, URI의 fragment·query를 시작하는
+`#`·`?`나 URI 파서가 `/`로 읽는 `\`가 든 경로는 해석되지 않는다(`bin/`·`test/`의
 `file:` URI나 `%zz`처럼 유효하지 않은 이스케이프는 해석된다). 그러면 분석 명령은
 `unresolved-files: 1 Dart file(s) in analyzed source directories were not resolved by the analyzer and are not in the graph: lib/src/a%20b.dart; …`
 limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알린다(나머지는 `and N more`). 그 파일의

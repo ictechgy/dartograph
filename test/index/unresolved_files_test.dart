@@ -55,6 +55,8 @@ void main() {
     write('app/lib/src%25dir/c.dart', 'class InDirC {}\n');
     // `#` 뒤는 URI의 fragment가 되어 역시 다른 경로로 돌아간다.
     write('app/lib/src/h#x.dart', 'class HashName {}\n');
+    // `Uri.parse`는 `\`를 `/`로 읽는다.
+    write(r'app/lib/src/k\x.dart', 'class BackslashName {}\n');
     // 해석되는 대조군: 유효하지 않은 이스케이프(`%zz`)와 `package:` URI가 아닌
     // bin/ 파일의 이스케이프는 경로가 URI로 왕복한다.
     write('app/lib/src/bad%zz.dart', 'class BadEscape {}\n');
@@ -68,13 +70,13 @@ void main() {
   ];
 
   const expected =
-      'unresolved-files: 5 Dart file(s) in analyzed source directories were '
+      'unresolved-files: 6 Dart file(s) in analyzed source directories were '
       'not resolved by the analyzer and are not in the graph: '
       'lib/src%20dir/a.dart, lib/src%20dir/b.dart, lib/src%25dir/c.dart and '
-      '2 more; the analyzer resolves a file only when its path maps to a URI '
-      'and back (a path under a package lib/ that contains #, ?, or a percent '
-      'escape such as %20 does not); declarations used only from them are '
-      'reported as unreachable';
+      '3 more; the analyzer resolves a file only when its path maps to a URI '
+      'and back (for example, a path under a package lib/ that contains #, ?, '
+      'a backslash, or a percent escape such as %20 does not); declarations '
+      'used only from them are reported as unreachable';
 
   test(
     'files the analyzer does not resolve are counted, others are not',
@@ -83,8 +85,8 @@ void main() {
         userCacheEnvironment: const {},
       ).index(app);
 
-      // 넷째·다섯째 파일(lib/src/enc%20x.dart, lib/src/h#x.dart)은 목록에서 잘리고 수에만
-      // 든다.
+      // 넷째부터(lib/src/enc%20x.dart, lib/src/h#x.dart, lib/src/k\x.dart)는 목록에서
+      // 잘리고 수에만 든다.
       expect(unresolvedOf(result), [expected]);
       final nodes = result.graph.nodes.keys.toSet();
       // 세지 않은 대조군과 해석된 helper.dart는 그래프에 있다.
@@ -95,6 +97,7 @@ void main() {
       expect(nodes.where((id) => id.contains('EncUsed')), isEmpty);
       expect(nodes.where((id) => id.contains('InDir')), isEmpty);
       expect(nodes.where((id) => id.contains('HashName')), isEmpty);
+      expect(nodes.where((id) => id.contains('BackslashName')), isEmpty);
     },
   );
 
@@ -105,6 +108,7 @@ void main() {
       'lib/src%20dir/b.dart',
       'lib/src%25dir/c.dart',
       'lib/src/h#x.dart',
+      r'lib/src/k\x.dart',
     ]) {
       File(p.join(app, name)).deleteSync();
     }
