@@ -141,7 +141,12 @@ pubspec으로 감사해 각 발견이 어느 매니페스트(`manifest`) 것인�
 멤버의 소스는 루트 표준 디렉터리 안에 있어도 색인하지 않는다). `workspace:` 멤버를
 선언하지 않은 루트, 선언된 멤버가 전부 건너뛰어진 경우, 잘못된 패키지 이름의 멤버
 pubspec은 분석 실패(exit 2)이고, 진단이 그 원인을 짚는다(예: `Analysis failed: --workspace
-requires a pub workspace root: pubspec.yaml declares no workspace members`). 멤버의
+requires a pub workspace root: pubspec.yaml declares no workspace members`). 집계는 루트 목록만
+따른다. 멤버 pubspec이 다시 `workspace:`로 선언한 중첩 멤버(pub은 같은 해석에 넣는다)는 집계하지
+않고, 선언한 멤버마다 `workspace-members-not-indexed: pkgs/nest/sub are nested workspace members
+declared by pkgs/nest; …; run dartograph --workspace on pkgs/nest to analyze them`으로 알린다. 그
+멤버의 표준 소스 디렉터리 안(예: `pkgs/nest/example`)에 있거나 `source_packages`라서 파일이 이미
+분석되는 중첩 멤버는 세지 않는다. 멤버의
 `dartograph.yaml`은 읽지 않는다 — 루트 설정이 집계 전체에 적용되고 무시된 멤버
 설정은 limitation으로 보고된다. 집계 결과는 단일 패키지 스캔과 다른 캐시 키를 쓴다.
 

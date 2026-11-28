@@ -1852,6 +1852,15 @@ AnalyzerGraphResult _assembleResult({
         'pubspec)',
       );
     }
+    // 멤버가 자기 pubspec에 `workspace:`를 두면 pub은 그 멤버도 같은 해석에 넣는다.
+    // 집계는 루트 목록만 따르므로, 알리지 않으면 중첩 멤버 소스가 빠진 결과가
+    // "발견 없음"과 구분되지 않는다.
+    limitationDetails.addAll(
+      _nestedWorkspaceMembersLimitations(workspace.members, [
+        ...sources,
+        ...unresolvedFiles,
+      ]),
+    );
     // 멤버의 dartograph.yaml은 읽지 않는다 — 설정 경로는 스캔 루트 하나라
     // 멤버가 자체 설정을 두고도 적용되지 않는 사실을 출력에 남긴다.
     for (final member in workspace.members) {
@@ -1986,6 +1995,53 @@ List<String> _workspaceMemberPaths(String? pubspecContent) {
     for (final entry in workspace)
       if (entry is String) entry,
   ]..sort();
+}
+
+/// `--workspace`가 집계하지 않은 중첩 워크스페이스 멤버를 센 limitation 줄이다.
+///
+/// pub은 멤버 pubspec의 `workspace:`가 선언한 패키지(중첩 워크스페이스)도 같은
+/// 해석(루트 package config)에 넣지만, 집계는 루트 pubspec의 목록만 따른다. 집계한
+/// 멤버 [members]마다 그 `workspace:` 항목을 멤버 기준 경로로 바꿔 한 줄로 센다.
+///
+/// 두 경우는 세지 않는다. 루트 목록으로 이미 집계한 멤버와, [analyzedFiles](분석
+/// 대상으로 열거한 파일의 루트 기준 POSIX 경로) 가운데 그 디렉터리 안에 있으면서 더
+/// 안쪽 집계 멤버에 속하지 않는 파일이 있는 항목이다. 뒤의 경우는 멤버의 표준 소스
+/// 디렉터리(예: `pkgs/a/example`) 안에 있거나 `source_packages`여서 소스가 이미
+/// 분석되므로 "색인하지 않음"이 거짓이 된다. 그래서 Dart 파일이 하나도 없는 중첩
+/// 멤버는 디렉터리와 상관없이 센다(집계하지 않은 것은 같다).
+List<String> _nestedWorkspaceMembersLimitations(
+  List<_WorkspaceMember> members,
+  List<String> analyzedFiles,
+) {
+  final aggregated = {for (final member in members) member.relPath};
+  bool holdsAnalyzedFile(String directory) => analyzedFiles.any(
+    (file) =>
+        p.posix.isWithin(directory, file) &&
+        !aggregated.any(
+          (member) =>
+              p.posix.isWithin(directory, member) &&
+              p.posix.isWithin(member, file),
+        ),
+  );
+  final lines = <String>[];
+  for (final member in members) {
+    final declared = <String>{
+      for (final entry in _workspaceMemberPaths(member.pubspecContent))
+        p.posix.normalize(p.posix.join(member.relPath, entry)),
+    };
+    final nested = [
+      for (final path in declared)
+        if (!aggregated.contains(path) && !holdsAnalyzedFile(path)) path,
+    ]..sort();
+    if (nested.isEmpty) continue;
+    lines.add(
+      'workspace-members-not-indexed: ${nested.join(', ')} '
+      'are nested workspace members declared by ${member.relPath}; '
+      '--workspace aggregates only the members listed in the root pubspec; '
+      'run dartograph --workspace on ${member.relPath} to analyze them',
+    );
+  }
+  return lines;
 }
 
 /// `--workspace` 집계에서 분석할 워크스페이스 멤버 하나다.
@@ -2524,8 +2580,9 @@ const _cacheSchemaVersion = 9;
 // 그 범위의 간선이 선언한 dependencies와 lib/ 파일의 import·export로 좁아지고
 // source_packages 이름도 따른다(v38). v37 캐시는 dev_dependencies와 테스트 import를
 // 따라 넓다.
-// analyzer가 해석하지 않은 파일을 세는 unresolved-files 한계를 싣는다(v39). 입력이
-// 같아도 v38 캐시에는 이 줄이 없다.
+// analyzer가 해석하지 않은 파일을 세는 unresolved-files 한계와 `--workspace`가
+// 집계하지 않은 중첩 워크스페이스 멤버의 workspace-members-not-indexed 줄을
+// 싣는다(v39). 입력이 같아도 v38 캐시에는 두 줄이 없다.
 const _cacheIdentity =
     'dartograph-analysis-$toolVersion-cache-v39-unresolved-files';
 
