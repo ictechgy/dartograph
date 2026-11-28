@@ -360,6 +360,12 @@ Limitations:
   `package:` applied none. A package without its own `analysis_options.yaml`
   uses the nearest one in a parent directory, whose patterns are relative to
   that file's directory with every analyzer version.
+- The analyzer does not resolve a file under a package's `lib/` whose path has
+  a valid percent escape, such as `lib/src/a%20b.dart`: it builds the
+  `package:` URI without escaping the path, and the URI no longer maps back to
+  the file. Such a file is not in the graph, so a declaration used only from it
+  is reported as unreachable; analysis commands count those files in an
+  `unresolved-files:` limitation that lists the first three paths.
 - `dart:` libraries are resolved from the Dart SDK that dartograph located (see
   Install). When that SDK is older than the `environment.sdk` lower bound of the
   analyzed package (or of a `--workspace` member), SDK libraries and language

@@ -509,6 +509,7 @@ final class AnalyzerGraphIndex {
         workspace: workspace,
         sdkVersion: sdkVersion,
         optionsExcludedFiles: optionsExcludedFiles,
+        unresolvedFiles: _unresolvedFiles(unitPaths, root, facts),
       );
       // 사용자 캐시 증분을 요청했는데 위치를 정하지 못한 경우다. 결과는 완전하지만
       // 사실 캐시를 쓰지 못했다는 점을 조용히 넘기지 않는다.
@@ -712,6 +713,7 @@ final class AnalyzerGraphIndex {
       workspace: workspace,
       sdkVersion: sdkVersion,
       optionsExcludedFiles: optionsExcludedFiles,
+      unresolvedFiles: _unresolvedFiles(unitPaths, root, facts),
     );
     // 아래의 이른 반환(캐시 갱신 생략)보다 먼저 붙인다 — 버린 캐시 파일은
     // 갱신 여부와 무관하게 출력에 드러나야 한다.
@@ -1558,6 +1560,9 @@ GraphEdge _edgeFromJson(Map<String, Object?> edge) => GraphEdge(
 /// 전체 해석과 증분 해석이 같은 함수를 지난다 — 사실이 같으면 산출물도 같다.
 /// 순서가 의미를 갖는 지점(중복 정점의 첫 승리, 보존 사유의 마지막 승리,
 /// 라이브러리·publicApi·plugin 루트의 putIfAbsent)은 원래 유닛 순서를 따른다.
+///
+/// [unresolvedFiles]는 분석 대상으로 열거했지만 analyzer가 해석하지 않아 사실이
+/// 없는 파일이다([_unresolvedFiles]). 두 경로가 같은 함수로 센다.
 AnalyzerGraphResult _assembleResult({
   required String root,
   required List<String> sources,
@@ -1569,6 +1574,7 @@ AnalyzerGraphResult _assembleResult({
   Set<String>? linkEscapes,
   required String sdkVersion,
   required List<String> optionsExcludedFiles,
+  required List<String> unresolvedFiles,
   int skippedLinkedDirectories = 0,
   int unreadableDirectories = 0,
 }) {
@@ -1812,6 +1818,11 @@ AnalyzerGraphResult _assembleResult({
     limitationDetails.add(
       _optionsExcludedFilesLimitation(optionsExcludedFiles),
     );
+  }
+  // 열거한 파일을 analyzer가 해석하지 않으면 그 파일의 선언·참조가 그래프에 없다.
+  // 조용히 빼면 그 파일에서만 쓰는 선언이 이유 없이 미도달로 보고된다.
+  if (unresolvedFiles.isNotEmpty) {
+    limitationDetails.add(_unresolvedFilesLimitation(unresolvedFiles));
   }
   if (workspace == null) {
     final workspaceMembers = _workspaceMemberPaths(pubspecContent);
@@ -2513,8 +2524,10 @@ const _cacheSchemaVersion = 9;
 // 그 범위의 간선이 선언한 dependencies와 lib/ 파일의 import·export로 좁아지고
 // source_packages 이름도 따른다(v38). v37 캐시는 dev_dependencies와 테스트 import를
 // 따라 넓다.
+// analyzer가 해석하지 않은 파일을 세는 unresolved-files 한계를 싣는다(v39). 입력이
+// 같아도 v38 캐시에는 이 줄이 없다.
 const _cacheIdentity =
-    'dartograph-analysis-$toolVersion-cache-v38-lib-dependency-scopes';
+    'dartograph-analysis-$toolVersion-cache-v39-unresolved-files';
 
 /// 캐시 키를 계산하지 않는 경로에서 analyzer보다 먼저 분석 입력을 열거한다.
 ///
@@ -3529,6 +3542,43 @@ String? _publicLibrariesLimitation(
       'their declarations are not retained as public API, so ones used only '
       'by package consumers are reported as unreachable (export them from '
       '$entry or retain them with retained_files$unnamedNote)';
+}
+
+/// [unitPaths] 가운데 사실이 없는 파일의 루트 기준 POSIX 상대 경로다(정렬).
+///
+/// [_resolveUnitFacts]는 analyzer가 [ResolvedUnitResult]를 주지 않으면 null이다.
+/// analyzer(검증 집합 14.3~14.7의 코드가 같다)는 파일 경로를 URI로 바꿨다가 되돌린
+/// 경로가 원래 경로와 같을 때만 해석하고, 아니면 `NotPathOfUriResult`를 준다. 패키지 `lib/` 아래 경로는
+/// `PackageMapUriResolver.pathToUri`가 이스케이프 없이 `package:` URI로 만들므로
+/// `%20` 같은 유효한 퍼센트 이스케이프가 든 경로는 되돌리면 다른 경로가 된다. 루트 밖
+/// 경로는 원래 source가 없어 세지 않는다. 증분 경로는 해석하지 못한 파일의 사실을
+/// 캐시하지 않으므로 매번 다시 해석해 같은 목록이 된다.
+List<String> _unresolvedFiles(
+  List<String> unitPaths,
+  String root,
+  Map<String, _UnitFacts> facts,
+) => [
+  for (final path in unitPaths)
+    if (_relativeSourcePath(path, root) case final source?
+        when !facts.containsKey(source))
+      source,
+]..sort();
+
+/// analyzer가 해석하지 않아 그래프에 없는 파일 [files]를 센 limitation 문구다.
+/// [files]는 루트 기준 POSIX 상대 경로이고 정렬돼 있다.
+///
+/// 앞의 세 경로만 싣고 나머지는 개수로 적는다(`options-excluded-files:`와 같은 규칙).
+/// 확인한 원인은 경로가 URI로 왕복하지 않는 경우 하나라 그것을 예로 든다.
+String _unresolvedFilesLimitation(List<String> files) {
+  const shown = 3;
+  final listed = files.take(shown).join(', ');
+  final more = files.length > shown ? ' and ${files.length - shown} more' : '';
+  return 'unresolved-files: ${files.length} Dart file(s) in analyzed source '
+      'directories were not resolved by the analyzer and are not in the '
+      'graph: $listed$more; the analyzer resolves a file only when its path '
+      'maps to a URI and back (a path under a package lib/ that contains a '
+      'percent escape such as %20 does not); declarations used only from them '
+      'are reported as unreachable';
 }
 
 /// analysis options가 제외해 분석하지 않은 비생성 Dart 파일 [files]를 센 limitation

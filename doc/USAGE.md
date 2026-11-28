@@ -324,6 +324,19 @@ limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알�
 패키지가 물려받는 조상 디렉터리의 `analysis_options.yaml` 패턴은 모든 버전에서 그 파일의 디렉터리
 기준이다.
 
+분석 대상으로 열거한 파일을 analyzer가 해석하지 않으면 그 파일의 선언과 참조는 그래프에 없다.
+analyzer는 파일 경로를 URI로 바꿨다가 되돌린 경로가 원래 경로와 같을 때만 해석하는데, 패키지
+`lib/` 아래 경로는 이스케이프 없이 `package:` URI가 되므로 `lib/src/a%20b.dart`나
+`lib/src%20dir/c.dart`처럼 유효한 퍼센트 이스케이프가 든 경로는 해석되지 않는다(`bin/`·`test/`의
+`file:` URI나 `%zz`처럼 유효하지 않은 이스케이프는 해석된다). 그러면 분석 명령은
+`unresolved-files: 1 Dart file(s) in analyzed source directories were not resolved by the analyzer and are not in the graph: lib/src/a%20b.dart; …`
+limitation으로 파일 수와 루트 기준 경로순 앞의 세 경로를 알린다(나머지는 `and N more`). 그 파일의
+선언은 보고되지 않고, 그 파일에서만 쓰는 선언은 미도달로 보고된다. 다른 라이브러리가
+`import 'src/a%2520b.dart'`로 그 파일을 import해 analyzer가 그 import를 해석해도(`dart analyze`는
+깨끗하다) 마찬가지다. 종료 코드와 finding은 이 한계로 바뀌지 않는다. analysis options가 제외한
+파일은 `options-excluded-files:`에만 센다. 그래프 밖에서 따로 유닛을 해석하는
+`runtime`·`routes`·`bridges`·`schema`의 사실 수집은 이 한계를 싣지 않는다.
+
 `dead --report-test-only`는 다른 질문을 답한다: 테스트 디렉터리(`test/`·`integration_test/`
 등)의 보존 루트를 빼고 다시 도달성을 계산해, **프로덕션 선언인데 테스트에서만 도달되는**
 것을 고른다. 이들은 죽은 코드가 아니라(삭제하면 테스트가 깨진다) "테스트가 유일한 호출자"
