@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 /// `unresolved-files:` 한계로 세는지 고정한다.
 ///
 /// analyzer는 패키지 `lib/` 아래 경로를 이스케이프 없이 `package:` URI로 만들어,
-/// `%20` 같은 유효한 퍼센트 이스케이프가 든 파일은 경로로 되돌리면 다른 경로가 되고
+/// `%20` 같은 유효한 퍼센트 이스케이프나 `#`가 든 파일은 경로로 되돌리면 다른 경로가 되고
 /// `NotPathOfUriResult`를 준다. 이전에는 그 파일이 finding도 한계도 없이 빠졌고,
 /// 그 파일에서만 쓰는 선언이 이유 없이 미도달로 보고됐다.
 void main() {
@@ -53,6 +53,8 @@ void main() {
     write('app/lib/src%20dir/a.dart', 'class InDirA {}\n');
     write('app/lib/src%20dir/b.dart', 'class InDirB {}\n');
     write('app/lib/src%25dir/c.dart', 'class InDirC {}\n');
+    // `#` 뒤는 URI의 fragment가 되어 역시 다른 경로로 돌아간다.
+    write('app/lib/src/h#x.dart', 'class HashName {}\n');
     // 해석되는 대조군: 유효하지 않은 이스케이프(`%zz`)와 `package:` URI가 아닌
     // bin/ 파일의 이스케이프는 경로가 URI로 왕복한다.
     write('app/lib/src/bad%zz.dart', 'class BadEscape {}\n');
@@ -66,13 +68,13 @@ void main() {
   ];
 
   const expected =
-      'unresolved-files: 4 Dart file(s) in analyzed source directories were '
+      'unresolved-files: 5 Dart file(s) in analyzed source directories were '
       'not resolved by the analyzer and are not in the graph: '
       'lib/src%20dir/a.dart, lib/src%20dir/b.dart, lib/src%25dir/c.dart and '
-      '1 more; the analyzer resolves a file only when its path maps to a URI '
-      'and back (a path under a package lib/ that contains a percent escape '
-      'such as %20 does not); declarations used only from them are reported '
-      'as unreachable';
+      '2 more; the analyzer resolves a file only when its path maps to a URI '
+      'and back (a path under a package lib/ that contains #, ?, or a percent '
+      'escape such as %20 does not); declarations used only from them are '
+      'reported as unreachable';
 
   test(
     'files the analyzer does not resolve are counted, others are not',
@@ -81,7 +83,8 @@ void main() {
         userCacheEnvironment: const {},
       ).index(app);
 
-      // 넷째 파일(lib/src/enc%20x.dart)은 목록에서 잘리고 수에만 든다.
+      // 넷째·다섯째 파일(lib/src/enc%20x.dart, lib/src/h#x.dart)은 목록에서 잘리고 수에만
+      // 든다.
       expect(unresolvedOf(result), [expected]);
       final nodes = result.graph.nodes.keys.toSet();
       // 세지 않은 대조군과 해석된 helper.dart는 그래프에 있다.
@@ -91,6 +94,7 @@ void main() {
       // 센 파일의 선언은 그래프에 없다 — 한계가 이 사실을 알린다.
       expect(nodes.where((id) => id.contains('EncUsed')), isEmpty);
       expect(nodes.where((id) => id.contains('InDir')), isEmpty);
+      expect(nodes.where((id) => id.contains('HashName')), isEmpty);
     },
   );
 
@@ -100,6 +104,7 @@ void main() {
       'lib/src%20dir/a.dart',
       'lib/src%20dir/b.dart',
       'lib/src%25dir/c.dart',
+      'lib/src/h#x.dart',
     ]) {
       File(p.join(app, name)).deleteSync();
     }
